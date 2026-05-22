@@ -35,6 +35,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { EmojiPicker, ColorPicker } from "@/components/app/emoji-color-picker";
 import {
   createLecture,
   createSubject,
@@ -74,7 +75,7 @@ function Dashboard({ user }: { user: User }) {
   const [lectureSubject, setLectureSubject] = useState<string>("");
   const [newName, setNewName] = useState("");
   const [emoji, setEmoji] = useState(DEFAULT_EMOJIS[0]);
-  const [paletteIdx, setPaletteIdx] = useState(0);
+  const [color, setColor] = useState(SUBJECT_PALETTE[0].color);
 
   function refresh() {
     setSubjects(listSubjects(user.id));
@@ -96,11 +97,11 @@ function Dashboard({ user }: { user: User }) {
     const subject = createSubject(user.id, {
       name: newName.trim(),
       emoji,
-      color: SUBJECT_PALETTE[paletteIdx].color,
+      color,
     });
     setNewName("");
     setEmoji(DEFAULT_EMOJIS[0]);
-    setPaletteIdx(0);
+    setColor(SUBJECT_PALETTE[0].color);
     setNewOpen(false);
     refresh();
     setActiveSubject(subject.id);
@@ -174,24 +175,8 @@ function Dashboard({ user }: { user: User }) {
               </DialogHeader>
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    className="h-10 w-10 rounded-md border border-border/70 bg-background flex items-center justify-center text-xl hover:bg-secondary"
-                    onClick={() => {
-                      const idx = DEFAULT_EMOJIS.indexOf(emoji);
-                      setEmoji(DEFAULT_EMOJIS[(idx + 1) % DEFAULT_EMOJIS.length]);
-                    }}
-                  >
-                    {emoji}
-                  </button>
-                  <button
-                    type="button"
-                    className={cn(
-                      "h-10 w-10 rounded-md border border-border/70 bg-gradient-to-br",
-                      SUBJECT_PALETTE[paletteIdx].color,
-                    )}
-                    onClick={() => setPaletteIdx((paletteIdx + 1) % SUBJECT_PALETTE.length)}
-                  />
+                  <EmojiPicker value={emoji} onChange={setEmoji} />
+                  <ColorPicker value={color} onChange={setColor} />
                   <Input
                     autoFocus
                     placeholder="Ex: Cálculo, Anatomia..."
@@ -201,7 +186,7 @@ function Dashboard({ user }: { user: User }) {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Toque no emoji ou cor pra trocar.
+                  Toque no emoji ou cor pra abrir o seletor.
                 </p>
               </div>
               <DialogFooter>

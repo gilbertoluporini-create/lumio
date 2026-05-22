@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/card";
 import { LumioWordmark } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { EmojiPicker, ColorPicker } from "@/components/app/emoji-color-picker";
 import {
   bulkCreateSubjects,
   getCurrentUser,
@@ -93,7 +94,7 @@ export default function OnboardingPage() {
   const [subjects, setSubjects] = useState<DraftSubject[]>([]);
   const [newName, setNewName] = useState("");
   const [emojiOverride, setEmojiOverride] = useState<string | null>(null);
-  const [paletteOverride, setPaletteOverride] = useState<number | null>(null);
+  const [colorOverride, setColorOverride] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -126,10 +127,7 @@ export default function OnboardingPage() {
   function handleAddManual() {
     const success = addSubject(newName, {
       emoji: emojiOverride ?? undefined,
-      color:
-        paletteOverride !== null
-          ? SUBJECT_PALETTE[paletteOverride].color
-          : undefined,
+      color: colorOverride ?? undefined,
     });
     if (!success) {
       if (newName.trim() && subjects.some((s) => s.name.toLowerCase() === newName.trim().toLowerCase())) {
@@ -139,7 +137,7 @@ export default function OnboardingPage() {
     }
     setNewName("");
     setEmojiOverride(null);
-    setPaletteOverride(null);
+    setColorOverride(null);
   }
 
   function removeSubject(name: string) {
@@ -222,11 +220,7 @@ export default function OnboardingPage() {
   const currentEmoji =
     emojiOverride ?? (newName ? pickEmojiForName(newName) : DEFAULT_EMOJIS[0]);
   const currentColor =
-    paletteOverride !== null
-      ? SUBJECT_PALETTE[paletteOverride].color
-      : newName
-        ? pickColorForName(newName)
-        : SUBJECT_PALETTE[0].color;
+    colorOverride ?? (newName ? pickColorForName(newName) : SUBJECT_PALETTE[0].color);
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -349,31 +343,13 @@ export default function OnboardingPage() {
           <CardContent>
             <div className="flex flex-col sm:flex-row gap-2">
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="h-10 w-10 rounded-md border border-border/70 bg-background flex items-center justify-center text-xl hover:bg-secondary transition-colors"
-                  onClick={() => {
-                    const current = currentEmoji;
-                    const idx = DEFAULT_EMOJIS.indexOf(current);
-                    const next =
-                      DEFAULT_EMOJIS[(idx + 1) % DEFAULT_EMOJIS.length];
-                    setEmojiOverride(next);
-                  }}
-                  title="Trocar emoji"
-                >
-                  {currentEmoji}
-                </button>
-                <button
-                  type="button"
-                  className={cn(
-                    "h-10 w-10 rounded-md border border-border/70 bg-gradient-to-br transition-transform hover:scale-105",
-                    currentColor,
-                  )}
-                  onClick={() => {
-                    const current = paletteOverride ?? 0;
-                    setPaletteOverride((current + 1) % SUBJECT_PALETTE.length);
-                  }}
-                  title="Trocar cor"
+                <EmojiPicker
+                  value={currentEmoji}
+                  onChange={(e) => setEmojiOverride(e)}
+                />
+                <ColorPicker
+                  value={currentColor}
+                  onChange={(c) => setColorOverride(c)}
                 />
               </div>
               <Input
