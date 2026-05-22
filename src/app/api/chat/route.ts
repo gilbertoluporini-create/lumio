@@ -3,12 +3,15 @@ import Anthropic from "@anthropic-ai/sdk";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+type SlideCtx = { pageNumber: number; title?: string; text: string };
+
 type Body = {
   messages: Array<{ role: "user" | "assistant"; content: string }>;
   context: {
     lectureTitle: string;
     subject: string;
     transcript: string;
+    slides?: SlideCtx[];
   };
 };
 
@@ -17,6 +20,16 @@ function buildSystemPrompt(ctx: Body["context"]) {
     ctx.transcript.trim().length > 0
       ? ctx.transcript.trim()
       : "(A aula ainda não tem transcrição. Responda com clareza dizendo que precisa do conteúdo da aula pra ser específico, mas você pode falar sobre o tópico em geral.)";
+
+  const slidesBlock =
+    ctx.slides && ctx.slides.length > 0
+      ? `\n\nSLIDES DO PROFESSOR (PDF anexado pelo aluno):\n"""\n${ctx.slides
+          .map(
+            (s) =>
+              `[Slide ${s.pageNumber}${s.title ? ` — ${s.title}` : ""}]\n${s.text || "(slide sem texto)"}`,
+          )
+          .join("\n\n")}\n"""`
+      : "";
 
   return `Você é o Lumio, um assistente de estudos. Você está dentro da plataforma do usuário, ajudando ele a entender uma aula que está sendo transcrita em tempo real.
 
@@ -27,16 +40,17 @@ CONTEXTO DA AULA:
 TRANSCRIÇÃO DA AULA (atual, pode estar incompleta se ainda estiver sendo gravada):
 """
 ${transcript}
-"""
+"""${slidesBlock}
 
 INSTRUÇÕES:
 - Responda sempre em português do Brasil, com tom claro e didático.
-- Quando o usuário perguntar sobre a aula, BASE sua resposta na transcrição acima. Cite trechos quando útil.
-- Se a transcrição não cobrir o que foi perguntado, deixe isso explícito e responda com seu conhecimento geral.
+- Quando o usuário perguntar sobre a aula, BASE sua resposta na transcrição e nos slides. Quando útil, cite "no slide N" ou "como o professor disse...".
+- Se houver slides e o aluno perguntar sobre algo do conteúdo, conecte com o slide correspondente (referencie o número).
+- Se a transcrição/slides não cobrirem o que foi perguntado, deixe isso explícito e responda com conhecimento geral.
 - Seja conciso por padrão. Use listas/numeração quando ajudar. Use **negrito** pra termos-chave.
-- Se o usuário pedir resumo, faça em tópicos curtos.
+- Se pedir resumo, faça em tópicos curtos.
 - Se pedir questões de revisão, dê perguntas + respostas comentadas.
-- Nunca invente fatos que não estejam na transcrição quando o usuário perguntar especificamente sobre a aula.`;
+- Nunca invente fatos que não estejam na transcrição/slides quando o usuário perguntar especificamente sobre a aula.`;
 }
 
 function fakeStreamResponse(ctx: Body["context"], userMsg: string) {

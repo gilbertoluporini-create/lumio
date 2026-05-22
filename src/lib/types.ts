@@ -15,6 +15,12 @@ export type Subject = {
   createdAt: string;
 };
 
+export type Slide = {
+  pageNumber: number;
+  title?: string;
+  text: string;
+};
+
 export type Lecture = {
   id: string;
   userId: string;
@@ -26,6 +32,11 @@ export type Lecture = {
   updatedAt: string;
   status: "draft" | "live" | "completed";
   messages: ChatMessage[];
+  slides?: Slide[];
+  slidesFileName?: string;
+  slidesAddedAt?: string;
+  correlation?: string;
+  correlationUpdatedAt?: string;
 };
 
 export type ChatMessage = {

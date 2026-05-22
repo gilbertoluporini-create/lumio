@@ -4,19 +4,25 @@ import { use, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertCircle,
-  ArrowLeft,
   Bot,
   Check,
   ChevronLeft,
+  FileText,
+  Layers,
+  Link2,
   Loader2,
   Mic,
   MicOff,
+  Paperclip,
   Save,
   Send,
   Sparkles,
   Trash2,
   User as UserIcon,
+  X,
 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
@@ -24,7 +30,18 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   appendMessage,
   deleteLecture,
@@ -32,7 +49,7 @@ import {
   getSubject,
   updateLecture,
 } from "@/lib/storage";
-import type { ChatMessage, Lecture, Subject, User } from "@/lib/types";
+import type { ChatMessage, Lecture, Slide, Subject, User } from "@/lib/types";
 import { cn, formatDuration, generateId } from "@/lib/utils";
 import {
   isSpeechRecognitionSupported,
@@ -65,6 +82,13 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [streamingReply, setStreamingReply] = useState("");
+  const [slides, setSlides] = useState<Slide[] | undefined>(undefined);
+  const [slidesFileName, setSlidesFileName] = useState<string | undefined>(undefined);
+  const [attaching, setAttaching] = useState(false);
+  const [correlating, setCorrelating] = useState(false);
+  const [correlation, setCorrelation] = useState<string | undefined>(undefined);
+  const [correlationOpen, setCorrelationOpen] = useState(false);
+  const slidesInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
   const sessionStartRef = useRef<number | null>(null);
   const transcriptBoxRef = useRef<HTMLDivElement>(null);
@@ -99,6 +123,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     setTranscript(l.transcript || "");
     setDurationSec(l.durationSec || 0);
     setMessages(l.messages || []);
+    setSlides(l.slides);
+    setSlidesFileName(l.slidesFileName);
+    setCorrelation(l.correlation);
     const s = getSubject(user.id, l.subjectId);
     setSubject(s);
   }, [user.id, lectureId, router]);
@@ -186,6 +213,129 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     router.replace("/dashboard");
   }
 
+  async function handleSlidesFile(file: File) {
+    if (attaching) return;
+    if (file.type !== "application/pdf") {
+      toast.error("Envie um PDF.");
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error("PDF muito grande (máx 20MB).");
+      return;
+    }
+    setAttaching(true);
+    const t = toast.loading("Lendo slides do PDF…");
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/extract-slides", {
+        method: "POST",
+        body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error || "Erro ao processar slides.", { id: t });
+        return;
+      }
+      const extracted: Slide[] = data.slides || [];
+      if (extracted.length === 0) {
+        toast.error(data?.error || "Não foi possível extrair slides.", { id: t });
+        return;
+      }
+      setSlides(extracted);
+      setSlidesFileName(data.fileName || file.name);
+      persist({
+        slides: extracted,
+        slidesFileName: data.fileName || file.name,
+        slidesAddedAt: new Date().toISOString(),
+      });
+      if (data.demo) {
+        toast.warning(`Modo demo: ${extracted.length} slides fictícios. Configure ANTHROPIC_API_KEY pra extração real.`, {
+          id: t,
+          duration: 6000,
+        });
+      } else {
+        toast.success(`${extracted.length} slide${extracted.length === 1 ? "" : "s"} anexado${extracted.length === 1 ? "" : "s"}.`, { id: t });
+      }
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`, { id: t });
+    } finally {
+      setAttaching(false);
+      if (slidesInputRef.current) slidesInputRef.current.value = "";
+    }
+  }
+
+  function removeSlides() {
+    if (!confirm("Remover os slides anexados?")) return;
+    setSlides(undefined);
+    setSlidesFileName(undefined);
+    persist({
+      slides: undefined,
+      slidesFileName: undefined,
+      slidesAddedAt: undefined,
+    });
+    toast.success("Slides removidos.");
+  }
+
+  async function generateCorrelation() {
+    if (correlating) return;
+    if (!slides || slides.length === 0) {
+      toast.error("Anexe os slides primeiro.");
+      return;
+    }
+    if (!transcript.trim()) {
+      toast.error("A transcrição está vazia. Grave a aula ou cole o texto antes de correlacionar.");
+      return;
+    }
+    setCorrelating(true);
+    setCorrelation("");
+    setCorrelationOpen(true);
+    try {
+      const res = await fetch("/api/correlate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          lectureTitle: lecture?.title,
+          subject: subject?.name ?? "Geral",
+          transcript: (transcript + (interim ? " " + interim : "")).trim(),
+          slides,
+        }),
+      });
+      if (!res.ok || !res.body) {
+        const errText = await res.text().catch(() => "");
+        throw new Error(errText || `HTTP ${res.status}`);
+      }
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let acc = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        acc += decoder.decode(value, { stream: true });
+        setCorrelation(acc);
+      }
+      persist({ correlation: acc, correlationUpdatedAt: new Date().toISOString() });
+      toast.success("Correlação gerada e salva.");
+    } catch (err) {
+      toast.error(`Erro ao correlacionar: ${(err as Error).message}`);
+    } finally {
+      setCorrelating(false);
+    }
+  }
+
+  function downloadCorrelation() {
+    if (!correlation) return;
+    const blob = new Blob([correlation], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(lecture?.title || "aula").replace(/[^\w\-]+/g, "_")}__correlacao.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
   async function sendMessage() {
     const text = input.trim();
     if (!text || sending) return;
@@ -213,6 +363,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
             lectureTitle: lecture.title,
             subject: subject?.name ?? "Geral",
             transcript: (transcript + (interim ? " " + interim : "")).trim(),
+            slides: slides ?? undefined,
           },
         }),
       });
@@ -284,7 +435,33 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
             <span className="h-1.5 w-1.5 rounded-full bg-red-500 pulse-dot" /> AO VIVO
           </Badge>
         )}
-        <div className="ml-auto flex items-center gap-1.5">
+        <div className="ml-auto flex items-center gap-1.5 flex-wrap">
+          {slides && slides.length > 0 && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={generateCorrelation}
+              disabled={correlating}
+              title="Correlacionar slides + transcrição"
+            >
+              {correlating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Link2 className="h-4 w-4" />
+              )}
+              Correlacionar
+            </Button>
+          )}
+          {correlation && !correlating && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setCorrelationOpen(true)}
+              title="Ver última correlação"
+            >
+              <FileText className="h-4 w-4" /> Ver correlação
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={saveTranscript}>
             <Save className="h-4 w-4" /> Salvar
           </Button>
@@ -335,7 +512,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5 min-h-[70vh]">
         {/* TRANSCRIPT PANEL */}
         <div className="flex flex-col rounded-xl border border-border/70 bg-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3 bg-card">
+          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3 bg-card gap-2 flex-wrap">
             <div className="flex items-center gap-2">
               <Mic className="h-4 w-4 text-primary" />
               <span className="text-sm font-medium">Transcrição</span>
@@ -345,22 +522,102 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 </span>
               )}
             </div>
-            <Button
-              variant={isLive ? "destructive" : "gradient"}
-              size="sm"
-              onClick={toggleRecording}
-              disabled={!browserSupported && !isLive}
-            >
-              {isLive ? (
-                <>
-                  <MicOff className="h-4 w-4" /> Pausar
-                </>
+            <div className="flex items-center gap-1.5">
+              <input
+                ref={slidesInputRef}
+                type="file"
+                accept="application/pdf"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleSlidesFile(f);
+                }}
+              />
+              {slides && slides.length > 0 ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-2">
+                      <Layers className="h-4 w-4 text-primary" />
+                      <span className="max-w-[120px] truncate">
+                        {slidesFileName || "Slides"}
+                      </span>
+                      <Badge variant="secondary" className="rounded-full px-1.5 py-0 text-[10px]">
+                        {slides.length}
+                      </Badge>
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent align="end" className="w-[340px] p-0">
+                    <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
+                      <div className="text-xs font-medium truncate">
+                        {slidesFileName}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={removeSlides}
+                        className="text-muted-foreground hover:text-destructive transition-colors"
+                        title="Remover slides"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="max-h-[260px] overflow-y-auto scrollbar-thin py-1">
+                      {slides.map((s) => (
+                        <div
+                          key={s.pageNumber}
+                          className="px-3 py-2 hover:bg-secondary/40 border-b border-border/40 last:border-b-0"
+                        >
+                          <div className="flex items-center gap-2 text-xs font-medium">
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                              Slide {s.pageNumber}
+                            </Badge>
+                            {s.title && (
+                              <span className="truncate">{s.title}</span>
+                            )}
+                          </div>
+                          {s.text && (
+                            <p className="mt-1 text-xs text-muted-foreground line-clamp-2 leading-snug">
+                              {s.text.slice(0, 160)}
+                              {s.text.length > 160 && "…"}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
               ) : (
-                <>
-                  <Mic className="h-4 w-4" /> {durationSec > 0 ? "Continuar" : "Iniciar"}
-                </>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => slidesInputRef.current?.click()}
+                  disabled={attaching}
+                  title="Anexar PDF dos slides"
+                >
+                  {attaching ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Paperclip className="h-4 w-4" />
+                  )}
+                  Anexar slides
+                </Button>
               )}
-            </Button>
+              <Button
+                variant={isLive ? "destructive" : "gradient"}
+                size="sm"
+                onClick={toggleRecording}
+                disabled={!browserSupported && !isLive}
+              >
+                {isLive ? (
+                  <>
+                    <MicOff className="h-4 w-4" /> Pausar
+                  </>
+                ) : (
+                  <>
+                    <Mic className="h-4 w-4" /> {durationSec > 0 ? "Continuar" : "Iniciar"}
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
 
           {!browserSupported && (
@@ -512,6 +769,57 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           </div>
         </div>
       </div>
+
+      <Dialog open={correlationOpen} onOpenChange={setCorrelationOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-3 border-b border-border/60">
+            <DialogTitle className="flex items-center gap-2">
+              <Link2 className="h-5 w-5 text-primary" />
+              Correlação slides ↔ aula
+            </DialogTitle>
+            <DialogDescription>
+              {correlating
+                ? "A IA está conectando o que está nos slides com o que foi dito na aula…"
+                : `${slides?.length ?? 0} slide${(slides?.length ?? 0) === 1 ? "" : "s"} · documento gerado pelo Lumio`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
+            {correlation ? (
+              <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-h1:text-xl prose-h2:text-base prose-h2:mt-6 prose-h2:mb-2 prose-h3:text-sm prose-p:leading-relaxed prose-li:my-0.5 prose-hr:my-4">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {correlation}
+                </ReactMarkdown>
+                {correlating && (
+                  <span className="inline-block ml-1 h-3 w-0.5 bg-primary animate-pulse align-middle" />
+                )}
+              </div>
+            ) : (
+              <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin mr-2" /> Gerando correlação…
+              </div>
+            )}
+          </div>
+          <div className="border-t border-border/60 px-6 py-3 flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Salvo automaticamente nesta aula.
+            </p>
+            <div className="flex items-center gap-2">
+              {correlation && !correlating && (
+                <Button variant="ghost" size="sm" onClick={downloadCorrelation}>
+                  <FileText className="h-4 w-4" /> Baixar .md
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCorrelationOpen(false)}
+              >
+                Fechar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
