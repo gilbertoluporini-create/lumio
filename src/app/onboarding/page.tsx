@@ -35,18 +35,8 @@ import { cn } from "@/lib/utils";
 
 type DraftSubject = { name: string; emoji: string; color: string };
 
-function pickColorForName(name: string): string {
-  const idx = Math.abs(hashCode(name)) % SUBJECT_PALETTE.length;
-  return SUBJECT_PALETTE[idx].color;
-}
-
-function hashCode(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h << 5) - h + s.charCodeAt(i);
-    h |= 0;
-  }
-  return h;
+function defaultColorForIndex(idx: number): string {
+  return SUBJECT_PALETTE[idx % SUBJECT_PALETTE.length].color;
 }
 
 export default function OnboardingPage() {
@@ -78,7 +68,7 @@ export default function OnboardingPage() {
     const subject: DraftSubject = {
       name: trimmed,
       emoji: "",
-      color: opts?.color || pickColorForName(trimmed),
+      color: opts?.color || defaultColorForIndex(subjects.length),
     };
     setSubjects((prev) => [...prev, subject]);
     return true;
@@ -176,7 +166,7 @@ export default function OnboardingPage() {
   }
 
   const currentColor =
-    colorOverride ?? (newName ? pickColorForName(newName) : SUBJECT_PALETTE[0].color);
+    colorOverride ?? defaultColorForIndex(subjects.length);
 
   return (
     <div className="relative min-h-screen overflow-hidden">
