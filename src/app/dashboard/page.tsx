@@ -35,7 +35,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { EmojiPicker, ColorPicker } from "@/components/app/emoji-color-picker";
+import { ColorPicker } from "@/components/app/emoji-color-picker";
 import {
   createLecture,
   createSubject,
@@ -44,7 +44,6 @@ import {
   listSubjects,
 } from "@/lib/storage";
 import {
-  DEFAULT_EMOJIS,
   SUBJECT_PALETTE,
   type Lecture,
   type Subject,
@@ -74,7 +73,6 @@ function Dashboard({ user }: { user: User }) {
   const [lectureTitle, setLectureTitle] = useState("");
   const [lectureSubject, setLectureSubject] = useState<string>("");
   const [newName, setNewName] = useState("");
-  const [emoji, setEmoji] = useState(DEFAULT_EMOJIS[0]);
   const [color, setColor] = useState(SUBJECT_PALETTE[0].color);
 
   function refresh() {
@@ -96,11 +94,10 @@ function Dashboard({ user }: { user: User }) {
     if (!newName.trim()) return;
     const subject = createSubject(user.id, {
       name: newName.trim(),
-      emoji,
+      emoji: "",
       color,
     });
     setNewName("");
-    setEmoji(DEFAULT_EMOJIS[0]);
     setColor(SUBJECT_PALETTE[0].color);
     setNewOpen(false);
     refresh();
@@ -175,7 +172,6 @@ function Dashboard({ user }: { user: User }) {
               </DialogHeader>
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
-                  <EmojiPicker value={emoji} onChange={setEmoji} />
                   <ColorPicker value={color} onChange={setColor} />
                   <Input
                     autoFocus
@@ -186,7 +182,7 @@ function Dashboard({ user }: { user: User }) {
                   />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Toque no emoji ou cor pra abrir o seletor.
+                  Toque na cor pra abrir o seletor.
                 </p>
               </div>
               <DialogFooter>
@@ -233,12 +229,10 @@ function Dashboard({ user }: { user: User }) {
             >
               <span
                 className={cn(
-                  "flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br text-xs",
+                  "h-2.5 w-2.5 rounded-full bg-gradient-to-br shrink-0",
                   s.color,
                 )}
-              >
-                {s.emoji}
-              </span>
+              />
               {s.name} <span className="opacity-60">({count})</span>
             </button>
           );
@@ -250,12 +244,10 @@ function Dashboard({ user }: { user: User }) {
           <div className="flex items-center gap-3">
             <div
               className={cn(
-                "flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br text-2xl",
+                "h-12 w-12 rounded-lg bg-gradient-to-br shadow-md",
                 currentSubject.color,
               )}
-            >
-              {currentSubject.emoji}
-            </div>
+            />
             <div>
               <h2 className="text-xl font-semibold">{currentSubject.name}</h2>
               <p className="text-xs text-muted-foreground">
@@ -296,12 +288,10 @@ function Dashboard({ user }: { user: User }) {
                         <Badge variant="outline" className="gap-1.5">
                           <span
                             className={cn(
-                              "flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gradient-to-br text-[10px]",
+                              "h-2 w-2 rounded-full bg-gradient-to-br shrink-0",
                               subject.color,
                             )}
-                          >
-                            {subject.emoji}
-                          </span>
+                          />
                           {subject.name}
                         </Badge>
                       )}
@@ -382,12 +372,10 @@ function Dashboard({ user }: { user: User }) {
                     >
                       <span
                         className={cn(
-                          "flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br text-xs",
+                          "h-2.5 w-2.5 rounded-full bg-gradient-to-br shrink-0",
                           s.color,
                         )}
-                      >
-                        {s.emoji}
-                      </span>
+                      />
                       {s.name}
                     </button>
                   );

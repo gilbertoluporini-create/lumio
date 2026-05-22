@@ -24,55 +24,16 @@ import {
 } from "@/components/ui/card";
 import { LumioWordmark } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { EmojiPicker, ColorPicker } from "@/components/app/emoji-color-picker";
+import { ColorPicker } from "@/components/app/emoji-color-picker";
 import {
   bulkCreateSubjects,
   getCurrentUser,
   updateCurrentUser,
 } from "@/lib/storage";
-import { DEFAULT_EMOJIS, SUBJECT_PALETTE } from "@/lib/types";
+import { SUBJECT_PALETTE } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type DraftSubject = { name: string; emoji: string; color: string };
-
-function pickEmojiForName(name: string): string {
-  const lower = name.toLowerCase();
-  const map: Array<[RegExp, string]> = [
-    [/anatom/i, "🧬"],
-    [/fisiolog/i, "🫀"],
-    [/bioqu[ií]m/i, "⚗️"],
-    [/histolog/i, "🔬"],
-    [/farmacolog/i, "💊"],
-    [/patolog/i, "🩺"],
-    [/imuno/i, "🦠"],
-    [/microbiolog/i, "🧫"],
-    [/parasitolog/i, "🪱"],
-    [/embriolog/i, "👶"],
-    [/c[áa]lculo|matem[áa]tica|[áa]lgebra/i, "🧮"],
-    [/f[ií]sica/i, "🪐"],
-    [/qu[ií]mica/i, "🧪"],
-    [/biolog/i, "🌱"],
-    [/programa|c[óo]digo|computa/i, "💻"],
-    [/direito|jur[ií]d/i, "⚖️"],
-    [/hist[óo]ria/i, "📜"],
-    [/geograf/i, "🌍"],
-    [/arte|design/i, "🎨"],
-    [/m[úu]sica/i, "🎵"],
-    [/economia|finan/i, "💰"],
-    [/literatura|portugu[êe]s|reda[çc]/i, "📖"],
-    [/ingl[êe]s|espanhol|franc[êe]s|idioma/i, "🗣️"],
-    [/psicolog/i, "🧠"],
-    [/sociolog|antrop/i, "👥"],
-    [/[ée]tica|filosof/i, "💭"],
-    [/saude coletiva|sa[úu]de p[úu]blica/i, "🏥"],
-    [/genetic|gen[ée]tic/i, "🧬"],
-    [/sema|sem[ií]olog/i, "🩻"],
-  ];
-  for (const [re, emoji] of map) {
-    if (re.test(lower)) return emoji;
-  }
-  return DEFAULT_EMOJIS[Math.abs(hashCode(name)) % DEFAULT_EMOJIS.length];
-}
 
 function pickColorForName(name: string): string {
   const idx = Math.abs(hashCode(name)) % SUBJECT_PALETTE.length;
@@ -93,7 +54,6 @@ export default function OnboardingPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [subjects, setSubjects] = useState<DraftSubject[]>([]);
   const [newName, setNewName] = useState("");
-  const [emojiOverride, setEmojiOverride] = useState<string | null>(null);
   const [colorOverride, setColorOverride] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -109,7 +69,7 @@ export default function OnboardingPage() {
     setUserName(user.name.split(" ")[0]);
   }, [router]);
 
-  function addSubject(name: string, opts?: { emoji?: string; color?: string }) {
+  function addSubject(name: string, opts?: { color?: string }) {
     const trimmed = name.trim();
     if (!trimmed) return false;
     if (subjects.find((s) => s.name.toLowerCase() === trimmed.toLowerCase())) {
@@ -117,7 +77,7 @@ export default function OnboardingPage() {
     }
     const subject: DraftSubject = {
       name: trimmed,
-      emoji: opts?.emoji || pickEmojiForName(trimmed),
+      emoji: "",
       color: opts?.color || pickColorForName(trimmed),
     };
     setSubjects((prev) => [...prev, subject]);
@@ -126,7 +86,6 @@ export default function OnboardingPage() {
 
   function handleAddManual() {
     const success = addSubject(newName, {
-      emoji: emojiOverride ?? undefined,
       color: colorOverride ?? undefined,
     });
     if (!success) {
@@ -136,7 +95,6 @@ export default function OnboardingPage() {
       return;
     }
     setNewName("");
-    setEmojiOverride(null);
     setColorOverride(null);
   }
 
@@ -217,8 +175,6 @@ export default function OnboardingPage() {
     setTimeout(() => router.push("/dashboard"), 400);
   }
 
-  const currentEmoji =
-    emojiOverride ?? (newName ? pickEmojiForName(newName) : DEFAULT_EMOJIS[0]);
   const currentColor =
     colorOverride ?? (newName ? pickColorForName(newName) : SUBJECT_PALETTE[0].color);
 
@@ -342,16 +298,10 @@ export default function OnboardingPage() {
           </CardHeader>
           <CardContent>
             <div className="flex flex-col sm:flex-row gap-2">
-              <div className="flex items-center gap-2">
-                <EmojiPicker
-                  value={currentEmoji}
-                  onChange={(e) => setEmojiOverride(e)}
-                />
-                <ColorPicker
-                  value={currentColor}
-                  onChange={(c) => setColorOverride(c)}
-                />
-              </div>
+              <ColorPicker
+                value={currentColor}
+                onChange={(c) => setColorOverride(c)}
+              />
               <Input
                 autoFocus
                 placeholder="Ex: Anatomia, Cálculo II, Direito Constitucional…"
@@ -405,14 +355,12 @@ export default function OnboardingPage() {
                       key={s.name}
                       className="group flex items-center gap-2 rounded-full border border-border/70 bg-background pl-2 pr-1 py-1 hover:border-primary/40 transition-colors"
                     >
-                      <div
+                      <span
                         className={cn(
-                          "flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br text-sm",
+                          "h-3 w-3 rounded-full bg-gradient-to-br shrink-0",
                           s.color,
                         )}
-                      >
-                        {s.emoji}
-                      </div>
+                      />
                       <span className="text-sm pr-1 max-w-[200px] truncate">{s.name}</span>
                       <button
                         type="button"

@@ -272,12 +272,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           <Badge variant="outline" className="gap-1.5">
             <span
               className={cn(
-                "flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gradient-to-br text-[10px]",
+                "h-2 w-2 rounded-full bg-gradient-to-br shrink-0",
                 subject.color,
               )}
-            >
-              {subject.emoji}
-            </span>
+            />
             {subject.name}
           </Badge>
         )}
