@@ -47,6 +47,7 @@ import {
   listLecturesAsync,
   listSubjectsAsync,
 } from "@/lib/db";
+import { calculateStreak } from "@/lib/streak";
 import {
   DAY_LABELS_SHORT,
   SUBJECT_PALETTE,
@@ -151,6 +152,8 @@ function Dashboard({ user }: { user: User }) {
     const withSummary = lectures.filter((l) => l.summary).length;
     return { totalLectures, totalMinutes, withSummary };
   }, [lectures]);
+
+  const streak = useMemo(() => calculateStreak(lectures), [lectures]);
 
   const nextSlot = useMemo(() => findNextSlot(subjects), [subjects]);
 
@@ -283,11 +286,23 @@ function Dashboard({ user }: { user: User }) {
       {/* Header */}
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between mb-8">
         <div className="min-w-0">
-          <div className="text-sm text-muted-foreground mb-1">
-            {greeting}, {firstName}.
+          <div className="text-sm text-muted-foreground mb-1 flex items-center gap-3 flex-wrap">
+            <span>{greeting}, {firstName}.</span>
+            {streak.current > 0 && (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 px-2.5 py-0.5 text-xs font-medium"
+                title={`Streak atual: ${streak.current} dia(s)${streak.longest > streak.current ? ` · maior: ${streak.longest}` : ""}`}
+              >
+                <span>🔥</span>
+                {streak.current} dia{streak.current === 1 ? "" : "s"} seguido
+                {streak.current === 1 ? "" : "s"}
+              </span>
+            )}
           </div>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-            Pronto pra estudar?
+            {streak.todayDone
+              ? "Você já estudou hoje. Tô orgulhoso."
+              : "Pronto pra estudar?"}
           </h1>
         </div>
         <div className="flex gap-2 shrink-0">
