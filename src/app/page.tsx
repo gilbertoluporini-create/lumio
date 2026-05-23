@@ -654,9 +654,8 @@ const PRODUCTS: Array<{
   {
     icon: "sparkle",
     title: "Mapa mental",
-    desc: "Mapa visual conectando os conceitos da aula — pra ver a aula inteira em uma tela.",
+    desc: "Estrutura hierárquica com tema central + ramos coloridos e sub-tópicos.",
     coins: 20,
-    soon: true,
   },
 ];
 

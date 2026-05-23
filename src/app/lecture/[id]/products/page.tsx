@@ -16,6 +16,7 @@ import {
   type FlashcardsAsset,
 } from "@/components/app/flashcards-view";
 import { QuizView, type QuizAsset } from "@/components/app/quiz-view";
+import { MindmapView, type MindmapAsset } from "@/components/app/mindmap-view";
 import {
   LectureSummaryView,
 } from "@/components/app/lecture-summary-view";
@@ -158,6 +159,37 @@ function ProductsView({
     }
   }
 
+  async function generateMindmap() {
+    if (!lecture || !subject) return;
+    setGeneratingKind("mindmap");
+    const t = toast.loading("Construindo o mapa mental…");
+    try {
+      const res = await fetch("/api/mindmap", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          lectureTitle: lecture.title,
+          subject: subject.name,
+          transcript: lecture.transcript,
+          slides: lecture.slides,
+          messages: lecture.messages,
+          lectureId,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Erro ao gerar mapa.", { id: t });
+        return;
+      }
+      toast.success("Mapa mental gerado!", { id: t });
+      await refresh();
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`, { id: t });
+    } finally {
+      setGeneratingKind(null);
+    }
+  }
+
   async function generateQuiz() {
     if (!lecture || !subject) return;
     setGeneratingKind("quiz");
@@ -225,6 +257,7 @@ function ProductsView({
   const summaryAsset = assets.find((a) => a.kind === "summary");
   const flashcardsAsset = assets.find((a) => a.kind === "flashcards");
   const quizAsset = assets.find((a) => a.kind === "quiz");
+  const mindmapAsset = assets.find((a) => a.kind === "mindmap");
 
   // Se está vendo um asset, mostra o viewer
   if (activeAsset) {
@@ -257,6 +290,9 @@ function ProductsView({
         )}
         {activeAsset.kind === "quiz" && (
           <QuizView asset={activeAsset.payload as QuizAsset} />
+        )}
+        {activeAsset.kind === "mindmap" && (
+          <MindmapView asset={activeAsset.payload as MindmapAsset} />
         )}
       </div>
     );
@@ -353,14 +389,13 @@ function ProductsView({
         <ProductCard
           icon="sparkle"
           title="Mapa mental"
-          desc="Mapa visual conectando os conceitos da aula. Em breve."
+          desc="Visão hierárquica com tema central + ramos coloridos e sub-tópicos."
           coins={COSTS.mindmap}
-          existing={undefined}
-          generating={false}
-          disabled
-          soon
-          onGenerate={() => {}}
-          onOpen={() => {}}
+          existing={mindmapAsset}
+          generating={generatingKind === "mindmap"}
+          disabled={!hasTranscript || generatingKind !== null}
+          onGenerate={generateMindmap}
+          onOpen={() => mindmapAsset && setActiveAsset(mindmapAsset)}
         />
       </div>
 
