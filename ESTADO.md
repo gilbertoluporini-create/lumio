@@ -68,14 +68,18 @@ Implementado em `src/lib/coins.ts` (COIN_COSTS) e `src/lib/stripe.ts` (PLAN_COIN
   - Cria a aula + incrementa contador
 - `createLectureAsync` no client agora chama esse endpoint (não Supabase direto)
 
-### ✅ Sistema de Produtos Gerados (subpastas da aula)
+### ✅ Sistema de Produtos Gerados (subpastas da aula) — **TODOS OS 4 PRONTOS**
 - Tabela `lecture_assets` com kind: 'summary' | 'flashcards' | 'quiz' | 'mindmap'
 - payload JSONB armazena o asset completo
 - coins_spent registra custo
 - RLS owner-only via auth.uid()
 - Endpoint GET `/api/lectures/[id]/assets` retorna todos os assets da aula
-- `/api/correlate` agora salva resumo como asset (além de lectures.summary)
-- `/api/flashcards` (NOVO!) — Sonnet 4.5 gera 5-20 cards com pergunta/resposta/hint/difficulty
+- `/api/correlate` (10 coins) — salva resumo como asset
+- `/api/flashcards` (12 coins) — 5-20 cards pergunta/resposta/hint/difficulty
+- `/api/quiz` (15 coins) — 3-15 questões múltipla escolha com explicação
+- `/api/mindmap` (20 coins) — estrutura hierárquica com tema central + branches coloridos
+- `/api/refine-transcript` (grátis) — Haiku 4.5 melhora pontuação/capitalização da transcrição
+- Componentes interativos: `<LectureSummaryView>`, `<FlashcardsView>`, `<QuizView>`, `<MindmapView>`
 
 ### ✅ Rota `/lecture/[id]/products`
 - Grid 2x2 com cards: Resumo · Flash cards · Quiz · Mindmap
@@ -210,12 +214,12 @@ Implementado em `src/lib/coins.ts` (COIN_COSTS) e `src/lib/stripe.ts` (PLAN_COIN
 - Modificar `/api/extract-slides` pra salvar PDF original em `${userId}/${lectureId}/${filename}`
 - Listar PDFs na aba "Uploadados" do `/documents`
 
-### Features prontas pra implementar
-- Endpoint /api/quiz (mesmo padrão de flashcards, falta UI)
-- Endpoint /api/mindmap
+### Features pendentes futuras
+- Botão "Refinar transcrição" na lecture page (endpoint /api/refine-transcript pronto)
 - Onboarding tour interativo (primeira vez no dashboard)
 - Sound design opt-in (achievement, finish recording)
 - Export resumo como PDF (já tem MD)
+- Mais 1 polish: tooltip global com lista de atalhos teclado (?)
 
 ---
 
@@ -264,6 +268,9 @@ Implementado em `src/lib/coins.ts` (COIN_COSTS) e `src/lib/stripe.ts` (PLAN_COIN
 | `/api/flashcards` | route | auth + coins(12) + rate-limit | **NOVO** Set cards, 120s, salva asset |
 | `/api/extract-slides` | route | auth + rate-limit | Vision PDF, 300s, GRÁTIS |
 | `/api/extract-schedule` | route | auth | Vision grade |
+| `/api/quiz` | route | auth + coins(15) + rate-limit | **NOVO** Quiz múltipla escolha, salva asset |
+| `/api/mindmap` | route | auth + coins(20) + rate-limit | **NOVO** Mapa mental hierárquico, salva asset |
+| `/api/refine-transcript` | route | auth + rate-limit | **NOVO** Haiku cleanup, 120s, GRÁTIS |
 | `/api/lectures/create` | route | auth + rate-limit + monthly gate | **NOVO** Cria aula com limit do plano |
 | `/api/lectures/[id]/assets` | route | auth (RLS) | **NOVO** GET assets da aula |
 | `/api/checkout` | route | auth | Stripe Session |
