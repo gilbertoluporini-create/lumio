@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Save, UserIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, KeyRound, Loader2, Save, Trash2, UserIcon } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
@@ -151,6 +152,176 @@ function ProfileView({ user }: { user: User }) {
               Salvar alterações
             </Button>
           </div>
+        </div>
+      </div>
+
+      {isSupabaseConfigured() && (
+        <>
+          <PasswordSection />
+          <DangerZone />
+        </>
+      )}
+    </div>
+  );
+}
+
+function DangerZone() {
+  const router = useRouter();
+  const [confirm, setConfirm] = useState("");
+  const [deleting, setDeleting] = useState(false);
+
+  const canDelete = confirm.trim().toLowerCase() === "excluir";
+
+  async function handleDelete() {
+    if (deleting || !canDelete) return;
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/account/delete", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ confirm }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error || "Erro ao excluir conta.");
+
+      toast.success("Conta excluída.");
+      // Limpa session local e leva pra landing
+      try {
+        const supabase = createClient();
+        await supabase.auth.signOut();
+      } catch {}
+      router.push("/");
+      router.refresh();
+    } catch (err) {
+      toast.error((err as Error).message);
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-2xl border border-destructive/40 bg-destructive/5 p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <AlertTriangle className="h-4 w-4 text-destructive" />
+        <h2 className="text-base font-semibold text-destructive">Zona de perigo</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Excluir a conta apaga teu perfil, matérias, aulas, transcrições, produtos
+        gerados e cancela qualquer assinatura ativa. <strong>Essa ação é permanente.</strong>
+      </p>
+
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm-delete">
+            Digite <strong>EXCLUIR</strong> pra confirmar
+          </Label>
+          <Input
+            id="confirm-delete"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder="EXCLUIR"
+            autoComplete="off"
+          />
+        </div>
+
+        <div className="pt-1 flex justify-end">
+          <Button
+            onClick={handleDelete}
+            disabled={!canDelete || deleting}
+            variant="destructive"
+          >
+            {deleting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Trash2 className="h-4 w-4" />
+            )}
+            Excluir conta permanentemente
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PasswordSection() {
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    if (saving) return;
+    if (password.length < 8) {
+      toast.error("Senha precisa ter 8+ caracteres.");
+      return;
+    }
+    if (password !== confirm) {
+      toast.error("As senhas não batem.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({ password });
+      if (error) throw error;
+      toast.success("Senha atualizada.");
+      setPassword("");
+      setConfirm("");
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="mt-6 rounded-2xl border border-border/60 bg-card p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <KeyRound className="h-4 w-4 text-primary" />
+        <h2 className="text-base font-semibold">Senha</h2>
+      </div>
+      <p className="text-xs text-muted-foreground mb-4">
+        Define ou troca tua senha. Se entrou via Google ou link mágico, criar
+        uma senha aqui te dá uma forma extra de entrar.
+      </p>
+
+      <div className="space-y-4">
+        <div className="space-y-1.5">
+          <Label htmlFor="password">Nova senha</Label>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Mínimo 8 caracteres"
+            minLength={8}
+          />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="confirm">Confirmar senha</Label>
+          <Input
+            id="confirm"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            placeholder="Repete a senha"
+            minLength={8}
+          />
+        </div>
+
+        <div className="pt-1 flex justify-end">
+          <Button
+            onClick={handleSave}
+            disabled={saving || password.length < 8 || password !== confirm}
+            variant="gradient"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <KeyRound className="h-4 w-4" />
+            )}
+            Atualizar senha
+          </Button>
         </div>
       </div>
     </div>
