@@ -16,6 +16,7 @@ import {
 import { cn } from "@/lib/utils";
 import { LumioMark } from "@/components/brand/logo";
 import { LumioCoin } from "@/components/brand/lumio-coin";
+import { LumiIcon } from "@/components/brand/lumi-icon";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -88,11 +89,13 @@ export function AppShell({
   const navItems: Array<{
     href: string;
     label: string;
+    lumi?: "book" | "calendar" | "document";
     Icon?: typeof Calendar;
     isCoin?: boolean;
   }> = [
-    { href: "/dashboard", label: "Aulas", Icon: LayoutDashboard },
-    { href: "/schedule", label: "Cronograma", Icon: Calendar },
+    { href: "/dashboard", label: "Aulas", lumi: "book" },
+    { href: "/schedule", label: "Cronograma", lumi: "calendar" },
+    { href: "/documents", label: "Documentos", lumi: "document" },
     { href: "/account/coins", label: "Lumio Coins", isCoin: true },
   ];
 
@@ -152,7 +155,7 @@ export function AppShell({
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-4 space-y-1">
-          {navItems.map(({ href, label, Icon, isCoin }) => {
+          {navItems.map(({ href, label, lumi, Icon, isCoin }) => {
             const active = pathname === href || pathname?.startsWith(href + "/");
             const lowBalance =
               isCoin && coinBalance !== null && coinBalance < 50;
@@ -169,11 +172,13 @@ export function AppShell({
                     : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
                 )}
               >
-                {isCoin || !Icon ? (
-                  <LumioCoin size={20} className="shrink-0" />
-                ) : (
+                {isCoin ? (
+                  <LumioCoin size={22} className="shrink-0" />
+                ) : lumi ? (
+                  <LumiIcon name={lumi} size={22} className="shrink-0" />
+                ) : Icon ? (
                   <Icon className="h-5 w-5 shrink-0" />
-                )}
+                ) : null}
                 {!collapsed && (
                   <span className="flex-1 truncate">{label}</span>
                 )}

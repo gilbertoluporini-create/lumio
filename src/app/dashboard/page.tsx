@@ -5,9 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
-  BookOpen,
   Clock,
-  FileText,
   Layers,
   MessageSquare,
   Mic,
@@ -20,6 +18,7 @@ import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
+import { LumiIcon } from "@/components/brand/lumi-icon";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -345,10 +344,13 @@ function Dashboard({ user }: { user: User }) {
         {nextSlot ? (
           <Link
             href="/schedule"
-            className="group rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 transition-colors"
+            className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 hover:shadow-md transition-all"
           >
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-              <Clock className="h-3 w-3" /> Próxima aula
+            <div className="absolute top-3 right-3 opacity-90">
+              <LumiIcon name="clock" size={44} />
+            </div>
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
+              Próxima aula
             </div>
             <div className="flex items-center gap-3">
               <span
@@ -375,21 +377,27 @@ function Dashboard({ user }: { user: User }) {
         ) : (
           <Link
             href="/onboarding"
-            className="group rounded-2xl border border-dashed border-border/60 bg-card/40 p-5 hover:border-primary/40 transition-colors"
+            className="group relative overflow-hidden rounded-2xl border border-dashed border-border/60 bg-card/40 p-5 hover:border-primary/40 transition-colors"
           >
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-              <Clock className="h-3 w-3" /> Próxima aula
+            <div className="absolute top-3 right-3 opacity-60">
+              <LumiIcon name="calendar" size={40} />
             </div>
-            <div className="text-sm text-muted-foreground">
+            <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
+              Próxima aula
+            </div>
+            <div className="text-sm text-muted-foreground max-w-[200px]">
               Suba sua grade horária pra ver aqui
             </div>
           </Link>
         )}
 
         {/* Total de aulas */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-            <BookOpen className="h-3 w-3" /> Aulas gravadas
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5">
+          <div className="absolute top-3 right-3 opacity-90">
+            <LumiIcon name="book" size={44} />
+          </div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
+            Aulas gravadas
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-semibold font-mono tabular-nums">
@@ -402,9 +410,12 @@ function Dashboard({ user }: { user: User }) {
         </div>
 
         {/* Tempo gravado */}
-        <div className="rounded-2xl border border-border/60 bg-card p-5">
-          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-            <Mic className="h-3 w-3" /> Tempo total
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5">
+          <div className="absolute top-3 right-3 opacity-90">
+            <LumiIcon name="mic" size={44} />
+          </div>
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
+            Tempo total
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-semibold font-mono tabular-nums">
@@ -567,7 +578,7 @@ function SubjectFolder({
               subject.color,
             )}
           >
-            <BookOpen className="h-5 w-5 text-white/90" />
+            <LumiIcon name="book" size={26} className="brightness-200" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-sm leading-tight line-clamp-2 group-hover:text-primary transition-colors">

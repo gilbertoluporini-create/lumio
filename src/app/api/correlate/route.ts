@@ -7,7 +7,7 @@ import type {
 } from "@/lib/types";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +19,7 @@ type Body = {
   transcript: string;
   slides?: Slide[];
   messages?: ChatMessage[];
+  lectureId?: string; // pra salvar como asset
 };
 
 const SYSTEM_PROMPT = `Você é o Lumio, gerador de RESUMOS DE AULA. Você recebe:
@@ -264,14 +265,41 @@ Gere o resumo estruturado conforme o formato JSON especificado. Responda APENAS 
     const summary = tryParseJson(raw);
 
     if (!summary) {
+      // Refund: nada gerado, devolve coins
+      if (userId) {
+        try {
+          await creditCoins(userId, COIN_COSTS.summary, "refund", {
+            reason: "correlate_no_content",
+          });
+        } catch (refundErr) {
+          console.error("[correlate] refund (no content) failed", refundErr);
+        }
+      }
       return Response.json(
         {
           error:
-            "Não foi possível estruturar o resumo. Tente novamente — pode ser instabilidade momentânea da IA.",
+            "Não foi possível estruturar o resumo. Coins devolvidos. Tente novamente.",
           rawPreview: raw.slice(0, 500),
         },
         { status: 500 },
       );
+    }
+
+    // Salva como asset na subpasta da aula (lecture_assets)
+    if (userId && body.lectureId) {
+      try {
+        const admin = createAdminClient();
+        await admin.from("lecture_assets").insert({
+          lecture_id: body.lectureId,
+          user_id: userId,
+          kind: "summary",
+          payload: summary,
+          coins_spent: COIN_COSTS.summary,
+        });
+      } catch (assetErr) {
+        console.error("[correlate] asset insert failed", assetErr);
+        // Não falha a requisição — resumo já tá no response e na coluna lectures.summary
+      }
     }
 
     return Response.json({ summary });

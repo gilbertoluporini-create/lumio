@@ -9,19 +9,16 @@ import {
   Calendar,
   ChevronRight,
   Clock,
-  FileText,
-  Layers,
   MapPin,
-  MessageSquare,
   Mic,
   Plus,
-  Sparkles,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
+import { LumiIcon, type LumiIconName } from "@/components/brand/lumi-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -385,7 +382,7 @@ function LectureFolder({
           <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border/40">
             <FeatureTab
               href={`/lecture/${lecture.id}?tab=transcript`}
-              icon={FileText}
+              icon="document"
               label="Transcrição"
               detail={
                 hasTranscript
@@ -396,7 +393,7 @@ function LectureFolder({
             />
             <FeatureTab
               href={`/lecture/${lecture.id}?tab=slides`}
-              icon={Layers}
+              icon="layers"
               label="Slides"
               detail={
                 hasSlides
@@ -407,7 +404,7 @@ function LectureFolder({
             />
             <FeatureTab
               href={`/lecture/${lecture.id}?tab=qa`}
-              icon={MessageSquare}
+              icon="chat"
               label="Dúvidas"
               detail={
                 msgCount > 0
@@ -417,10 +414,10 @@ function LectureFolder({
               active={msgCount > 0}
             />
             <FeatureTab
-              href={`/lecture/${lecture.id}?tab=summary`}
-              icon={Sparkles}
-              label="Resumo"
-              detail={hasSummary ? "Gerado" : "Não gerado"}
+              href={`/lecture/${lecture.id}/products`}
+              icon="sparkle"
+              label="Produtos"
+              detail={hasSummary ? "Resumo gerado" : "Resumo, flash cards…"}
               active={hasSummary}
             />
           </div>
@@ -432,13 +429,13 @@ function LectureFolder({
 
 function FeatureTab({
   href,
-  icon: Icon,
+  icon,
   label,
   detail,
   active,
 }: {
   href: string;
-  icon: typeof FileText;
+  icon: LumiIconName;
   label: string;
   detail: string;
   active: boolean;
@@ -451,14 +448,7 @@ function FeatureTab({
         !active && "opacity-60 hover:opacity-100",
       )}
     >
-      <div
-        className={cn(
-          "h-7 w-7 shrink-0 rounded-md flex items-center justify-center",
-          active ? "bg-primary/15 text-primary" : "bg-secondary/60 text-muted-foreground",
-        )}
-      >
-        <Icon className="h-3.5 w-3.5" />
-      </div>
+      <LumiIcon name={icon} size={28} className="shrink-0" />
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium">{label}</div>
         <div className="text-[10px] text-muted-foreground truncate">

@@ -1,7 +1,8 @@
 "use client";
 
 import { use, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   AlertCircle,
   Bot,
@@ -69,6 +70,8 @@ export default function LecturePage({ params }: { params: Promise<{ id: string }
 
 function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const initialTab = searchParams.get("tab"); // transcript | slides | qa | summary | null
   const [lecture, setLecture] = useState<Lecture | null>(null);
   const [subject, setSubject] = useState<Subject | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -85,8 +88,15 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [attaching, setAttaching] = useState(false);
   const [summary, setSummary] = useState<LectureSummary | undefined>(undefined);
   const [generatingSummary, setGeneratingSummary] = useState(false);
-  const [view, setView] = useState<"live" | "summary">("live");
-  const [leftPanel, setLeftPanel] = useState<"transcript" | "slides">("transcript");
+  const [view, setView] = useState<"live" | "summary">(
+    initialTab === "summary" ? "summary" : "live",
+  );
+  const [leftPanel, setLeftPanel] = useState<"transcript" | "slides">(
+    initialTab === "slides" ? "slides" : "transcript",
+  );
+  // Quando vem de deep link ?tab=qa o foco visual é o chat (panel direito).
+  // Auto-scroll é tratado quando lecture carrega (effect abaixo).
+  const initialFocusQa = useRef(initialTab === "qa");
   const [currentSlideIdx, setCurrentSlideIdx] = useState(0);
   const slidesInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
@@ -192,6 +202,16 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
     }
   }, [messages, streamingReply]);
+
+  // Deep-link ?tab=qa: rola pro chat ao carregar
+  useEffect(() => {
+    if (!initialFocusQa.current || !lecture) return;
+    initialFocusQa.current = false;
+    const el = chatBoxRef.current;
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [lecture]);
 
   const persist = (patch: Partial<Lecture>) => {
     if (!lecture) return;
@@ -572,6 +592,17 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
               )}
             </button>
           </div>
+          <Button
+            asChild
+            variant="outline"
+            size="sm"
+            className="text-xs"
+            title="Resumos, flash cards, quiz e mais"
+          >
+            <Link href={`/lecture/${lectureId}/products`}>
+              <Sparkles className="h-3 w-3" /> Produtos
+            </Link>
+          </Button>
           {view === "live" && (
             <Button variant="ghost" size="sm" onClick={saveTranscript}>
               <Save className="h-4 w-4" /> Salvar
