@@ -1,115 +1,190 @@
-# ESTADO — Lumio (MVP pronto pra piloto pago)
+# ESTADO — Lumio (identidade visual + sistema de coins consolidados)
 
-> Snapshot que resiste a compact.
+> Snapshot que resiste a compact. Última atualização: 2026-05-23.
 
 ## Pitch
-SaaS de transcrição de aulas (Web Speech API) + chat IA contextual (Claude) + slides do professor (Vision) + resumo correlato. Mercado: estudantes universitários BR. Cobrança mensal/anual via Stripe (PIX + cartão).
+SaaS de transcrição de aulas (Web Speech API) + chat IA contextual (Claude Haiku) + slides do professor (Vision Sonnet) + resumo correlato + cronograma semanal extraído da grade. Sistema de **Lumio Coins** estilo Replit/ChatGPT. Mascote **Lumi** (lâmpada-criatura) integrado em todo o app. Mercado: estudantes universitários BR.
 
-## Repositório
+## Repositório / Infra
 - Local: `/Users/gilbertoluporini/lumio`
 - GitHub: https://github.com/gilbertoluporini-create/lumio
+- Dev: http://localhost:3001
+- Domínio escolhido: **lumio.fun** (ainda a comprar)
+- Supabase: `pcatjumfdcxuthefixzf.supabase.co` (configurado + migrations rodadas ✅)
+- Anthropic: configurado ✅ (com créditos)
+- Stripe: pendente
+- Resend: pendente
 
-## Estado atual: READY FOR PILOT
+## User principal
+- Email: gilbertoluporini@gmail.com
+- ID: `1000206d-38bd-431f-b862-ff4a588b00e7`
+- Role: admin
+- Saldo atual: 50 coins (restaurado após bug)
 
-Reality Check passou pela 2ª iteração com BLOCKERs corrigidos.
+## Estado: IDENTIDADE VISUAL COMPLETA, SISTEMA DE COINS COM BUG CORRIGIDO
 
-### Pronto e validado
-- ✅ Landing premium editorial (Lenis, Magnetic, Spotlight, Highlighter, Bento)
-- ✅ Auth dual mode: Supabase magic link OU localStorage (dev fallback)
-- ✅ Onboarding com upload de grade horária (Claude Vision)
-- ✅ Dashboard + Lecture page (transcrição ao vivo + chat IA + slides PDF + resumo estruturado)
-- ✅ Auto-resumo ao parar gravação
-- ✅ Storage adapter unificado (`lib/db.ts`): Supabase quando configurado, localStorage fallback
-- ✅ Pricing page com Stripe Checkout
-- ✅ Webhook Stripe **idempotência correta** (process FIRST, marker AFTER, delete on fail)
-- ✅ Welcome email com **magic link gerado via Supabase Admin** (user paga → email com link → entra direto)
-- ✅ `current_period_end` lido tanto do root quanto do item-level (Stripe API ≥ 2025-03)
-- ✅ Subscription gate em `/api/correlate` (402 + upgrade hint) sem bypass quando Supabase configurado
-- ✅ Billing page + Stripe Customer Portal (`/account/billing` + `/api/portal`)
-- ✅ Admin dashboard `/admin` server-side (role no DB + ADMIN_EMAILS fallback)
-- ✅ `/api/health` pra monitoring/uptime
-- ✅ CSP + rate limit (com GC) + magic byte sniff + prompt injection guard
-- ✅ Build limpo (zero TS errors)
-- ✅ 20 rotas funcionando
+### ✅ Sistema de Coins (Lumio Coins)
+- Tabela `coin_transactions` + `profiles.coin_balance` + `coins_reset_at`
+- 1 coin = R$ 0,10 (markup 2x sobre custo real)
+- Custos: chat 2, slides 16, resumo 14, refine 5, grade horária grátis
+- **Chat usa Haiku 4.5** (10x mais barato que Sonnet); Sonnet só pra Vision + resumo
+- **Refund automático** em falha de extract-slides em 2 cenários:
+  - Catch geral (API error)
+  - Parsing vazio/inválido (slides == 0)
+- Trigger SQL dá 50 coins de boas-vindas a novo profile
+- Welcome bonus retroativo aplicado em usuários antigos
+- `maxDuration` configurado: chat 60s, correlate 120s, extract-slides 300s
+- Stripe webhook credita coins do plano em checkout E em invoice.paid (renovação)
 
-### Reality Check P0 fixes aplicados (issues #1, #4, #5, #6, #7, #11, #14)
+### ✅ Pricing aprovado
+- Free: R$ 0 / 50 coins one-time (welcome)
+- Starter: R$ 29/mês / 250 coins
+- Pro: R$ 49/mês / 600 coins ⭐
+- Power: R$ 89/mês / 1500 coins
+- Top-ups: 100/R$12, 500/R$50 (-17%), 1500/R$120 (-33%)
 
-| # | Issue | Fix |
-|---|---|---|
-| 1 | Welcome sem magic link | `generateLink('magiclink')` via Admin API, passado pro email |
-| 4 | ADMIN_EMAILS hardcoded | Removido do `.env.example`, fica vazio |
-| 5 | Sub gate bypass sem service role | Retorna 503 (config incompleta) ao invés de skip |
-| 6 | Webhook race FK | Welcome só envia se profile existe (trigger DB cria) |
-| 7 | Idempotência invertida | Reserva → processa → marca processed_at. Falha = DELETE reserve. |
-| 11 | Resend sandbox em prod | Warning loud no boot quando NODE_ENV=production e FROM contém resend.dev |
-| 14 | current_period_end errado | Lê de item-level (novo) com fallback pro root (legacy) |
+### ✅ Cronograma
+- `subjects.schedule JSONB` armazena dias/horários por matéria
+- `/api/extract-schedule` retorna `{name, schedule: [{dayOfWeek, startTime, endTime, room?}]}`
+- Rota `/schedule` com grade visual seg-sex (ou seg-sáb) × 7h-23h
+- Onboarding salva schedule junto
 
-### Pendente (não-bloqueante MVP, mas roadmap)
+### ✅ Identidade visual — Lumi (mascote)
+- 11 moods do personagem: default, thinking, studying, celebrating, sleeping, recording, confused, waving, coins, reading-pdf, generating
+- 4 cenas contextuais: hero-desk (mesa estudante), writing-notes, calendar, funnel-summary
+- 8 stickers decorativos: stars-1, stars-2, pencils, books, coffee, bulbs, papers, stationery
+- Todas as imagens com **fundo transparente real** (processadas via rembg + u2net local)
+- Componentes: `<LumiCharacter>`, `<LumiScene>`, `<LumiSticker>`
+- Animações: `lumi-float`, `lumi-glow`
 
-- IndexedDB pra slides grandes (localStorage ~5MB quota)
-- Upstash Redis pra rate limit cross-instance
-- LGPD: termos + política de privacidade
-- Sentry pra error tracking + PostHog analytics
-- Optimistic lock em messages JSONB pra multi-aba (raro em single device)
-- CSP `unsafe-inline` em script-src: necessário pro framer-motion runtime;
-  remover quando migrar pra Motion + classes utilitárias
+### ✅ Lumio Coin (moeda)
+- `<LumioCoin size>` — SVG único minimalista flat (gradient sutil + "L" Instrument Serif italic). Usado em todo o app: sidebar nav, balance card (size 88), badges de custo, top-ups, fallback de histórico de transações.
+- Versão 3D animada foi removida (não convenceu visualmente).
+
+### ✅ Identidade visual — sistema
+- **Fonte principal**: Bricolage Grotesque (Google Font variable, weights 300-700) substituiu Geist
+- **Fonte editorial**: Instrument Serif (italics) — mantido
+- **Fonte mono**: Geist Mono — mantido
+- **Lucide icons**: aplicado strokeWidth 1.6 global via CSS `.lucide` (foge do default 2)
+- **Sombras roxas customizadas**: `.shadow-lumio-sm/md/lg/xl` (oklch 285)
+- **Favicon**: `src/app/icon.png` gerado do lumi-default
+- **OG image**: `public/og-image.png` 1200×630
+- Metadata SEO completa: OG + Twitter cards + pt_BR locale
+
+### ✅ Sidebar lateral colapsável
+- Substituiu nav horizontal
+- 3 items: Aulas, Cronograma, Lumio Coins (com saldo inline)
+- Toggle collapse persistente (localStorage)
+- Mobile: drawer com overlay backdrop
+- DropdownMenu do user habilitado: Perfil, Configurações, Assinatura, Sair
+
+### ✅ Páginas criadas
+- `/account/profile` — editar nome (Supabase update direto), avatar, info da conta
+- `/account/settings` — tema (light/dark/system), notificações (localStorage), idioma, "excluir conta" (CTA pra email)
+
+### ✅ Lumi integrado em
+- Landing: peeking no hero + seção dedicada "Conheça o Lumi" + nova seção "Em ação" com scene-hero-desk
+- Auth (signup/login): waving + celebrating
+- Onboarding: scene writing-notes
+- Dashboard empty: waving
+- Schedule empty: scene calendar
+- Coins empty history: sleeping
+- Coins balance: LumioCoin SVG estático (88px)
+- Lecture transcript: default (ou recording AO VIVO)
+- Lecture chat empty: thinking
+- Lecture slides empty: reading-pdf (ou generating em loading)
+- Lecture summary loading: scene funnel-summary
+- Lecture summary empty: thinking
+- Success page: celebrating
+
+### ✅ Fix scroll bug
+- Lenis (smooth scroll) bloqueava scroll nas páginas autenticadas
+- Agora só ativa em `/`, `/pricing`, `/success`
+- Outras rotas usam scroll nativo
+
+### 🐛 BUG conhecido (corrigido)
+- **Perda de 32 coins em extract-slides**: usuário foi cobrado 2x sem receber slides (PDF 3.9MB)
+- Causa: dev server ou Anthropic timeout em PDF grande sem trigger do catch
+- Fixes aplicados:
+  - `maxDuration = 300` no route
+  - Refund automático no caminho de "parsing vazio" (não só no catch)
+  - Coins restaurados manualmente (saldo: 50)
+
+### 🚨 PENDENTE — bloqueios pra subir
+1. **Stripe**: setup completo (3 Price IDs: STARTER R$29, PRO R$49, POWER R$89 mensais BRL) + webhook URL + Customer Portal config
+2. **Resend**: API key + domínio verificado pra emails transacionais
+3. **Domínio**: comprar lumio.fun (~R$60/ano)
+4. **LGPD**: termos de uso + política de privacidade
+5. **Confidencialidade fundador**: statement descriptor Stripe + privacy WHOIS no domínio
+6. **Deploy Vercel**: env vars, atualizar Supabase Site URL + webhook URL Stripe
+
+### 🎨 Pacotes de polish pendentes (user pediu)
+- Pacote 2: Phosphor duotone icons OR custom Lumi icons (10-15 ícones core); 404 page com Lumi confused; toasts com mini-Lumi; underlines animados
+- Pacote 3: Sound design opt-in, cursor customizado, handwriting font em annotations
 
 ## Stack final
-- Next.js 16.2.6 (Turbopack, App Router, proxy.ts)
-- React 19.2.4 + TypeScript estrito
-- Tailwind 4.3 + Instrument Serif + @tailwindcss/typography + tw-animate-css
-- Framer Motion 12 + Lenis smooth scroll
-- Radix UI (Dialog, Popover, Dropdown, Avatar, Separator, ScrollArea)
-- Lucide icons + react-markdown + remark-gfm
-- @anthropic-ai/sdk (claude-sonnet-4-5-20250929 + cache_control)
-- @supabase/ssr + @supabase/supabase-js (PKCE magic link + Postgres + RLS)
-- stripe + @stripe/stripe-js (Checkout + Subscriptions + Customer Portal + Webhooks)
-- resend (welcome + receipt)
-- pdfjs-dist 5.7 (client-side rasterization)
-- zod (validation)
+- Next.js 16.2.6 (App Router, Turbopack, proxy.ts)
+- React 19.2.4 + TS estrito (npx tsc --noEmit passa limpo)
+- Tailwind 4.3
+- **Bricolage Grotesque** (sans, novo) + **Instrument Serif** (italic) + **Geist Mono**
+- Framer Motion 12 + Lenis (apenas rotas públicas)
+- Radix UI + Lucide (strokeWidth 1.6)
+- @anthropic-ai/sdk:
+  - Haiku 4.5 → /api/chat
+  - Sonnet 4.5 → /api/correlate, /api/extract-slides, /api/extract-schedule
+- @supabase/ssr + @supabase/supabase-js
+- stripe + @stripe/stripe-js
+- resend
+- pdfjs-dist 5.7 (worker local em /public/pdf.worker.min.mjs)
+- zod
 
-## Rotas (20 total)
+## Rotas
 
 | Rota | Tipo | Auth | Descrição |
 |---|---|---|---|
 | `/` | static | public | Landing |
-| `/pricing` | static | public | Planos + Stripe checkout |
+| `/pricing` | static | public | Planos |
 | `/success` | static | public | Pós-checkout |
 | `/login`, `/signup` | static | public | Auth |
-| `/auth/callback` | route | — | Supabase OAuth callback |
-| `/onboarding` | static | auth | Wizard matérias |
+| `/auth/callback` | route | — | Supabase OAuth |
+| `/onboarding` | static | auth | Wizard matérias + grade |
 | `/dashboard` | static | auth | Lista aulas |
 | `/lecture/[id]` | dynamic | auth | Gravar/ver aula |
-| `/account/billing` | static | auth | Plano + Customer Portal |
-| `/admin` | dynamic | admin role | Métricas + usuários |
+| `/schedule` | static | auth | Cronograma semanal |
+| `/account/profile` | static | auth | **NOVO** Editar perfil |
+| `/account/settings` | static | auth | **NOVO** Tema + notificações |
+| `/account/coins` | static | auth | Saldo + histórico + top-ups |
+| `/account/billing` | static | auth | Customer Portal |
+| `/admin` | dynamic | admin | Métricas |
 | `/api/health` | route | public | Status integrações |
-| `/api/chat` | route | auth + RL | Streaming Claude |
-| `/api/correlate` | route | auth + sub | JSON resumo (premium) |
-| `/api/extract-slides` | route | auth + RL | Vision extract PDF |
-| `/api/extract-schedule` | route | auth + RL | Vision extract grade |
-| `/api/checkout` | route | auth | Cria Stripe Session |
-| `/api/portal` | route | auth | Customer Portal session |
-| `/api/stripe/webhook` | route | sig verify | Webhook handler |
-| `/api/auth/magic-link` | route | public | Solicita magic link |
+| `/api/coins` | route | auth | GET saldo/histórico |
+| `/api/chat` | route | auth + coins (2) | Streaming Haiku, max 60s |
+| `/api/correlate` | route | auth + coins (14) | JSON resumo, max 120s |
+| `/api/extract-slides` | route | auth + coins (16) | Vision PDF, max 300s |
+| `/api/extract-schedule` | route | auth | Vision grade |
+| `/api/checkout` | route | auth | Stripe Session |
+| `/api/portal` | route | auth | Customer Portal |
+| `/api/stripe/webhook` | route | sig | Webhook + credit coins |
+| `/api/auth/magic-link` | route | public | Magic link |
 
 ## Comandos
 
 ```bash
 cd /Users/gilbertoluporini/lumio
-npm run dev       # localhost:3001
-npm run build     # validação TS + bundle
-curl http://localhost:3001/api/health   # status integrações
-git status
+npm run dev                       # localhost:3001
+npx tsc --noEmit                  # type check
+curl http://localhost:3001/api/health
+bash /tmp/lumio-coin-debug.sh     # debug script: saldo + histórico de transações
 ```
 
-## Setup pra produção
+## Decisões importantes da sessão
 
-Ver `SETUP.md` — checklist 30-45 min do zero ao deploy + validação de webhook E2E com Stripe CLI.
-
-## Decisões de arquitetura
-
-- **Supabase client retorna `any`** intencionalmente — tipos profundos do supabase-js geram `never` em inserts genéricos. Tipagem fica em call-sites.
-- **Webhook idempotência via reserve-then-process** ao invés de event-id PK como gate — permite recovery quando processing falha.
-- **Service role usado APENAS em route handlers** (server-only). Anon key pra client/RLS-protected reads.
-- **Stripe Customer Portal** ao invés de cancel via API próprio — Stripe-hosted = mantido pelo Stripe.
-- **localStorage como fallback transparente** — adapter resolve em runtime. Permite dev sem credenciais.
+- **1 coin = R$ 0,10** (mental simples). Markup 2x sobre custo real Anthropic.
+- **Haiku no chat / Sonnet nos pesados** = margem positiva em todos os tiers.
+- **Coins debitam ANTES do processamento, refund automático** se algo falha (catch + parsing vazio).
+- **maxDuration** explícito em todos os endpoints de IA.
+- **Lenis disabled** em rotas autenticadas (resolve scroll bug).
+- **Bricolage Grotesque + Lucide strokeWidth 1.6 + sombras roxas** = identidade visual única (fora do template SaaS de IA).
+- **LumioCoin 2 versões**: SVG flat inline + PNG 3D animado pra destaques.
+- **Sidebar vertical colapsável** com saldo inline (não horizontal nav).
+- **Stickers + cenas + mascote** dão a personalidade própria do app.

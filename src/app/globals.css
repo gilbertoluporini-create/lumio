@@ -24,8 +24,8 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-sans: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-mono), ui-monospace, monospace;
   --font-serif-editorial: var(--font-serif), "Times New Roman", serif;
   --radius-lg: 0.85rem;
   --radius-md: 0.6rem;
@@ -90,6 +90,26 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+/* Lucide icons: traços mais finos (1.6) pra fugir do default 2 do template.
+   Aplica globalmente sem precisar prop em cada uso. */
+.lucide {
+  stroke-width: 1.6;
+}
+
+/* Sombras coloridas (roxas) substituindo cinza padrão em cards/CTAs */
+.shadow-lumio-sm {
+  box-shadow: 0 2px 8px -2px rgba(124, 58, 237, 0.12);
+}
+.shadow-lumio {
+  box-shadow: 0 8px 24px -8px rgba(124, 58, 237, 0.18);
+}
+.shadow-lumio-lg {
+  box-shadow: 0 16px 40px -12px rgba(124, 58, 237, 0.25);
+}
+.shadow-lumio-xl {
+  box-shadow: 0 24px 48px -16px rgba(192, 38, 211, 0.3);
+}
+
 body {
   font-feature-settings: "rlig" 1, "calt" 1, "ss01" 1;
 }
@@ -147,6 +167,22 @@ body {
 }
 .pulse-dot {
   animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes lumi-float {
+  0%, 100% { transform: translateY(0) rotate(-1deg); }
+  50% { transform: translateY(-8px) rotate(1deg); }
+}
+.animate-lumi-float {
+  animation: lumi-float 4.5s ease-in-out infinite;
+}
+
+@keyframes lumi-glow {
+  0%, 100% { filter: drop-shadow(0 8px 20px rgba(124,58,237,0.18)); }
+  50% { filter: drop-shadow(0 12px 32px rgba(192,38,211,0.32)); }
+}
+.animate-lumi-glow {
+  animation: lumi-glow 3.5s ease-in-out infinite;
 }
 
 @keyframes shimmer {

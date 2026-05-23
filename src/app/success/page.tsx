@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LumioWordmark } from "@/components/brand/logo";
+import { LumiCharacter } from "@/components/brand/lumi";
 
 export const metadata = {
   title: "Lumio — Pagamento confirmado",
@@ -20,14 +20,14 @@ export default function SuccessPage() {
       </header>
       <main className="relative z-10 flex-1 flex items-center justify-center px-6">
         <div className="text-center max-w-lg">
-          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/10 ring-4 ring-emerald-500/20">
-            <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+          <div className="flex justify-center mb-4">
+            <LumiCharacter mood="celebrating" size="xl" float />
           </div>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
             Pagamento <span className="font-serif italic">confirmado</span>.
           </h1>
           <p className="mt-4 text-muted-foreground leading-relaxed">
-            Sua assinatura está ativa. Em instantes você recebe o recibo por email. Já pode entrar e usar tudo.
+            Sua assinatura tá ativa e seus Lumio Coins já foram creditados. Em instantes você recebe o recibo por email — já pode entrar e usar tudo.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
             <Button asChild variant="gradient" size="lg" className="min-w-[200px]">

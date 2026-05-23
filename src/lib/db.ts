@@ -15,7 +15,13 @@ import {
   getSubject as localGetSubject,
 } from "./storage";
 import { generateId } from "./utils";
-import type { ChatMessage, Lecture, Slide, Subject } from "./types";
+import type {
+  ChatMessage,
+  Lecture,
+  ScheduleSlot,
+  Slide,
+  Subject,
+} from "./types";
 
 /**
  * Adapter unificado de persistência. Usa Supabase quando configurado,
@@ -24,29 +30,39 @@ import type { ChatMessage, Lecture, Slide, Subject } from "./types";
 
 // ===== SUBJECTS =====
 
+type SubjectRow = {
+  id: string;
+  user_id: string;
+  name: string;
+  color: string;
+  schedule: ScheduleSlot[] | null;
+  created_at: string;
+};
+
+function rowToSubject(r: SubjectRow): Subject {
+  return {
+    id: r.id,
+    userId: r.user_id,
+    name: r.name,
+    color: r.color,
+    emoji: "",
+    schedule: Array.isArray(r.schedule) ? r.schedule : [],
+    createdAt: r.created_at,
+  };
+}
+
+const SUBJECT_COLS = "id, user_id, name, color, schedule, created_at";
+
 export async function listSubjectsAsync(userId: string): Promise<Subject[]> {
   if (!isSupabaseConfigured()) return localListSubjects(userId);
   try {
     const supabase = createClient();
     const { data, error } = await supabase
       .from("subjects")
-      .select("id, user_id, name, color, created_at")
+      .select(SUBJECT_COLS)
       .order("created_at", { ascending: true });
     if (error) throw error;
-    return (data as Array<{
-      id: string;
-      user_id: string;
-      name: string;
-      color: string;
-      created_at: string;
-    }>).map((r) => ({
-      id: r.id,
-      userId: r.user_id,
-      name: r.name,
-      color: r.color,
-      emoji: "",
-      createdAt: r.created_at,
-    }));
+    return (data as SubjectRow[]).map(rowToSubject);
   } catch (err) {
     console.error("[db] listSubjects fallback", err);
     return localListSubjects(userId);
@@ -55,69 +71,93 @@ export async function listSubjectsAsync(userId: string): Promise<Subject[]> {
 
 export async function createSubjectAsync(
   userId: string,
-  data: { name: string; color: string; emoji?: string },
+  data: { name: string; color: string; emoji?: string; schedule?: ScheduleSlot[] },
 ): Promise<Subject> {
   if (!isSupabaseConfigured()) {
     return localCreateSubject(userId, {
       name: data.name,
       color: data.color,
       emoji: data.emoji ?? "",
+      schedule: data.schedule ?? [],
     });
   }
   const supabase = createClient();
   const { data: row, error } = await supabase
     .from("subjects")
-    .insert({ user_id: userId, name: data.name, color: data.color })
-    .select("id, user_id, name, color, created_at")
+    .insert({
+      user_id: userId,
+      name: data.name,
+      color: data.color,
+      schedule: data.schedule ?? [],
+    })
+    .select(SUBJECT_COLS)
     .single();
   if (error || !row) throw error || new Error("Falha ao criar matéria.");
-  const r = row as {
-    id: string;
-    user_id: string;
-    name: string;
-    color: string;
-    created_at: string;
-  };
-  return {
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    color: r.color,
-    emoji: "",
-    createdAt: r.created_at,
-  };
+  return rowToSubject(row as SubjectRow);
 }
 
 export async function bulkCreateSubjectsAsync(
   userId: string,
-  items: Array<{ name: string; color: string; emoji?: string }>,
+  items: Array<{
+    name: string;
+    color: string;
+    emoji?: string;
+    schedule?: ScheduleSlot[];
+  }>,
 ): Promise<Subject[]> {
   if (!isSupabaseConfigured()) {
     return localBulkSubjects(
       userId,
-      items.map((s) => ({ name: s.name, color: s.color, emoji: s.emoji ?? "" })),
+      items.map((s) => ({
+        name: s.name,
+        color: s.color,
+        emoji: s.emoji ?? "",
+        schedule: s.schedule ?? [],
+      })),
     );
   }
   const supabase = createClient();
   const { data, error } = await supabase
     .from("subjects")
-    .insert(items.map((i) => ({ user_id: userId, name: i.name, color: i.color })))
-    .select("id, user_id, name, color, created_at");
+    .insert(
+      items.map((i) => ({
+        user_id: userId,
+        name: i.name,
+        color: i.color,
+        schedule: i.schedule ?? [],
+      })),
+    )
+    .select(SUBJECT_COLS);
   if (error || !data) throw error || new Error("Falha ao criar matérias.");
-  return (data as Array<{
-    id: string;
-    user_id: string;
-    name: string;
-    color: string;
-    created_at: string;
-  }>).map((r) => ({
-    id: r.id,
-    userId: r.user_id,
-    name: r.name,
-    color: r.color,
-    emoji: "",
-    createdAt: r.created_at,
-  }));
+  return (data as SubjectRow[]).map(rowToSubject);
+}
+
+export async function updateSubjectScheduleAsync(
+  userId: string,
+  subjectId: string,
+  schedule: ScheduleSlot[],
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("subjects")
+    .update({ schedule })
+    .eq("id", subjectId);
+  if (error) throw error;
+}
+
+export async function updateSubjectColorAsync(
+  userId: string,
+  subjectId: string,
+  color: string,
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("subjects")
+    .update({ color })
+    .eq("id", subjectId);
+  if (error) throw error;
 }
 
 export async function deleteSubjectAsync(userId: string, id: string): Promise<void> {
@@ -139,25 +179,11 @@ export async function getSubjectAsync(
     const supabase = createClient();
     const { data } = await supabase
       .from("subjects")
-      .select("id, user_id, name, color, created_at")
+      .select(SUBJECT_COLS)
       .eq("id", id)
       .maybeSingle();
     if (!data) return null;
-    const r = data as {
-      id: string;
-      user_id: string;
-      name: string;
-      color: string;
-      created_at: string;
-    };
-    return {
-      id: r.id,
-      userId: r.user_id,
-      name: r.name,
-      color: r.color,
-      emoji: "",
-      createdAt: r.created_at,
-    };
+    return rowToSubject(data as SubjectRow);
   } catch (err) {
     console.error("[db] getSubject fallback", err);
     return localGetSubject(userId, id);
@@ -254,24 +280,31 @@ export async function createLectureAsync(
       title: data.title,
     });
   }
-  const supabase = createClient();
-  const { data: row, error } = await supabase
-    .from("lectures")
-    .insert({
-      user_id: userId,
-      subject_id: data.subjectId,
+  // Usa endpoint server-side que aplica gate de limite mensal de aulas + cria
+  const res = await fetch("/api/lectures/create", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      subjectId: data.subjectId,
       title: data.title,
-      transcript: "",
-      duration_sec: 0,
-      status: "draft",
-      messages: [],
-    })
-    .select(
-      "id, user_id, subject_id, title, transcript, duration_sec, status, slides_file_name, slides, summary, messages, created_at, updated_at",
-    )
-    .single();
-  if (error || !row) throw error || new Error("Falha ao criar aula.");
-  return rowToLecture(row as LectureRow);
+    }),
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    const err = new Error(json?.error ?? "Falha ao criar aula.");
+    // Anexa info pra UI mostrar prompt de upgrade quando 402
+    if (res.status === 402) {
+      (err as Error & { upgrade?: string; usage?: unknown }).upgrade =
+        json?.upgrade;
+      (err as Error & { upgrade?: string; usage?: unknown }).usage = {
+        used: json?.used,
+        limit: json?.limit,
+        plan: json?.plan,
+      };
+    }
+    throw err;
+  }
+  return rowToLecture(json.lecture as LectureRow);
 }
 
 export async function updateLectureAsync(

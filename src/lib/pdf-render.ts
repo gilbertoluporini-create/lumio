@@ -16,7 +16,7 @@ let workerConfigured = false;
 async function getPdfJs() {
   const pdfjs = await import("pdfjs-dist");
   if (!workerConfigured && typeof window !== "undefined") {
-    pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     workerConfigured = true;
   }
   return pdfjs;

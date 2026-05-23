@@ -4,36 +4,95 @@ import { LIMITS, logAndSanitize, sniffMagic } from "@/lib/api-security";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const SYSTEM_PROMPT = `Você é um extrator de grade horária acadêmica. Você recebe uma imagem ou PDF de uma grade horária de faculdade/universidade/escola e precisa identificar todas as MATÉRIAS/DISCIPLINAS distintas presentes.
+const SYSTEM_PROMPT = `Você é um extrator de grade horária acadêmica. Você recebe uma imagem ou PDF de uma grade horária de faculdade/universidade/escola e precisa identificar todas as MATÉRIAS/DISCIPLINAS distintas presentes E seus horários.
 
-REGRAS:
-- Extraia o nome ÚNICO de cada matéria/disciplina (sem horário, sem sala, sem professor).
-- Normalize nomes (ex: "ANATOMIA HUMANA I" → "Anatomia Humana I"; "BIOQ" → tente expandir pra "Bioquímica" se contexto deixar claro).
-- Ignore: horários, dias da semana, salas, blocos, intervalos, almoço, créditos.
-- Cada matéria aparece UMA VEZ na lista de saída, mesmo que esteja em vários horários.
-- Retorne APENAS um JSON válido no formato exato abaixo, sem texto adicional, sem markdown, sem \`\`\`json.
+REGRAS PARA MATÉRIAS:
+- Extraia o nome único de cada matéria (sem horário, sem sala, sem professor).
+- Normalize nomes (ex: "ANATOMIA HUMANA I" → "Anatomia Humana I"; "BIOQ" → "Bioquímica" se contexto deixar claro).
+- Cada matéria aparece UMA VEZ na lista, mesmo que tenha múltiplos horários (os horários ficam dentro do array "schedule").
 
-FORMATO DE SAÍDA (JSON puro):
-{"subjects":[{"name":"<nome da matéria>"},{"name":"<outra matéria>"}]}
+REGRAS PARA SCHEDULE (HORÁRIOS):
+- dayOfWeek: 0=domingo, 1=segunda, 2=terça, 3=quarta, 4=quinta, 5=sexta, 6=sábado
+- startTime/endTime: formato "HH:MM" em 24h (ex: "08:00", "13:30", "19:45")
+- room: opcional, string com nome/número da sala se aparecer (ex: "B-201", "Lab 3"). Omita se não tiver.
+- Se uma matéria tem múltiplos horários (ex: aparece seg e qua), liste todos eles dentro do "schedule".
+- Se não conseguir extrair NENHUM horário pra uma matéria, retorne "schedule": [].
+- IGNORE: intervalos, almoço, blocos vazios, créditos.
+
+FORMATO DE SAÍDA (JSON puro, sem markdown, sem texto extra):
+{
+  "subjects": [
+    {
+      "name": "Anatomia Humana I",
+      "schedule": [
+        {"dayOfWeek": 1, "startTime": "08:00", "endTime": "09:40", "room": "B-201"},
+        {"dayOfWeek": 3, "startTime": "10:00", "endTime": "11:40"}
+      ]
+    },
+    {
+      "name": "Bioquímica",
+      "schedule": [
+        {"dayOfWeek": 2, "startTime": "14:00", "endTime": "15:40", "room": "Lab 3"}
+      ]
+    }
+  ]
+}
 
 Se não conseguir identificar matérias claramente, retorne {"subjects":[]}.`;
 
-type ExtractedSubject = { name: string };
+type ScheduleSlot = {
+  dayOfWeek: number; // 0-6
+  startTime: string; // "HH:MM"
+  endTime: string; // "HH:MM"
+  room?: string;
+};
+
+type ExtractedSubject = {
+  name: string;
+  schedule: ScheduleSlot[];
+};
+
 type ExtractedPayload = { subjects: ExtractedSubject[] };
+
+function isValidTime(s: unknown): s is string {
+  return typeof s === "string" && /^([01]?\d|2[0-3]):[0-5]\d$/.test(s);
+}
+
+function normalizeSchedule(raw: unknown): ScheduleSlot[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ScheduleSlot[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    const dow = typeof o.dayOfWeek === "number" ? o.dayOfWeek : Number(o.dayOfWeek);
+    if (!Number.isInteger(dow) || dow < 0 || dow > 6) continue;
+    if (!isValidTime(o.startTime) || !isValidTime(o.endTime)) continue;
+    const slot: ScheduleSlot = {
+      dayOfWeek: dow,
+      startTime: o.startTime,
+      endTime: o.endTime,
+    };
+    if (typeof o.room === "string" && o.room.trim().length > 0) {
+      slot.room = o.room.trim().slice(0, 40);
+    }
+    out.push(slot);
+  }
+  return out;
+}
 
 function normalize(arr: unknown): ExtractedSubject[] {
   if (!Array.isArray(arr)) return [];
   const out: ExtractedSubject[] = [];
   for (const item of arr) {
-    if (
-      item &&
-      typeof item === "object" &&
-      "name" in item &&
-      typeof (item as { name: unknown }).name === "string"
-    ) {
-      const name = (item as { name: string }).name.trim();
-      if (name.length > 0) out.push({ name });
-    }
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    if (typeof o.name !== "string") continue;
+    const name = o.name.trim();
+    if (name.length === 0) continue;
+    out.push({
+      name,
+      schedule: normalizeSchedule(o.schedule),
+    });
   }
   return out;
 }
@@ -101,10 +160,26 @@ export async function POST(req: Request) {
     return Response.json(
       {
         subjects: [
-          { name: "Anatomia" },
-          { name: "Fisiologia" },
-          { name: "Bioquímica" },
-          { name: "Histologia" },
+          {
+            name: "Anatomia",
+            schedule: [
+              { dayOfWeek: 1, startTime: "08:00", endTime: "09:40", room: "B-201" },
+              { dayOfWeek: 3, startTime: "10:00", endTime: "11:40", room: "B-201" },
+            ],
+          },
+          {
+            name: "Fisiologia",
+            schedule: [
+              { dayOfWeek: 2, startTime: "14:00", endTime: "15:40" },
+            ],
+          },
+          {
+            name: "Bioquímica",
+            schedule: [
+              { dayOfWeek: 4, startTime: "10:00", endTime: "11:40", room: "Lab 3" },
+            ],
+          },
+          { name: "Histologia", schedule: [] },
         ],
         demo: true,
         message:
@@ -143,13 +218,13 @@ export async function POST(req: Request) {
           },
       {
         type: "text",
-        text: "Extraia todas as matérias distintas dessa grade horária. Responda apenas com o JSON no formato especificado.",
+        text: "Extraia todas as matérias distintas dessa grade horária junto com seus dias/horários. Responda apenas com o JSON no formato especificado.",
       },
     ];
 
     const resp = await client.messages.create({
       model: "claude-sonnet-4-5-20250929",
-      max_tokens: 2000,
+      max_tokens: 4000,
       system: [
         { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
       ],

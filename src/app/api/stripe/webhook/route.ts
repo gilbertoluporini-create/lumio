@@ -1,15 +1,22 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/server";
-import { getAppUrl, getStripe } from "@/lib/stripe";
+import { PLAN_COINS_PER_MONTH, getAppUrl, getStripe } from "@/lib/stripe";
 import { sendReceiptEmail, sendWelcomeEmail } from "@/lib/email";
+import { setBalanceForRenewal } from "@/lib/coins";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PLAN_PRICE_TO_NAME: Record<string, "pro" | "annual"> = (() => {
-  const map: Record<string, "pro" | "annual"> = {};
+type PlanName = "starter" | "pro" | "power" | "annual";
+
+const PLAN_PRICE_TO_NAME: Record<string, PlanName> = (() => {
+  const map: Record<string, PlanName> = {};
+  if (process.env.STRIPE_PRICE_ID_STARTER)
+    map[process.env.STRIPE_PRICE_ID_STARTER] = "starter";
   if (process.env.STRIPE_PRICE_ID_PRO) map[process.env.STRIPE_PRICE_ID_PRO] = "pro";
+  if (process.env.STRIPE_PRICE_ID_POWER)
+    map[process.env.STRIPE_PRICE_ID_POWER] = "power";
   if (process.env.STRIPE_PRICE_ID_ANNUAL)
     map[process.env.STRIPE_PRICE_ID_ANNUAL] = "annual";
   return map;
@@ -144,6 +151,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     const sub = await stripe.subscriptions.retrieve(subId);
     await upsertSubscriptionFromStripe(userId, sub, customerId);
 
+    // Credita coins do plano (primeira assinatura)
+    const priceId = sub.items.data[0]?.price.id;
+    const plan: PlanName =
+      priceId && PLAN_PRICE_TO_NAME[priceId] ? PLAN_PRICE_TO_NAME[priceId] : "pro";
+    try {
+      await creditPlanCoins(userId, plan, sub.id);
+    } catch (err) {
+      console.error("[webhook] creditPlanCoins failed", err);
+    }
+
     // Welcome email com magic link gerado (Reality Check fix #1)
     const { data: profile } = await admin
       .from("profiles")
@@ -224,15 +241,39 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     | undefined;
   const priceId =
     lineItem?.pricing?.price_details?.price ?? lineItem?.price?.id ?? null;
-  const plan: "pro" | "annual" =
+  const plan: PlanName =
     priceId && PLAN_PRICE_TO_NAME[priceId] ? PLAN_PRICE_TO_NAME[priceId] : "pro";
 
   await sendReceiptEmail({
     to: profile.email,
     name: profile.name ?? undefined,
-    plan,
+    plan: plan === "starter" || plan === "power" ? "pro" : plan, // email template suporta só pro/annual
     amount: invoice.amount_paid,
     currency: invoice.currency,
+  });
+
+  // Renovação: credita coins do plano (não duplicar com checkout — esse já filtra subscription_create)
+  const subId =
+    (invoice as unknown as { subscription?: string | { id?: string } }).subscription;
+  const stripeSubId = typeof subId === "string" ? subId : subId?.id ?? "renew";
+  try {
+    await creditPlanCoins(userId, plan, stripeSubId);
+  } catch (err) {
+    console.error("[webhook] creditPlanCoins on renew failed", err);
+  }
+}
+
+/**
+ * Credita os coins do plano no momento que a subscription renova ou ativa.
+ * Faz SET ABSOLUTO (não acumulativo) — reseta saldo pro pacote do plano.
+ */
+async function creditPlanCoins(userId: string, plan: PlanName, subId: string) {
+  const monthly = PLAN_COINS_PER_MONTH[plan];
+  if (!monthly) return;
+  await setBalanceForRenewal(userId, monthly, {
+    plan,
+    stripe_subscription_id: subId,
+    granted_at: new Date().toISOString(),
   });
 }
 

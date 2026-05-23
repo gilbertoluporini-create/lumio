@@ -6,11 +6,12 @@ import type {
   Slide,
 } from "@/lib/types";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
-import { isPaidActive, getActiveSubscriptionForUser } from "@/lib/server-auth";
+import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 120;
 
 type Body = {
   lectureTitle: string;
@@ -153,20 +154,14 @@ export async function POST(req: Request) {
     return Response.json({ error: "Transcrição muito longa." }, { status: 413 });
   }
 
-  // Subscription gate (feature premium): só Pro/Annual podem gerar resumo automático.
-  // Reality Check fix #5: gate sem bypass.
-  // - Se Supabase configurado (anon + URL): exige user logado + plano ativo.
-  // - Service role obrigatório pra ler subscriptions com bypass de RLS.
-  // - Em modo dev (sem Supabase): permite, mas avisa.
+  // Coin gate: cobra coins por resumo (substitui o antigo subscription gate)
   const supabaseEnabled = !!(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   );
+  let userId: string | null = null;
   if (supabaseEnabled) {
     if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
-      console.error(
-        "[correlate] SUPABASE_SERVICE_ROLE_KEY ausente em ambiente com Supabase. Gate de subscription inoperante.",
-      );
       return Response.json(
         { error: "Configuração de servidor incompleta. Contate o suporte." },
         { status: 503 },
@@ -179,12 +174,19 @@ export async function POST(req: Request) {
     if (!user) {
       return Response.json({ error: "Faça login pra gerar resumos." }, { status: 401 });
     }
-    const sub = await getActiveSubscriptionForUser(user.id);
-    if (!isPaidActive(sub)) {
+    userId = user.id;
+
+    const charge = await chargeCoins(user.id, COIN_COSTS.summary, "summary", {
+      lecture_title: body.lectureTitle,
+      subject: body.subject,
+    });
+    if (!charge.ok) {
       return Response.json(
         {
-          error: "Resumo automático é do plano Pro. Assine pra liberar.",
-          upgrade: "/pricing",
+          error: `Saldo insuficiente. Gerar resumo custa ${charge.required} coins, você tem ${charge.balance}.`,
+          required: charge.required,
+          balance: charge.balance,
+          upgrade: "/account/coins",
         },
         { status: 402 },
       );
@@ -274,6 +276,15 @@ Gere o resumo estruturado conforme o formato JSON especificado. Responda APENAS 
 
     return Response.json({ summary });
   } catch (err) {
+    if (userId) {
+      try {
+        await creditCoins(userId, COIN_COSTS.summary, "refund", {
+          reason: "correlate_api_failure",
+        });
+      } catch (refundErr) {
+        console.error("[correlate] refund failed", refundErr);
+      }
+    }
     return Response.json(logAndSanitize("api/correlate", err), { status: 500 });
   }
 }

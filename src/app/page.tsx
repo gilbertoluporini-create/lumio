@@ -24,6 +24,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LumioWordmark } from "@/components/brand/logo";
+import { LumiCharacter, LumiScene, LumiSticker } from "@/components/brand/lumi";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   CountUp,
@@ -184,13 +185,17 @@ export default function LandingPage() {
             </motion.div>
           </div>
 
-          {/* RIGHT: live demo */}
+          {/* RIGHT: live demo + Lumi peeking */}
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4, duration: 0.8 }}
             className="relative"
           >
+            {/* Lumi mascot peeking — flutua sutilmente */}
+            <div className="pointer-events-none absolute -top-10 -right-4 z-20 hidden md:block">
+              <LumiCharacter mood="default" size="lg" priority float />
+            </div>
             <LiveDemo />
           </motion.div>
         </div>
@@ -239,6 +244,77 @@ export default function LandingPage() {
             </StaggerItem>
           ))}
         </Stagger>
+      </section>
+
+      {/* MEET LUMI — apresentação do mascote */}
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-24">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] gap-12 lg:gap-16 items-center">
+          <Reveal className="order-2 lg:order-1">
+            <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
+              — Conheça —
+            </p>
+            <h2 className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
+              Esse é o{" "}
+              <span className="font-serif italic font-normal">Lumi</span>.
+            </h2>
+            <p className="mt-5 text-lg text-muted-foreground leading-relaxed max-w-lg">
+              Companheiro de estudos que escuta junto, anota tudo,{" "}
+              <Highlighter delay={0.3}>e te ajuda quando trava</Highlighter>.
+              Sem julgamento, sem letra miúda, sem mensagem das 3h.
+            </p>
+            <div className="mt-7 flex flex-wrap gap-2">
+              {[
+                { label: "Atento", mood: "default" },
+                { label: "Curioso", mood: "thinking" },
+                { label: "Focado", mood: "studying" },
+                { label: "Animado", mood: "celebrating" },
+              ].map((t) => (
+                <span
+                  key={t.label}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/60 backdrop-blur px-3 py-1.5 text-xs font-medium"
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+                  {t.label}
+                </span>
+              ))}
+            </div>
+          </Reveal>
+
+          <div className="order-1 lg:order-2 relative flex items-center justify-center">
+            {/* Soft glow background */}
+            <div
+              className="pointer-events-none absolute inset-0 m-auto h-[420px] w-[420px] rounded-full blur-3xl opacity-50"
+              style={{
+                background:
+                  "radial-gradient(closest-side, oklch(0.6 0.25 290 / 0.35), transparent 70%)",
+              }}
+            />
+            <LumiCharacter mood="studying" size="hero" float className="relative z-10" />
+          </div>
+        </div>
+      </section>
+
+      {/* LUMIO EM AÇÃO — cena ilustrada mostrando o produto no contexto real */}
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-16">
+        <Reveal className="text-center mb-10 max-w-2xl mx-auto">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-3">
+            — Em ação —
+          </p>
+          <h2 className="text-3xl md:text-4xl font-semibold tracking-tight">
+            Você na aula.{" "}
+            <span className="font-serif italic font-normal">O Lumi nas anotações.</span>
+          </h2>
+        </Reveal>
+        <Reveal className="relative">
+          <div
+            className="pointer-events-none absolute inset-0 m-auto h-[60%] w-[80%] rounded-3xl blur-3xl opacity-40"
+            style={{
+              background:
+                "radial-gradient(closest-side, oklch(0.6 0.25 290 / 0.4), transparent 70%)",
+            }}
+          />
+          <LumiScene scene="hero-desk" className="relative z-10 max-w-4xl mx-auto" />
+        </Reveal>
       </section>
 
       {/* HOW — numeração editorial 01/02/03 */}

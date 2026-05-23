@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const Body = z.object({
-  plan: z.enum(["pro", "annual"]),
+  plan: z.enum(["starter", "pro", "power", "annual"]),
 });
 
 export async function POST(req: Request) {

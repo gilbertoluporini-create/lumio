@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { LumiCharacter } from "@/components/brand/lumi";
 import { signIn } from "@/lib/storage";
 import { isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -57,8 +58,8 @@ function LoginInner() {
     return (
       <Card className="w-full max-w-md border-border/80 bg-card/80 backdrop-blur-xl shadow-2xl">
         <CardHeader className="text-center space-y-2">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 ring-2 ring-emerald-500/20">
-            <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+          <div className="flex justify-center mb-2">
+            <LumiCharacter mood="celebrating" size="md" float />
           </div>
           <CardTitle className="text-2xl">Cheque seu email</CardTitle>
           <CardDescription>
@@ -74,11 +75,14 @@ function LoginInner() {
 
   return (
     <Card className="w-full max-w-md border-border/80 bg-card/80 backdrop-blur-xl shadow-2xl">
-      <CardHeader className="text-center space-y-2">
-        <CardTitle className="text-2xl">Entrar</CardTitle>
+      <CardHeader className="text-center space-y-2 pb-4">
+        <div className="flex justify-center mb-1">
+          <LumiCharacter mood="waving" size="md" float />
+        </div>
+        <CardTitle className="text-2xl">Bem-vindo de volta</CardTitle>
         <CardDescription>
           {supaOn
-            ? "Digite seu email — vamos te mandar um link mágico."
+            ? "Digite seu email — o Lumi te manda um link mágico."
             : "Modo offline (sem Supabase)."}
         </CardDescription>
       </CardHeader>

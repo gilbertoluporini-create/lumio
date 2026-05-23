@@ -5,12 +5,13 @@ import Link from "next/link";
 import { Check, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { LumioCoin } from "@/components/brand/lumio-coin";
 import { Magnetic } from "./magnetic";
 import { Highlighter } from "./highlighter";
 import { Reveal } from "./motion";
 
 type Plan = {
-  id: "free" | "pro" | "annual";
+  id: "free" | "starter" | "pro" | "power";
   name: string;
   price: string;
   cadence: string;
@@ -21,6 +22,7 @@ type Plan = {
   href: string;
   features: string[];
   savings?: string;
+  coinsTagline: string;
 };
 
 const PLANS: Plan[] = [
@@ -29,49 +31,65 @@ const PLANS: Plan[] = [
     name: "Grátis",
     price: "R$ 0",
     cadence: "pra sempre",
-    description: "Pra testar. Sem cartão.",
+    description: "Pra conhecer o Lumio.",
+    coinsTagline: "30 coins de boas-vindas",
     cta: "Começar grátis",
     href: "/signup?plan=free",
     features: [
-      "5 horas de transcrição/mês",
-      "Histórico de 7 dias",
-      "Chat com 20 perguntas/dia",
-      "1 PDF anexado por aula",
+      "3 aulas por mês",
+      "Chat IA, slides e transcrição ilimitados",
+      "30 coins pra gerar 3 resumos",
+      "Sem cartão de crédito",
+    ],
+  },
+  {
+    id: "starter",
+    name: "Starter",
+    price: "R$ 39",
+    cadence: "/mês",
+    description: "Pra quem tem aulas regulares.",
+    coinsTagline: "200 coins/mês",
+    cta: "Assinar Starter",
+    href: "/checkout?plan=starter",
+    features: [
+      "20 aulas por mês",
+      "Chat IA, slides e transcrição inclusos",
+      "200 coins pra gerar resumos e flash cards",
+      "Cronograma extraído da grade",
     ],
   },
   {
     id: "pro",
     name: "Pro",
-    price: "R$ 19",
+    price: "R$ 69",
     cadence: "/mês",
     description: "Pra quem estuda todo dia.",
     highlight: true,
     popular: true,
+    coinsTagline: "500 coins/mês",
     cta: "Assinar Pro",
     href: "/checkout?plan=pro",
     features: [
-      "Transcrição ilimitada",
-      "Histórico ilimitado",
-      "Chat ilimitado com contexto",
-      "PDFs ilimitados + correlação",
-      "Resumo automático em todas as aulas",
-      "Exportar Markdown",
+      "100 aulas por mês (na prática, ilimitado)",
+      "Tudo do Starter, com folga",
+      "500 coins pra resumos, flash cards e quizzes",
+      "Suporte prioritário",
     ],
   },
   {
-    id: "annual",
-    name: "Anual",
-    price: "R$ 149",
-    cadence: "/ano",
-    description: "Tudo do Pro · 2 meses grátis.",
-    savings: "Economize R$ 79",
-    cta: "Assinar Anual",
-    href: "/checkout?plan=annual",
+    id: "power",
+    name: "Power",
+    price: "R$ 119",
+    cadence: "/mês",
+    description: "Aulas todos os dias + revisão pesada.",
+    coinsTagline: "1500 coins/mês",
+    cta: "Assinar Power",
+    href: "/checkout?plan=power",
     features: [
-      "Tudo do Pro, sem limites",
-      "Exportar pra Anki (em breve)",
-      "Suporte prioritário",
+      "Aulas ilimitadas, sem teto",
+      "1500 coins pra produzir muitos assets",
       "Acesso antecipado a novidades",
+      "Suporte prioritário",
     ],
   },
 ];
@@ -95,7 +113,7 @@ export function PricingSection() {
         </p>
       </Reveal>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 items-stretch">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-stretch">
         {PLANS.map((plan, idx) => (
           <motion.div
             key={plan.id}
@@ -134,11 +152,15 @@ export function PricingSection() {
                 </div>
                 <p className="text-sm text-muted-foreground mb-5">{plan.description}</p>
 
-                <div className="flex items-baseline gap-1.5 mb-6">
+                <div className="flex items-baseline gap-1.5 mb-3">
                   <span className="text-4xl md:text-5xl font-semibold tracking-tight">
                     {plan.price}
                   </span>
                   <span className="text-sm text-muted-foreground">{plan.cadence}</span>
+                </div>
+
+                <div className="mb-5 inline-flex items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
+                  <LumioCoin size={14} /> {plan.coinsTagline}
                 </div>
 
                 {plan.highlight ? (
@@ -200,15 +222,27 @@ export function PricingSection() {
 
 const FAQS = [
   {
+    q: "O que são Lumio Coins?",
+    a: "São a moeda pra gerar produtos da aula: resumo estruturado (10), flash cards (12), quiz (15) ou mapa mental (20). Chat, slides e transcrição já estão inclusos no plano.",
+  },
+  {
+    q: "Por que tem limite de aulas no mês?",
+    a: "Pra manter chat IA, Vision e transcrição inclusos no preço. O Pro tem 100/mês (na prática, ilimitado pra qualquer estudante). Power é ilimitado de verdade.",
+  },
+  {
+    q: "Coins não usados expiram?",
+    a: "Acumulam por até 90 dias. Depois resetam pro saldo do plano. Plano grátis recebe 30 coins uma vez.",
+  },
+  {
     q: "Posso cancelar quando?",
-    a: "Sim, no app. Sem fidelidade. Você continua com acesso até o fim do período pago.",
+    a: "Sim, no app. Sem fidelidade. Continua com acesso até o fim do período pago.",
+  },
+  {
+    q: "Acabaram meus coins, e agora?",
+    a: "Chat, slides e transcrição continuam funcionando. Pra gerar mais resumos ou flash cards, espera a renovação ou sobe de plano.",
   },
   {
     q: "Onde meus áudios ficam salvos?",
-    a: "Os áudios não saem do seu navegador — só o texto da transcrição. Tudo armazenado com criptografia em repouso.",
-  },
-  {
-    q: "Funciona em qualquer aula?",
-    a: "Em qualquer aula em português. Para outros idiomas, o reconhecimento usa o do seu navegador.",
+    a: "Os áudios não saem do navegador — só o texto da transcrição. Tudo armazenado com criptografia em repouso.",
   },
 ];

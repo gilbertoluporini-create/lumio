@@ -14,13 +14,13 @@ import { Magnetic } from "@/components/landing/magnetic";
 function PricingContent() {
   const router = useRouter();
   const params = useSearchParams();
-  const [loading, setLoading] = useState<"pro" | "annual" | null>(null);
+  const [loading, setLoading] = useState<"starter" | "pro" | "power" | "annual" | null>(null);
 
   if (params.get("canceled") === "1") {
     toast.info("Checkout cancelado. Você pode tentar de novo quando quiser.");
   }
 
-  async function checkout(plan: "pro" | "annual") {
+  async function checkout(plan: "starter" | "pro" | "power" | "annual") {
     setLoading(plan);
     try {
       const res = await fetch("/api/checkout", {
@@ -77,7 +77,8 @@ function PricingContent() {
           if (!link) return;
           e.preventDefault();
           const href = link.getAttribute("href") || "";
-          const plan = href.includes("plan=pro") ? "pro" : "annual";
+          const m = href.match(/plan=(starter|pro|power|annual)/);
+          const plan = (m?.[1] ?? "pro") as "starter" | "pro" | "power" | "annual";
           checkout(plan);
         }}
       >

@@ -1,8 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
+import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type SlideCtx = { pageNumber: number; title?: string; text: string };
 
@@ -129,11 +132,53 @@ export async function POST(req: Request) {
     });
   }
 
+  // Gate de coins (somente quando Supabase configurado)
+  const supabaseEnabled = !!(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+  let userId: string | null = null;
+  if (supabaseEnabled) {
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return new Response(
+        JSON.stringify({ error: "Configuração de servidor incompleta." }),
+        { status: 503, headers: { "content-type": "application/json" } },
+      );
+    }
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: "Faça login pra usar o chat." }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      );
+    }
+    userId = user.id;
+
+    const charge = await chargeCoins(user.id, COIN_COSTS.chat_message, "chat", {
+      lecture_title: body.context.lectureTitle,
+    });
+    if (!charge.ok) {
+      return new Response(
+        JSON.stringify({
+          error: "Saldo de Lumio Coins insuficiente.",
+          required: charge.required,
+          balance: charge.balance,
+          upgrade: "/account/coins",
+        }),
+        { status: 402, headers: { "content-type": "application/json" } },
+      );
+    }
+  }
+
   const client = new Anthropic({ apiKey });
 
   try {
     const stream = await client.messages.create({
-      model: "claude-sonnet-4-5-20250929",
+      // Haiku 4.5: 10x mais barato que Sonnet, suficiente pra Q&A sobre transcrição
+      model: "claude-haiku-4-5",
       max_tokens: 1500,
       system: [
         {
@@ -175,6 +220,16 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
+    // Reembolsa coins se chamada à Anthropic falhou
+    if (userId) {
+      try {
+        await creditCoins(userId, COIN_COSTS.chat_message, "refund", {
+          reason: "chat_api_failure",
+        });
+      } catch (refundErr) {
+        console.error("[chat] refund failed", refundErr);
+      }
+    }
     const { error, reqId } = logAndSanitize("api/chat", err);
     return new Response(JSON.stringify({ error, reqId }), {
       status: 500,

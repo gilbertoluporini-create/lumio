@@ -6,14 +6,33 @@ export type User = {
   onboardedAt: string | null;
 };
 
+export type ScheduleSlot = {
+  dayOfWeek: number; // 0=domingo, 1=segunda, ..., 6=sábado
+  startTime: string; // "HH:MM"
+  endTime: string; // "HH:MM"
+  room?: string;
+};
+
 export type Subject = {
   id: string;
   userId: string;
   name: string;
   emoji: string;
   color: string;
+  schedule?: ScheduleSlot[];
   createdAt: string;
 };
+
+export const DAY_LABELS_SHORT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+export const DAY_LABELS_LONG = [
+  "Domingo",
+  "Segunda",
+  "Terça",
+  "Quarta",
+  "Quinta",
+  "Sexta",
+  "Sábado",
+];
 
 export type Slide = {
   pageNumber: number;

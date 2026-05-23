@@ -7,6 +7,8 @@ import {
   Bot,
   Check,
   ChevronLeft,
+  ChevronRight,
+  FileText,
   Layers,
   Loader2,
   Mic,
@@ -21,15 +23,11 @@ import {
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { LumiCharacter, LumiScene } from "@/components/brand/lumi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   LectureSummaryView,
   summaryToMarkdown,
@@ -88,6 +86,8 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [summary, setSummary] = useState<LectureSummary | undefined>(undefined);
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [view, setView] = useState<"live" | "summary">("live");
+  const [leftPanel, setLeftPanel] = useState<"transcript" | "slides">("transcript");
+  const [currentSlideIdx, setCurrentSlideIdx] = useState(0);
   const slidesInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
   const lastTickRef = useRef<number | null>(null);
@@ -224,9 +224,21 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
 
   // Effect responsável por finalizar a gravação: dispara quando speech.state volta a "idle"
   const wasListeningRef = useRef(false);
+  // Auto-switch pra tab Slides quando slides são anexados
+  const lastSlidesLen = useRef(0);
+  useEffect(() => {
+    const len = slides?.length ?? 0;
+    if (len > 0 && lastSlidesLen.current === 0) {
+      setLeftPanel("slides");
+      setCurrentSlideIdx(0);
+    }
+    lastSlidesLen.current = len;
+  }, [slides]);
+
   useEffect(() => {
     if (speech.state === "listening") {
       wasListeningRef.current = true;
+      setLeftPanel("transcript");
       return;
     }
     if (speech.state === "idle" && wasListeningRef.current) {
@@ -636,18 +648,46 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         />
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5 min-h-[70vh]">
-        {/* TRANSCRIPT PANEL */}
+        {/* LEFT PANEL — tabs: Transcrição | Slides */}
         <div className="flex flex-col rounded-xl border border-border/70 bg-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3 bg-card gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
-              <Mic className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">Transcrição</span>
-              {durationSec > 0 && (
-                <span className="text-xs text-muted-foreground font-mono ml-2">
-                  {formatDuration(durationSec)}
-                </span>
-              )}
+          <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5 bg-card gap-2 flex-wrap">
+            <div className="inline-flex rounded-md border border-border/70 bg-background p-0.5">
+              <button
+                onClick={() => setLeftPanel("transcript")}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors flex items-center gap-1.5",
+                  leftPanel === "transcript"
+                    ? "bg-secondary text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <FileText className="h-3.5 w-3.5" />
+                Transcrição
+                {durationSec > 0 && (
+                  <span className="text-[10px] text-muted-foreground/70 font-mono ml-1">
+                    {formatDuration(durationSec)}
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setLeftPanel("slides")}
+                className={cn(
+                  "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors flex items-center gap-1.5",
+                  leftPanel === "slides"
+                    ? "bg-secondary text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Layers className="h-3.5 w-3.5" />
+                Slides
+                {slides && slides.length > 0 && (
+                  <Badge variant="secondary" className="rounded-full px-1.5 py-0 text-[10px]">
+                    {slides.length}
+                  </Badge>
+                )}
+              </button>
             </div>
+
             <div className="flex items-center gap-1.5">
               <input
                 ref={slidesInputRef}
@@ -659,74 +699,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                   if (f) handleSlidesFile(f);
                 }}
               />
-              {slides && slides.length > 0 ? (
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-2">
-                      <Layers className="h-4 w-4 text-primary" />
-                      <span className="max-w-[120px] truncate">
-                        {slidesFileName || "Slides"}
-                      </span>
-                      <Badge variant="secondary" className="rounded-full px-1.5 py-0 text-[10px]">
-                        {slides.length}
-                      </Badge>
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent align="end" className="w-[340px] p-0">
-                    <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
-                      <div className="text-xs font-medium truncate">
-                        {slidesFileName}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={removeSlides}
-                        className="text-muted-foreground hover:text-destructive transition-colors"
-                        title="Remover slides"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <div className="max-h-[260px] overflow-y-auto scrollbar-thin py-1">
-                      {slides.map((s) => (
-                        <div
-                          key={s.pageNumber}
-                          className="px-3 py-2 hover:bg-secondary/40 border-b border-border/40 last:border-b-0"
-                        >
-                          <div className="flex items-center gap-2 text-xs font-medium">
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0">
-                              Slide {s.pageNumber}
-                            </Badge>
-                            {s.title && (
-                              <span className="truncate">{s.title}</span>
-                            )}
-                          </div>
-                          {s.text && (
-                            <p className="mt-1 text-xs text-muted-foreground line-clamp-2 leading-snug">
-                              {s.text.slice(0, 160)}
-                              {s.text.length > 160 && "…"}
-                            </p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </PopoverContent>
-                </Popover>
-              ) : (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => slidesInputRef.current?.click()}
-                  disabled={attaching}
-                  title="Anexar PDF dos slides"
-                >
-                  {attaching ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Paperclip className="h-4 w-4" />
-                  )}
-                  Anexar slides
-                </Button>
-              )}
               <Button
                 variant={isLive ? "destructive" : "gradient"}
                 size="sm"
@@ -746,7 +718,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
             </div>
           </div>
 
-          {!browserSupported && (
+          {!browserSupported && leftPanel === "transcript" && (
             <div className="border-b border-amber-500/30 bg-amber-500/10 px-5 py-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
               <span>
@@ -755,52 +727,70 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
             </div>
           )}
 
-          {speech.error && (
+          {speech.error && leftPanel === "transcript" && (
             <div className="border-b border-destructive/30 bg-destructive/10 px-5 py-3 text-sm text-destructive flex items-start gap-2">
               <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
               <span>{speech.error}</span>
             </div>
           )}
 
-          <div
-            ref={transcriptBoxRef}
-            className="flex-1 overflow-y-auto p-5 scrollbar-thin"
-          >
-            {transcript || interim ? (
-              <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                {transcript}
-                {interim && (
-                  <span className="text-muted-foreground italic ml-1">
-                    {" "}
-                    {interim}
-                  </span>
-                )}
-                {isLive && (
-                  <span className="inline-block ml-1 h-4 w-0.5 bg-primary align-middle animate-pulse" />
+          {leftPanel === "transcript" ? (
+            <>
+              <div
+                ref={transcriptBoxRef}
+                className="flex-1 overflow-y-auto p-5 scrollbar-thin"
+              >
+                {transcript || interim ? (
+                  <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
+                    {transcript}
+                    {interim && (
+                      <span className="text-muted-foreground italic ml-1">
+                        {" "}
+                        {interim}
+                      </span>
+                    )}
+                    {isLive && (
+                      <span className="inline-block ml-1 h-4 w-0.5 bg-primary align-middle animate-pulse" />
+                    )}
+                  </div>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-center py-12">
+                    <div className="mb-2">
+                      <LumiCharacter mood={isLive ? "recording" : "default"} size="lg" float />
+                    </div>
+                    <p className="text-base font-semibold">
+                      {isLive ? "Tô ouvindo…" : "Pronto pra começar?"}
+                    </p>
+                    <p className="mt-1.5 text-xs text-muted-foreground max-w-xs">
+                      {isLive
+                        ? "A transcrição aparece aqui assim que o Lumi reconhecer as primeiras palavras."
+                        : "Clique em \"Iniciar\" e o Lumio começa a transcrever em tempo real. Você também pode colar o texto na caixa abaixo."}
+                    </p>
+                  </div>
                 )}
               </div>
-            ) : (
-              <div className="h-full flex flex-col items-center justify-center text-center py-12">
-                <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/20">
-                  <Mic className="h-6 w-6 text-primary" />
-                </div>
-                <p className="text-sm font-medium">Pronto pra começar?</p>
-                <p className="mt-1 text-xs text-muted-foreground max-w-xs">
-                  Clique em &quot;Iniciar&quot; e o Lumio começa a transcrever em tempo real. Você também pode colar o texto na caixa abaixo.
-                </p>
-              </div>
-            )}
-          </div>
 
-          <div className="border-t border-border/60 p-3 bg-card">
-            <Textarea
-              placeholder="Edite ou cole a transcrição manualmente aqui…"
-              value={transcript}
-              onChange={(e) => setTranscript(e.target.value)}
-              onBlur={() => persist({ transcript })}
-              className="min-h-[80px] text-sm scrollbar-thin"
+              <div className="border-t border-border/60 p-3 bg-card">
+                <Textarea
+                  placeholder="Edite ou cole a transcrição manualmente aqui…"
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  onBlur={() => persist({ transcript })}
+                  className="min-h-[80px] text-sm scrollbar-thin"
+                />
+              </div>
+            </>
+          ) : (
+            <SlidesViewer
+              slides={slides}
+              slidesFileName={slidesFileName}
+              attaching={attaching}
+              currentIdx={currentSlideIdx}
+              onSelect={setCurrentSlideIdx}
+              onAttachClick={() => slidesInputRef.current?.click()}
+              onRemove={removeSlides}
             />
-          </div>
+          )}
         </div>
 
         {/* CHAT PANEL */}
@@ -820,13 +810,13 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
             className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin"
           >
             {messages.length === 0 && !streamingReply && (
-              <div className="h-full flex flex-col items-center justify-center text-center py-12">
-                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/20">
-                  <Bot className="h-5 w-5 text-primary" />
+              <div className="h-full flex flex-col items-center justify-center text-center py-8">
+                <div className="mb-2">
+                  <LumiCharacter mood="thinking" size="md" float />
                 </div>
-                <p className="text-sm font-medium">Pergunte sobre a aula</p>
+                <p className="text-sm font-semibold">Pergunte sobre a aula</p>
                 <p className="mt-1 text-xs text-muted-foreground max-w-[260px]">
-                  A IA enxerga toda a transcrição. Tire dúvidas, peça resumos ou explicações.
+                  O Lumi enxerga toda a transcrição e os slides. Tire dúvidas, peça resumos ou explicações.
                 </p>
                 <div className="mt-5 flex flex-wrap gap-2 justify-center max-w-sm">
                   {SUGGESTED_PROMPTS.map((p) => (
@@ -919,11 +909,13 @@ function SummaryPane({
 }) {
   if (generating && !summary) {
     return (
-      <div className="rounded-xl border border-border/70 bg-card p-12 text-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+      <div className="rounded-2xl border border-border/70 bg-card p-12 text-center">
+        <div className="flex justify-center mb-3">
+          <LumiScene scene="funnel-summary" className="w-[280px]" float />
+        </div>
         <h3 className="text-base font-semibold">Gerando resumo da aula…</h3>
         <p className="text-sm text-muted-foreground mt-2">
-          A IA está correlacionando a transcrição
+          O Lumi tá correlacionando a transcrição
           {slides && slides.length > 0 ? `, os ${slides.length} slides` : ""}
           {lecture.messages.length > 0 ? " e as perguntas do chat" : ""}.
           Pode levar alguns segundos.
@@ -933,9 +925,9 @@ function SummaryPane({
   }
   if (!summary) {
     return (
-      <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-12 text-center">
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/20">
-          <Sparkles className="h-6 w-6 text-primary" />
+      <div className="rounded-2xl border border-dashed border-border/60 bg-card/40 p-12 text-center">
+        <div className="flex justify-center mb-3">
+          <LumiCharacter mood="thinking" size="lg" float />
         </div>
         <h3 className="text-base font-semibold">Nenhum resumo ainda</h3>
         <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
@@ -996,3 +988,174 @@ const SUGGESTED_PROMPTS = [
   "Crie 5 questões pra revisão",
   "Explica de novo a parte mais difícil",
 ];
+
+function SlidesViewer({
+  slides,
+  slidesFileName,
+  attaching,
+  currentIdx,
+  onSelect,
+  onAttachClick,
+  onRemove,
+}: {
+  slides: Slide[] | undefined;
+  slidesFileName: string | undefined;
+  attaching: boolean;
+  currentIdx: number;
+  onSelect: (idx: number) => void;
+  onAttachClick: () => void;
+  onRemove: () => void;
+}) {
+  if (!slides || slides.length === 0) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
+        <div className="mb-3">
+          {attaching ? (
+            <LumiCharacter mood="generating" size="lg" float />
+          ) : (
+            <LumiCharacter mood="reading-pdf" size="lg" float />
+          )}
+        </div>
+        <h3 className="text-base font-semibold">
+          {attaching ? "Lendo os slides…" : "Anexe os slides da aula"}
+        </h3>
+        <p className="mt-1.5 text-sm text-muted-foreground max-w-xs">
+          {attaching
+            ? "O Lumi tá processando o PDF e extraindo o conteúdo de cada slide."
+            : "Envie o PDF que o professor disponibilizou. O Lumi vai correlacionar cada slide com a transcrição e o chat."}
+        </p>
+        <Button
+          variant="gradient"
+          size="lg"
+          className="mt-6"
+          onClick={onAttachClick}
+          disabled={attaching}
+        >
+          {attaching ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" /> Processando…
+            </>
+          ) : (
+            <>
+              <Paperclip className="h-4 w-4" /> Anexar PDF dos slides
+            </>
+          )}
+        </Button>
+        <p className="mt-3 text-[11px] text-muted-foreground/70">
+          PDF até 20MB · ~16 coins por aula
+        </p>
+      </div>
+    );
+  }
+
+  const safeIdx = Math.min(Math.max(currentIdx, 0), slides.length - 1);
+  const current = slides[safeIdx];
+  const goPrev = () => onSelect(Math.max(0, safeIdx - 1));
+  const goNext = () => onSelect(Math.min(slides.length - 1, safeIdx + 1));
+
+  return (
+    <div className="flex-1 flex flex-col min-h-0">
+      {/* Toolbar com filename + remove */}
+      <div className="flex items-center justify-between border-b border-border/60 px-4 py-2 bg-card/60">
+        <div className="flex items-center gap-2 min-w-0">
+          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+          <span className="text-xs text-muted-foreground truncate">
+            {slidesFileName || "slides.pdf"}
+          </span>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs font-mono text-muted-foreground">
+            {safeIdx + 1} / {slides.length}
+          </span>
+          <button
+            onClick={onRemove}
+            className="text-muted-foreground hover:text-destructive transition-colors"
+            title="Remover slides"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Slide grande */}
+      <div className="relative flex-1 min-h-0 bg-muted/30 flex items-center justify-center p-4 overflow-hidden">
+        {current?.imageDataUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={current.imageDataUrl}
+            alt={`Slide ${current.pageNumber}${current.title ? " — " + current.title : ""}`}
+            className="max-h-full max-w-full object-contain rounded-md shadow-lg ring-1 ring-border/40"
+          />
+        ) : (
+          <div className="text-sm text-muted-foreground">Imagem indisponível</div>
+        )}
+
+        {/* Nav buttons sobre a imagem */}
+        {safeIdx > 0 && (
+          <button
+            onClick={goPrev}
+            className="absolute left-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-background/90 backdrop-blur border border-border/60 shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+            aria-label="Slide anterior"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
+        {safeIdx < slides.length - 1 && (
+          <button
+            onClick={goNext}
+            className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-background/90 backdrop-blur border border-border/60 shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
+            aria-label="Próximo slide"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* Título + texto extraído pelo Vision */}
+      {(current?.title || current?.text) && (
+        <div className="border-t border-border/60 px-4 py-3 bg-card/40 max-h-[120px] overflow-y-auto scrollbar-thin">
+          {current.title && (
+            <div className="text-xs font-semibold mb-1">{current.title}</div>
+          )}
+          {current.text && (
+            <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-3">
+              {current.text}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* Strip de thumbnails */}
+      <div className="border-t border-border/60 bg-card p-2">
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-thin pb-1">
+          {slides.map((s, idx) => (
+            <button
+              key={s.pageNumber}
+              onClick={() => onSelect(idx)}
+              className={cn(
+                "shrink-0 rounded-md overflow-hidden border-2 transition-all",
+                idx === safeIdx
+                  ? "border-primary shadow-sm scale-105"
+                  : "border-transparent hover:border-border opacity-70 hover:opacity-100",
+              )}
+              title={`Slide ${s.pageNumber}${s.title ? " — " + s.title : ""}`}
+            >
+              {s.imageDataUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={s.imageDataUrl}
+                  alt={`thumb ${s.pageNumber}`}
+                  className="h-14 w-20 object-cover bg-white"
+                />
+              ) : (
+                <div className="h-14 w-20 bg-muted flex items-center justify-center text-[10px] text-muted-foreground">
+                  {s.pageNumber}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}

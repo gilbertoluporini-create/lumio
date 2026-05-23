@@ -35,9 +35,12 @@ create table if not exists subjects (
   user_id uuid not null references auth.users on delete cascade,
   name text not null,
   color text not null default 'from-indigo-500 to-violet-500',
+  schedule jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
 create index if not exists subjects_user_id_idx on subjects (user_id);
+-- Migração idempotente: adiciona coluna em DBs que já existiam sem ela
+alter table subjects add column if not exists schedule jsonb not null default '[]'::jsonb;
 
 create table if not exists lectures (
   id uuid primary key default gen_random_uuid(),

@@ -1,8 +1,13 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { LIMITS, logAndSanitize, looksLikePdfBomb, sniffMagic } from "@/lib/api-security";
+import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// PDF grande + Vision pode demorar bastante — Vercel Pro permite até 300s,
+// dev/Hobby fica em 60s mas a tentativa de timeout aqui ajuda no dev local.
+export const maxDuration = 300;
 
 const SYSTEM_PROMPT = `Você é um extrator de conteúdo de apresentações de slides acadêmicas (PDF disponibilizado pelo professor).
 
@@ -112,6 +117,50 @@ export async function POST(req: Request) {
     });
   }
 
+  // Gate de coins (somente quando Supabase configurado)
+  const supabaseEnabled = !!(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+  let userId: string | null = null;
+  if (supabaseEnabled) {
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return Response.json(
+        { error: "Configuração de servidor incompleta." },
+        { status: 503 },
+      );
+    }
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return Response.json(
+        { error: "Faça login pra anexar slides." },
+        { status: 401 },
+      );
+    }
+    userId = user.id;
+
+    const charge = await chargeCoins(
+      user.id,
+      COIN_COSTS.extract_slides,
+      "slides",
+      { file_name: file.name, size_bytes: file.size },
+    );
+    if (!charge.ok) {
+      return Response.json(
+        {
+          error: `Saldo insuficiente. Anexar slides custa ${charge.required} coins, você tem ${charge.balance}.`,
+          required: charge.required,
+          balance: charge.balance,
+          upgrade: "/account/coins",
+        },
+        { status: 402 },
+      );
+    }
+  }
+
   const client = new Anthropic({ apiKey });
 
   try {
@@ -147,12 +196,23 @@ export async function POST(req: Request) {
     const slides = tryParseJson(raw);
 
     if (!slides || slides.length === 0) {
+      // Parsing falhou — devolve os coins porque nada usável foi entregue
+      if (userId) {
+        try {
+          await creditCoins(userId, COIN_COSTS.extract_slides, "refund", {
+            reason: "extract_slides_no_content",
+            file_name: file.name,
+          });
+        } catch (refundErr) {
+          console.error("[extract-slides] refund (no content) failed", refundErr);
+        }
+      }
       return Response.json(
         {
           fileName: file.name,
           slides: [],
           error:
-            "Não consegui extrair slides do PDF. Verifique se o arquivo está legível e tente de novo.",
+            "Não consegui extrair slides do PDF. Coins devolvidos. Tenta de novo ou envia um PDF mais legível.",
         },
         { status: 200 },
       );
@@ -160,6 +220,24 @@ export async function POST(req: Request) {
 
     return Response.json({ fileName: file.name, slides });
   } catch (err) {
-    return Response.json(logAndSanitize("api/extract-slides", err), { status: 500 });
+    if (userId) {
+      try {
+        await creditCoins(userId, COIN_COSTS.extract_slides, "refund", {
+          reason: "extract_slides_api_failure",
+          file_name: file.name,
+          error_message: (err as Error)?.message?.slice(0, 200),
+        });
+      } catch (refundErr) {
+        console.error("[extract-slides] refund failed", refundErr);
+      }
+    }
+    console.error("[extract-slides] error:", err);
+    return Response.json(
+      {
+        ...logAndSanitize("api/extract-slides", err),
+        refunded: !!userId,
+      },
+      { status: 500 },
+    );
   }
 }

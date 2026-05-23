@@ -102,7 +102,9 @@ export async function proxy(request: NextRequest) {
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/lecture") ||
     pathname.startsWith("/onboarding") ||
-    pathname.startsWith("/admin");
+    pathname.startsWith("/admin") ||
+    pathname.startsWith("/schedule") ||
+    pathname.startsWith("/account");
 
   if (requiresAuth && !user) {
     const loginUrl = request.nextUrl.clone();

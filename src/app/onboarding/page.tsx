@@ -7,6 +7,7 @@ import {
   FileUp,
   GraduationCap,
   Loader2,
+  Mic,
   Plus,
   Sparkles,
   Upload,
@@ -23,14 +24,20 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { LumioWordmark } from "@/components/brand/logo";
+import { LumiCharacter, LumiScene } from "@/components/brand/lumi";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ColorPicker } from "@/components/app/emoji-color-picker";
 import { getCurrentUserAsync, markOnboardedAsync } from "@/lib/auth";
 import { bulkCreateSubjectsAsync } from "@/lib/db";
-import { SUBJECT_PALETTE } from "@/lib/types";
+import { SUBJECT_PALETTE, type ScheduleSlot } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type DraftSubject = { name: string; emoji: string; color: string };
+type DraftSubject = {
+  name: string;
+  emoji: string;
+  color: string;
+  schedule: ScheduleSlot[];
+};
 
 function defaultColorForIndex(idx: number): string {
   return SUBJECT_PALETTE[idx % SUBJECT_PALETTE.length].color;
@@ -57,7 +64,10 @@ export default function OnboardingPage() {
     });
   }, [router]);
 
-  function addSubject(name: string, opts?: { color?: string }) {
+  function addSubject(
+    name: string,
+    opts?: { color?: string; schedule?: ScheduleSlot[] },
+  ) {
     const trimmed = name.trim();
     if (!trimmed) return false;
     if (subjects.find((s) => s.name.toLowerCase() === trimmed.toLowerCase())) {
@@ -67,6 +77,7 @@ export default function OnboardingPage() {
       name: trimmed,
       emoji: "",
       color: opts?.color || defaultColorForIndex(subjects.length),
+      schedule: opts?.schedule ?? [],
     };
     setSubjects((prev) => [...prev, subject]);
     return true;
@@ -117,23 +128,52 @@ export default function OnboardingPage() {
         toast.error(data?.error || "Erro ao processar a grade.", { id: t });
         return;
       }
-      const extracted: Array<{ name: string }> = data.subjects || [];
+      const extracted: Array<{ name: string; schedule?: ScheduleSlot[] }> =
+        data.subjects || [];
       if (extracted.length === 0) {
         toast.error(data?.error || "Não encontrei matérias na grade.", { id: t });
         return;
       }
-      let added = 0;
+      // Batch: monta as novas matérias com cores distintas (cíclico pela palette)
+      // antes de chamar setSubjects, senão o subjects.length stale faz tudo ficar
+      // com a mesma cor.
+      const existing = subjects;
+      const newOnes: DraftSubject[] = [];
+      let withSchedule = 0;
       for (const s of extracted) {
-        if (addSubject(s.name)) added++;
+        const trimmed = s.name.trim();
+        if (!trimmed) continue;
+        const dupExisting = existing.some(
+          (x) => x.name.toLowerCase() === trimmed.toLowerCase(),
+        );
+        const dupInBatch = newOnes.some(
+          (x) => x.name.toLowerCase() === trimmed.toLowerCase(),
+        );
+        if (dupExisting || dupInBatch) continue;
+        const sched = Array.isArray(s.schedule) ? s.schedule : [];
+        const colorIdx = existing.length + newOnes.length;
+        newOnes.push({
+          name: trimmed,
+          emoji: "",
+          color: defaultColorForIndex(colorIdx),
+          schedule: sched,
+        });
+        if (sched.length > 0) withSchedule++;
       }
+      const added = newOnes.length;
+      if (added > 0) {
+        setSubjects((prev) => [...prev, ...newOnes]);
+      }
+      const scheduleNote =
+        withSchedule > 0 ? ` (${withSchedule} com horários)` : "";
       if (data.demo) {
         toast.warning(
-          `Modo demo: adicionei ${added} matéria${added === 1 ? "" : "s"} de exemplo. Configure ANTHROPIC_API_KEY pra extração real.`,
+          `Modo demo: adicionei ${added} matéria${added === 1 ? "" : "s"} de exemplo${scheduleNote}. Configure ANTHROPIC_API_KEY pra extração real.`,
           { id: t, duration: 6000 },
         );
       } else {
         toast.success(
-          `${added} matéria${added === 1 ? "" : "s"} extraída${added === 1 ? "" : "s"} da grade.`,
+          `${added} matéria${added === 1 ? "" : "s"} extraída${added === 1 ? "" : "s"}${scheduleNote}.`,
           { id: t },
         );
       }
@@ -191,17 +231,79 @@ export default function OnboardingPage() {
 
       <main className="relative z-10 mx-auto max-w-3xl px-6 pb-16">
         <div className="text-center mb-10">
+          <div className="flex justify-center mb-3">
+            <LumiScene scene="writing-notes" className="w-[200px]" float />
+          </div>
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/60 backdrop-blur px-3 py-1 text-xs">
-            <Sparkles className="h-3 w-3 text-primary" /> Configurando suas matérias
+            <Sparkles className="h-3 w-3 text-primary" />
+            <span>Setup rápido · leva ~30 segundos</span>
           </div>
           <h1 className="text-4xl md:text-5xl font-semibold tracking-tight">
-            Olá{userName ? `, ${userName}` : ""}.{" "}
-            <span className="gradient-text">Suas matérias</span>.
+            Oi{userName ? `, ${userName}` : ""}.{" "}
+            <span className="gradient-text">Eu sou o Lumi</span>.
           </h1>
           <p className="mt-3 text-muted-foreground max-w-xl mx-auto">
-            Adicione manualmente ou suba sua grade horária e a IA extrai pra você. Pode editar
-            depois.
+            Vou te ajudar a organizar suas matérias pra você gravar a primeira aula. Pode editar
+            tudo depois no dashboard.
           </p>
+        </div>
+
+        {/* Como funciona — 3 passos */}
+        <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {[
+            {
+              n: "1",
+              label: "Adicione matérias",
+              hint: "Manual ou via grade",
+              icon: GraduationCap,
+              active: true,
+            },
+            {
+              n: "2",
+              label: "Grave a aula",
+              hint: "Chat IA enquanto rola",
+              icon: Mic,
+            },
+            {
+              n: "3",
+              label: "Receba o resumo",
+              hint: "Slides + Q&A juntos",
+              icon: Sparkles,
+            },
+          ].map(({ n, label, hint, icon: Icon, active }) => (
+            <div
+              key={n}
+              className={cn(
+                "relative rounded-xl border bg-card/60 backdrop-blur-xl p-3.5 transition-all",
+                active
+                  ? "border-primary/60 shadow-lg shadow-primary/10"
+                  : "border-border/60 opacity-70",
+              )}
+            >
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-xs font-semibold",
+                    active
+                      ? "bg-gradient-to-br from-primary to-fuchsia-500 text-white shadow-md"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {n}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium leading-tight truncate">{label}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{hint}</p>
+                </div>
+                <Icon
+                  className={cn(
+                    "h-4 w-4 shrink-0",
+                    active ? "text-primary" : "text-muted-foreground/60",
+                  )}
+                />
+              </div>
+            </div>
+          ))}
         </div>
 
         {/* UPLOAD DA GRADE */}
@@ -285,8 +387,7 @@ export default function OnboardingPage() {
               <GraduationCap className="h-5 w-5 text-primary" /> Adicione suas matérias
             </CardTitle>
             <CardDescription>
-              Digite o nome da sua matéria. O emoji e a cor são escolhidos automaticamente
-              (você pode trocar).
+              Digite o nome da matéria. A cor é escolhida automaticamente — clique no quadrado pra trocar.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -347,6 +448,11 @@ export default function OnboardingPage() {
                     <div
                       key={s.name}
                       className="group flex items-center gap-2 rounded-full border border-border/70 bg-background pl-2 pr-1 py-1 hover:border-primary/40 transition-colors"
+                      title={
+                        s.schedule.length > 0
+                          ? `${s.schedule.length} horário${s.schedule.length === 1 ? "" : "s"} extraído${s.schedule.length === 1 ? "" : "s"}`
+                          : undefined
+                      }
                     >
                       <span
                         className={cn(
@@ -355,6 +461,11 @@ export default function OnboardingPage() {
                         )}
                       />
                       <span className="text-sm pr-1 max-w-[200px] truncate">{s.name}</span>
+                      {s.schedule.length > 0 && (
+                        <span className="text-[10px] text-primary bg-primary/10 rounded-full px-1.5 py-0.5 font-medium">
+                          {s.schedule.length}h
+                        </span>
+                      )}
                       <button
                         type="button"
                         onClick={() => removeSubject(s.name)}
