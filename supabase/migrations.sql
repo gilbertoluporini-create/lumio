@@ -108,7 +108,14 @@ create trigger lecture_assets_touch before update on lecture_assets
   for each row execute function public.touch_updated_at();
 
 -- ============================================================================
--- 7) Storage bucket pra PDFs originais (uploadados)
+-- 7) Subscriptions: aceitar planos novos (starter, pro, power)
+-- ============================================================================
+alter table subscriptions drop constraint if exists subscriptions_plan_check;
+alter table subscriptions add constraint subscriptions_plan_check
+  check (plan in ('free', 'starter', 'pro', 'power', 'annual'));
+
+-- ============================================================================
+-- 8) Storage bucket pra PDFs originais (uploadados)
 -- ============================================================================
 -- Rodar manualmente no Supabase Dashboard → Storage:
 --   1. Criar bucket "lecture-uploads" (private)

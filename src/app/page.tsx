@@ -559,10 +559,21 @@ export default function LandingPage() {
       <footer className="relative z-10 border-t border-border/40 bg-card/30 mt-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 sm:flex-row">
           <LumioWordmark className="opacity-80" />
+          <nav className="flex items-center gap-5 text-xs text-muted-foreground">
+            <Link href="/terms" className="hover:text-foreground transition-colors">
+              Termos
+            </Link>
+            <Link href="/privacy" className="hover:text-foreground transition-colors">
+              Privacidade
+            </Link>
+            <Link href="/login" className="hover:text-foreground transition-colors">
+              Entrar
+            </Link>
+          </nav>
           <p className="text-xs text-muted-foreground flex items-center gap-1.5">
             © {new Date().getFullYear()} Lumio · Feito com
             <Coffee className="h-3 w-3 text-amber-700" />
-            pra quem estuda de verdade.
+            pra quem estuda.
           </p>
         </div>
       </footer>
