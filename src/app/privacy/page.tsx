@@ -55,10 +55,10 @@ export default function PrivacyPage() {
             Lumio. Pra exercer seus direitos ou tirar dúvidas sobre privacidade,
             entre em contato:{" "}
             <a
-              href="mailto:privacidade@lumio.fun"
+              href="mailto:privacidade@lumioapp.net"
               className="text-primary hover:underline"
             >
-              privacidade@lumio.fun
+              privacidade@lumioapp.net
             </a>
             .
           </p>
@@ -298,10 +298,10 @@ export default function PrivacyPage() {
           <p>
             Pra exercer qualquer um desses direitos, escreva pra{" "}
             <a
-              href="mailto:privacidade@lumio.fun"
+              href="mailto:privacidade@lumioapp.net"
               className="text-primary hover:underline"
             >
-              privacidade@lumio.fun
+              privacidade@lumioapp.net
             </a>
             . Respondemos em até <strong>15 dias</strong>.
           </p>
@@ -354,10 +354,10 @@ export default function PrivacyPage() {
           <p>
             Encarregado pelo Tratamento de Dados Pessoais:{" "}
             <a
-              href="mailto:dpo@lumio.fun"
+              href="mailto:dpo@lumioapp.net"
               className="text-primary hover:underline"
             >
-              dpo@lumio.fun
+              dpo@lumioapp.net
             </a>
             .
           </p>

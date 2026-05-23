@@ -259,10 +259,10 @@ export default function TermsPage() {
           <p>
             Dúvidas sobre estes Termos? Manda email pra{" "}
             <a
-              href="mailto:contato@lumio.fun"
+              href="mailto:contato@lumioapp.net"
               className="text-primary hover:underline"
             >
-              contato@lumio.fun
+              contato@lumioapp.net
             </a>
             .
           </p>

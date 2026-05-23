@@ -176,7 +176,7 @@ function SettingsView({ user }: { user: User }) {
                 size="sm"
                 onClick={() =>
                   toast.info(
-                    "Pra excluir sua conta, fala com a gente: hello@lumio.fun",
+                    "Pra excluir sua conta, fala com a gente: hello@lumioapp.net",
                   )
                 }
               >

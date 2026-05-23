@@ -1,19 +1,27 @@
-# ESTADO — Lumio (snapshot pós-noite-de-trabalho-autônoma)
+# ESTADO — Lumio (snapshot pra resistir a compact)
 
-> Última atualização: 2026-05-23 (madrugada). Snapshot que resiste a compact.
+> Última atualização: 2026-05-23 (tarde, próximo do deploy). Resume tudo crítico.
+
+## ⚡ AUTONOMIA: você (Claude) tem autonomia pra agir
+- Faça commits a cada milestone (mas NÃO push automático)
+- Edite código sem pedir confirmação a cada passo
+- Cuidado só com ações destrutivas (rm -rf, drop table, force push)
+- Quando o user pede "implementa X", implementa direto sem refazer perguntas que já dá pra inferir
 
 ## Pitch
-SaaS de transcrição de aulas (Web Speech API) + chat IA contextual (Claude Haiku) + slides do professor (Vision Sonnet) + **produtos gerados** (resumos, flash cards, quiz, mapa mental) que ficam organizados em **subpastas por aula → matéria**. Mascote **Lumi** (lâmpada-criatura) e moeda **Lumio Coin** (3D roxa com "+") em todo o app. Mercado: estudantes universitários BR.
+SaaS de transcrição de aulas (Web Speech API) + chat IA contextual (Claude Haiku) + slides do professor (Vision Sonnet) + **produtos gerados** (resumos, flash cards, quiz, mapa mental) que ficam organizados em **subpastas por aula → matéria**. Mascote **Lumi** (lâmpada) + moeda **Lumio Coin** 3D roxa com "+". Mercado: estudantes universitários BR.
 
 ## Repositório / Infra
 - Local: `/Users/gilbertoluporini/lumio`
 - GitHub: https://github.com/gilbertoluporini-create/lumio
 - Dev: http://localhost:3001
-- Domínio: **lumio.fun** (a comprar)
-- Supabase: `pcatjumfdcxuthefixzf.supabase.co` (configurado, migrations parcialmente rodadas — VER PENDÊNCIAS)
-- Anthropic: configurado ✅
-- Stripe: pendente
-- Resend: pendente
+- Domínio: **lumioapp.net** ✅ COMPRADO (Hostinger, ~$14/ano, expira 2027-05-23)
+  - **Pending verification** (email pra `gilbertoluporini@gmail.com` deve ser clicado até 2026-06-07)
+  - Nameservers atuais: `apollo.dns-parking.com` + `athena.dns-parking.com` (parking — trocar)
+- Supabase: `pcatjumfdcxuthefixzf.supabase.co` ✅ Migration completa rodada (lecture_assets + monthly_lectures + subscriptions constraint atualizado)
+- Anthropic: ✅ configurado com créditos
+- Stripe: ✅ TEST MODE configurado (Price IDs colados, publishable key colada, secret key colada)
+- Resend: ✅ API key colada (RESEND_API_KEY no .env.local)
 
 ## User principal
 - Email: gilbertoluporini@gmail.com
@@ -23,16 +31,49 @@ SaaS de transcrição de aulas (Web Speech API) + chat IA contextual (Claude Hai
 
 ---
 
-## 🚨 PRIMEIRA COISA AO ACORDAR — rodar migration nova
+## 🚦 STATUS DE LAUNCH (onde paramos)
 
-**Abrir Supabase SQL Editor e colar `/Users/gilbertoluporini/lumio/supabase/migrations.sql` inteiro.** Ela é idempotente. Sem isso:
-- `monthly_lectures_used` / `monthly_lectures_reset_at` não existem → criar aula vai falhar
-- Tabela `lecture_assets` não existe → gerar resumo / flashcards salva mas asset insert falha (silencioso, mas histórico em /products fica vazio)
+### ✅ Pronto (não precisa mexer)
+- Code-base 100% (4 produtos: summary 10c, flashcards 12c, quiz 15c, mindmap 20c)
+- 18 ícones 3D LumiIcon + mascote Lumi + moeda LumioCoin
+- Landing page profissional + Cmd+K + 404 + streak
+- Security: rate limit + ownership + CSP
+- Termos de Uso (/terms) + Política de Privacidade LGPD (/privacy) — usando emails `contato@lumioapp.net`, `privacidade@lumioapp.net`, `dpo@lumioapp.net`
+- Supabase migration rodada
+- Stripe TEST MODE: 3 Price IDs criados e colados em .env.local:
+  - STARTER: price_1TaN447DBswFpHEmIIWS5XgS
+  - PRO: price_1TaN4i7DBswFpHEmpGEsamVh
+  - POWER: price_1TaN557DBswFpHEmZbGxLN8J
 
-A migration adiciona:
-1. `profiles.monthly_lectures_used` + `monthly_lectures_reset_at`
-2. Tabela `lecture_assets` (id, lecture_id, user_id, kind, payload, coins_spent) + RLS owner-only + trigger updated_at
-3. Comentário com policies de Storage pra bucket `lecture-uploads` (criar depois manualmente)
+### ⏳ EM ANDAMENTO — RETOMAR AQUI APÓS COMPACT
+
+**Próximo passo concreto: DEPLOY VERCEL**
+
+1. **User precisa verificar email do domínio** (link no gmail dele)
+2. **Criar conta Vercel** + Import GitHub repo `gilbertoluporini-create/lumio`
+3. **Colar env vars** no Vercel — copia tudo de `.env.local`, MUDA APENAS:
+   - `NEXT_PUBLIC_APP_URL=https://lumioapp.net` (era localhost:3001)
+4. **Deploy**
+
+### 🔜 Sequência depois do deploy
+1. Pegar URL temporária `lumio-xxx.vercel.app` → testar que sobe
+2. Adicionar custom domain `lumioapp.net` no Vercel
+3. Vercel mostra registros DNS — adicionar no painel Hostinger:
+   - DNS / Nameservers → adicionar `A @` → IP da Vercel
+   - `CNAME www` → cname.vercel-dns.com
+   - `TXT` de verificação
+4. **Email forwarding na Hostinger** (free) — apontar contato@/privacidade@/dpo@/dpo@lumioapp.net pro gmail dele
+5. **Webhook Stripe PROD** — criar endpoint `https://lumioapp.net/api/stripe/webhook` (test mode primeiro, depois migrar pra live mode)
+6. **Customer Portal Stripe** — ativar em https://dashboard.stripe.com/test/settings/billing/portal
+7. **Supabase Site URL** — atualizar pra `https://lumioapp.net` no dashboard
+8. Testar checkout end-to-end em modo test
+
+### 🚀 MIGRAR PRA LIVE MODE (quando confiar que test funciona)
+- Toggle "Test mode" → "Live mode" no dashboard Stripe
+- Recriar os 3 produtos no live (Price IDs são diferentes!)
+- Substituir todas as 5 chaves Stripe no Vercel env
+- Stripe pede KYC (CPF/RG/dados bancários)
+- Webhook live apontando pra prod URL
 
 ---
 
