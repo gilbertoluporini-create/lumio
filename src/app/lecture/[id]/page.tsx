@@ -7,9 +7,7 @@ import {
   Bot,
   Check,
   ChevronLeft,
-  FileText,
   Layers,
-  Link2,
   Loader2,
   Mic,
   MicOff,
@@ -19,10 +17,7 @@ import {
   Sparkles,
   Trash2,
   User as UserIcon,
-  X,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
@@ -31,17 +26,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import {
+  LectureSummaryView,
+  summaryToMarkdown,
+} from "@/components/app/lecture-summary-view";
 import {
   appendMessage,
   deleteLecture,
@@ -49,7 +41,15 @@ import {
   getSubject,
   updateLecture,
 } from "@/lib/storage";
-import type { ChatMessage, Lecture, Slide, Subject, User } from "@/lib/types";
+import type {
+  ChatMessage,
+  Lecture,
+  LectureSummary,
+  Slide,
+  Subject,
+  User,
+} from "@/lib/types";
+import { renderPdfToImages } from "@/lib/pdf-render";
 import { cn, formatDuration, generateId } from "@/lib/utils";
 import {
   isSpeechRecognitionSupported,
@@ -85,9 +85,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [slides, setSlides] = useState<Slide[] | undefined>(undefined);
   const [slidesFileName, setSlidesFileName] = useState<string | undefined>(undefined);
   const [attaching, setAttaching] = useState(false);
-  const [correlating, setCorrelating] = useState(false);
-  const [correlation, setCorrelation] = useState<string | undefined>(undefined);
-  const [correlationOpen, setCorrelationOpen] = useState(false);
+  const [summary, setSummary] = useState<LectureSummary | undefined>(undefined);
+  const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [view, setView] = useState<"live" | "summary">("live");
   const slidesInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
   const sessionStartRef = useRef<number | null>(null);
@@ -125,7 +125,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     setMessages(l.messages || []);
     setSlides(l.slides);
     setSlidesFileName(l.slidesFileName);
-    setCorrelation(l.correlation);
+    setSummary(l.summary);
     const s = getSubject(user.id, l.subjectId);
     setSubject(s);
   }, [user.id, lectureId, router]);
@@ -178,7 +178,14 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         durationSec,
         status: "completed",
       });
-      toast.success("Aula salva.");
+      const hasContent = transcript.trim().length > 50;
+      const hasSlides = !!slides && slides.length > 0;
+      if (hasContent && (hasSlides || messages.length > 0)) {
+        toast.success("Aula salva. Gerando resumo automaticamente…");
+        setTimeout(() => generateSummary({ silent: true }), 400);
+      } else {
+        toast.success("Aula salva.");
+      }
     } else {
       if (!browserSupported) {
         toast.error("Seu navegador não suporta reconhecimento de voz. Use Chrome, Edge ou Safari.");
@@ -224,8 +231,13 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       return;
     }
     setAttaching(true);
-    const t = toast.loading("Lendo slides do PDF…");
+    const t = toast.loading("Renderizando slides do PDF…");
     try {
+      // 1. Rasteriza páginas pra imagens (client-side)
+      const rendered = await renderPdfToImages(file);
+      toast.loading("Extraindo conteúdo de cada slide…", { id: t });
+
+      // 2. Envia o mesmo PDF pro Claude pra extrair texto/título
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch("/api/extract-slides", {
@@ -238,27 +250,43 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         return;
       }
       const extracted: Slide[] = data.slides || [];
-      if (extracted.length === 0) {
-        toast.error(data?.error || "Não foi possível extrair slides.", { id: t });
-        return;
+
+      // 3. Mescla: pageNumber em comum recebe imageDataUrl + title/text
+      const merged: Slide[] = rendered.map((r) => {
+        const match = extracted.find((s) => s.pageNumber === r.pageNumber);
+        return {
+          pageNumber: r.pageNumber,
+          title: match?.title,
+          text: match?.text || "",
+          imageDataUrl: r.imageDataUrl,
+        };
+      });
+
+      // Caso o extrator retorne slides extras (improvável), inclui sem imagem
+      for (const s of extracted) {
+        if (!merged.find((m) => m.pageNumber === s.pageNumber)) {
+          merged.push({ ...s });
+        }
       }
-      setSlides(extracted);
+      merged.sort((a, b) => a.pageNumber - b.pageNumber);
+
+      setSlides(merged);
       setSlidesFileName(data.fileName || file.name);
       persist({
-        slides: extracted,
+        slides: merged,
         slidesFileName: data.fileName || file.name,
         slidesAddedAt: new Date().toISOString(),
       });
       if (data.demo) {
-        toast.warning(`Modo demo: ${extracted.length} slides fictícios. Configure ANTHROPIC_API_KEY pra extração real.`, {
+        toast.warning(`Modo demo: ${merged.length} slides com imagens renderizadas mas texto fictício. Configure ANTHROPIC_API_KEY pra extração real.`, {
           id: t,
           duration: 6000,
         });
       } else {
-        toast.success(`${extracted.length} slide${extracted.length === 1 ? "" : "s"} anexado${extracted.length === 1 ? "" : "s"}.`, { id: t });
+        toast.success(`${merged.length} slide${merged.length === 1 ? "" : "s"} anexado${merged.length === 1 ? "" : "s"} com imagens.`, { id: t });
       }
     } catch (err) {
-      toast.error(`Erro: ${(err as Error).message}`, { id: t });
+      toast.error(`Erro ao processar PDF: ${(err as Error).message}`, { id: t });
     } finally {
       setAttaching(false);
       if (slidesInputRef.current) slidesInputRef.current.value = "";
@@ -277,19 +305,17 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     toast.success("Slides removidos.");
   }
 
-  async function generateCorrelation() {
-    if (correlating) return;
-    if (!slides || slides.length === 0) {
-      toast.error("Anexe os slides primeiro.");
+  async function generateSummary(opts?: { silent?: boolean }) {
+    if (generatingSummary) return;
+    const finalTranscript = (transcript + (interim ? " " + interim : "")).trim();
+    if (!finalTranscript) {
+      if (!opts?.silent) {
+        toast.error("Transcrição vazia. Grave a aula ou cole o texto antes.");
+      }
       return;
     }
-    if (!transcript.trim()) {
-      toast.error("A transcrição está vazia. Grave a aula ou cole o texto antes de correlacionar.");
-      return;
-    }
-    setCorrelating(true);
-    setCorrelation("");
-    setCorrelationOpen(true);
+    setGeneratingSummary(true);
+    const t = opts?.silent ? null : toast.loading("Gerando resumo da aula…");
     try {
       const res = await fetch("/api/correlate", {
         method: "POST",
@@ -297,39 +323,45 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         body: JSON.stringify({
           lectureTitle: lecture?.title,
           subject: subject?.name ?? "Geral",
-          transcript: (transcript + (interim ? " " + interim : "")).trim(),
-          slides,
+          transcript: finalTranscript,
+          slides: slides ?? undefined,
+          messages: messages.map(({ role, content }) => ({ role, content, id: "", createdAt: "" })),
         }),
       });
-      if (!res.ok || !res.body) {
-        const errText = await res.text().catch(() => "");
-        throw new Error(errText || `HTTP ${res.status}`);
+      const data = await res.json();
+      if (!res.ok || !data.summary) {
+        const msg = data?.error || `HTTP ${res.status}`;
+        if (t) toast.error(`Erro: ${msg}`, { id: t });
+        else toast.error(`Erro: ${msg}`);
+        return;
       }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let acc = "";
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        acc += decoder.decode(value, { stream: true });
-        setCorrelation(acc);
+      const s: LectureSummary = data.summary;
+      setSummary(s);
+      persist({ summary: s, summaryUpdatedAt: s.generatedAt });
+      if (data.demo) {
+        if (t) toast.warning("Resumo demo gerado (sem ANTHROPIC_API_KEY).", { id: t });
+      } else {
+        if (t) toast.success("Resumo gerado.", { id: t });
+        else toast.success("Resumo atualizado automaticamente.");
       }
-      persist({ correlation: acc, correlationUpdatedAt: new Date().toISOString() });
-      toast.success("Correlação gerada e salva.");
+      setView("summary");
     } catch (err) {
-      toast.error(`Erro ao correlacionar: ${(err as Error).message}`);
+      const msg = (err as Error).message;
+      if (t) toast.error(`Erro ao gerar resumo: ${msg}`, { id: t });
+      else toast.error(`Erro ao gerar resumo: ${msg}`);
     } finally {
-      setCorrelating(false);
+      setGeneratingSummary(false);
     }
   }
 
-  function downloadCorrelation() {
-    if (!correlation) return;
-    const blob = new Blob([correlation], { type: "text/markdown;charset=utf-8" });
+  function downloadSummaryMd() {
+    if (!summary || !lecture) return;
+    const md = summaryToMarkdown(lecture, subject, summary);
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${(lecture?.title || "aula").replace(/[^\w\-]+/g, "_")}__correlacao.md`;
+    a.download = `${(lecture.title || "aula").replace(/[^\w\-]+/g, "_")}__resumo.md`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -436,35 +468,53 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           </Badge>
         )}
         <div className="ml-auto flex items-center gap-1.5 flex-wrap">
-          {slides && slides.length > 0 && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={generateCorrelation}
-              disabled={correlating}
-              title="Correlacionar slides + transcrição"
+          <div className="inline-flex rounded-md border border-border/70 bg-card p-0.5">
+            <button
+              onClick={() => setView("live")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors flex items-center gap-1.5",
+                view === "live"
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
             >
-              {correlating ? (
+              <Mic className="h-3 w-3" /> Aula
+            </button>
+            <button
+              onClick={() => setView("summary")}
+              className={cn(
+                "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors flex items-center gap-1.5",
+                view === "summary"
+                  ? "bg-secondary text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Sparkles className="h-3 w-3" /> Resumo
+              {summary && (
+                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+              )}
+            </button>
+          </div>
+          {view === "live" && (
+            <Button variant="ghost" size="sm" onClick={saveTranscript}>
+              <Save className="h-4 w-4" /> Salvar
+            </Button>
+          )}
+          {view === "summary" && (
+            <Button
+              variant="gradient"
+              size="sm"
+              onClick={() => generateSummary()}
+              disabled={generatingSummary}
+            >
+              {generatingSummary ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Link2 className="h-4 w-4" />
+                <Sparkles className="h-4 w-4" />
               )}
-              Correlacionar
+              {summary ? "Regenerar resumo" : "Gerar resumo"}
             </Button>
           )}
-          {correlation && !correlating && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setCorrelationOpen(true)}
-              title="Ver última correlação"
-            >
-              <FileText className="h-4 w-4" /> Ver correlação
-            </Button>
-          )}
-          <Button variant="ghost" size="sm" onClick={saveTranscript}>
-            <Save className="h-4 w-4" /> Salvar
-          </Button>
           <Button
             variant="ghost"
             size="icon-sm"
@@ -509,6 +559,17 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         )}
       </div>
 
+      {view === "summary" ? (
+        <SummaryPane
+          lecture={lecture}
+          subject={subject}
+          summary={summary}
+          slides={slides}
+          generating={generatingSummary}
+          onGenerate={() => generateSummary()}
+          onDownload={downloadSummaryMd}
+        />
+      ) : (
       <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5 min-h-[70vh]">
         {/* TRANSCRIPT PANEL */}
         <div className="flex flex-col rounded-xl border border-border/70 bg-card overflow-hidden">
@@ -769,58 +830,67 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           </div>
         </div>
       </div>
-
-      <Dialog open={correlationOpen} onOpenChange={setCorrelationOpen}>
-        <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col p-0">
-          <DialogHeader className="px-6 pt-6 pb-3 border-b border-border/60">
-            <DialogTitle className="flex items-center gap-2">
-              <Link2 className="h-5 w-5 text-primary" />
-              Correlação slides ↔ aula
-            </DialogTitle>
-            <DialogDescription>
-              {correlating
-                ? "A IA está conectando o que está nos slides com o que foi dito na aula…"
-                : `${slides?.length ?? 0} slide${(slides?.length ?? 0) === 1 ? "" : "s"} · documento gerado pelo Lumio`}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin">
-            {correlation ? (
-              <div className="prose prose-sm dark:prose-invert max-w-none prose-headings:font-semibold prose-h1:text-xl prose-h2:text-base prose-h2:mt-6 prose-h2:mb-2 prose-h3:text-sm prose-p:leading-relaxed prose-li:my-0.5 prose-hr:my-4">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {correlation}
-                </ReactMarkdown>
-                {correlating && (
-                  <span className="inline-block ml-1 h-3 w-0.5 bg-primary animate-pulse align-middle" />
-                )}
-              </div>
-            ) : (
-              <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin mr-2" /> Gerando correlação…
-              </div>
-            )}
-          </div>
-          <div className="border-t border-border/60 px-6 py-3 flex items-center justify-between gap-2">
-            <p className="text-xs text-muted-foreground">
-              Salvo automaticamente nesta aula.
-            </p>
-            <div className="flex items-center gap-2">
-              {correlation && !correlating && (
-                <Button variant="ghost" size="sm" onClick={downloadCorrelation}>
-                  <FileText className="h-4 w-4" /> Baixar .md
-                </Button>
-              )}
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setCorrelationOpen(false)}
-              >
-                Fechar
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      )}
     </div>
+  );
+}
+
+function SummaryPane({
+  lecture,
+  subject,
+  summary,
+  slides,
+  generating,
+  onGenerate,
+  onDownload,
+}: {
+  lecture: Lecture;
+  subject: Subject | null;
+  summary: LectureSummary | undefined;
+  slides: Slide[] | undefined;
+  generating: boolean;
+  onGenerate: () => void;
+  onDownload: () => void;
+}) {
+  if (generating && !summary) {
+    return (
+      <div className="rounded-xl border border-border/70 bg-card p-12 text-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto mb-4" />
+        <h3 className="text-base font-semibold">Gerando resumo da aula…</h3>
+        <p className="text-sm text-muted-foreground mt-2">
+          A IA está correlacionando a transcrição
+          {slides && slides.length > 0 ? `, os ${slides.length} slides` : ""}
+          {lecture.messages.length > 0 ? " e as perguntas do chat" : ""}.
+          Pode levar alguns segundos.
+        </p>
+      </div>
+    );
+  }
+  if (!summary) {
+    return (
+      <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-12 text-center">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-primary/10 ring-1 ring-primary/20">
+          <Sparkles className="h-6 w-6 text-primary" />
+        </div>
+        <h3 className="text-base font-semibold">Nenhum resumo ainda</h3>
+        <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+          O resumo é gerado automaticamente quando você pausa a gravação.
+          Você também pode gerar manualmente quando quiser.
+        </p>
+        <Button onClick={onGenerate} variant="gradient" size="lg" className="mt-6" disabled={generating}>
+          <Sparkles className="h-4 w-4" /> Gerar resumo agora
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <LectureSummaryView
+      lecture={lecture}
+      subject={subject}
+      summary={summary}
+      slides={slides}
+      onDownloadMarkdown={onDownload}
+    />
   );
 }
 

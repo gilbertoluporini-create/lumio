@@ -19,6 +19,21 @@ export type Slide = {
   pageNumber: number;
   title?: string;
   text: string;
+  imageDataUrl?: string;
+};
+
+export type LectureSummarySection = {
+  slideNumber?: number;
+  slideTitle?: string;
+  spokenContent: string;
+  relatedQA: Array<{ question: string; answer: string }>;
+};
+
+export type LectureSummary = {
+  generatedAt: string;
+  generalSummary: string;
+  highlights: string[];
+  sections: LectureSummarySection[];
 };
 
 export type Lecture = {
@@ -37,6 +52,8 @@ export type Lecture = {
   slidesAddedAt?: string;
   correlation?: string;
   correlationUpdatedAt?: string;
+  summary?: LectureSummary;
+  summaryUpdatedAt?: string;
 };
 
 export type ChatMessage = {
