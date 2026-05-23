@@ -1,35 +1,53 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowRight, Loader2, Mail, User, Lock } from "lucide-react";
+import { ArrowRight, CheckCircle2, Loader2, Mail, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { signUp } from "@/lib/storage";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 
-export default function SignUpPage() {
+function SignUpInner() {
   const router = useRouter();
+  const params = useSearchParams();
+  const supaOn = isSupabaseConfigured();
   const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (loading) return;
-    if (password.length < 6) {
-      toast.error("Senha precisa ter ao menos 6 caracteres.");
-      return;
-    }
     setLoading(true);
     try {
-      await signUp(email, password, name);
-      toast.success("Conta criada! Vamos configurar suas matérias.");
-      router.push("/onboarding");
+      if (supaOn) {
+        const res = await fetch("/api/auth/magic-link", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            email,
+            name,
+            next: params.get("next") ?? "/onboarding",
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || "Não foi possível enviar o link.");
+        }
+        setSent(true);
+        toast.success("Link de acesso enviado pro seu email.");
+      } else {
+        // Fallback localStorage (modo dev sem Supabase)
+        await signUp(email, crypto.randomUUID(), name);
+        toast.success("Conta criada (modo offline). Configurando matérias…");
+        router.push("/onboarding");
+      }
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -37,12 +55,33 @@ export default function SignUpPage() {
     }
   }
 
+  if (sent) {
+    return (
+      <Card className="w-full max-w-md border-border/80 bg-card/80 backdrop-blur-xl shadow-2xl">
+        <CardHeader className="text-center space-y-2">
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 ring-2 ring-emerald-500/20">
+            <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+          </div>
+          <CardTitle className="text-2xl">Cheque seu email</CardTitle>
+          <CardDescription>
+            Enviamos um link mágico pra <strong>{email}</strong>. Clique nele pra entrar.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-center text-sm text-muted-foreground">
+          <p>O link expira em 10 minutos. Pode fechar essa aba.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="w-full max-w-md border-border/80 bg-card/80 backdrop-blur-xl shadow-2xl">
       <CardHeader className="text-center space-y-2">
         <CardTitle className="text-2xl">Criar conta</CardTitle>
         <CardDescription>
-          Comece a transcrever suas aulas em segundos.
+          {supaOn
+            ? "Receba um link mágico por email pra entrar — sem senha."
+            : "Modo offline: dados ficam no navegador (pra desenvolvimento)."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -79,35 +118,12 @@ export default function SignUpPage() {
               />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="password">Senha</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Mínimo 6 caracteres"
-                className="pl-9"
-                required
-                minLength={6}
-              />
-            </div>
-          </div>
-          <Button
-            type="submit"
-            variant="gradient"
-            size="lg"
-            className="w-full"
-            disabled={loading}
-          >
+          <Button type="submit" variant="gradient" size="lg" className="w-full" disabled={loading}>
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <>
-                Criar conta <ArrowRight className="h-4 w-4" />
+                {supaOn ? "Enviar link mágico" : "Criar conta"} <ArrowRight className="h-4 w-4" />
               </>
             )}
           </Button>
@@ -117,12 +133,16 @@ export default function SignUpPage() {
               Entrar
             </Link>
           </p>
-          <p className="text-center text-xs text-muted-foreground pt-2">
-            Ao criar a conta, você concorda com a beta. Seus dados ficam no seu navegador
-            até você conectar o Supabase.
-          </p>
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+export default function SignUpPage() {
+  return (
+    <Suspense fallback={null}>
+      <SignUpInner />
+    </Suspense>
   );
 }

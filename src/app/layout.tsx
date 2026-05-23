@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Instrument_Serif } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
 import { ThemeScript } from "@/components/theme-script";
+import { SmoothScroll } from "@/components/landing/smooth-scroll";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -49,7 +50,7 @@ export default function RootLayout({
         <ThemeScript />
       </head>
       <body className="min-h-full bg-background text-foreground">
-        {children}
+        <SmoothScroll>{children}</SmoothScroll>
         <Toaster
           position="bottom-right"
           theme="system"

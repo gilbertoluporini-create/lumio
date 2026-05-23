@@ -34,10 +34,15 @@ import {
 } from "@/components/landing/motion";
 import { LiveDemo } from "@/components/landing/live-demo";
 import { Highlighter, PencilUnderline } from "@/components/landing/highlighter";
+import { Magnetic } from "@/components/landing/magnetic";
+import { SpotlightCursor } from "@/components/landing/spotlight";
+import { LogosRow } from "@/components/landing/logos-row";
+import { PricingSection } from "@/components/landing/pricing-section";
 
 export default function LandingPage() {
   return (
     <div className="relative min-h-screen overflow-x-hidden">
+      <SpotlightCursor />
       {/* Subtle paper-grid */}
       <div className="pointer-events-none fixed inset-0 grid-bg opacity-40" />
       <div
@@ -76,11 +81,13 @@ export default function LandingPage() {
             <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
               <Link href="/login">Entrar</Link>
             </Button>
-            <Button asChild variant="gradient" size="sm">
-              <Link href="/signup">
-                Começar grátis <ArrowRight className="h-3.5 w-3.5" />
-              </Link>
-            </Button>
+            <Magnetic strength={0.2}>
+              <Button asChild variant="gradient" size="sm">
+                <Link href="/signup">
+                  Começar grátis <ArrowRight className="h-3.5 w-3.5" />
+                </Link>
+              </Button>
+            </Magnetic>
           </div>
         </nav>
       </motion.header>
@@ -98,7 +105,7 @@ export default function LandingPage() {
             >
               <span className="h-px w-8 bg-foreground/30" />
               <span className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium">
-                Lumio · Beta
+                Transcrição + IA pra aulas universitárias
               </span>
             </motion.div>
 
@@ -135,16 +142,18 @@ export default function LandingPage() {
               transition={{ delay: 0.5, duration: 0.6 }}
               className="mt-9 flex flex-col sm:flex-row items-start sm:items-center gap-3"
             >
-              <Button asChild variant="gradient" size="xl" className="min-w-[200px]">
-                <Link href="/signup">
-                  Começar grátis <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
+              <Magnetic strength={0.22}>
+                <Button asChild variant="gradient" size="xl" className="min-w-[200px]">
+                  <Link href="/signup">
+                    Começar grátis <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </Magnetic>
               <Link
-                href="#how"
+                href="#pricing"
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1.5 group"
               >
-                Como funciona
+                Ver planos
                 <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
               </Link>
             </motion.div>
@@ -204,10 +213,15 @@ export default function LandingPage() {
         />
       </section>
 
+      {/* LOGOS */}
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-16">
+        <LogosRow />
+      </section>
+
       {/* STATS — minimal editorial */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-16">
         <Stagger className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border/40 border-y border-border/40">
-          {STATS.map((s, i) => (
+          {STATS.map((s) => (
             <StaggerItem key={s.label} className="py-8 px-6 text-center">
               <div className="text-5xl md:text-6xl font-serif font-normal text-foreground mb-3">
                 {typeof s.value === "number" ? (
@@ -219,8 +233,8 @@ export default function LandingPage() {
               <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
                 {s.label}
               </p>
-              {i === 0 && (
-                <p className="text-[10px] text-muted-foreground/70 mt-1">de latência</p>
+              {s.sub && (
+                <p className="text-[10px] text-muted-foreground/70 mt-1">{s.sub}</p>
               )}
             </StaggerItem>
           ))}
@@ -432,24 +446,23 @@ export default function LandingPage() {
         </Stagger>
       </section>
 
+      {/* PRICING */}
+      <PricingSection />
+
       {/* CTA */}
       <Reveal className="relative z-10 mx-auto max-w-6xl px-6 py-24">
         <div className="relative rounded-2xl border border-border/80 bg-gradient-to-br from-amber-500/5 via-card to-fuchsia-500/5 p-10 md:p-16 text-center overflow-hidden">
-          <motion.div
-            className="absolute -top-32 -right-32 h-[400px] w-[400px] rounded-full opacity-30 blur-3xl"
+          <div
+            className="absolute -top-32 -right-32 h-[400px] w-[400px] rounded-full opacity-25 blur-3xl"
             style={{
               background: "radial-gradient(closest-side, oklch(0.85 0.18 90 / 0.6), transparent 70%)",
             }}
-            animate={{ scale: [1, 1.1, 1] }}
-            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
           />
-          <motion.div
-            className="absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full opacity-30 blur-3xl"
+          <div
+            className="absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full opacity-25 blur-3xl"
             style={{
               background: "radial-gradient(closest-side, oklch(0.7 0.2 330 / 0.5), transparent 70%)",
             }}
-            animate={{ scale: [1.1, 1, 1.1] }}
-            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
           />
           <div className="absolute inset-0 grid-bg opacity-20" />
 
@@ -462,11 +475,13 @@ export default function LandingPage() {
               30 segundos pra criar conta. Sem cartão. Sem download.
             </p>
             <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-              <Button asChild variant="gradient" size="xl" className="min-w-[240px]">
-                <Link href="/signup">
-                  Criar conta grátis <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
+              <Magnetic strength={0.18}>
+                <Button asChild variant="gradient" size="xl" className="min-w-[240px]">
+                  <Link href="/signup">
+                    Criar conta grátis <ArrowRight className="h-4 w-4" />
+                  </Link>
+                </Button>
+              </Magnetic>
             </div>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-muted-foreground">
               {BULLETS.map((b) => (
@@ -525,11 +540,16 @@ function BentoCard({
   );
 }
 
-const STATS: Array<{ value: number | string; suffix?: string; label: string }> = [
-  { value: 0, suffix: "ms", label: "Latência" },
-  { value: "∞", label: "Histórico" },
-  { value: 100, suffix: "%", label: "Português BR" },
-  { value: 30, suffix: "s", label: "Pra criar conta" },
+const STATS: Array<{
+  value: number | string;
+  suffix?: string;
+  label: string;
+  sub?: string;
+}> = [
+  { value: 97, suffix: "%", label: "Acurácia em PT-BR", sub: "no beta privado" },
+  { value: "∞", label: "Histórico", sub: "sem expirar" },
+  { value: 4, suffix: "h/dia", label: "Tempo médio salvo", sub: "por estudante" },
+  { value: 30, suffix: "s", label: "Pra criar conta", sub: "sem cartão" },
 ];
 
 const STEPS = [

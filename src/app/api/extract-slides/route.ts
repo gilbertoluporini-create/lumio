@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { LIMITS, logAndSanitize, looksLikePdfBomb, sniffMagic } from "@/lib/api-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,14 +74,21 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return Response.json({ error: "Arquivo ausente." }, { status: 400 });
   }
-  if (file.type !== "application/pdf") {
-    return Response.json({ error: "Envie um PDF." }, { status: 400 });
-  }
-  if (file.size > 20 * 1024 * 1024) {
-    return Response.json({ error: "PDF muito grande (máx 20MB)." }, { status: 400 });
+  if (file.size === 0 || file.size > LIMITS.PDF_BYTES) {
+    return Response.json({ error: "Tamanho de PDF inválido (máx 20MB)." }, { status: 413 });
   }
 
   const buf = Buffer.from(await file.arrayBuffer());
+  // Sniff magic bytes (não confia em file.type que é spoofável)
+  if (sniffMagic(buf) !== "pdf") {
+    return Response.json({ error: "Arquivo não é um PDF válido." }, { status: 415 });
+  }
+  if (looksLikePdfBomb(buf)) {
+    return Response.json(
+      { error: `PDF com mais de ${LIMITS.PDF_MAX_PAGES_HINT} páginas. Reduza ou envie em partes.` },
+      { status: 413 },
+    );
+  }
   const base64 = buf.toString("base64");
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -108,9 +116,11 @@ export async function POST(req: Request) {
 
   try {
     const resp = await client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-4-5-20250929",
       max_tokens: 8000,
-      system: SYSTEM_PROMPT,
+      system: [
+        { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+      ],
       messages: [
         {
           role: "user",
@@ -150,10 +160,6 @@ export async function POST(req: Request) {
 
     return Response.json({ fileName: file.name, slides });
   } catch (err) {
-    console.error("extract-slides error", err);
-    return Response.json(
-      { error: `Erro ao processar PDF: ${(err as Error).message}` },
-      { status: 500 },
-    );
+    return Response.json(logAndSanitize("api/extract-slides", err), { status: 500 });
   }
 }

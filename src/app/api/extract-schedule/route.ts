@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { LIMITS, logAndSanitize, sniffMagic } from "@/lib/api-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,12 +70,28 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return Response.json({ error: "Arquivo ausente." }, { status: 400 });
   }
-  if (file.size > 10 * 1024 * 1024) {
-    return Response.json({ error: "Arquivo muito grande (máx 10MB)." }, { status: 400 });
+  if (file.size === 0 || file.size > LIMITS.IMAGE_BYTES) {
+    return Response.json({ error: "Tamanho inválido (máx 10MB)." }, { status: 413 });
   }
 
-  const mime = file.type || "application/octet-stream";
   const buf = Buffer.from(await file.arrayBuffer());
+  const sniffed = sniffMagic(buf);
+  if (!sniffed) {
+    return Response.json(
+      { error: "Tipo de arquivo não reconhecido. Envie PDF, PNG, JPG ou WEBP." },
+      { status: 415 },
+    );
+  }
+  const mime =
+    sniffed === "pdf"
+      ? "application/pdf"
+      : sniffed === "png"
+        ? "image/png"
+        : sniffed === "jpeg"
+          ? "image/jpeg"
+          : sniffed === "webp"
+            ? "image/webp"
+            : "image/gif";
   const base64 = buf.toString("base64");
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -100,14 +117,6 @@ export async function POST(req: Request) {
   const client = new Anthropic({ apiKey });
 
   const isPdf = mime === "application/pdf";
-  const isImage = mime.startsWith("image/");
-
-  if (!isPdf && !isImage) {
-    return Response.json(
-      { error: "Tipo de arquivo não suportado. Envie PDF ou imagem (PNG, JPG, WEBP)." },
-      { status: 400 },
-    );
-  }
 
   try {
     const content: Anthropic.MessageParam["content"] = [
@@ -139,9 +148,11 @@ export async function POST(req: Request) {
     ];
 
     const resp = await client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-4-5-20250929",
       max_tokens: 2000,
-      system: SYSTEM_PROMPT,
+      system: [
+        { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+      ],
       messages: [{ role: "user", content }],
     });
 
@@ -162,10 +173,6 @@ export async function POST(req: Request) {
 
     return Response.json({ subjects: parsed.subjects });
   } catch (err) {
-    console.error("extract error", err);
-    return Response.json(
-      { error: `Erro ao processar: ${(err as Error).message}` },
-      { status: 500 },
-    );
+    return Response.json(logAndSanitize("api/extract-schedule", err), { status: 500 });
   }
 }

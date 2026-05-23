@@ -172,12 +172,12 @@ export function LiveDemo() {
         </div>
       </motion.div>
 
-      {/* Floating annotation — like a sticky note */}
+      {/* Floating annotation — like a sticky note (desktop only) */}
       <motion.div
         initial={{ opacity: 0, rotate: -8, scale: 0.9 }}
         animate={{ opacity: 1, rotate: -4, scale: 1 }}
         transition={{ delay: 0.9, duration: 0.6, type: "spring", stiffness: 180 }}
-        className="absolute -top-6 -right-6 sm:-right-10 z-10 max-w-[170px] rotate-[-4deg]"
+        className="hidden md:block absolute -top-6 md:-right-10 z-10 max-w-[170px] rotate-[-4deg]"
       >
         <div className="relative">
           <div className="absolute left-1/2 -top-2.5 -translate-x-1/2 w-12 h-3 rounded-sm tape" />
@@ -189,12 +189,12 @@ export function LiveDemo() {
         </div>
       </motion.div>
 
-      {/* Floating folder chip */}
+      {/* Floating folder chip (desktop only) */}
       <motion.div
         initial={{ opacity: 0, y: 20, scale: 0.9 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         transition={{ delay: 1.2, duration: 0.6, type: "spring", stiffness: 200 }}
-        className="absolute -bottom-4 -left-3 sm:-left-6 z-10"
+        className="hidden md:block absolute -bottom-4 md:-left-6 z-10"
       >
         <div className="flex items-center gap-2 rounded-full bg-card border border-border shadow-xl px-3 py-1.5 backdrop-blur">
           <span className="h-2 w-2 rounded-full bg-gradient-to-br from-rose-500 to-pink-500" />

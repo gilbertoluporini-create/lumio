@@ -1,19 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ArrowRight, Loader2, Mail, Lock } from "lucide-react";
+import { ArrowRight, CheckCircle2, Loader2, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { signIn, getCurrentUser } from "@/lib/storage";
+import { signIn } from "@/lib/storage";
+import { isSupabaseConfigured } from "@/lib/supabase/client";
 
-export default function LoginPage() {
+function LoginInner() {
   const router = useRouter();
+  const params = useSearchParams();
+  const supaOn = isSupabaseConfigured();
   const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
@@ -22,9 +26,26 @@ export default function LoginPage() {
     if (loading) return;
     setLoading(true);
     try {
-      const user = await signIn(email, password);
-      toast.success(`Bem-vindo de volta, ${user.name.split(" ")[0]}!`);
-      router.push(user.onboardedAt ? "/dashboard" : "/onboarding");
+      if (supaOn) {
+        const res = await fetch("/api/auth/magic-link", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            email,
+            next: params.get("next") ?? "/dashboard",
+          }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || "Não foi possível enviar o link.");
+        }
+        setSent(true);
+        toast.success("Link de acesso enviado pro seu email.");
+      } else {
+        const user = await signIn(email, password);
+        toast.success(`Bem-vindo de volta, ${user.name.split(" ")[0]}!`);
+        router.push(user.onboardedAt ? "/dashboard" : "/onboarding");
+      }
     } catch (err) {
       toast.error((err as Error).message);
     } finally {
@@ -32,12 +53,23 @@ export default function LoginPage() {
     }
   }
 
-  function handleGuestDemo() {
-    if (getCurrentUser()) {
-      router.push("/dashboard");
-      return;
-    }
-    toast.info("Crie uma conta gratuita pra começar.");
+  if (sent) {
+    return (
+      <Card className="w-full max-w-md border-border/80 bg-card/80 backdrop-blur-xl shadow-2xl">
+        <CardHeader className="text-center space-y-2">
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500/10 ring-2 ring-emerald-500/20">
+            <CheckCircle2 className="h-6 w-6 text-emerald-500" />
+          </div>
+          <CardTitle className="text-2xl">Cheque seu email</CardTitle>
+          <CardDescription>
+            Enviamos um link mágico pra <strong>{email}</strong>.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="text-center text-sm text-muted-foreground">
+          O link expira em 10 minutos.
+        </CardContent>
+      </Card>
+    );
   }
 
   return (
@@ -45,7 +77,9 @@ export default function LoginPage() {
       <CardHeader className="text-center space-y-2">
         <CardTitle className="text-2xl">Entrar</CardTitle>
         <CardDescription>
-          Bem-vindo de volta. Continue de onde parou.
+          {supaOn
+            ? "Digite seu email — vamos te mandar um link mágico."
+            : "Modo offline (sem Supabase)."}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -66,10 +100,9 @@ export default function LoginPage() {
               />
             </div>
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="password">Senha</Label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          {!supaOn && (
+            <div className="space-y-1.5">
+              <Label htmlFor="password">Senha</Label>
               <Input
                 id="password"
                 type="password"
@@ -77,23 +110,16 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Sua senha"
-                className="pl-9"
                 required
               />
             </div>
-          </div>
-          <Button
-            type="submit"
-            variant="gradient"
-            size="lg"
-            className="w-full"
-            disabled={loading}
-          >
+          )}
+          <Button type="submit" variant="gradient" size="lg" className="w-full" disabled={loading}>
             {loading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <>
-                Entrar <ArrowRight className="h-4 w-4" />
+                {supaOn ? "Enviar link mágico" : "Entrar"} <ArrowRight className="h-4 w-4" />
               </>
             )}
           </Button>
@@ -106,5 +132,13 @@ export default function LoginPage() {
         </form>
       </CardContent>
     </Card>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={null}>
+      <LoginInner />
+    </Suspense>
   );
 }

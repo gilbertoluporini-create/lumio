@@ -1,0 +1,72 @@
+/**
+ * Helpers de segurança server-side compartilhados entre rotas API.
+ * Inclui: magic-byte sniff, sanitização de erro, escape pra prompts LLM.
+ */
+
+export type MagicType = "pdf" | "png" | "jpeg" | "webp" | "gif" | null;
+
+export function sniffMagic(buf: Buffer | Uint8Array): MagicType {
+  if (buf.length < 12) return null;
+  const b = buf;
+  if (b[0] === 0x25 && b[1] === 0x50 && b[2] === 0x44 && b[3] === 0x46) return "pdf"; // %PDF
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "png";
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "jpeg";
+  if (
+    b[0] === 0x52 &&
+    b[1] === 0x49 &&
+    b[2] === 0x46 &&
+    b[3] === 0x46 &&
+    b[8] === 0x57 &&
+    b[9] === 0x45 &&
+    b[10] === 0x42 &&
+    b[11] === 0x50
+  )
+    return "webp";
+  if (b[0] === 0x47 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x38) return "gif";
+  return null;
+}
+
+export function logAndSanitize(
+  context: string,
+  err: unknown,
+): { error: string; reqId: string } {
+  const reqId =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  console.error(`[${context}]`, reqId, err);
+  return {
+    error: "Falha temporária. Tente novamente em alguns instantes.",
+    reqId,
+  };
+}
+
+/**
+ * Escapa marcadores XMLish pra evitar quebra do delimitador no prompt
+ * (prompt injection via fechamento prematuro da tag <untrusted_*>).
+ */
+export function escapeForPrompt(s: string): string {
+  return s.replace(/</g, "‹").replace(/>/g, "›");
+}
+
+export const LIMITS = {
+  TRANSCRIPT_CHARS: 50_000,
+  SLIDES_TOTAL_CHARS: 80_000,
+  MESSAGE_CHARS: 4_000,
+  MAX_MESSAGES: 30,
+  PDF_BYTES: 20 * 1024 * 1024,
+  IMAGE_BYTES: 10 * 1024 * 1024,
+  PDF_MAX_PAGES_HINT: 100,
+};
+
+/**
+ * Detecção heurística de "PDF bomb" (#11 security review).
+ * Lê o /Count do dicionário /Pages — não é 100% confiável, mas barra os óbvios.
+ */
+export function looksLikePdfBomb(buf: Buffer): boolean {
+  const head = buf.toString("latin1", 0, Math.min(buf.length, 200_000));
+  const m = head.match(/\/Count\s+(\d+)/);
+  if (!m) return false;
+  const count = parseInt(m[1], 10);
+  return Number.isFinite(count) && count > LIMITS.PDF_MAX_PAGES_HINT;
+}

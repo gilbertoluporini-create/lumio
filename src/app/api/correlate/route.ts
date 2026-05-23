@@ -5,6 +5,7 @@ import type {
   LectureSummarySection,
   Slide,
 } from "@/lib/types";
+import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -146,6 +147,9 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
+  if (transcript.length > LIMITS.TRANSCRIPT_CHARS) {
+    return Response.json({ error: "Transcrição muito longa." }, { status: 413 });
+  }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
 
@@ -205,9 +209,11 @@ Gere o resumo estruturado conforme o formato JSON especificado. Responda APENAS 
 
   try {
     const resp = await client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "claude-sonnet-4-5-20250929",
       max_tokens: 8000,
-      system: SYSTEM_PROMPT,
+      system: [
+        { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+      ],
       messages: [{ role: "user", content: userMessage }],
     });
 
@@ -228,10 +234,6 @@ Gere o resumo estruturado conforme o formato JSON especificado. Responda APENAS 
 
     return Response.json({ summary });
   } catch (err) {
-    console.error("correlate error", err);
-    return Response.json(
-      { error: `Erro ao gerar resumo: ${(err as Error).message}` },
-      { status: 500 },
-    );
+    return Response.json(logAndSanitize("api/correlate", err), { status: 500 });
   }
 }

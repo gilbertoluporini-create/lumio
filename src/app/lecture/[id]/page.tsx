@@ -90,9 +90,28 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [view, setView] = useState<"live" | "summary">("live");
   const slidesInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
-  const sessionStartRef = useRef<number | null>(null);
+  const lastTickRef = useRef<number | null>(null);
   const transcriptBoxRef = useRef<HTMLDivElement>(null);
   const chatBoxRef = useRef<HTMLDivElement>(null);
+
+  // Refs sempre atualizados — usados pelo auto-trigger pós-stop
+  // (evita closure stale do React)
+  const transcriptRef = useRef(transcript);
+  const interimRef = useRef(interim);
+  const slidesRef = useRef(slides);
+  const messagesRef = useRef(messages);
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
+  useEffect(() => {
+    interimRef.current = interim;
+  }, [interim]);
+  useEffect(() => {
+    slidesRef.current = slides;
+  }, [slides]);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const [browserSupported, setBrowserSupported] = useState(true);
   useEffect(() => {
@@ -130,19 +149,22 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     setSubject(s);
   }, [user.id, lectureId, router]);
 
+  // FIX #1 do code review: contador de duração usando delta real entre ticks.
+  // Tolera throttle de aba em background — soma tempo real (não +1 por tick).
   useEffect(() => {
     if (speech.state === "listening") {
-      sessionStartRef.current = Date.now();
+      lastTickRef.current = Date.now();
       timerRef.current = window.setInterval(() => {
-        if (sessionStartRef.current) {
-          const elapsed = Math.floor((Date.now() - sessionStartRef.current) / 1000);
-          setDurationSec((base) => base + (elapsed > 0 ? 1 : 0));
-        }
+        const now = Date.now();
+        const last = lastTickRef.current ?? now;
+        const deltaSec = (now - last) / 1000;
+        lastTickRef.current = now;
+        setDurationSec((base) => base + deltaSec);
       }, 1000);
     } else if (timerRef.current) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
-      sessionStartRef.current = null;
+      lastTickRef.current = null;
     }
     return () => {
       if (timerRef.current) {
@@ -170,22 +192,13 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     if (updated) setLecture(updated);
   };
 
+  // FIX #2 do code review: aguarda speech parar de fato antes de persistir/gerar resumo.
+  // O speech.stop() é async (onend dispara um pouco depois com um último burst).
+  // Usamos refs (transcriptRef) pra sempre ler o estado mais recente, não closure stale.
   function toggleRecording() {
     if (speech.state === "listening") {
       speech.stop();
-      persist({
-        transcript,
-        durationSec,
-        status: "completed",
-      });
-      const hasContent = transcript.trim().length > 50;
-      const hasSlides = !!slides && slides.length > 0;
-      if (hasContent && (hasSlides || messages.length > 0)) {
-        toast.success("Aula salva. Gerando resumo automaticamente…");
-        setTimeout(() => generateSummary({ silent: true }), 400);
-      } else {
-        toast.success("Aula salva.");
-      }
+      // Não persistimos aqui — o effect abaixo dispara quando speech.state vira "idle"
     } else {
       if (!browserSupported) {
         toast.error("Seu navegador não suporta reconhecimento de voz. Use Chrome, Edge ou Safari.");
@@ -195,6 +208,34 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       persist({ status: "live" });
     }
   }
+
+  // Effect responsável por finalizar a gravação: dispara quando speech.state volta a "idle"
+  const wasListeningRef = useRef(false);
+  useEffect(() => {
+    if (speech.state === "listening") {
+      wasListeningRef.current = true;
+      return;
+    }
+    if (speech.state === "idle" && wasListeningRef.current) {
+      wasListeningRef.current = false;
+      const finalTranscript = transcriptRef.current.trim();
+      persist({
+        transcript: transcriptRef.current,
+        durationSec: Math.round(durationSec),
+        status: "completed",
+      });
+      const hasContent = finalTranscript.length > 50;
+      const hasSlides = !!slidesRef.current && slidesRef.current.length > 0;
+      if (hasContent && (hasSlides || messagesRef.current.length > 0)) {
+        toast.success("Aula salva. Gerando resumo automaticamente…");
+        // Tiny delay pra garantir que o último onresult chegou
+        setTimeout(() => generateSummary({ silent: true }), 250);
+      } else {
+        toast.success("Aula salva.");
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [speech.state]);
 
   function saveTranscript() {
     persist({ transcript, durationSec });
@@ -307,7 +348,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
 
   async function generateSummary(opts?: { silent?: boolean }) {
     if (generatingSummary) return;
-    const finalTranscript = (transcript + (interim ? " " + interim : "")).trim();
+    // Usa refs pra evitar closure stale (FIX #14 do code review)
+    const finalTranscript = (
+      transcriptRef.current + (interimRef.current ? " " + interimRef.current : "")
+    ).trim();
     if (!finalTranscript) {
       if (!opts?.silent) {
         toast.error("Transcrição vazia. Grave a aula ou cole o texto antes.");
@@ -324,8 +368,8 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           lectureTitle: lecture?.title,
           subject: subject?.name ?? "Geral",
           transcript: finalTranscript,
-          slides: slides ?? undefined,
-          messages: messages.map(({ role, content }) => ({ role, content, id: "", createdAt: "" })),
+          slides: slidesRef.current ?? undefined,
+          messages: messagesRef.current.map(({ role, content }) => ({ role, content, id: "", createdAt: "" })),
         }),
       });
       const data = await res.json();

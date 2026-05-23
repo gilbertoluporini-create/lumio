@@ -26,8 +26,31 @@ export function Highlighter({
         }}
         initial={{ scaleX: 0 }}
         animate={inView ? { scaleX: 1 } : { scaleX: 0 }}
-        transition={{ duration: 0.7, delay, ease: [0.65, 0, 0.35, 1] }}
+        transition={{ duration: 0.75, delay, ease: [0.65, 0, 0.35, 1] }}
       />
+      {/* Ink bleed dots — micro particles falling off the marker trace */}
+      {inView && (
+        <span className="pointer-events-none absolute inset-0 -z-0">
+          {[0, 1, 2, 3, 4].map((i) => (
+            <motion.span
+              key={i}
+              className="absolute h-[3px] w-[3px] rounded-full"
+              style={{
+                background: i % 2 === 0 ? "oklch(0.82 0.18 80)" : "oklch(0.78 0.18 70)",
+                left: `${15 + i * 18}%`,
+                bottom: "0%",
+              }}
+              initial={{ opacity: 0, y: 0, scale: 0.6 }}
+              animate={{ opacity: [0, 1, 0], y: [0, 8 + i * 1.5, 12], scale: [0.5, 1, 0.4] }}
+              transition={{
+                duration: 0.7,
+                delay: delay + 0.4 + i * 0.05,
+                ease: "easeOut",
+              }}
+            />
+          ))}
+        </span>
+      )}
       <span className="relative z-10">{children}</span>
     </span>
   );
