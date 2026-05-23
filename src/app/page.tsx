@@ -642,16 +642,14 @@ const PRODUCTS: Array<{
   {
     icon: "layers",
     title: "Flash cards",
-    desc: "Set de cartões com pergunta e resposta pra revisão ativa antes da prova.",
+    desc: "10 cartões pergunta-resposta com hint e difficulty. Atalhos: ← → e espaço.",
     coins: 12,
-    soon: true,
   },
   {
     icon: "trophy",
     title: "Quiz interativo",
-    desc: "Quiz com múltipla escolha que testa o que ficou da aula. Joga, erra, aprende.",
+    desc: "8 questões múltipla escolha com correção comentada. Atalhos 1-4 e Enter.",
     coins: 15,
-    soon: true,
   },
   {
     icon: "sparkle",

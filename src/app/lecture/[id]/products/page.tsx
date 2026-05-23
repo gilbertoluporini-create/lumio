@@ -15,6 +15,7 @@ import {
   FlashcardsView,
   type FlashcardsAsset,
 } from "@/components/app/flashcards-view";
+import { QuizView, type QuizAsset } from "@/components/app/quiz-view";
 import {
   LectureSummaryView,
 } from "@/components/app/lecture-summary-view";
@@ -157,6 +158,38 @@ function ProductsView({
     }
   }
 
+  async function generateQuiz() {
+    if (!lecture || !subject) return;
+    setGeneratingKind("quiz");
+    const t = toast.loading("Montando o quiz…");
+    try {
+      const res = await fetch("/api/quiz", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          lectureTitle: lecture.title,
+          subject: subject.name,
+          transcript: lecture.transcript,
+          slides: lecture.slides,
+          messages: lecture.messages,
+          lectureId,
+          count: 8,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        toast.error(data?.error ?? "Erro ao gerar quiz.", { id: t });
+        return;
+      }
+      toast.success("Quiz gerado!", { id: t });
+      await refresh();
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`, { id: t });
+    } finally {
+      setGeneratingKind(null);
+    }
+  }
+
   if (loading) {
     return (
       <div className="mx-auto max-w-5xl px-5 py-8">
@@ -191,6 +224,7 @@ function ProductsView({
   const hasTranscript = lecture.transcript.trim().length > 0;
   const summaryAsset = assets.find((a) => a.kind === "summary");
   const flashcardsAsset = assets.find((a) => a.kind === "flashcards");
+  const quizAsset = assets.find((a) => a.kind === "quiz");
 
   // Se está vendo um asset, mostra o viewer
   if (activeAsset) {
@@ -220,6 +254,9 @@ function ProductsView({
           <FlashcardsView
             asset={activeAsset.payload as FlashcardsAsset}
           />
+        )}
+        {activeAsset.kind === "quiz" && (
+          <QuizView asset={activeAsset.payload as QuizAsset} />
         )}
       </div>
     );
@@ -304,14 +341,13 @@ function ProductsView({
         <ProductCard
           icon="trophy"
           title="Quiz interativo"
-          desc="Múltipla escolha com correção comentada. Em breve."
+          desc="8 questões de múltipla escolha com correção comentada. Atalhos: 1-4 e Enter."
           coins={COSTS.quiz}
-          existing={undefined}
-          generating={false}
-          disabled
-          soon
-          onGenerate={() => {}}
-          onOpen={() => {}}
+          existing={quizAsset}
+          generating={generatingKind === "quiz"}
+          disabled={!hasTranscript || generatingKind !== null}
+          onGenerate={generateQuiz}
+          onOpen={() => quizAsset && setActiveAsset(quizAsset)}
         />
 
         <ProductCard
