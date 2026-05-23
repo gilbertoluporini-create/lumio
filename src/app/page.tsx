@@ -38,14 +38,14 @@ export default function LandingPage() {
       <div className="pointer-events-none fixed inset-0 grid-bg opacity-[0.35]" />
       {/* Soft glow accents — fixos, sutis, sem custo de cursor */}
       <div
-        className="pointer-events-none fixed -top-40 right-1/3 h-[600px] w-[600px] opacity-25 blur-3xl"
+        className="pointer-events-none fixed -top-40 right-1/3 h-[600px] w-[600px] opacity-25 blur-2xl"
         style={{
           background:
             "radial-gradient(closest-side, oklch(0.85 0.18 90 / 0.4), transparent 70%)",
         }}
       />
       <div
-        className="pointer-events-none fixed top-1/3 -left-32 h-[500px] w-[500px] opacity-25 blur-3xl"
+        className="pointer-events-none fixed top-1/3 -left-32 h-[500px] w-[500px] opacity-25 blur-2xl"
         style={{
           background:
             "radial-gradient(closest-side, oklch(0.65 0.22 290 / 0.35), transparent 70%)",
@@ -191,8 +191,8 @@ export default function LandingPage() {
             transition={{ delay: 0.4, duration: 0.8 }}
             className="relative"
           >
-            <div className="pointer-events-none absolute -top-10 -right-4 z-20 hidden md:block">
-              <LumiCharacter mood="default" size="lg" priority float />
+            <div className="pointer-events-none absolute -top-24 right-6 z-20 hidden md:block">
+              <LumiCharacter mood="default" size="md" priority float />
             </div>
             <LiveDemo />
           </motion.div>
@@ -508,14 +508,14 @@ export default function LandingPage() {
       <Reveal className="relative z-10 mx-auto max-w-6xl px-6 py-20">
         <div className="relative rounded-2xl border border-border/80 bg-gradient-to-br from-amber-500/5 via-card to-fuchsia-500/5 p-10 md:p-16 text-center overflow-hidden">
           <div
-            className="absolute -top-32 -right-32 h-[400px] w-[400px] rounded-full opacity-25 blur-3xl"
+            className="absolute -top-32 -right-32 h-[400px] w-[400px] rounded-full opacity-25 blur-2xl"
             style={{
               background:
                 "radial-gradient(closest-side, oklch(0.85 0.18 90 / 0.6), transparent 70%)",
             }}
           />
           <div
-            className="absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full opacity-25 blur-3xl"
+            className="absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full opacity-25 blur-2xl"
             style={{
               background:
                 "radial-gradient(closest-side, oklch(0.7 0.2 330 / 0.5), transparent 70%)",
