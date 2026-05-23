@@ -3,14 +3,16 @@
 import Link from "next/link";
 import {
   ArrowRight,
+  ArrowUpRight,
   BookOpen,
   CheckCircle2,
+  ChevronRight,
   Clock,
   Coffee,
   FileText,
   FolderTree,
   Heart,
-  Highlighter,
+  Highlighter as HighlighterIcon,
   Mic,
   Quote,
   Sparkles,
@@ -18,44 +20,47 @@ import {
   Waves,
   Zap,
 } from "lucide-react";
-import { motion, useReducedMotion, useScroll, useTransform } from "framer-motion";
-import { useRef } from "react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LumioWordmark } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   CountUp,
-  FloatingOrbs,
   MarqueeRow,
   Reveal,
   Stagger,
   StaggerItem,
 } from "@/components/landing/motion";
-import { AppPreview } from "@/components/landing/app-preview";
+import { LiveDemo } from "@/components/landing/live-demo";
+import { Highlighter, PencilUnderline } from "@/components/landing/highlighter";
 
 export default function LandingPage() {
-  const heroRef = useRef<HTMLDivElement>(null);
-  const reduce = useReducedMotion();
-  const { scrollYProgress } = useScroll({
-    target: heroRef,
-    offset: ["start start", "end start"],
-  });
-  const heroOpacity = useTransform(scrollYProgress, [0, 1], [1, reduce ? 1 : 0.2]);
-  const heroY = useTransform(scrollYProgress, [0, 1], [0, reduce ? 0 : -80]);
-
   return (
     <div className="relative min-h-screen overflow-x-hidden">
-      {/* Backgrounds */}
-      <div className="pointer-events-none fixed inset-0 grid-bg opacity-60" />
-      <FloatingOrbs />
+      {/* Subtle paper-grid */}
+      <div className="pointer-events-none fixed inset-0 grid-bg opacity-40" />
+      <div
+        className="pointer-events-none fixed -top-40 right-1/3 h-[600px] w-[600px] opacity-30 blur-3xl"
+        style={{
+          background:
+            "radial-gradient(closest-side, oklch(0.85 0.18 90 / 0.45), transparent 70%)",
+        }}
+      />
+      <div
+        className="pointer-events-none fixed top-1/3 -left-32 h-[500px] w-[500px] opacity-30 blur-3xl"
+        style={{
+          background:
+            "radial-gradient(closest-side, oklch(0.65 0.22 290 / 0.4), transparent 70%)",
+        }}
+      />
 
       {/* Nav */}
       <motion.header
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="sticky top-0 z-30 backdrop-blur-xl bg-background/60 border-b border-border/40"
+        className="sticky top-0 z-30 backdrop-blur-xl bg-background/70 border-b border-border/40"
       >
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
           <Link href="/" className="flex items-center">
@@ -80,254 +85,381 @@ export default function LandingPage() {
         </nav>
       </motion.header>
 
-      {/* Hero */}
-      <section
-        ref={heroRef}
-        className="relative z-10 mx-auto max-w-6xl px-6 pt-20 pb-24 md:pt-28 md:pb-32 text-center"
-      >
-        <motion.div style={{ opacity: heroOpacity, y: heroY }}>
-          <motion.div
-            initial={{ scale: 0.9, opacity: 0 }}
-            animate={{ scale: 1, opacity: 1 }}
-            transition={{ delay: 0.1, duration: 0.6, ease: "easeOut" }}
-          >
-            <Badge
-              variant="outline"
-              className="mb-7 rounded-full border-border/60 bg-background/60 backdrop-blur-md px-3.5 py-1.5 gap-1.5"
+      {/* HERO — assimétrico, texto esquerda + demo viva direita */}
+      <section className="relative z-10 mx-auto max-w-6xl px-6 pt-16 pb-24 md:pt-24 lg:pt-28">
+        <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-12 lg:gap-20 items-center">
+          {/* LEFT: editorial copy */}
+          <div className="text-left">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.5 }}
+              className="mb-6 inline-flex items-center gap-2"
             >
-              <Heart className="h-3 w-3 text-rose-500" />
-              <span className="text-xs">Pra estudantes que querem prestar atenção, não tomar nota</span>
-            </Badge>
-          </motion.div>
+              <span className="h-px w-8 bg-foreground/30" />
+              <span className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium">
+                Lumio · Beta
+              </span>
+            </motion.div>
 
-          <motion.h1
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2, duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
-            className="mx-auto max-w-4xl text-5xl font-semibold tracking-tight md:text-7xl"
-          >
-            Volte a <span className="gradient-text">olhar pro professor</span>.
-            <br />
-            <span className="text-foreground/80">A gente cuida do resto.</span>
-          </motion.h1>
+            <motion.h1
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.1, duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
+              className="text-[44px] leading-[1.05] sm:text-5xl md:text-6xl font-semibold tracking-tight"
+            >
+              Volte a olhar pro{" "}
+              <span className="font-serif italic font-normal">professor.</span>
+              <br />
+              <span className="text-foreground/60">
+                A gente cuida do{" "}
+                <PencilUnderline delay={1.2} className="text-foreground">resto</PencilUnderline>.
+              </span>
+            </motion.h1>
 
-          <motion.p
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4, duration: 0.6 }}
-            className="mx-auto mt-7 max-w-2xl text-lg text-muted-foreground md:text-xl leading-relaxed"
-          >
-            Lumio escuta a aula, transcreve em português, responde suas dúvidas
-            sobre o que está sendo dito, e te entrega um resumo organizado por
-            matéria. Sem app pra instalar.
-          </motion.p>
+            <motion.p
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35, duration: 0.6 }}
+              className="mt-7 max-w-xl text-lg text-muted-foreground leading-relaxed"
+            >
+              Lumio escuta sua aula,{" "}
+              <Highlighter delay={1.6}>transcreve em português</Highlighter>, responde
+              dúvidas sobre o que <em className="font-serif">acabou</em> de ser dito, e te entrega um
+              resumo organizado por matéria.
+            </motion.p>
 
-          <motion.div
-            initial={{ opacity: 0, y: 16 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.55, duration: 0.6 }}
-            className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row"
-          >
-            <Button asChild variant="gradient" size="xl" className="min-w-[220px] group">
-              <Link href="/signup">
-                Começar grátis
-                <motion.span
-                  className="inline-flex"
-                  initial={{ x: 0 }}
-                  whileHover={{ x: 4 }}
-                >
-                  <ArrowRight className="h-4 w-4" />
-                </motion.span>
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.5, duration: 0.6 }}
+              className="mt-9 flex flex-col sm:flex-row items-start sm:items-center gap-3"
+            >
+              <Button asChild variant="gradient" size="xl" className="min-w-[200px]">
+                <Link href="/signup">
+                  Começar grátis <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+              <Link
+                href="#how"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1.5 group"
+              >
+                Como funciona
+                <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
               </Link>
-            </Button>
-            <Button asChild variant="outline" size="xl" className="min-w-[220px]">
-              <Link href="#how">Ver como funciona</Link>
-            </Button>
-          </motion.div>
+            </motion.div>
 
-          <motion.p
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.8, duration: 0.6 }}
+              className="mt-8 flex items-center gap-4 text-xs text-muted-foreground"
+            >
+              <div className="flex -space-x-2">
+                {[
+                  "from-rose-400 to-pink-400",
+                  "from-amber-400 to-orange-400",
+                  "from-emerald-400 to-teal-400",
+                  "from-sky-400 to-indigo-400",
+                ].map((g, i) => (
+                  <div
+                    key={i}
+                    className={`h-7 w-7 rounded-full border-2 border-background bg-gradient-to-br ${g}`}
+                  />
+                ))}
+              </div>
+              <span>
+                <span className="text-foreground font-medium">Estudantes</span> de medicina,
+                direito e engenharia no beta privado
+              </span>
+            </motion.div>
+          </div>
+
+          {/* RIGHT: live demo */}
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.8, duration: 0.6 }}
-            className="mt-5 text-xs text-muted-foreground"
+            transition={{ delay: 0.4, duration: 0.8 }}
+            className="relative"
           >
-            Sem cartão de crédito · Funciona no Chrome, Edge e Safari
-          </motion.p>
-        </motion.div>
-
-        <AppPreview />
+            <LiveDemo />
+          </motion.div>
+        </div>
       </section>
 
-      {/* Marquee de detalhes */}
+      {/* MARQUEE */}
       <section className="relative z-10 border-y border-border/40 bg-card/30 backdrop-blur py-5">
         <MarqueeRow
-          speed={50}
+          speed={55}
           items={[
             "Reconhecimento de voz nativo do navegador",
             "Zero upload — privacidade por padrão",
             "Português brasileiro de verdade",
-            "Anexe PDF da aula e a IA correlaciona",
+            "Anexe PDF da aula e tudo se correlaciona",
             "Organizado por matéria, sempre",
-            "Resumo automático ao final da aula",
+            "Resumo automático ao final",
             "Histórico ilimitado",
             "Exporta em Markdown",
           ]}
         />
       </section>
 
-      {/* Stats */}
+      {/* STATS — minimal editorial */}
       <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
-        <Stagger className="grid grid-cols-2 md:grid-cols-4 gap-8">
-          {STATS.map((s) => (
-            <StaggerItem key={s.label} className="text-center">
-              <div className="text-4xl md:text-5xl font-semibold tracking-tight gradient-text mb-2">
+        <Stagger className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border/40 border-y border-border/40">
+          {STATS.map((s, i) => (
+            <StaggerItem key={s.label} className="py-8 px-6 text-center">
+              <div className="text-5xl md:text-6xl font-serif font-normal text-foreground mb-3">
                 {typeof s.value === "number" ? (
                   <CountUp to={s.value} suffix={s.suffix ?? ""} />
                 ) : (
                   s.value
                 )}
               </div>
-              <p className="text-sm text-muted-foreground">{s.label}</p>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+                {s.label}
+              </p>
+              {i === 0 && (
+                <p className="text-[10px] text-muted-foreground/70 mt-1">de latência</p>
+              )}
             </StaggerItem>
           ))}
         </Stagger>
       </section>
 
-      {/* How it works */}
+      {/* HOW — numeração editorial 01/02/03 */}
       <section id="how" className="relative z-10 mx-auto max-w-6xl px-6 py-24">
-        <Reveal className="text-center mb-16">
-          <Badge variant="outline" className="mb-4 rounded-full bg-background/60 backdrop-blur">
-            Como funciona
-          </Badge>
-          <h2 className="text-3xl font-semibold tracking-tight md:text-5xl">
-            Três passos. <span className="gradient-text">Zero fricção</span>.
+        <Reveal className="text-center mb-16 max-w-2xl mx-auto">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
+            — Como funciona —
+          </p>
+          <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">
+            Três passos.{" "}
+            <span className="font-serif italic font-normal text-foreground/70">
+              Zero fricção.
+            </span>
           </h2>
         </Reveal>
 
-        <Stagger className="grid gap-6 md:grid-cols-3" gap={0.15}>
-          {STEPS.map((s, i) => (
-            <StaggerItem key={s.title}>
-              <div className="group relative h-full rounded-xl border border-border/70 bg-card/60 backdrop-blur p-6 transition-all hover:border-primary/40 hover:bg-card hover:shadow-xl">
-                <div className="absolute inset-0 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" style={{
-                  background: "radial-gradient(circle at 50% 0%, oklch(0.6 0.22 290 / 0.10), transparent 65%)",
+        <Stagger className="grid gap-px bg-border/40 border border-border/40 rounded-2xl overflow-hidden" gap={0.15}>
+          <div className="grid md:grid-cols-3 gap-px bg-border/40">
+            {STEPS.map((s, i) => (
+              <StaggerItem key={s.title} className="bg-card relative group p-8 md:p-10">
+                <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" style={{
+                  background: "radial-gradient(circle at top, oklch(0.6 0.22 290 / 0.06), transparent 60%)",
                 }} />
                 <div className="relative">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="relative flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-primary to-violet-500 text-base font-semibold text-primary-foreground shadow-md">
-                      {i + 1}
-                      <motion.span
-                        className="absolute inset-0 rounded-full bg-primary/30"
-                        animate={{ scale: [1, 1.4, 1], opacity: [0.6, 0, 0.6] }}
-                        transition={{
-                          duration: 2.5,
-                          repeat: Infinity,
-                          delay: i * 0.7,
-                          ease: "easeOut",
-                        }}
-                      />
-                    </div>
+                  <div className="flex items-baseline gap-4 mb-6">
+                    <span className="editorial-num text-6xl text-foreground/15 select-none leading-none">
+                      0{i + 1}
+                    </span>
                     <s.icon className="h-5 w-5 text-primary/70" />
                   </div>
-                  <h3 className="text-lg font-semibold mb-2">{s.title}</h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{s.desc}</p>
+                  <h3 className="text-lg font-semibold mb-2 tracking-tight">
+                    {s.title}
+                  </h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    {s.desc}
+                  </p>
+                  <div className="mt-6 inline-flex items-center gap-1 text-xs text-muted-foreground/70 font-mono">
+                    <span className="h-px w-6 bg-foreground/20" /> {s.meta}
+                  </div>
                 </div>
-              </div>
-            </StaggerItem>
-          ))}
+              </StaggerItem>
+            ))}
+          </div>
         </Stagger>
       </section>
 
-      {/* Features */}
+      {/* BENTO GRID — features assimétricas */}
       <section id="features" className="relative z-10 mx-auto max-w-6xl px-6 py-24">
-        <Reveal className="text-center mb-14">
-          <Badge variant="outline" className="mb-4 rounded-full bg-background/60 backdrop-blur">
-            O que você ganha
-          </Badge>
-          <h2 className="text-3xl font-semibold tracking-tight md:text-5xl">
-            Pequenos hábitos. <span className="gradient-text">Grandes diferenças</span>.
-          </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-muted-foreground">
-            Cada detalhe pensado pra quem assiste 4 horas de aula por dia.
+        <Reveal className="mb-12 max-w-2xl">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
+            — O que você ganha —
           </p>
+          <h2 className="text-3xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
+            Pequenos hábitos,{" "}
+            <span className="font-serif italic font-normal">grandes diferenças</span>.
+            <br />
+            <span className="text-foreground/50">Cada detalhe pensado pra quem tem 4h de aula por dia.</span>
+          </h2>
         </Reveal>
 
-        <Stagger className="grid gap-4 md:grid-cols-2 lg:grid-cols-3" gap={0.07}>
-          {FEATURES.map((f) => (
-            <StaggerItem key={f.title}>
-              <FeatureCard f={f} />
-            </StaggerItem>
-          ))}
-        </Stagger>
+        <div className="grid grid-cols-1 md:grid-cols-6 gap-4 auto-rows-[200px]">
+          {/* Big — transcription */}
+          <BentoCard className="md:col-span-4 md:row-span-2 paper-texture">
+            <div className="flex flex-col h-full">
+              <div className="flex items-center justify-between mb-4">
+                <Mic className="h-5 w-5 text-primary" />
+                <Badge variant="live" className="gap-1 text-[10px]">
+                  <span className="h-1 w-1 rounded-full bg-red-500 pulse-dot" /> Ao vivo
+                </Badge>
+              </div>
+              <h3 className="text-2xl font-semibold tracking-tight mb-2">
+                Transcrição que <Highlighter delay={0.2}>não falha</Highlighter>.
+              </h3>
+              <p className="text-sm text-muted-foreground leading-relaxed max-w-md">
+                Reconhecimento nativo do navegador, otimizado pra português brasileiro. Sem upload,
+                sem latência perceptível.
+              </p>
+              <div className="mt-auto pt-6">
+                <div className="rounded-md border border-border/60 bg-background p-3 font-mono text-xs text-muted-foreground space-y-1">
+                  <p>
+                    <span className="text-foreground/40">[14:22]</span> A suprarrenal direita tem formato{" "}
+                    <span className="text-foreground">piramidal</span>…
+                  </p>
+                  <p>
+                    <span className="text-foreground/40">[14:23]</span>{" "}
+                    <span className="shimmer rounded px-1 text-foreground">…enquanto a esquerda apresenta formato semilunar</span>
+                    <span className="caret" />
+                  </p>
+                </div>
+              </div>
+            </div>
+          </BentoCard>
+
+          {/* Med — chat */}
+          <BentoCard className="md:col-span-2 md:row-span-1">
+            <div className="flex flex-col h-full">
+              <HighlighterIcon className="h-5 w-5 text-primary mb-3" />
+              <h3 className="text-base font-semibold tracking-tight mb-1.5">
+                Pergunte enquanto rola
+              </h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                A IA enxerga tudo que foi dito até agora e responde no contexto.
+              </p>
+            </div>
+          </BentoCard>
+
+          {/* Small — folder */}
+          <BentoCard className="md:col-span-2 md:row-span-1 bg-gradient-to-br from-rose-500/5 via-card to-pink-500/5">
+            <div className="flex flex-col h-full">
+              <FolderTree className="h-5 w-5 text-rose-500 mb-3" />
+              <h3 className="text-base font-semibold tracking-tight mb-1.5">
+                Sempre no lugar certo
+              </h3>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Cada aula vai pra pasta da matéria. Achar é fácil.
+              </p>
+            </div>
+          </BentoCard>
+
+          {/* Big — slides */}
+          <BentoCard className="md:col-span-3 md:row-span-1">
+            <div className="flex items-center gap-5 h-full">
+              <div className="shrink-0">
+                <div className="relative h-20 w-16 rounded-md bg-secondary border border-border shadow-md rotate-[-4deg] flex items-center justify-center">
+                  <FileText className="h-7 w-7 text-muted-foreground" />
+                </div>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-base font-semibold tracking-tight mb-1.5">
+                  Slides do professor incluídos
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Anexe o PDF da aula. Lumio relaciona <Highlighter delay={0.4}>cada slide</Highlighter>{" "}
+                  com o que foi falado.
+                </p>
+              </div>
+            </div>
+          </BentoCard>
+
+          {/* Big — summary */}
+          <BentoCard className="md:col-span-3 md:row-span-1 bg-gradient-to-br from-amber-500/5 via-card to-orange-500/5">
+            <div className="flex items-center gap-5 h-full">
+              <Clock className="h-6 w-6 text-amber-600 dark:text-amber-400 shrink-0" />
+              <div className="flex-1">
+                <h3 className="text-base font-semibold tracking-tight mb-1.5">
+                  Revisão em <span className="font-serif italic">metade</span> do tempo
+                </h3>
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                  Resumo automático com bullets centrais + Q&A. Você revisa o essencial.
+                </p>
+              </div>
+            </div>
+          </BentoCard>
+        </div>
       </section>
 
-      {/* Quote section */}
-      <Reveal className="relative z-10 mx-auto max-w-3xl px-6 py-20 text-center">
-        <Quote className="mx-auto h-8 w-8 text-primary/40 mb-4" />
-        <p className="text-2xl md:text-3xl font-medium leading-relaxed">
-          &ldquo;Eu chegava em casa exausto, com o caderno cheio mas a cabeça vazia.
-          O Lumio resolveu isso — agora eu <span className="gradient-text">presto atenção</span> e
-          revisão fica pro fim do dia.&rdquo;
-        </p>
-        <div className="mt-6 flex items-center justify-center gap-3">
-          <div className="h-9 w-9 rounded-full bg-gradient-to-br from-rose-400 to-orange-400" />
-          <div className="text-left">
-            <p className="text-sm font-medium">Estudante T11 — Medicina</p>
-            <p className="text-xs text-muted-foreground">Beta privado</p>
+      {/* QUOTE */}
+      <section className="relative z-10 mx-auto max-w-4xl px-6 py-24">
+        <Reveal>
+          <div className="relative">
+            <Quote className="absolute -top-4 -left-4 h-12 w-12 text-foreground/10" />
+            <p className="text-2xl md:text-3xl leading-relaxed font-serif italic text-foreground/90 pl-6">
+              &ldquo;Eu chegava em casa exausto, com o caderno cheio mas a cabeça vazia.
+              O Lumio resolveu isso — agora eu <span className="not-italic font-sans font-medium"><Highlighter>presto atenção</Highlighter></span> e revisão fica pro fim do dia.&rdquo;
+            </p>
+            <div className="mt-8 flex items-center gap-3 pl-6">
+              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-rose-400 to-orange-400 ring-2 ring-background" />
+              <div>
+                <p className="text-sm font-medium">Estudante T11 — Medicina</p>
+                <p className="text-xs text-muted-foreground">Beta privado · maio de 2026</p>
+              </div>
+            </div>
           </div>
-        </div>
-      </Reveal>
+        </Reveal>
+      </section>
 
-      {/* For who */}
+      {/* FOR WHO */}
       <section id="for-who" className="relative z-10 mx-auto max-w-6xl px-6 py-24">
-        <Reveal className="text-center mb-14">
-          <Badge variant="outline" className="mb-4 rounded-full bg-background/60 backdrop-blur">
-            Pra quem é
-          </Badge>
-          <h2 className="text-3xl font-semibold tracking-tight md:text-5xl">
-            Feito pra quem tem <span className="gradient-text">aula densa</span>.
+        <Reveal className="mb-14 max-w-2xl">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
+            — Pra quem é —
+          </p>
+          <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">
+            Feito pra quem tem{" "}
+            <span className="font-serif italic font-normal">aula densa</span>.
           </h2>
         </Reveal>
 
         <Stagger className="grid gap-5 md:grid-cols-3">
-          {PERSONAS.map((p) => (
+          {PERSONAS.map((p, i) => (
             <StaggerItem key={p.title}>
-              <div className={`group relative overflow-hidden rounded-xl border border-border/70 p-6 transition-all hover:-translate-y-1 hover:shadow-xl ${p.bg}`}>
-                <p.icon className="h-7 w-7 mb-4 text-foreground/80" />
-                <h3 className="font-semibold mb-2">{p.title}</h3>
+              <div className={`group relative overflow-hidden rounded-xl border border-border/70 p-7 transition-all hover:-translate-y-1 hover:shadow-xl h-full ${p.bg}`}>
+                <div className="flex items-start justify-between mb-6">
+                  <p.icon className="h-7 w-7 text-foreground/80" />
+                  <span className="editorial-num text-3xl text-foreground/15 leading-none">
+                    0{i + 1}
+                  </span>
+                </div>
+                <h3 className="font-semibold mb-2 tracking-tight">{p.title}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">{p.desc}</p>
+                <ArrowUpRight className="absolute bottom-5 right-5 h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             </StaggerItem>
           ))}
         </Stagger>
       </section>
 
-      {/* Final CTA */}
+      {/* CTA */}
       <Reveal className="relative z-10 mx-auto max-w-6xl px-6 py-24">
-        <div className="relative rounded-2xl border border-border/80 bg-gradient-to-br from-primary/10 via-card to-fuchsia-500/10 p-10 md:p-16 text-center overflow-hidden">
+        <div className="relative rounded-2xl border border-border/80 bg-gradient-to-br from-amber-500/5 via-card to-fuchsia-500/5 p-10 md:p-16 text-center overflow-hidden">
           <motion.div
-            className="absolute -top-32 -right-32 h-[400px] w-[400px] rounded-full opacity-40 blur-3xl"
+            className="absolute -top-32 -right-32 h-[400px] w-[400px] rounded-full opacity-30 blur-3xl"
             style={{
-              background: "radial-gradient(closest-side, oklch(0.6 0.25 290 / 0.6), transparent 70%)",
+              background: "radial-gradient(closest-side, oklch(0.85 0.18 90 / 0.6), transparent 70%)",
             }}
             animate={{ scale: [1, 1.1, 1] }}
-            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
           />
           <motion.div
-            className="absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full opacity-40 blur-3xl"
+            className="absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full opacity-30 blur-3xl"
             style={{
-              background: "radial-gradient(closest-side, oklch(0.7 0.2 330 / 0.6), transparent 70%)",
+              background: "radial-gradient(closest-side, oklch(0.7 0.2 330 / 0.5), transparent 70%)",
             }}
             animate={{ scale: [1.1, 1, 1.1] }}
-            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
           />
-          <div className="absolute inset-0 grid-bg opacity-30" />
+          <div className="absolute inset-0 grid-bg opacity-20" />
 
           <div className="relative">
-            <h2 className="text-3xl font-semibold tracking-tight md:text-5xl">
-              Sua próxima aula <span className="gradient-text">já podia estar resumida</span>.
+            <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">
+              Sua próxima aula já podia estar{" "}
+              <span className="font-serif italic font-normal">resumida</span>.
             </h2>
             <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-              Crie sua conta em 30 segundos. Sem cartão, sem download.
+              30 segundos pra criar conta. Sem cartão. Sem download.
             </p>
             <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <Button asChild variant="gradient" size="xl" className="min-w-[240px]">
@@ -347,7 +479,6 @@ export default function LandingPage() {
         </div>
       </Reveal>
 
-      {/* Footer */}
       <footer className="relative z-10 border-t border-border/40 bg-card/30 mt-8">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 sm:flex-row">
           <LumioWordmark className="opacity-80" />
@@ -374,31 +505,30 @@ function NavLink({ href, children }: { href: string; children: React.ReactNode }
   );
 }
 
-function FeatureCard({ f }: { f: (typeof FEATURES)[number] }) {
+function BentoCard({
+  children,
+  className,
+}: {
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
-    <div className="group relative h-full overflow-hidden rounded-xl border border-border/70 bg-card/60 backdrop-blur p-6 transition-all hover:border-primary/40 hover:bg-card hover:shadow-xl hover:-translate-y-0.5">
-      <motion.div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-        style={{
-          background:
-            "radial-gradient(circle at top right, oklch(0.6 0.22 290 / 0.10), transparent 60%)",
-        }}
-      />
-      <div className="relative">
-        <div className="mb-4 inline-flex h-10 w-10 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20 group-hover:scale-110 transition-transform">
-          <f.icon className="h-5 w-5" />
-        </div>
-        <h3 className="text-base font-semibold">{f.title}</h3>
-        <p className="mt-2 text-sm text-muted-foreground leading-relaxed">{f.desc}</p>
-      </div>
-    </div>
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-60px" }}
+      transition={{ duration: 0.5 }}
+      className={`group relative overflow-hidden rounded-xl border border-border/70 bg-card p-6 transition-all hover:border-foreground/30 hover:shadow-xl ${className ?? ""}`}
+    >
+      <div className="relative h-full">{children}</div>
+    </motion.div>
   );
 }
 
 const STATS: Array<{ value: number | string; suffix?: string; label: string }> = [
-  { value: 0, suffix: "ms", label: "Latência da transcrição" },
-  { value: "∞", label: "Aulas no histórico" },
-  { value: 100, suffix: "%", label: "Em português" },
+  { value: 0, suffix: "ms", label: "Latência" },
+  { value: "∞", label: "Histórico" },
+  { value: 100, suffix: "%", label: "Português BR" },
   { value: 30, suffix: "s", label: "Pra criar conta" },
 ];
 
@@ -407,49 +537,19 @@ const STEPS = [
     icon: BookOpen,
     title: "Crie suas matérias",
     desc: "No primeiro acesso, defina suas pastas — ou jogue uma foto da grade horária e a gente extrai pra você.",
+    meta: "30 segundos",
   },
   {
     icon: Mic,
     title: "Aperte gravar na sala",
-    desc: "A transcrição aparece na sua tela em tempo real. Você só precisa prestar atenção na aula.",
+    desc: "A transcrição aparece em tempo real. Você só precisa prestar atenção na aula.",
+    meta: "Tempo real",
   },
   {
     icon: FileText,
     title: "Receba o resumo pronto",
-    desc: "Ao final, slides + transcrição + perguntas viram um documento organizado, na pasta da matéria.",
-  },
-];
-
-const FEATURES = [
-  {
-    icon: Mic,
-    title: "Transcrição que não falha",
-    desc: "Reconhecimento nativo do navegador, otimizado pra português. Sem upload, sem latência perceptível.",
-  },
-  {
-    icon: Highlighter,
-    title: "Pergunte enquanto rola",
-    desc: "Sem entender algo? Pergunte no chat. A IA enxerga tudo que foi dito até agora e responde no contexto.",
-  },
-  {
-    icon: FolderTree,
-    title: "Tudo no seu lugar",
-    desc: "Cada aula vai pra pasta da matéria. Procurar fica simples — não vira aquele cemitério de PDFs.",
-  },
-  {
-    icon: Waves,
-    title: "Slides do professor incluídos",
-    desc: "Anexe o PDF da aula. Lumio relaciona cada slide com o que foi falado e gera um resumo correlacionado.",
-  },
-  {
-    icon: Clock,
-    title: "Revisão em metade do tempo",
-    desc: "Resumo automático com bullets centrais e perguntas/respostas. Você revisa o essencial antes da prova.",
-  },
-  {
-    icon: Zap,
-    title: "Sem fricção, nunca",
-    desc: "Stack moderna, sem telas brancas. Funciona no celular, no notebook ou no iPad — sem app pra instalar.",
+    desc: "Slides + transcrição + perguntas viram um documento organizado, na pasta da matéria.",
+    meta: "Automático",
   },
 ];
 
