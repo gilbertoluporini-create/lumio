@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { LIMITS, logAndSanitize, looksLikePdfBomb, sniffMagic } from "@/lib/api-security";
 import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { createClient } from "@/lib/supabase/server";
+import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -69,6 +70,11 @@ function tryParseJson(text: string): Slide[] | null {
 }
 
 export async function POST(req: Request) {
+  // Rate limit por IP — Vision Sonnet em PDF é caríssimo
+  const ip = getClientIp(req);
+  const ipLimit = limitOrThrow(`extract-slides:ip:${ip}`, 3, 60_000);
+  if (ipLimit) return ipLimit;
+
   let form: FormData;
   try {
     form = await req.formData();
@@ -141,6 +147,10 @@ export async function POST(req: Request) {
       );
     }
     userId = user.id;
+
+    // Rate limit por user (mais restritivo)
+    const userLimit = limitOrThrow(`extract-slides:user:${userId}`, 5, 60_000);
+    if (userLimit) return userLimit;
 
     const charge = await chargeCoins(
       user.id,

@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { createClient } from "@/lib/supabase/server";
+import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +89,11 @@ function fakeStreamResponse(ctx: Body["context"], userMsg: string) {
 }
 
 export async function POST(req: Request) {
+  // Rate limit por IP (defesa antes de processar payload)
+  const ip = getClientIp(req);
+  const ipLimit = limitOrThrow(`chat:ip:${ip}`, 30, 60_000); // 30 msgs/min/IP
+  if (ipLimit) return ipLimit;
+
   let body: Body;
   try {
     body = (await req.json()) as Body;
@@ -156,6 +162,10 @@ export async function POST(req: Request) {
       );
     }
     userId = user.id;
+
+    // Rate limit por user logado (mais restritivo)
+    const userLimit = limitOrThrow(`chat:user:${userId}`, 60, 60_000); // 60 msgs/min/user
+    if (userLimit) return userLimit;
 
     const charge = await chargeCoins(user.id, COIN_COSTS.chat_message, "chat", {
       lecture_title: body.context.lectureTitle,

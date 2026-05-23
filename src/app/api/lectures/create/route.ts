@@ -1,6 +1,7 @@
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { PLAN_LECTURE_LIMIT, type PlanId } from "@/lib/stripe";
 import { logAndSanitize } from "@/lib/api-security";
+import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,6 +20,11 @@ function shouldReset(resetAt: string | null): boolean {
 }
 
 export async function POST(req: Request) {
+  // Rate limit IP (anti-spam de criação)
+  const ip = getClientIp(req);
+  const ipLimit = limitOrThrow(`lectures:create:ip:${ip}`, 10, 60_000);
+  if (ipLimit) return ipLimit;
+
   let body: Body;
   try {
     body = (await req.json()) as Body;

@@ -3,6 +3,8 @@ import type { ChatMessage, Slide } from "@/lib/types";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
+import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
+import { assertLectureOwnership } from "@/lib/lecture-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -106,6 +108,11 @@ function tryParseJson(text: string, count: number): Flashcard[] {
 }
 
 export async function POST(req: Request) {
+  // Rate limit por IP — flashcards são caros (Sonnet 4.5)
+  const ip = getClientIp(req);
+  const ipLimit = limitOrThrow(`flashcards:ip:${ip}`, 5, 60_000); // 5/min/IP
+  if (ipLimit) return ipLimit;
+
   let body: Body;
   try {
     body = (await req.json()) as Body;
@@ -149,6 +156,19 @@ export async function POST(req: Request) {
       return Response.json({ error: "Faça login." }, { status: 401 });
     }
     userId = user.id;
+
+    // Rate limit por user
+    const userLimit = limitOrThrow(`flashcards:user:${userId}`, 10, 60_000);
+    if (userLimit) return userLimit;
+
+    // Verifica que a lecture é do user (defesa contra IDOR)
+    const ownsLecture = await assertLectureOwnership(
+      userId as string,
+      body.lectureId,
+    );
+    if (!ownsLecture) {
+      return Response.json({ error: "Aula não encontrada." }, { status: 404 });
+    }
 
     const charge = await chargeCoins(user.id, COIN_COSTS.flashcards, "flashcards", {
       lecture_id: body.lectureId,

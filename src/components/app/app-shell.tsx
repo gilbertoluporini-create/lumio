@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { LumioMark } from "@/components/brand/logo";
 import { LumioCoin } from "@/components/brand/lumio-coin";
 import { LumiIcon } from "@/components/brand/lumi-icon";
+import { CommandPalette } from "@/components/app/command-palette";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -110,6 +111,7 @@ export function AppShell({
 
   return (
     <div className="relative min-h-screen flex bg-background">
+      <CommandPalette user={user} />
       {/* Mobile overlay */}
       {mobileOpen && (
         <button
@@ -285,7 +287,25 @@ export function AppShell({
           <div className="lg:hidden">
             <LumioMark className="h-8 w-8" />
           </div>
-          <div className="flex items-center gap-1.5 ml-auto">
+          <div className="flex items-center gap-2 ml-auto">
+            <button
+              onClick={() => {
+                // Simula Cmd+K
+                window.dispatchEvent(
+                  new KeyboardEvent("keydown", {
+                    key: "k",
+                    metaKey: true,
+                  }),
+                );
+              }}
+              className="hidden md:inline-flex items-center gap-2 rounded-md border border-border/60 bg-secondary/40 hover:bg-secondary/60 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors"
+              title="Buscar (⌘K)"
+            >
+              <span>Buscar…</span>
+              <kbd className="font-mono text-[10px] bg-background/80 rounded px-1.5 py-0.5 border border-border/40">
+                ⌘K
+              </kbd>
+            </button>
             <ThemeToggle />
           </div>
         </header>
