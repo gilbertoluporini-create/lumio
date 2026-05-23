@@ -37,12 +37,12 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ColorPicker } from "@/components/app/emoji-color-picker";
 import {
-  createLecture,
-  createSubject,
-  deleteSubject,
-  listLectures,
-  listSubjects,
-} from "@/lib/storage";
+  createLectureAsync,
+  createSubjectAsync,
+  deleteSubjectAsync,
+  listLecturesAsync,
+  listSubjectsAsync,
+} from "@/lib/db";
 import {
   SUBJECT_PALETTE,
   type Lecture,
@@ -75,14 +75,19 @@ function Dashboard({ user }: { user: User }) {
   const [newName, setNewName] = useState("");
   const [color, setColor] = useState(SUBJECT_PALETTE[0].color);
 
-  function refresh() {
-    setSubjects(listSubjects(user.id));
-    setLectures(listLectures(user.id));
+  async function refresh() {
+    const [s, l] = await Promise.all([
+      listSubjectsAsync(user.id),
+      listLecturesAsync(user.id),
+    ]);
+    setSubjects(s);
+    setLectures(l);
   }
 
   useEffect(() => {
     refresh();
-  }, []); // eslint-disable-line
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const filtered = useMemo(() => {
     return activeSubject === "all"
@@ -90,29 +95,36 @@ function Dashboard({ user }: { user: User }) {
       : lectures.filter((l) => l.subjectId === activeSubject);
   }, [lectures, activeSubject]);
 
-  function handleCreateSubject() {
+  async function handleCreateSubject() {
     if (!newName.trim()) return;
-    const subject = createSubject(user.id, {
-      name: newName.trim(),
-      emoji: "",
-      color,
-    });
-    setNewName("");
-    setColor(SUBJECT_PALETTE[0].color);
-    setNewOpen(false);
-    refresh();
-    setActiveSubject(subject.id);
-    toast.success(`Matéria "${subject.name}" criada.`);
+    try {
+      const subject = await createSubjectAsync(user.id, {
+        name: newName.trim(),
+        color,
+      });
+      setNewName("");
+      setColor(SUBJECT_PALETTE[0].color);
+      setNewOpen(false);
+      await refresh();
+      setActiveSubject(subject.id);
+      toast.success(`Matéria "${subject.name}" criada.`);
+    } catch (err) {
+      toast.error(`Erro ao criar matéria: ${(err as Error).message}`);
+    }
   }
 
-  function handleDeleteSubject(s: Subject) {
+  async function handleDeleteSubject(s: Subject) {
     if (!confirm(`Excluir a matéria "${s.name}" e todas suas aulas? Esta ação não pode ser desfeita.`)) {
       return;
     }
-    deleteSubject(user.id, s.id);
-    setActiveSubject("all");
-    refresh();
-    toast.success("Matéria excluída.");
+    try {
+      await deleteSubjectAsync(user.id, s.id);
+      setActiveSubject("all");
+      await refresh();
+      toast.success("Matéria excluída.");
+    } catch (err) {
+      toast.error(`Erro ao excluir: ${(err as Error).message}`);
+    }
   }
 
   function startNewLecture() {
@@ -126,19 +138,22 @@ function Dashboard({ user }: { user: User }) {
     setLectureOpen(true);
   }
 
-  function handleCreateLecture() {
+  async function handleCreateLecture() {
     const title = lectureTitle.trim() || `Aula ${new Date().toLocaleDateString("pt-BR")}`;
     if (!lectureSubject) {
       toast.error("Escolha uma matéria.");
       return;
     }
-    const lecture = createLecture(user.id, {
-      subjectId: lectureSubject,
-      title,
-      status: "draft",
-    });
-    setLectureOpen(false);
-    router.push(`/lecture/${lecture.id}`);
+    try {
+      const lecture = await createLectureAsync(user.id, {
+        subjectId: lectureSubject,
+        title,
+      });
+      setLectureOpen(false);
+      router.push(`/lecture/${lecture.id}`);
+    } catch (err) {
+      toast.error(`Erro ao criar aula: ${(err as Error).message}`);
+    }
   }
 
   const currentSubject = subjects.find((s) => s.id === activeSubject);

@@ -25,11 +25,8 @@ import {
 import { LumioWordmark } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ColorPicker } from "@/components/app/emoji-color-picker";
-import {
-  bulkCreateSubjects,
-  getCurrentUser,
-  updateCurrentUser,
-} from "@/lib/storage";
+import { getCurrentUserAsync, markOnboardedAsync } from "@/lib/auth";
+import { bulkCreateSubjectsAsync } from "@/lib/db";
 import { SUBJECT_PALETTE } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -51,12 +48,13 @@ export default function OnboardingPage() {
   const [userName, setUserName] = useState<string | null>(null);
 
   useEffect(() => {
-    const user = getCurrentUser();
-    if (!user) {
-      router.replace("/login");
-      return;
-    }
-    setUserName(user.name.split(" ")[0]);
+    getCurrentUserAsync().then((user) => {
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      setUserName(user.name.split(" ")[0]);
+    });
   }, [router]);
 
   function addSubject(name: string, opts?: { color?: string }) {
@@ -154,15 +152,20 @@ export default function OnboardingPage() {
       return;
     }
     setSaving(true);
-    const user = getCurrentUser();
-    if (!user) {
-      router.replace("/login");
-      return;
+    try {
+      const user = await getCurrentUserAsync();
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      await bulkCreateSubjectsAsync(user.id, subjects);
+      await markOnboardedAsync();
+      toast.success("Pronto! Bem-vindo ao Lumio.");
+      setTimeout(() => router.push("/dashboard"), 400);
+    } catch (err) {
+      toast.error(`Erro ao salvar: ${(err as Error).message}`);
+      setSaving(false);
     }
-    bulkCreateSubjects(user.id, subjects);
-    updateCurrentUser({ onboardedAt: new Date().toISOString() });
-    toast.success("Pronto! Bem-vindo ao Lumio.");
-    setTimeout(() => router.push("/dashboard"), 400);
   }
 
   const currentColor =

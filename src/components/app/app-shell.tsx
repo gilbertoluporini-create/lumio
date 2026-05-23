@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { LogOut, Settings, UserIcon } from "lucide-react";
+import { CreditCard, LogOut, Settings, UserIcon } from "lucide-react";
 import { LumioWordmark } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -15,7 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { signOut } from "@/lib/storage";
+import { signOutAsync } from "@/lib/auth";
 import type { User } from "@/lib/types";
 
 export function AppShell({
@@ -27,8 +27,8 @@ export function AppShell({
 }) {
   const router = useRouter();
 
-  function handleLogout() {
-    signOut();
+  async function handleLogout() {
+    await signOutAsync();
     router.replace("/login");
   }
 
@@ -62,6 +62,11 @@ export function AppShell({
                   <div className="text-xs text-muted-foreground font-normal truncate">{user.email}</div>
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/account/billing">
+                    <CreditCard /> Assinatura
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem disabled>
                   <UserIcon /> Perfil
                 </DropdownMenuItem>

@@ -69,6 +69,10 @@ Todas têm free tier suficiente pra começar.
    ```
    Use o `whsec_...` que o CLI imprime.
 7. Ativar **PIX** em **Settings → Payment methods** (Brasil).
+8. **Customer Portal** (pro user gerenciar/cancelar assinatura):
+   - **Settings → Billing → Customer portal** → ativar.
+   - Permitir: cancelamento, atualizar forma de pagamento, ver histórico.
+   - Salvar — o `/api/portal` do app vai criar sessões automaticamente.
 
 ---
 
@@ -123,13 +127,16 @@ Abra http://localhost:3000.
 
 ## 8. Sanity tests pré-launch
 
-- [ ] Webhook Stripe entrega com signature OK (use Stripe CLI ou dashboard)
+- [ ] `GET /api/health` retorna `{integrations:{anthropic,supabase,stripe,resend}}` todos `true`
+- [ ] Webhook Stripe entrega com signature OK (use Stripe CLI ou dashboard test)
 - [ ] `/admin` redireciona pra `/dashboard` quando não-admin
 - [ ] Tentativa de hit em `/api/chat` sem login retorna 401
+- [ ] Tentativa de `/api/correlate` sem subscription ativa retorna 402 com `upgrade: "/pricing"`
 - [ ] Upload de PDF >20MB retorna 413
 - [ ] Upload de arquivo com extensão .pdf mas conteúdo não-pdf retorna 415 (magic byte sniff)
 - [ ] Rate limit dispara após 30 reqs/min na mesma rota
 - [ ] CSP headers presentes (DevTools → Network → headers)
+- [ ] `/account/billing` mostra plano atual + botão "Gerenciar no portal Stripe"
 
 ---
 

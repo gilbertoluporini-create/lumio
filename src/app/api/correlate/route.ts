@@ -6,6 +6,8 @@ import type {
   Slide,
 } from "@/lib/types";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
+import { isPaidActive, getActiveSubscriptionForUser } from "@/lib/server-auth";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -149,6 +151,27 @@ export async function POST(req: Request) {
   }
   if (transcript.length > LIMITS.TRANSCRIPT_CHARS) {
     return Response.json({ error: "Transcrição muito longa." }, { status: 413 });
+  }
+
+  // Subscription gate (feature premium): só Pro/Annual podem gerar resumo automático.
+  // Sem Supabase configurado: permite (modo dev/preview).
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      const sub = await getActiveSubscriptionForUser(user.id);
+      if (!isPaidActive(sub)) {
+        return Response.json(
+          {
+            error: "Resumo automático é do plano Pro. Assine pra liberar.",
+            upgrade: "/pricing",
+          },
+          { status: 402 },
+        );
+      }
+    }
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;

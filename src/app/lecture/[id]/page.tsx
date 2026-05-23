@@ -35,12 +35,12 @@ import {
   summaryToMarkdown,
 } from "@/components/app/lecture-summary-view";
 import {
-  appendMessage,
-  deleteLecture,
-  getLecture,
-  getSubject,
-  updateLecture,
-} from "@/lib/storage";
+  appendMessageAsync,
+  deleteLectureAsync,
+  getLectureAsync,
+  getSubjectAsync,
+  updateLectureAsync,
+} from "@/lib/db";
 import type {
   ChatMessage,
   Lecture,
@@ -131,22 +131,29 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   });
 
   useEffect(() => {
-    const l = getLecture(user.id, lectureId);
-    if (!l) {
-      toast.error("Aula não encontrada.");
-      router.replace("/dashboard");
-      return;
-    }
-    setLecture(l);
-    setTitleDraft(l.title);
-    setTranscript(l.transcript || "");
-    setDurationSec(l.durationSec || 0);
-    setMessages(l.messages || []);
-    setSlides(l.slides);
-    setSlidesFileName(l.slidesFileName);
-    setSummary(l.summary);
-    const s = getSubject(user.id, l.subjectId);
-    setSubject(s);
+    let active = true;
+    (async () => {
+      const l = await getLectureAsync(user.id, lectureId);
+      if (!active) return;
+      if (!l) {
+        toast.error("Aula não encontrada.");
+        router.replace("/dashboard");
+        return;
+      }
+      setLecture(l);
+      setTitleDraft(l.title);
+      setTranscript(l.transcript || "");
+      setDurationSec(l.durationSec || 0);
+      setMessages(l.messages || []);
+      setSlides(l.slides);
+      setSlidesFileName(l.slidesFileName);
+      setSummary(l.summary);
+      const s = await getSubjectAsync(user.id, l.subjectId);
+      if (active) setSubject(s);
+    })();
+    return () => {
+      active = false;
+    };
   }, [user.id, lectureId, router]);
 
   // FIX #1 do code review: contador de duração usando delta real entre ticks.
@@ -188,8 +195,14 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
 
   const persist = (patch: Partial<Lecture>) => {
     if (!lecture) return;
-    const updated = updateLecture(user.id, lecture.id, patch);
-    if (updated) setLecture(updated);
+    // Fire-and-forget — UI já está atualizada via state; só sincroniza com storage
+    updateLectureAsync(user.id, lecture.id, patch)
+      .then((updated) => {
+        if (updated) setLecture(updated);
+      })
+      .catch((err) => {
+        console.error("[lecture] persist failed", err);
+      });
   };
 
   // FIX #2 do code review: aguarda speech parar de fato antes de persistir/gerar resumo.
@@ -253,12 +266,16 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     setEditingTitle(false);
   }
 
-  function handleDelete() {
+  async function handleDelete() {
     if (!lecture) return;
     if (!confirm("Excluir esta aula? Esta ação não pode ser desfeita.")) return;
-    deleteLecture(user.id, lecture.id);
-    toast.success("Aula excluída.");
-    router.replace("/dashboard");
+    try {
+      await deleteLectureAsync(user.id, lecture.id);
+      toast.success("Aula excluída.");
+      router.replace("/dashboard");
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    }
   }
 
   async function handleSlidesFile(file: File) {
@@ -424,7 +441,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     };
     const nextMessages = [...messages, userMsg];
     setMessages(nextMessages);
-    appendMessage(user.id, lecture.id, userMsg);
+    appendMessageAsync(user.id, lecture.id, userMsg).catch((err) =>
+      console.error("[lecture] appendMessage user failed", err),
+    );
     setInput("");
     setSending(true);
     setStreamingReply("");
@@ -469,7 +488,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       };
       const finalMessages = [...nextMessages, assistantMsg];
       setMessages(finalMessages);
-      appendMessage(user.id, lecture.id, assistantMsg);
+      appendMessageAsync(user.id, lecture.id, assistantMsg).catch((err) =>
+        console.error("[lecture] appendMessage assistant failed", err),
+      );
       setStreamingReply("");
     } catch (err) {
       console.error(err);

@@ -3,7 +3,13 @@
 import { createBrowserClient } from "@supabase/ssr";
 import type { Database } from "./types";
 
-export function createClient() {
+/**
+ * Retorna `any` intencionalmente — tipos profundos do supabase-js geram
+ * `never` em inserts/updates genéricos sem types gerados via CLI.
+ * A tipagem fica nos call-sites com cast explícito.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function createClient(): any {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) {

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
-import { getCurrentUser } from "@/lib/storage";
+import { getCurrentUserAsync } from "@/lib/auth";
 import type { User } from "@/lib/types";
 
 type Props = {
@@ -17,17 +17,23 @@ export function AuthGuard({ children, requireOnboarding = true }: Props) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const current = getCurrentUser();
-    if (!current) {
-      router.replace("/login");
-      return;
-    }
-    if (requireOnboarding && !current.onboardedAt) {
-      router.replace("/onboarding");
-      return;
-    }
-    setUser(current);
-    setReady(true);
+    let active = true;
+    getCurrentUserAsync().then((current) => {
+      if (!active) return;
+      if (!current) {
+        router.replace("/login");
+        return;
+      }
+      if (requireOnboarding && !current.onboardedAt) {
+        router.replace("/onboarding");
+        return;
+      }
+      setUser(current);
+      setReady(true);
+    });
+    return () => {
+      active = false;
+    };
   }, [router, requireOnboarding]);
 
   if (!ready || !user) {
