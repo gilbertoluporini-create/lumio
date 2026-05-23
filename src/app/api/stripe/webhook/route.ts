@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { createAdminClient } from "@/lib/supabase/server";
-import { getStripe } from "@/lib/stripe";
+import { getAppUrl, getStripe } from "@/lib/stripe";
 import { sendReceiptEmail, sendWelcomeEmail } from "@/lib/email";
 
 export const runtime = "nodejs";
@@ -38,20 +38,44 @@ export async function POST(req: Request) {
     return new NextResponse("bad signature", { status: 400 });
   }
 
-  // Idempotência — Stripe pode reentregar o mesmo evento
+  // ========================================================================
+  // IDEMPOTÊNCIA (Reality Check fix #6+#7):
+  // Antes: inseríamos event.id ANTES do processing → se processing falhasse,
+  // retry do Stripe via 23505 → 200 OK sem reprocessar → subscription perdida.
+  // Agora: tenta reservar o evento. Processa. SÓ marca processed_at no sucesso.
+  // Se processing falhar, DELETA o reserve pra Stripe retentar do zero.
+  // ========================================================================
   const admin = createAdminClient();
-  const { error: insertError } = await admin
-    .from("stripe_events")
-    .insert({ id: event.id, type: event.type, payload: event });
 
-  if (insertError) {
-    // Provavelmente conflito (já processado) — Stripe espera 200
-    if (insertError.code === "23505") {
-      return NextResponse.json({ received: true, duplicate: true });
-    }
-    console.error("[stripe/webhook] persist event failed", insertError);
-    return new NextResponse("storage error", { status: 500 });
+  // Verifica se já foi processado com sucesso
+  const { data: existing } = await admin
+    .from("stripe_events")
+    .select("id, processed_at")
+    .eq("id", event.id)
+    .maybeSingle();
+
+  if (existing?.processed_at) {
+    // Já processado completamente em retry anterior
+    return NextResponse.json({ received: true, duplicate: true });
   }
+
+  if (!existing) {
+    // Reserva: tenta inserir. Se conflict (outro processo está rodando agora),
+    // 23505 vira erro e respondemos 409 pra Stripe retentar mais tarde.
+    const { error: insertError } = await admin
+      .from("stripe_events")
+      .insert({ id: event.id, type: event.type, payload: event });
+    if (insertError) {
+      if (insertError.code === "23505") {
+        // Outro processo já reservou — responder 409 pra retry
+        return new NextResponse("event in progress", { status: 409 });
+      }
+      console.error("[stripe/webhook] reserve failed", insertError);
+      return new NextResponse("storage error", { status: 500 });
+    }
+  }
+  // (se existing existe mas sem processed_at, somos um retry de processing
+  // que falhou no passado — vamos reprocessar abaixo)
 
   try {
     switch (event.type) {
@@ -78,6 +102,7 @@ export async function POST(req: Request) {
         break;
     }
 
+    // Marca como processado COM SUCESSO
     await admin
       .from("stripe_events")
       .update({ processed_at: new Date().toISOString() })
@@ -86,6 +111,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true });
   } catch (err) {
     console.error(`[stripe/webhook] processing failed for ${event.type}`, err);
+    // Remove o reserve pra Stripe retentar do zero
+    await admin
+      .from("stripe_events")
+      .delete()
+      .eq("id", event.id)
+      .is("processed_at", null);
     return new NextResponse("processing failed", { status: 500 });
   }
 }
@@ -113,7 +144,7 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     const sub = await stripe.subscriptions.retrieve(subId);
     await upsertSubscriptionFromStripe(userId, sub, customerId);
 
-    // Envia email de boas-vindas
+    // Welcome email com magic link gerado (Reality Check fix #1)
     const { data: profile } = await admin
       .from("profiles")
       .select("email, name")
@@ -121,9 +152,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       .single();
 
     if (profile?.email) {
+      const magicLink = await generateMagicLink(profile.email);
       await sendWelcomeEmail({
         to: profile.email,
         name: profile.name ?? undefined,
+        magicLink,
       });
     }
   } else {
@@ -186,7 +219,6 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     .single();
   if (!profile?.email) return;
 
-  // Detecta o plano pelo price do invoice line item
   const lineItem = invoice.lines?.data?.[0] as unknown as
     | { pricing?: { price_details?: { price?: string } }; price?: { id?: string } }
     | undefined;
@@ -211,12 +243,16 @@ async function upsertSubscriptionFromStripe(
 ) {
   const admin = createAdminClient();
 
-  // Mapear price ID → plan name
   const priceId = sub.items.data[0]?.price.id;
   const plan = priceId && PLAN_PRICE_TO_NAME[priceId] ? PLAN_PRICE_TO_NAME[priceId] : "pro";
 
-  const periodEnd = (sub.items.data[0] as unknown as { current_period_end?: number })
-    ?.current_period_end;
+  // current_period_end existe em DOIS lugares dependendo da Stripe API version:
+  // - API < 2025-03: root da Subscription
+  // - API >= 2025-03: por item (sub.items.data[0].current_period_end)
+  // Pegamos de ambos pra robustez (Reality Check fix #14).
+  const subRoot = sub as unknown as { current_period_end?: number };
+  const itemLevel = sub.items.data[0] as unknown as { current_period_end?: number };
+  const periodEnd = itemLevel?.current_period_end ?? subRoot.current_period_end;
 
   await admin.from("subscriptions").upsert(
     {
@@ -232,4 +268,29 @@ async function upsertSubscriptionFromStripe(
     },
     { onConflict: "user_id" },
   );
+}
+
+/**
+ * Gera magic link de acesso direto via Supabase Admin API.
+ * Reality Check fix #1 — user paga, recebe email com link clicável e entra direto.
+ */
+async function generateMagicLink(email: string): Promise<string | undefined> {
+  try {
+    const admin = createAdminClient();
+    const { data, error } = await admin.auth.admin.generateLink({
+      type: "magiclink",
+      email,
+      options: {
+        redirectTo: `${getAppUrl()}/auth/callback?next=/dashboard`,
+      },
+    });
+    if (error) {
+      console.error("[webhook] generateMagicLink failed", error);
+      return undefined;
+    }
+    return data?.properties?.action_link;
+  } catch (err) {
+    console.error("[webhook] generateMagicLink threw", err);
+    return undefined;
+  }
 }

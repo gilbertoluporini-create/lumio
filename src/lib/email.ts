@@ -9,7 +9,24 @@ function getResend(): Resend | null {
   return client;
 }
 
+/**
+ * Email remetente.
+ * Reality Check fix #11: `onboarding@resend.dev` é sandbox do Resend — só
+ * funciona pra emails do dono da conta Resend. Em produção, configure um
+ * domínio verificado.
+ */
 const FROM = process.env.RESEND_FROM_EMAIL || "Lumio <onboarding@resend.dev>";
+
+if (
+  process.env.NODE_ENV === "production" &&
+  FROM.includes("onboarding@resend.dev")
+) {
+  console.error(
+    "[email] AVISO CRÍTICO: RESEND_FROM_EMAIL não configurado com domínio verificado em produção. " +
+      "Emails (welcome, recibo) serão entregues apenas pra conta dona do Resend, todos os outros falham silenciosamente. " +
+      "Configure RESEND_FROM_EMAIL=Lumio <hello@SEU-DOMINIO.com> e verifique o domínio em https://resend.com/domains",
+  );
+}
 
 export async function sendWelcomeEmail(opts: {
   to: string;

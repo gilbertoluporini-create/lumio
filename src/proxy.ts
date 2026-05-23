@@ -22,17 +22,26 @@ function isPublic(pathname: string) {
   return false;
 }
 
-// In-memory rate limiter (simples — em prod usar Upstash Redis)
-// Limita: 30 req/min por user_id em rotas que chamam Anthropic
+// In-memory rate limiter (simples — em prod usar Upstash Redis pra survivability).
+// Em serverless cold starts perdem state, então isto é best-effort.
+// Limita: 30 req/min por user_id em rotas que chamam Anthropic.
 type Bucket = { count: number; reset: number };
 const buckets = new Map<string, Bucket>();
 const WINDOW_MS = 60_000;
 const MAX_REQ = 30;
+const MAX_BUCKETS = 5000; // hard cap pra evitar memory leak
 
 function rateLimit(key: string): { allowed: boolean; remaining: number } {
   const now = Date.now();
   const bucket = buckets.get(key);
   if (!bucket || bucket.reset < now) {
+    // GC oportunista: limpa buckets expirados se passar do limite
+    if (buckets.size > MAX_BUCKETS) {
+      for (const [k, b] of buckets) {
+        if (b.reset < now) buckets.delete(k);
+        if (buckets.size <= MAX_BUCKETS / 2) break;
+      }
+    }
     buckets.set(key, { count: 1, reset: now + WINDOW_MS });
     return { allowed: true, remaining: MAX_REQ - 1 };
   }

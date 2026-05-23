@@ -79,8 +79,11 @@ Todas têm free tier suficiente pra começar.
 ## 4. Configurar Resend (3 min)
 
 1. Criar conta. **Settings → API Keys** → criar nova key → `RESEND_API_KEY`.
-2. Em dev, use `onboarding@resend.dev` como remetente (não precisa verificar domínio).
-3. Em prod: verifique seu domínio (DNS) e use `hello@SEUDOMINIO`.
+2. Em dev, use `onboarding@resend.dev` como remetente (só funciona pra **email cadastrado no Resend** — sandbox).
+3. **PRA PRODUÇÃO É OBRIGATÓRIO** verificar domínio:
+   - **Domains** → Add Domain → siga as instruções DNS
+   - Atualize `RESEND_FROM_EMAIL=Lumio <hello@SEUDOMINIO>`
+   - **Sem isso, welcome email e recibos falham silenciosamente em prod** (Resend bloqueia o sandbox `onboarding@resend.dev` pra usuários terceiros).
 
 ---
 
@@ -124,6 +127,28 @@ Abra http://localhost:3000.
 6. Atualize Supabase Redirect URL pra `https://SEU-DOMAIN.vercel.app/auth/callback`.
 
 ---
+
+## 7.5 Validar webhook E2E em dev (5 min)
+
+Crucial — sem isso você descobre na primeira venda real.
+
+```bash
+# Terminal 1
+stripe listen --forward-to localhost:3000/api/stripe/webhook
+# Cola o whsec_xxx que aparece em STRIPE_WEBHOOK_SECRET
+
+# Terminal 2 (com app rodando)
+npm run dev
+
+# Terminal 3 — dispara um checkout completed sintético
+stripe trigger checkout.session.completed
+```
+
+Verifique no terminal do app:
+- ✅ Sem `signature failed`
+- ✅ Sem `[stripe/webhook] processing failed`
+- ✅ Linha `processed_at` populada na tabela `subscriptions`
+- ✅ Email recebido (se Resend configurado e remetente verificado)
 
 ## 8. Sanity tests pré-launch
 

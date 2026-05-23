@@ -154,23 +154,40 @@ export async function POST(req: Request) {
   }
 
   // Subscription gate (feature premium): só Pro/Annual podem gerar resumo automático.
-  // Sem Supabase configurado: permite (modo dev/preview).
-  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  // Reality Check fix #5: gate sem bypass.
+  // - Se Supabase configurado (anon + URL): exige user logado + plano ativo.
+  // - Service role obrigatório pra ler subscriptions com bypass de RLS.
+  // - Em modo dev (sem Supabase): permite, mas avisa.
+  const supabaseEnabled = !!(
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+  if (supabaseEnabled) {
+    if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      console.error(
+        "[correlate] SUPABASE_SERVICE_ROLE_KEY ausente em ambiente com Supabase. Gate de subscription inoperante.",
+      );
+      return Response.json(
+        { error: "Configuração de servidor incompleta. Contate o suporte." },
+        { status: 503 },
+      );
+    }
     const supabase = await createClient();
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    if (user) {
-      const sub = await getActiveSubscriptionForUser(user.id);
-      if (!isPaidActive(sub)) {
-        return Response.json(
-          {
-            error: "Resumo automático é do plano Pro. Assine pra liberar.",
-            upgrade: "/pricing",
-          },
-          { status: 402 },
-        );
-      }
+    if (!user) {
+      return Response.json({ error: "Faça login pra gerar resumos." }, { status: 401 });
+    }
+    const sub = await getActiveSubscriptionForUser(user.id);
+    if (!isPaidActive(sub)) {
+      return Response.json(
+        {
+          error: "Resumo automático é do plano Pro. Assine pra liberar.",
+          upgrade: "/pricing",
+        },
+        { status: 402 },
+      );
     }
   }
 
