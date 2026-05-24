@@ -1,10 +1,14 @@
 import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
+import { getSharedCookieDomain } from "./cookie-domain";
 import type { Database } from "./types";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function createClient(): Promise<any> {
   const cookieStore = await cookies();
+  const headerStore = await headers();
+  const host = headerStore.get("host") ?? "";
+  const sharedDomain = getSharedCookieDomain(host);
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   if (!url || !anon) {
@@ -18,7 +22,12 @@ export async function createClient(): Promise<any> {
       setAll(cookiesToSet) {
         try {
           cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
+            // Em prod, propaga cookie pra todos os subdomains de lumioapp.net
+            // (assim admin.lumioapp.net e www.lumioapp.net compartilham sessão).
+            const opts = sharedDomain
+              ? { ...options, domain: sharedDomain }
+              : options;
+            cookieStore.set(name, value, opts);
           });
         } catch {
           // Server components don't allow setting cookies — middleware handles refresh

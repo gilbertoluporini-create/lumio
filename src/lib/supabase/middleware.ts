@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
+import { getSharedCookieDomain } from "./cookie-domain";
 import type { Database } from "./types";
 
 export async function updateSession(request: NextRequest) {
@@ -11,6 +12,9 @@ export async function updateSession(request: NextRequest) {
     return { response: supabaseResponse, user: null };
   }
 
+  const host = request.headers.get("host") ?? "";
+  const sharedDomain = getSharedCookieDomain(host);
+
   const supabase = createServerClient<Database>(url, anon, {
     cookies: {
       getAll() {
@@ -21,9 +25,14 @@ export async function updateSession(request: NextRequest) {
           request.cookies.set(name, value),
         );
         supabaseResponse = NextResponse.next({ request });
-        cookiesToSet.forEach(({ name, value, options }) =>
-          supabaseResponse.cookies.set(name, value, options),
-        );
+        cookiesToSet.forEach(({ name, value, options }) => {
+          // Em prod, propaga cookie pra todos os subdomains de lumioapp.net
+          // (essencial pra sessão funcionar em admin.lumioapp.net).
+          const opts = sharedDomain
+            ? { ...options, domain: sharedDomain }
+            : options;
+          supabaseResponse.cookies.set(name, value, opts);
+        });
       },
     },
   });
