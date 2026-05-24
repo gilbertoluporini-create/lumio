@@ -12,6 +12,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
+import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import type { LectureSummary } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -132,6 +133,10 @@ export async function POST(req: Request) {
   if (!user) {
     return Response.json({ error: "Não autenticado." }, { status: 401 });
   }
+
+  // Cap diário USD por user (anti-abuse). Admin/founder bypass.
+  const cap = await checkDailyCostCap(user.id);
+  if (!cap.ok) return dailyCapResponse(cap);
 
   let body: { lectureId?: string; count?: number };
   try {

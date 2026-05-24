@@ -12,8 +12,12 @@ import { createAdminClient } from "./supabase/server";
 
 /**
  * Estratégia v2 (2026-05): ferramentas basais grátis (incluídas no plano).
- * Coins gastas apenas em PRODUTOS gerados que ficam salvos como assets na
- * subpasta da aula (resumo estruturado, flash cards, quiz, mapa mental).
+ * Coins gastas apenas em PRODUTOS gerados que ficam salvos como assets.
+ *
+ * IMPORTANTE: valores alinhados com `coins-pricing.ts` (fonte de verdade do
+ * wizard novo). Antes havia divergência (flashcards: 12 aqui vs 8 lá), o que
+ * permitia ao mesmo asset ser cobrado em valores diferentes dependendo do
+ * endpoint chamado. Próxima sprint: unificar num único arquivo.
  */
 export const COIN_COSTS = {
   chat_message: 0,          // grátis — incluído no plano
@@ -21,9 +25,9 @@ export const COIN_COSTS = {
   transcript_refine: 0,     // grátis — incluído no plano
   extract_schedule: 0,      // grátis no onboarding
   summary: 10,              // produto: resumo estruturado
-  flashcards: 12,           // produto: set de flash cards
-  quiz: 15,                 // produto: quiz interativo
-  mindmap: 20,              // produto: mapa mental
+  flashcards: 8,            // alinhado com coins-pricing.ts
+  quiz: 8,                  // alinhado com coins-pricing.ts
+  mindmap: 6,               // alinhado com coins-pricing.ts
 } as const;
 
 export type CoinReason =

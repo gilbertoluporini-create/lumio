@@ -17,6 +17,8 @@ import { logAndSanitize } from "@/lib/api-security";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { logAiUsage } from "@/lib/ai-usage";
+import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
+import { isFeatureEnabled, featureDisabledResponse } from "@/lib/feature-flags";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -168,6 +170,15 @@ export async function POST(req: Request) {
   const userId: string = user.id;
   const userLimit = limitOrThrow(`ai-images:user:${userId}`, 10, 60_000);
   if (userLimit) return userLimit;
+
+  // Kill-switch global de imagens (admin pode desligar em emergência).
+  if (!(await isFeatureEnabled("features.imagen.enabled"))) {
+    return featureDisabledResponse("features.imagen.enabled");
+  }
+
+  // Cap diário USD (anti-abuse). Imagen é o endpoint mais caro ($0.04/img).
+  const cap = await checkDailyCostCap(userId);
+  if (!cap.ok) return dailyCapResponse(cap);
 
   let body: Body;
   try {

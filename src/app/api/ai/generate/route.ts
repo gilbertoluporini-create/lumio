@@ -20,6 +20,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { chargeCoins, creditCoins, getBalance } from "@/lib/coins";
 import { computeCost, type AIMode } from "@/lib/coins-pricing";
+import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
+import { isFeatureEnabled, featureDisabledResponse } from "@/lib/feature-flags";
 import { createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { logAiUsage } from "@/lib/ai-usage";
@@ -519,6 +521,15 @@ export async function POST(req: Request) {
 
   const userLimit = limitOrThrow(`ai-generate:user:${userId}`, 8, 60_000);
   if (userLimit) return userLimit;
+
+  // Kill-switch global de geração IA.
+  if (!(await isFeatureEnabled("features.ai_generate.enabled"))) {
+    return featureDisabledResponse("features.ai_generate.enabled");
+  }
+
+  // Cap diário USD (anti-abuse). Admin/founder não tem cap.
+  const cap = await checkDailyCostCap(userId);
+  if (!cap.ok) return dailyCapResponse(cap);
 
   // Pricing
   const cost = computeCost(mode, withImages);

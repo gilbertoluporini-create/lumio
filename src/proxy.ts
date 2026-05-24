@@ -54,15 +54,18 @@ function rateLimit(key: string): { allowed: boolean; remaining: number } {
 
 /**
  * Detecta subdomínio admin (admin.lumioapp.net, admin-staging.lumioapp.net,
- * admin.localhost:3000 em dev). Quando ativo, reescreve internamente o path
- * pra `/admin/*` mantendo a URL visível no browser. A auth check do flow
- * normal continua exigindo `role IN ('admin','founder')`.
+ * admin.localhost:3000 em dev). Quando ativo:
+ *  - `/` (root) → rewrite pra `/admin` (raiz vira o painel)
+ *  - `/admin/*`, `/login`, `/api/*`, assets → passthrough
+ *  - QUALQUER outro path (`/dashboard`, `/lumi`, etc) → REDIRECT 307 pro apex
+ *    (`https://www.lumioapp.net{path}`). O subdomain admin só serve o painel.
  */
 function isAdminSubdomain(host: string): boolean {
   return /^admin([.-]|$)/i.test(host);
 }
 
-const ADMIN_PASSTHROUGH_PREFIXES = [
+/** Paths que ficam no subdomain admin (vivem dentro de /admin/* OU são auth/assets). */
+const ADMIN_KEEP_PREFIXES = [
   "/api/",
   "/_next",
   "/favicon",
@@ -72,26 +75,52 @@ const ADMIN_PASSTHROUGH_PREFIXES = [
   "/signup",
   "/reset-password",
   "/onboarding",
+  "/auth/", // /auth/callback do Supabase magic link
+  "/account/billing", // pra deixar o user gerenciar pagamento sem sair do admin
 ];
 
-function rewriteAdminPath(pathname: string): string | null {
+type AdminHostDecision =
+  | { kind: "passthrough" }
+  | { kind: "rewrite"; newPath: string }
+  | { kind: "redirect_to_apex" };
+
+function decideAdminHostAction(pathname: string): AdminHostDecision {
+  // Root → rewrite pra /admin
+  if (pathname === "/") return { kind: "rewrite", newPath: "/admin" };
+  // Paths que ficam no subdomain → passthrough
   if (
-    ADMIN_PASSTHROUGH_PREFIXES.some(
+    ADMIN_KEEP_PREFIXES.some(
       (p) => pathname === p || pathname.startsWith(p),
     )
   ) {
-    return null;
+    return { kind: "passthrough" };
   }
-  return pathname === "/" ? "/admin" : `/admin${pathname}`;
+  // Qualquer outra coisa → redireciona pro apex (subdomain admin é só pro painel)
+  return { kind: "redirect_to_apex" };
 }
 
 export async function proxy(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const onAdminHost = isAdminSubdomain(host);
   const originalPathname = request.nextUrl.pathname;
-  const adminRewritePath = onAdminHost
-    ? rewriteAdminPath(originalPathname)
-    : null;
+
+  // No admin subdomain decide cedo: passthrough (auth/api/assets/admin),
+  // rewrite (root /), ou redirect pro apex (qualquer outro app path).
+  let adminRewritePath: string | null = null;
+  if (onAdminHost) {
+    const decision = decideAdminHostAction(originalPathname);
+    if (decision.kind === "redirect_to_apex") {
+      const apexUrl = request.nextUrl.clone();
+      apexUrl.host = "www.lumioapp.net";
+      apexUrl.port = "";
+      apexUrl.protocol = "https:";
+      return NextResponse.redirect(apexUrl, 307);
+    }
+    if (decision.kind === "rewrite") {
+      adminRewritePath = decision.newPath;
+    }
+    // passthrough → adminRewritePath fica null, continua flow normal
+  }
   // Pathname "efetivo" usado nas checagens (auth, rate limit etc).
   const pathname = adminRewritePath ?? originalPathname;
 

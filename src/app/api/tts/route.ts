@@ -21,6 +21,8 @@ import { createHash } from "node:crypto";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { chargeCoins, getBalance } from "@/lib/coins";
 import { COIN_COSTS } from "@/lib/coins-pricing";
+import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
+import { isFeatureEnabled, featureDisabledResponse } from "@/lib/feature-flags";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -114,6 +116,15 @@ export async function POST(req: Request) {
       { status: 402 },
     );
   }
+
+  /* ---------------- 2.0) Kill-switch global (admin pode desligar TTS) ---------------- */
+  if (!(await isFeatureEnabled("features.tts.enabled"))) {
+    return featureDisabledResponse("features.tts.enabled");
+  }
+
+  /* ---------------- 2a) Cap diário USD por user (anti-abuse forte) ---------------- */
+  const cap = await checkDailyCostCap(user.id);
+  if (!cap.ok) return dailyCapResponse(cap);
 
   /* ---------------- 2b) Cap diário de voice replies (anti-abuse) ----------------
    * Conta voice_reply nas últimas 24h. Acima do cap → 429 amigável.

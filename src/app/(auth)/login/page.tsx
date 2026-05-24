@@ -37,7 +37,13 @@ function LoginInner() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const nextPath = params.get("next") ?? "/dashboard";
+  // No subdomain admin.* o default vira /admin (não /dashboard) pra não cair
+  // num path que será redirecionado pro apex.
+  const onAdminHost =
+    typeof window !== "undefined" &&
+    /^admin([.-]|$)/i.test(window.location.host);
+  const nextPath =
+    params.get("next") ?? (onAdminHost ? "/admin" : "/dashboard");
 
   async function onGoogle() {
     if (googleLoading || !supaOn) return;
