@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
  */
 export function LumioCoinSpinning({
   size = 180,
-  duration = 3.2,
+  duration = 5,
   className,
 }: {
   size?: number;
@@ -28,7 +28,7 @@ export function LumioCoinSpinning({
       style={{
         width: `${size}px`,
         height: `${size}px`,
-        perspective: `${size * 6}px`,
+        perspective: `${size * 5}px`,
       }}
       aria-hidden="true"
     >
@@ -44,15 +44,18 @@ export function LumioCoinSpinning({
           height: "100%",
           objectFit: "contain",
           transformOrigin: "center center",
-          animation: `lumio-coin-spin ${duration}s linear infinite`,
-          filter: "drop-shadow(0 12px 24px rgba(124, 58, 237, 0.35))",
+          animation: `lumio-coin-tilt ${duration}s ease-in-out infinite`,
+          filter: "drop-shadow(0 16px 28px rgba(124, 58, 237, 0.45))",
           willChange: "transform",
         }}
       />
       <style>{`
-        @keyframes lumio-coin-spin {
-          0%   { transform: rotateY(0deg); }
-          100% { transform: rotateY(360deg); }
+        @keyframes lumio-coin-tilt {
+          0%   { transform: rotateY(-22deg) rotateX(6deg) translateY(0); }
+          25%  { transform: rotateY(14deg)  rotateX(-4deg) translateY(-6px); }
+          50%  { transform: rotateY(24deg)  rotateX(6deg) translateY(0); }
+          75%  { transform: rotateY(-14deg) rotateX(-4deg) translateY(-6px); }
+          100% { transform: rotateY(-22deg) rotateX(6deg) translateY(0); }
         }
       `}</style>
     </div>

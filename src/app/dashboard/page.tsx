@@ -4,16 +4,28 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Activity,
   ArrowRight,
+  BookOpen,
+  Brain,
   Clock,
+  FlaskConical,
+  HeartPulse,
   Layers,
   MessageSquare,
+  Microscope,
   Mic,
   MoreVertical,
+  Pill,
   Plus,
+  Scale,
   Sparkles,
+  Stethoscope,
   Trash2,
+  Users,
+  Wind,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
@@ -73,6 +85,26 @@ export default function DashboardPage() {
 function timeToMinutes(t: string): number {
   const [h, m] = t.split(":").map(Number);
   return h * 60 + m;
+}
+
+/**
+ * Escolhe um ícone temático com base no nome da matéria.
+ * Cobertura focada em medicina (curso principal do beta) mas
+ * cai num ícone de livro pra qualquer matéria não reconhecida.
+ */
+function getSubjectIcon(name: string): LucideIcon {
+  const n = name.toLowerCase();
+  if (/cardio|cora[cç][aã]o|cardiovasc|circulat/.test(n)) return HeartPulse;
+  if (/respirat|pulm[aã]o|pulmonar/.test(n)) return Wind;
+  if (/endo|horm[oô]n|metabol/.test(n)) return Pill;
+  if (/anatomia|sistema\s+nerv|c[eé]rebro|neuro|psiqui/.test(n)) return Brain;
+  if (/[eé]tica|cidadan|huma|filosof|deont/.test(n)) return Scale;
+  if (/biolog|bases\s+biol|bioqu[ií]m|gen[eé]tic|histol|embriol/.test(n)) return FlaskConical;
+  if (/habilidad|cl[ií]nic/.test(n)) return Stethoscope;
+  if (/aten[cç][aã]o\s*prim|aps|sa[uú]de\s+coletiva|sa[uú]de\s+p[uú]blica/.test(n)) return Activity;
+  if (/pesquisa|inova[cç][aã]o|gest[aã]o|metodol/.test(n)) return Microscope;
+  if (/reuni[aã]o|integ|tutor|grupo/.test(n)) return Users;
+  return BookOpen;
 }
 
 type NextSlot = {
@@ -301,9 +333,12 @@ function Dashboard({ user }: { user: User }) {
           </div>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
             {streak.todayDone
-              ? "Você já estudou hoje. Tô orgulhoso."
-              : "Pronto pra estudar?"}
+              ? "Mais um dia foco em dia."
+              : "Pronto pra mais uma aula?"}
           </h1>
+          <p className="mt-2 text-sm text-muted-foreground max-w-xl">
+            Continue seu progresso e transforme estudo em memória.
+          </p>
         </div>
         <div className="flex gap-2 shrink-0">
           <Dialog open={newOpen} onOpenChange={setNewOpen}>
@@ -593,7 +628,10 @@ function SubjectFolder({
               subject.color,
             )}
           >
-            <LumiIcon name="book" size={26} className="brightness-200" />
+            {(() => {
+              const SubjectIcon = getSubjectIcon(subject.name);
+              return <SubjectIcon className="h-5 w-5 text-white" strokeWidth={2.2} />;
+            })()}
           </div>
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-sm leading-tight line-clamp-2 group-hover:text-primary transition-colors">
