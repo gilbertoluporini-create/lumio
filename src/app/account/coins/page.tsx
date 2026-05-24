@@ -17,7 +17,7 @@ import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { LumioCoin } from "@/components/brand/lumio-coin";
-import { LumioCoinVideo } from "@/components/brand/lumio-coin-video";
+import { LumioCoinSpinning } from "@/components/brand/lumio-coin-spinning";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { User } from "@/lib/types";
@@ -158,7 +158,7 @@ function CoinsView({ user }: { user: User }) {
               </div>
             </div>
             <div className="hidden md:flex flex-col items-center gap-3">
-              <LumioCoinVideo size={180} />
+              <LumioCoinSpinning size={180} />
             </div>
           </div>
 
