@@ -7,7 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { ArrowLeft, Loader2, Mic, Square, Volume2 } from "lucide-react";
+import { ArrowLeft, DollarSign, Loader2, Mic, Square, Volume2, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import {
@@ -17,7 +17,7 @@ import {
   type LumiChat,
   type LumiChatMessage,
 } from "@/lib/lumi-chats";
-import { cn } from "@/lib/utils";
+import { cn, stripChatFormatting } from "@/lib/utils";
 
 type Props = {
   userId: string;
@@ -54,13 +54,95 @@ export function LumiVoiceMode({
   const [lastReply, setLastReply] = useState<string | null>(null);
   const finalBufferRef = useRef("");
 
+  /**
+   * Modo dinâmico estilo ChatGPT advanced voice: depois que a IA termina de
+   * falar, o microfone reabre automaticamente. VAD (voice activity detection)
+   * por silêncio finaliza o turno do usuário sem precisar apertar botão.
+   */
+  const [continuousMode, setContinuousMode] = useState(true);
+  const continuousRef = useRef(continuousMode);
+  useEffect(() => {
+    continuousRef.current = continuousMode;
+  }, [continuousMode]);
+
+  /** Detecção de silêncio: 2.4s sem nova palavra final → finaliza turno.
+   *  Antes era 1.6s + armado em onInterim — fechava turno cedo demais durante pausas. */
+  const SILENCE_TIMEOUT_MS = 2400;
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** Tracking de gasto da sessão (visível só no chat, sem cobrar coins). */
+  const [sessionStats, setSessionStats] = useState({
+    turns: 0,
+    charsIn: 0, // chars que o user falou (STT é grátis - browser)
+    charsOut: 0, // chars que o TTS sintetizou (ElevenLabs)
+    tokensIn: 0, // tokens enviados ao Claude (estimado)
+    tokensOut: 0, // tokens de resposta do Claude (estimado)
+    costUsd: 0, // custo total em USD
+  });
+
+  /** Custos estimados (USD).
+   * - ElevenLabs Multilingual v2: $0.30 / 1k chars (no plano pay-as-you-go)
+   * - Claude Haiku 4.5: input $1/MTok, output $5/MTok
+   *   (Sonnet seria $3/MTok input + $15/MTok output) */
+  const COST = {
+    elevenlabsPerChar: 0.0003, // $0.30 / 1k chars
+    claudeInputPerTok: 0.000001, // $1 / MTok
+    claudeOutputPerTok: 0.000005, // $5 / MTok
+  };
+
+  const addUsage = useCallback(
+    (chunk: {
+      charsIn?: number;
+      charsOut?: number;
+      tokensIn?: number;
+      tokensOut?: number;
+    }) => {
+      setSessionStats((s) => {
+        const charsOut = s.charsOut + (chunk.charsOut ?? 0);
+        const tokensIn = s.tokensIn + (chunk.tokensIn ?? 0);
+        const tokensOut = s.tokensOut + (chunk.tokensOut ?? 0);
+        const cost =
+          charsOut * COST.elevenlabsPerChar +
+          tokensIn * COST.claudeInputPerTok +
+          tokensOut * COST.claudeOutputPerTok;
+        return {
+          turns: s.turns + (chunk.charsIn || chunk.charsOut ? 1 : 0),
+          charsIn: s.charsIn + (chunk.charsIn ?? 0),
+          charsOut,
+          tokensIn,
+          tokensOut,
+          costUsd: cost,
+        };
+      });
+    },
+    [COST.claudeInputPerTok, COST.claudeOutputPerTok, COST.elevenlabsPerChar],
+  );
+
+  /** Auto-finaliza turno após silêncio (chamado quando há atividade de voz). */
+  const armSilenceTimer = useCallback(() => {
+    if (!continuousRef.current) return;
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    silenceTimerRef.current = setTimeout(() => {
+      // Vamos disparar a finalização do turno através do mic stop manual
+      // (definido logo abaixo via ref pra evitar dependência circular)
+      autoEndTurnRef.current?.();
+    }, SILENCE_TIMEOUT_MS);
+  }, []);
+
+  const autoEndTurnRef = useRef<(() => void) | null>(null);
+
   const { supported, start, stop, error } = useSpeechRecognition({
     lang: "pt-BR",
-    onInterim: (t) => setInterim(t),
+    onInterim: (t) => {
+      setInterim(t);
+      // Antes armava o timer em interim, mas isso fechava o turno cedo demais
+      // durante pausas curtas. Agora só onFinal arma o VAD.
+    },
     onFinal: (t) => {
       finalBufferRef.current = `${finalBufferRef.current} ${t}`.trim();
       setFinalText(finalBufferRef.current);
       setInterim("");
+      armSilenceTimer();
     },
   });
 
@@ -68,26 +150,168 @@ export function LumiVoiceMode({
     if (error) toast.error(error);
   }, [error]);
 
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   useEffect(() => {
     return () => {
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
+      audioRef.current?.pause();
+      audioRef.current = null;
     };
   }, []);
 
-  const speak = useCallback((text: string) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text.slice(0, 2000));
-    utter.lang = "pt-BR";
-    utter.rate = 1;
-    utter.pitch = 1;
-    utter.onstart = () => setVoiceState("speaking");
-    utter.onend = () => setVoiceState("idle");
-    utter.onerror = () => setVoiceState("idle");
-    window.speechSynthesis.speak(utter);
-  }, []);
+  /** Fallback browser TTS quando ElevenLabs não tá disponível.
+   *  Em modo dinâmico, também reabre o mic ao terminar de falar. */
+  const speakBrowser = useCallback(
+    (text: string) => {
+      if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+        setVoiceState("idle");
+        return;
+      }
+      window.speechSynthesis.cancel();
+      const utter = new SpeechSynthesisUtterance(text.slice(0, 2000));
+      utter.lang = "pt-BR";
+      utter.rate = 1;
+      utter.pitch = 1;
+      utter.onstart = () => setVoiceState("speaking");
+      const finishAndMaybeReopen = () => {
+        if (continuousRef.current && supported) {
+          finalBufferRef.current = "";
+          setFinalText("");
+          setInterim("");
+          setVoiceState("listening");
+          setTimeout(() => {
+            try {
+              start();
+            } catch (err) {
+              console.warn("[voice-mode] browser-tts reopen failed", err);
+              setVoiceState("idle");
+            }
+          }, 250);
+        } else {
+          setVoiceState("idle");
+        }
+      };
+      utter.onend = finishAndMaybeReopen;
+      utter.onerror = finishAndMaybeReopen;
+      window.speechSynthesis.speak(utter);
+    },
+    [start, supported],
+  );
+
+  /**
+   * Fala via ElevenLabs (voz com entoação) com fallback automático pro browser.
+   * Cobra 3 coins via /api/tts. Se 503 (sem API key) ou 502 → browser TTS grátis.
+   */
+  const speak = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) {
+        setVoiceState("idle");
+        return;
+      }
+      setVoiceState("speaking");
+
+      // Cancela qualquer playback ativo
+      audioRef.current?.pause();
+      audioRef.current = null;
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+
+      try {
+        const resp = await fetch("/api/tts", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text: trimmed.slice(0, 1500) }),
+        });
+        if (!resp.ok) {
+          if (resp.status === 402) {
+            try {
+              const j = (await resp.json()) as { upgrade?: string };
+              toast.error("Sem coins pra voz premium — usando voz padrão.", {
+                action: j.upgrade
+                  ? {
+                      label: "Comprar",
+                      onClick: () => {
+                        window.location.href = j.upgrade!;
+                      },
+                    }
+                  : undefined,
+              });
+            } catch {
+              /* ignore */
+            }
+          } else if (resp.status === 503) {
+            toast.info(
+              "ElevenLabs offline — usando voz padrão do navegador.",
+              { duration: 3000 },
+            );
+          } else if (resp.status === 502) {
+            toast.warning(
+              "Voz premium falhou (sem créditos ou rede). Usando voz padrão.",
+              { duration: 3000 },
+            );
+          }
+          speakBrowser(trimmed);
+          return;
+        }
+        const json = (await resp.json()) as {
+          audioUrl?: string;
+          cached?: boolean;
+        };
+        if (!json.audioUrl) {
+          speakBrowser(trimmed);
+          return;
+        }
+        // Tracking: chars enviados pro TTS = custo ElevenLabs
+        addUsage({ charsOut: trimmed.length });
+        const audio = new Audio(json.audioUrl);
+        audioRef.current = audio;
+        audio.onended = () => {
+          audioRef.current = null;
+          // Modo contínuo: reabre mic automaticamente após IA terminar.
+          // Delay de 250ms pra evitar race entre abort() do recognizer antigo
+          // e start() do novo (Chrome reclama "recognition already started").
+          if (continuousRef.current && supported) {
+            finalBufferRef.current = "";
+            setFinalText("");
+            setInterim("");
+            setVoiceState("listening");
+            setTimeout(() => {
+              try {
+                start();
+              } catch (err) {
+                console.warn("[voice-mode] auto-restart failed", err);
+                setVoiceState("idle");
+              }
+            }, 250);
+          } else {
+            setVoiceState("idle");
+          }
+        };
+        audio.onerror = () => {
+          console.warn("[voice-mode] audio element error", audio.error);
+          audioRef.current = null;
+          speakBrowser(trimmed);
+        };
+        try {
+          await audio.play();
+        } catch (playErr) {
+          // Chrome autoplay policy / interação bloqueada → cai pro browser TTS
+          console.warn("[voice-mode] audio.play blocked, fallback", playErr);
+          audioRef.current = null;
+          speakBrowser(trimmed);
+        }
+      } catch (err) {
+        console.warn("[voice-mode] tts failed, fallback browser", err);
+        speakBrowser(trimmed);
+      }
+    },
+    [speakBrowser, addUsage, start, supported],
+  );
 
   const sendToAi = useCallback(
     async (text: string) => {
@@ -147,8 +371,17 @@ export function LumiVoiceMode({
           setVoiceState("idle");
           return;
         }
-        const data = (await res.json()) as { reply: string };
-        const reply = data.reply || "(Sem resposta)";
+        const data = (await res.json()) as {
+          reply: string;
+          usage?: { input_tokens?: number; output_tokens?: number };
+        };
+        const reply = stripChatFormatting(data.reply) || "(Sem resposta)";
+        // Tracking Claude: tokens reais se vier no response, ou estima por chars
+        const inTok =
+          data.usage?.input_tokens ?? Math.ceil(trimmed.length / 4);
+        const outTok =
+          data.usage?.output_tokens ?? Math.ceil(reply.length / 4);
+        addUsage({ charsIn: trimmed.length, tokensIn: inTok, tokensOut: outTok });
         const assistantMsg: LumiChatMessage = {
           id: `a_${Date.now()}`,
           role: "assistant",
@@ -181,18 +414,16 @@ export function LumiVoiceMode({
     ],
   );
 
-  const handleMicClick = useCallback(() => {
-    if (voiceState === "thinking") return;
-
-    if (voiceState === "speaking") {
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
+  /** Finaliza o turno atual: para o mic, envia o texto acumulado pra IA.
+   *  - `isManual=true` (clique no botão "Parar"): sempre cai em idle se sem texto.
+   *  - `isManual=false` (VAD silêncio): em modo dinâmico, reabre mic pra
+   *    próximo turno em vez de pedir clique. */
+  const endTurn = useCallback(
+    (isManual = false) => {
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
       }
-      setVoiceState("idle");
-      return;
-    }
-
-    if (voiceState === "listening") {
       stop();
       const buffered = finalBufferRef.current.trim();
       const pending = interim.trim();
@@ -200,8 +431,61 @@ export function LumiVoiceMode({
       finalBufferRef.current = "";
       setFinalText("");
       setInterim("");
-      setVoiceState("idle");
-      if (combined) void sendToAi(combined);
+      if (combined.length >= 3) {
+        void sendToAi(combined);
+        return;
+      }
+      // Sem texto significativo
+      if (!isManual && continuousRef.current && supported) {
+        // VAD detectou silêncio → reabre mic pra esperar fala
+        setVoiceState("listening");
+        setTimeout(() => {
+          try {
+            start();
+          } catch (err) {
+            console.warn("[voice-mode] reopen-after-silence failed", err);
+            setVoiceState("idle");
+          }
+        }, 200);
+      } else {
+        // Clique manual ou modo manual → encerra de vez
+        setVoiceState("idle");
+      }
+    },
+    [interim, sendToAi, stop, start, supported],
+  );
+
+  // Expose pra o silence timer
+  useEffect(() => {
+    autoEndTurnRef.current = endTurn;
+  }, [endTurn]);
+
+  const handleMicClick = useCallback(() => {
+    if (voiceState === "thinking") return;
+
+    // Tocando: interrupção do usuário → para áudio, reabre mic imediatamente
+    if (voiceState === "speaking") {
+      audioRef.current?.pause();
+      audioRef.current = null;
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      if (continuousRef.current && supported) {
+        finalBufferRef.current = "";
+        setFinalText("");
+        setInterim("");
+        setVoiceState("listening");
+        start();
+      } else {
+        setVoiceState("idle");
+      }
+      return;
+    }
+
+    // Ouvindo: clique = finaliza turno manualmente.
+    // isManual=true → se não tem texto, sai pra idle (não reabre o mic).
+    if (voiceState === "listening") {
+      endTurn(true);
       return;
     }
 
@@ -218,9 +502,11 @@ export function LumiVoiceMode({
     setLastReply(null);
     setVoiceState("listening");
     start();
-  }, [interim, sendToAi, start, stop, supported, voiceState]);
+  }, [endTurn, start, supported, voiceState]);
 
   const stopSpeaking = useCallback(() => {
+    audioRef.current?.pause();
+    audioRef.current = null;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -228,11 +514,11 @@ export function LumiVoiceMode({
   }, []);
 
   const statusLabel = useMemo(() => {
-    if (voiceState === "listening") return "Ouvindo...";
-    if (voiceState === "thinking") return "Lumi está pensando...";
-    if (voiceState === "speaking") return "Falando...";
-    return "Toque pra falar";
-  }, [voiceState]);
+    if (voiceState === "listening") return "Pode falar...";
+    if (voiceState === "thinking") return "Pensando...";
+    if (voiceState === "speaking") return "Falando";
+    return continuousMode ? "Toque pra começar" : "Toque pra falar";
+  }, [voiceState, continuousMode]);
 
   const handleExit = useCallback(() => {
     stop();
@@ -266,6 +552,44 @@ export function LumiVoiceMode({
           <ArrowLeft className="h-3.5 w-3.5" />
           Voltar pro chat
         </button>
+      </div>
+
+      {/* Painel de stats da sessão — canto superior direito */}
+      <div className="absolute right-2 top-2 z-10 flex flex-col items-end gap-1.5">
+        <button
+          type="button"
+          onClick={() => setContinuousMode((v) => !v)}
+          title={
+            continuousMode
+              ? "Modo dinâmico ativo — mic reabre automaticamente"
+              : "Modo manual — pressione mic a cada turno"
+          }
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors backdrop-blur",
+            continuousMode
+              ? "border-primary/30 bg-primary/10 text-primary"
+              : "border-border/60 bg-card/80 text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Zap className="h-3 w-3" />
+          {continuousMode ? "Dinâmico" : "Manual"}
+        </button>
+        <div className="rounded-xl border border-border/60 bg-card/80 backdrop-blur px-3 py-2 text-[10px] font-mono tabular-nums text-muted-foreground shadow-sm">
+          <div className="flex items-center gap-1.5 mb-0.5 text-foreground">
+            <DollarSign className="h-3 w-3 text-emerald-500" />
+            <span className="font-semibold">
+              ${sessionStats.costUsd.toFixed(4)}
+            </span>
+            <span className="text-muted-foreground/70">
+              ≈ R${(sessionStats.costUsd * 5).toFixed(2)}
+            </span>
+          </div>
+          <div>turnos: {sessionStats.turns}</div>
+          <div>chars in/out: {sessionStats.charsIn}/{sessionStats.charsOut}</div>
+          <div>
+            tokens: {sessionStats.tokensIn}↑ {sessionStats.tokensOut}↓
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-1 flex-col items-center justify-center gap-8 px-6 py-12 text-center">
@@ -315,27 +639,17 @@ export function LumiVoiceMode({
           )}
         </div>
 
-        {displayedReply && (
-          <div className="w-full max-w-xl rounded-2xl border border-border/60 bg-card p-5 text-left shadow-sm">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <Volume2 className="h-3 w-3" />
-                Resposta do Lumi
-              </div>
-              {voiceState === "speaking" && (
-                <button
-                  type="button"
-                  onClick={stopSpeaking}
-                  className="text-[11px] font-medium text-primary hover:underline"
-                >
-                  Parar Lumi
-                </button>
-              )}
-            </div>
-            <p className="whitespace-pre-wrap text-sm leading-relaxed text-foreground">
-              {displayedReply}
-            </p>
-          </div>
+        {/* Chat removido da UI do voice mode — só áudio + transcrição do turno atual.
+            Pra ver histórico, voltar pro chat. */}
+        {voiceState === "speaking" && (
+          <button
+            type="button"
+            onClick={stopSpeaking}
+            className="inline-flex items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 transition-colors"
+          >
+            <Volume2 className="h-3 w-3" />
+            Parar Lumi
+          </button>
         )}
       </div>
 

@@ -16,6 +16,13 @@ export const COIN_COSTS = {
   quizWithImages: 25, // +17
   mindmap: 6, // mapa mental não usa imagens
   chatMessage: 1,
+  /**
+   * Resposta por voz (ElevenLabs Multilingual v2).
+   * Custo real: ~$0.30/1k chars no plano Creator ($22/mês = ~100k chars).
+   * Resposta média 200-400 chars = $0.06-$0.12 USD = R$0.30-R$0.60 BRL.
+   * Coin vale ~R$0.10-0.12. Cobramos 3 coins por resposta independente do tamanho.
+   */
+  voiceReply: 3,
 } as const;
 
 export type AIMode = "summary" | "flashcards" | "quiz" | "mindmap";

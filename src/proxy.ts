@@ -52,8 +52,48 @@ function rateLimit(key: string): { allowed: boolean; remaining: number } {
   return { allowed: true, remaining: MAX_REQ - bucket.count };
 }
 
+/**
+ * Detecta subdomínio admin (admin.lumioapp.net, admin-staging.lumioapp.net,
+ * admin.localhost:3000 em dev). Quando ativo, reescreve internamente o path
+ * pra `/admin/*` mantendo a URL visível no browser. A auth check do flow
+ * normal continua exigindo `role IN ('admin','founder')`.
+ */
+function isAdminSubdomain(host: string): boolean {
+  return /^admin([.-]|$)/i.test(host);
+}
+
+const ADMIN_PASSTHROUGH_PREFIXES = [
+  "/api/",
+  "/_next",
+  "/favicon",
+  "/illustrations",
+  "/admin",
+  "/login",
+  "/signup",
+  "/reset-password",
+  "/onboarding",
+];
+
+function rewriteAdminPath(pathname: string): string | null {
+  if (
+    ADMIN_PASSTHROUGH_PREFIXES.some(
+      (p) => pathname === p || pathname.startsWith(p),
+    )
+  ) {
+    return null;
+  }
+  return pathname === "/" ? "/admin" : `/admin${pathname}`;
+}
+
 export async function proxy(request: NextRequest) {
-  const { pathname } = request.nextUrl;
+  const host = request.headers.get("host") ?? "";
+  const onAdminHost = isAdminSubdomain(host);
+  const originalPathname = request.nextUrl.pathname;
+  const adminRewritePath = onAdminHost
+    ? rewriteAdminPath(originalPathname)
+    : null;
+  // Pathname "efetivo" usado nas checagens (auth, rate limit etc).
+  const pathname = adminRewritePath ?? originalPathname;
 
   // Pular tudo que é público
   if (isPublic(pathname)) {
@@ -111,6 +151,27 @@ export async function proxy(request: NextRequest) {
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", pathname);
     return NextResponse.redirect(loginUrl);
+  }
+
+  // Se estamos no admin subdomain E o path original precisa ser reescrito,
+  // transforma a response em rewrite mantendo os cookies que o Supabase setou.
+  if (adminRewritePath) {
+    const rewriteUrl = request.nextUrl.clone();
+    rewriteUrl.pathname = adminRewritePath;
+    const rewriteResp = NextResponse.rewrite(rewriteUrl, { request });
+    response.cookies.getAll().forEach((c) => {
+      rewriteResp.cookies.set(c);
+    });
+    response.headers.forEach((value, key) => {
+      if (
+        key.startsWith("x-") ||
+        key === "set-cookie" ||
+        key === "cache-control"
+      ) {
+        rewriteResp.headers.set(key, value);
+      }
+    });
+    return rewriteResp;
   }
 
   return response;

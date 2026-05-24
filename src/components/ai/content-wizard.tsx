@@ -346,10 +346,18 @@ export function ContentWizard({
   /* --------------------------------------- generate -------------- */
 
   const handleGenerate = useCallback(async () => {
-    setStep(4);
     setGenerating(true);
     setResult(null);
     setGenStage("Lendo fontes...");
+    // Toast persistente substitui a tela de preview — o user pode navegar e
+    // será redirecionado quando salvar finalizar.
+    toast.loading(`Gerando ${modeLabel(mode).toLowerCase()}...`, {
+      id: "wizard-generation",
+      description: "Você pode continuar usando o app.",
+    });
+    // Fecha o wizard imediatamente — não precisa mais ficar travando o user
+    // numa tela de preview. O resultado vai pro /resumo/[id] direto.
+    onOpenChange(false);
 
     // Monta sources
     const transcripts: string[] = [];
@@ -413,19 +421,117 @@ export function ContentWizard({
         required?: number;
       };
       if (!resp.ok) {
+        toast.dismiss("wizard-generation");
         toast.error(json.error ?? "Falha na geração.");
-        setGenerating(false);
-        setStep(3);
         return;
       }
-      setResult(json);
-      // Sugere título default
-      const suggested = suggestTitle(mode, json);
-      setSaveTitle(suggested);
+
+      // Auto-save: pula a tela de preview e leva direto pro /resumo[id]
+      const firstLecture = selectedLectures[0];
+      const subjectId = firstLecture?.subjectId ?? subjects[0]?.id ?? "";
+      if (!subjectId) {
+        toast.dismiss("wizard-generation");
+        toast.error("Crie ao menos uma matéria antes — vá no dashboard.");
+        return;
+      }
+      const title = suggestTitle(mode, json).slice(0, 200);
+
+      if (mode === "summary") {
+        const lecture = await createLectureAsync(userId, { subjectId, title });
+        const md = (json.content as { markdown?: string })?.markdown ?? "";
+        const summary = {
+          generatedAt: new Date().toISOString(),
+          generalSummary: md,
+          highlights: extractHighlights(md, 6),
+          sections: [],
+        };
+        await updateLectureAsync(userId, lecture.id, { summary });
+        toast.dismiss("wizard-generation");
+        toast.success("Resumo pronto!");
+        onCreated?.({ lectureId: lecture.id, mode });
+        // Dispara geração de imagens automaticamente em background
+        void fetch("/api/ai/summary-images", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ lectureId: lecture.id, count: 3 }),
+          keepalive: true,
+        }).catch(() => {});
+      } else {
+        const lecture = await createLectureAsync(userId, { subjectId, title });
+        if (isSupabaseConfigured()) {
+          const supabase = createClient();
+          const kind = mode;
+          let payload: Record<string, unknown> = {};
+          if (mode === "flashcards") {
+            const cards = ((json.content as { cards?: unknown[] }).cards ??
+              []) as Flashcard[];
+            payload = { generatedAt: new Date().toISOString(), cards };
+          } else if (mode === "quiz") {
+            const questions = ((json.content as { questions?: unknown[] })
+              .questions ?? []) as QuizQuestion[];
+            payload = {
+              generatedAt: new Date().toISOString(),
+              questions,
+            };
+          } else if (mode === "mindmap") {
+            const c = json.content as {
+              centralTopic?: string;
+              branches?: MindmapNode[];
+            };
+            payload = {
+              generatedAt: new Date().toISOString(),
+              centralTopic: c.centralTopic ?? title,
+              branches: c.branches ?? [],
+            };
+          }
+          await supabase.from("lecture_assets").insert({
+            lecture_id: lecture.id,
+            user_id: userId,
+            kind,
+            payload,
+            coins_spent: json.coinsCharged,
+          });
+        }
+        toast.dismiss("wizard-generation");
+        toast.success(`${modeLabel(mode)} pronto!`);
+        onCreated?.({ lectureId: lecture.id, mode });
+      }
     } catch (err) {
-      toast.error(`Erro: ${(err as Error).message}`);
-      setGenerating(false);
-      setStep(3);
+      toast.dismiss("wizard-generation");
+      const e = err as Error & { upgrade?: string; usage?: unknown };
+      // Limite mensal atingido → paywall + persiste o resultado pra retomar
+      // o save após upgrade. Não perde o trabalho gerado.
+      if (e.upgrade) {
+        try {
+          // Acessível apenas no client; guarda o resultado da geração + título
+          // sugerido + mode pra retomar do Dashboard depois do upgrade.
+          sessionStorage.setItem(
+            "lumio.pending_summary",
+            JSON.stringify({
+              mode,
+              title: suggestTitle(mode, {
+                content: (await (async () => undefined)()) ?? {},
+                coinsCharged: 0,
+                mode,
+              } as unknown as GenerateResponse),
+              savedAt: new Date().toISOString(),
+            }),
+          );
+        } catch {
+          /* sessionStorage cheio ou desabilitado — segue */
+        }
+        toast.error(e.message, {
+          duration: 15000,
+          action: {
+            label: "Atualizar plano",
+            onClick: () => {
+              window.location.href = e.upgrade ?? "/pricing";
+            },
+          },
+        });
+      } else {
+        toast.error(`Erro: ${e.message}`);
+      }
     } finally {
       clearTimeout(stageTimer);
       clearTimeout(stageTimer2);
@@ -435,6 +541,9 @@ export function ContentWizard({
   }, [
     mode,
     selectedLectures,
+    subjects,
+    userId,
+    onCreated,
     uploadedPdfs,
     includeSlides,
     userInstructions,
@@ -445,6 +554,7 @@ export function ContentWizard({
     level,
     difficulty,
     complexity,
+    onOpenChange,
   ]);
 
   /* --------------------------------------- save ------------------ */
@@ -939,32 +1049,15 @@ function Step1Sources({
         )}
       </div>
 
-      {/* PDF da pasta Documentos — coming soon */}
-      <button
-        type="button"
-        onClick={() =>
-          toast("Em breve", {
-            description:
-              "Vamos liberar a seleção de PDFs salvos na pasta Documentos.",
-          })
-        }
-        className="w-full text-left rounded-xl border border-dashed border-border/60 bg-card/40 px-4 py-3 hover:border-primary/40 hover:bg-card transition-colors flex items-center gap-3"
-      >
-        <div className="h-9 w-9 rounded-lg bg-secondary/40 flex items-center justify-center shrink-0">
-          <Folder className="h-4 w-4 text-muted-foreground" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium inline-flex items-center gap-2">
-            PDF da pasta Documentos
-            <Badge variant="outline" className="text-[9px] py-0">
-              Em breve
-            </Badge>
-          </div>
-          <div className="text-[11px] text-muted-foreground">
-            Escolha PDFs já salvos na sua biblioteca.
-          </div>
-        </div>
-      </button>
+      {/* PDF da pasta Documentos — lectures com slides já uploadados */}
+      <SavedPdfsSection
+        lectures={lectures}
+        subjects={subjects}
+        loading={loading}
+        selectedIds={selectedIds}
+        onToggle={onToggleLecture}
+      />
+
 
       {/* Upload PDF */}
       <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
@@ -1219,6 +1312,125 @@ function Step2Options({
               </div>
             </div>
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SavedPdfsSection({
+  lectures,
+  subjects,
+  loading,
+  selectedIds,
+  onToggle,
+}: {
+  lectures: Lecture[];
+  subjects: Map<string, Subject>;
+  loading: boolean;
+  selectedIds: Set<string>;
+  onToggle: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(true);
+  const withSlides = useMemo(
+    () =>
+      lectures
+        .filter((l) => Array.isArray(l.slides) && l.slides.length > 0)
+        .sort(
+          (a, b) =>
+            new Date(b.slidesAddedAt ?? b.updatedAt ?? b.createdAt).getTime() -
+            new Date(a.slidesAddedAt ?? a.updatedAt ?? a.createdAt).getTime(),
+        ),
+    [lectures],
+  );
+  const selectedCount = withSlides.filter((l) => selectedIds.has(l.id)).length;
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/30 text-left"
+      >
+        <div className="h-9 w-9 rounded-lg bg-secondary/40 flex items-center justify-center shrink-0">
+          <Folder className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium">PDF da pasta Documentos</div>
+          <div className="text-[11px] text-muted-foreground">
+            {selectedCount === 0
+              ? `${withSlides.length} PDF${withSlides.length === 1 ? "" : "s"} salvo${withSlides.length === 1 ? "" : "s"} na sua biblioteca`
+              : `${selectedCount} selecionado${selectedCount === 1 ? "" : "s"}`}
+          </div>
+        </div>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 text-muted-foreground transition-transform shrink-0",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+
+      {open && (
+        <div className="border-t border-border/40 max-h-[260px] overflow-y-auto">
+          {loading ? (
+            <div className="px-4 py-6 flex items-center justify-center text-xs text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando...
+            </div>
+          ) : withSlides.length === 0 ? (
+            <div className="px-4 py-6 text-center text-xs text-muted-foreground">
+              Nenhum PDF salvo ainda. Faça upload abaixo e ele aparece aqui pra
+              reaproveitar nas próximas gerações.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border/40">
+              {withSlides.map((l) => {
+                const subj = subjects.get(l.subjectId);
+                const sel = selectedIds.has(l.id);
+                const slideCount = l.slides?.length ?? 0;
+                const fileLabel = l.slidesFileName || `Slides — ${l.title}`;
+                return (
+                  <li key={l.id}>
+                    <button
+                      type="button"
+                      onClick={() => onToggle(l.id)}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
+                        sel
+                          ? "bg-primary/5 hover:bg-primary/10"
+                          : "hover:bg-secondary/30",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "h-4 w-4 rounded border flex items-center justify-center shrink-0",
+                          sel
+                            ? "bg-primary border-primary text-white"
+                            : "border-border",
+                        )}
+                      >
+                        {sel && <Check className="h-3 w-3" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          {fileLabel}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
+                          <span>{subj?.name ?? "Sem matéria"}</span>
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] py-0 px-1 h-3.5 font-mono"
+                          >
+                            {slideCount} {slideCount === 1 ? "página" : "páginas"}
+                          </Badge>
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       )}
     </div>

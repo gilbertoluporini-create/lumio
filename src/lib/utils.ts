@@ -36,3 +36,26 @@ export function formatDuration(seconds: number): string {
 export function generateId(): string {
   return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
 }
+
+/**
+ * Limpa marcação visual indesejada das respostas do Lumi no chat.
+ *
+ * O system prompt já proíbe `#`, `---`, ``` ``` etc — isso aqui é defesa em
+ * profundidade pro caso do modelo escapar: tira headings markdown, separadores
+ * horizontais e cercas de bloco de código, mantendo **bold** e listas.
+ */
+export function stripChatFormatting(text: string): string {
+  if (!text) return "";
+  let out = text;
+  // Headings: linhas começando com # ## ### ...
+  out = out.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  // Separadores horizontais
+  out = out.replace(/^\s*(?:---|===|___)\s*$/gm, "");
+  // Cercas de código (mas mantém o conteúdo entre elas)
+  out = out.replace(/^\s*```[\w-]*\s*$/gm, "");
+  // Wikilinks [[X]] → bold
+  out = out.replace(/\[\[([^\]]+)\]\]/g, "**$1**");
+  // Múltiplas blank lines viram 1 só
+  out = out.replace(/\n{3,}/g, "\n\n");
+  return out.trim();
+}

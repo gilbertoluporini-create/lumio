@@ -51,6 +51,7 @@ import {
   renameChat,
   restoreChat,
   startOfWeek,
+  hydrateFromServer,
   subscribeChats,
   togglePin,
   toggleStar,
@@ -141,6 +142,7 @@ function LumiChatsHub({ user }: { user: User }) {
       setTrash(listTrash(user.id));
     };
     refresh();
+    void hydrateFromServer(user.id).then(refresh);
     const unsub = subscribeChats(user.id, refresh);
     return unsub;
   }, [user.id]);

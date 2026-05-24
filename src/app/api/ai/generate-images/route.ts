@@ -24,7 +24,11 @@ export const maxDuration = 120;
 
 const BUCKET = "ai-images";
 const MAX_PROMPTS = 4;
-const IMAGEN_MODEL = "imagen-3.0-generate-002";
+// Imagen 4 padrão (~$0.04/img) — texto legível e composição rica.
+// Pra letras ainda mais nítidas trocar pra "imagen-4.0-ultra-generate-001" (~$0.08).
+// Pra economia agressiva (mas texto pior): "imagen-4.0-fast-generate-001" (~$0.02).
+const IMAGEN_MODEL =
+  process.env.IMAGEN_MODEL ?? "imagen-4.0-generate-001";
 
 type Body = {
   prompts: string[];
@@ -38,9 +42,27 @@ type ImagenPredictResponse = {
   error?: { message?: string };
 };
 
+/**
+ * Empacota o prompt do Haiku num "estilo Lumio": infográfico médico/acadêmico
+ * em português, com layout estruturado, tipografia limpa e poucas palavras
+ * (modelos de IA borram texto longo).
+ *
+ * Inspiração visual: infográficos médicos profissionais — fundo claro, seções
+ * numeradas, ícones simples, diagrama anatômico central quando aplicável,
+ * tipografia sans-serif sólida, paleta com 2-3 cores principais.
+ */
 function wrapPrompt(raw: string): string {
-  const trimmed = raw.trim().slice(0, 400);
-  return `Educational illustration for university students, clean labeled diagram style, soft pastel colors, white background, no text labels in foreign languages, professional textbook aesthetic: ${trimmed}`;
+  const trimmed = raw.trim().slice(0, 500);
+  return [
+    "Premium educational infographic in Brazilian Portuguese (pt-BR), professional medical textbook style.",
+    "LAYOUT: clean grid with 3-5 numbered sections, central main illustration (anatomical or schematic), labeled callouts on sides with arrows.",
+    "TYPOGRAPHY: bold sans-serif headings (uppercase), short labels with very few words, NO long sentences, NO paragraphs of text — only key terms.",
+    "STYLE: flat vector illustration, soft pastel palette (teal #4A9B9B, coral #E89B7D, navy #2C3E50, beige #F5EFE6), white or very light background, subtle shadows.",
+    "Use real anatomical illustrations when the topic is biological/medical. Keep proportions realistic.",
+    "DO NOT generate garbled or fake text. All labels must be REAL Portuguese words spelled correctly.",
+    "Aspect ratio 3:4 vertical, high resolution, suitable for medical study material.",
+    `CONTENT TO ILLUSTRATE: ${trimmed}`,
+  ].join(" ");
 }
 
 async function ensureBucket(

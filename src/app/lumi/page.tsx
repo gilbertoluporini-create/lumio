@@ -76,14 +76,17 @@ import {
   appendMessage,
   createChat,
   getChat,
+  hydrateFromServer,
   type ChatAttachment,
   type LumiChat,
   type LumiChatCategory,
   type LumiChatMessage,
 } from "@/lib/lumi-chats";
+import { jobKindLabel, startJob } from "@/lib/asset-jobs";
 import { calculateStreak } from "@/lib/streak";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Lecture, Subject, User } from "@/lib/types";
+import { stripChatFormatting } from "@/lib/utils";
 
 type SuggestionChip = {
   id: QuickAction["id"];
@@ -196,6 +199,7 @@ function LumiAssistant({ user }: { user: User }) {
         setLectures(l);
       },
     );
+    void hydrateFromServer(user.id);
     return () => {
       active = false;
     };
@@ -343,7 +347,7 @@ function LumiAssistant({ user }: { user: User }) {
         const assistantMsg: LumiChatMessage = {
           id: `a_${Date.now()}`,
           role: "assistant",
-          content: data.reply || "(Sem resposta)",
+          content: stripChatFormatting(data.reply) || "(Sem resposta)",
           createdAt: new Date().toISOString(),
         };
         const next = appendMessage(user.id, currentChat.id, assistantMsg);
@@ -401,8 +405,9 @@ function LumiAssistant({ user }: { user: User }) {
         return;
       }
 
-      setGenerating(true);
-
+      // Garante chat ativo (cria se não existir) ANTES de fechar o dialog,
+      // pra mensagem "Lumi está gerando…" aparecer no chat enquanto roda em
+      // background.
       let currentChat = chat;
       if (!currentChat) {
         currentChat = createChat(user.id, {
@@ -413,12 +418,13 @@ function LumiAssistant({ user }: { user: User }) {
         setChat(currentChat);
         router.replace(`/lumi?id=${currentChat.id}`);
       }
+      const targetChatId = currentChat.id;
 
       const pendingId = `pending_${Date.now()}`;
       const pendingMsg: LumiChatMessage = {
         id: pendingId,
         role: "assistant",
-        content: "Lumi está pensando...",
+        content: `Gerando ${jobKindLabel(kind).toLowerCase()} em background. Você pode continuar usando o app — vou avisar quando terminar.`,
         createdAt: new Date().toISOString(),
       };
       const optimisticChat = appendMessage(
@@ -428,57 +434,78 @@ function LumiAssistant({ user }: { user: User }) {
       );
       if (optimisticChat) setChat(optimisticChat);
 
+      // Fecha o dialog imediatamente — o usuário pode navegar enquanto isso.
+      setGenDialogKind(null);
+
+      const titleBaseEarly = context.lectureTitle
+        ? `${context.lectureTitle}`
+        : context.subjectName
+          ? `${context.subjectName}`
+          : `Conversa · ${new Date().toLocaleDateString("pt-BR")}`;
+
+      toast.success(`${jobKindLabel(kind)} sendo gerado em background.`, {
+        description: "Acompanhe pelo ícone de tarefas no topo da tela.",
+      });
+
       const transcripts: string[] = [];
       if (hasUsableConvo) transcripts.push(baseTranscript);
 
-      try {
-        const resp = await fetch("/api/ai/generate", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            mode: kind,
-            sources: { transcripts },
-            attachments: attachmentsPayload,
-            options: {},
-          }),
-        });
-        const json = (await resp.json()) as {
-          mode?: LumiGenerateKind;
-          content?: unknown;
-          coinsCharged?: number;
-          error?: string;
-          upgrade?: string;
-        };
-        if (!resp.ok) {
-          const errMsg = json.error ?? "Falha na geração.";
-          if (resp.status === 402 && json.upgrade) {
-            const upgrade = json.upgrade;
-            toast.error(errMsg, {
-              action: {
-                label: "Comprar coins",
-                onClick: () => router.push(upgrade),
-              },
-            });
-          } else {
-            toast.error(errMsg);
+      const capturedAttachments = attachmentsPayload;
+      const capturedSubjects = subjects;
+      const userId = user.id;
+
+      startJob(
+        {
+          kind,
+          title: titleBaseEarly,
+          chatId: targetChatId,
+          lectureId: context.lectureId,
+          subjectName: context.subjectName,
+        },
+        async () => {
+          const resp = await fetch("/api/ai/generate", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              mode: kind,
+              sources: { transcripts },
+              attachments: capturedAttachments,
+              options: {},
+            }),
+          });
+          const json = (await resp.json()) as {
+            mode?: LumiGenerateKind;
+            content?: unknown;
+            coinsCharged?: number;
+            error?: string;
+            upgrade?: string;
+          };
+          if (!resp.ok) {
+            const errMsg = json.error ?? "Falha na geração.";
+            if (resp.status === 402 && json.upgrade) {
+              const upgrade = json.upgrade;
+              toast.error(errMsg, {
+                action: {
+                  label: "Comprar coins",
+                  onClick: () => router.push(upgrade),
+                },
+              });
+            }
+            throw new Error(errMsg);
           }
-          return;
-        }
 
-        const titleBase = context.lectureTitle
-          ? `${context.lectureTitle}`
-          : context.subjectName
-            ? `${context.subjectName}`
-            : `Conversa com Lumi · ${new Date().toLocaleDateString("pt-BR")}`;
+          const titleBase = context.lectureTitle
+            ? `${context.lectureTitle}`
+            : context.subjectName
+              ? `${context.subjectName}`
+              : `Conversa com Lumi · ${new Date().toLocaleDateString("pt-BR")}`;
 
-        const subjectId =
-          context.subjectId ?? subjects[0]?.id ?? "";
+          const subjectId = context.subjectId ?? capturedSubjects[0]?.id ?? "";
 
-        let href: string | undefined;
-        let previewText: string | undefined;
-        let attachmentTitle = titleBase;
+          let href: string | undefined;
+          let previewText: string | undefined;
+          let attachmentTitle = titleBase;
 
-        try {
           if (kind === "summary") {
             let lectureId = context.lectureId;
             const md =
@@ -486,12 +513,11 @@ function LumiAssistant({ user }: { user: User }) {
               "";
             if (!lectureId) {
               if (!subjectId) {
-                toast.error(
+                throw new Error(
                   "Crie uma matéria no Dashboard antes de gerar conteúdo do chat.",
                 );
-                return;
               }
-              const lec = await createLectureAsync(user.id, {
+              const lec = await createLectureAsync(userId, {
                 subjectId,
                 title: `${titleBase} · resumo`.slice(0, 200),
               });
@@ -503,7 +529,7 @@ function LumiAssistant({ user }: { user: User }) {
               highlights: [],
               sections: [],
             };
-            await updateLectureAsync(user.id, lectureId, { summary });
+            await updateLectureAsync(userId, lectureId, { summary });
             href = `/resumo/${lectureId}`;
             attachmentTitle = `Resumo: ${titleBase}`;
             previewText = md
@@ -511,28 +537,34 @@ function LumiAssistant({ user }: { user: User }) {
               .replace(/[#*_`>\[\]]/g, "")
               .trim()
               .slice(0, 110);
+            // Dispara geração de imagens em fire-and-forget (não bloqueia
+            // o término do job; quando termina, /resumo/[id] mostra as imagens
+            // após próximo refresh).
+            void fetch("/api/ai/summary-images", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ lectureId, count: 3 }),
+              keepalive: true,
+            }).catch((e) => console.warn("[lumi] summary-images failed", e));
           } else {
             if (!subjectId) {
-              toast.error(
+              throw new Error(
                 "Crie uma matéria no Dashboard antes de gerar conteúdo do chat.",
               );
-              return;
             }
             let lectureId = context.lectureId;
             if (!lectureId) {
-              const lec = await createLectureAsync(user.id, {
+              const lec = await createLectureAsync(userId, {
                 subjectId,
                 title: `${titleBase} · ${kind}`.slice(0, 200),
               });
               lectureId = lec.id;
             }
-
             const now = new Date().toISOString();
             let payload: Record<string, unknown> = {};
             if (kind === "flashcards") {
               const cards =
-                (json.content as { cards?: unknown[] } | undefined)?.cards ??
-                [];
+                (json.content as { cards?: unknown[] } | undefined)?.cards ?? [];
               payload = { generatedAt: now, cards };
               previewText = `${Array.isArray(cards) ? cards.length : 0} cards gerados`;
               attachmentTitle = `Deck: ${titleBase}`;
@@ -544,10 +576,11 @@ function LumiAssistant({ user }: { user: User }) {
               previewText = `${Array.isArray(questions) ? questions.length : 0} questões geradas`;
               attachmentTitle = `Quiz: ${titleBase}`;
             } else if (kind === "mindmap") {
-              const c = (json.content as {
-                centralTopic?: string;
-                branches?: unknown[];
-              } | undefined) ?? {};
+              const c =
+                (json.content as {
+                  centralTopic?: string;
+                  branches?: unknown[];
+                } | undefined) ?? {};
               payload = {
                 generatedAt: now,
                 centralTopic: c.centralTopic ?? titleBase,
@@ -556,17 +589,15 @@ function LumiAssistant({ user }: { user: User }) {
               previewText = `${Array.isArray(c.branches) ? c.branches.length : 0} ramos`;
               attachmentTitle = `Mapa mental: ${titleBase}`;
             }
-
             if (!isSupabaseConfigured()) {
-              toast.error("Supabase não configurado.");
-              return;
+              throw new Error("Supabase não configurado.");
             }
             const supabase = createClient();
             const { data: inserted, error } = await supabase
               .from("lecture_assets")
               .insert({
                 lecture_id: lectureId,
-                user_id: user.id,
+                user_id: userId,
                 kind,
                 payload,
                 coins_spent: json.coinsCharged ?? 0,
@@ -584,77 +615,71 @@ function LumiAssistant({ user }: { user: User }) {
                   ? `/quiz-banco/${assetId}`
                   : `/mapa/${assetId}`;
           }
-        } catch (saveErr) {
-          console.error("[lumi] save asset failed", saveErr);
-          toast.error(
-            `Falha ao salvar: ${(saveErr as Error).message ?? "erro desconhecido"}`,
-          );
-          return;
-        }
 
-        const replacement: LumiChatMessage = {
-          id: `gen_${Date.now()}`,
-          role: "assistant",
-          content: `Pronto! Gerei ${
-            kind === "summary"
-              ? "o resumo"
-              : kind === "flashcards"
-                ? "o deck de flashcards"
-                : kind === "quiz"
-                  ? "o quiz"
-                  : "o mapa mental"
-          } pra você. Clique no card abaixo pra abrir.`,
-          createdAt: new Date().toISOString(),
-          attachment: {
-            kind,
-            title: attachmentTitle,
-            href,
-            preview: previewText,
-          },
-        };
-
-        const stored = getChat(user.id, currentChat.id);
-        if (stored) {
-          const filtered: LumiChat = {
-            ...stored,
-            messages: stored.messages.filter((m) => m.id !== pendingId),
-          };
-          if (typeof window !== "undefined") {
-            try {
-              const key = `lumio.lumi.chats.${user.id}.v1`;
-              const raw = window.localStorage.getItem(key);
-              if (raw) {
-                const all = JSON.parse(raw) as LumiChat[];
-                const idx = all.findIndex((c) => c.id === currentChat!.id);
-                if (idx >= 0) {
-                  all[idx] = filtered;
-                  window.localStorage.setItem(key, JSON.stringify(all));
+          // Substitui a pendingMsg pelo resultado final dentro do chat.
+          const stored = getChat(userId, targetChatId);
+          if (stored) {
+            const filtered: LumiChat = {
+              ...stored,
+              messages: stored.messages.filter((m) => m.id !== pendingId),
+            };
+            if (typeof window !== "undefined") {
+              try {
+                const key = `lumio.lumi.chats.${userId}.v1`;
+                const raw = window.localStorage.getItem(key);
+                if (raw) {
+                  const all = JSON.parse(raw) as LumiChat[];
+                  const idx = all.findIndex((c) => c.id === targetChatId);
+                  if (idx >= 0) {
+                    all[idx] = filtered;
+                    window.localStorage.setItem(key, JSON.stringify(all));
+                  }
                 }
+              } catch {
+                /* ignore */
               }
-            } catch {
-              /* ignore */
             }
+            const replacement: LumiChatMessage = {
+              id: `gen_${Date.now()}`,
+              role: "assistant",
+              content: `Pronto! Gerei ${
+                kind === "summary"
+                  ? "o resumo"
+                  : kind === "flashcards"
+                    ? "o deck de flashcards"
+                    : kind === "quiz"
+                      ? "o quiz"
+                      : "o mapa mental"
+              } pra você. Clique no card abaixo pra abrir.`,
+              createdAt: new Date().toISOString(),
+              attachment: {
+                kind,
+                title: attachmentTitle,
+                href,
+                preview: previewText,
+              },
+            };
+            const next = appendMessage(userId, targetChatId, replacement);
+            if (next && chat?.id === targetChatId) setChat(next);
           }
-          const next = appendMessage(user.id, currentChat.id, replacement);
-          if (next) setChat(next);
-        }
-        refreshBalance();
-        toast.success("Conteúdo gerado!");
-      } catch (err) {
-        toast.error(`Erro: ${(err as Error).message}`);
-      } finally {
-        setGenerating(false);
-        setGenDialogKind(null);
-      }
+
+          refreshBalance();
+          toast.success(`${jobKindLabel(kind)} pronto!`, {
+            description: attachmentTitle,
+            action: href
+              ? { label: "Abrir", onClick: () => router.push(href!) }
+              : undefined,
+          });
+
+          return { resultHref: href, preview: previewText };
+        },
+      );
     },
     [
       attachments.length,
       attachmentsPayload,
       chat,
-      context.lectureId,
-      context.lectureTitle,
-      context.subjectId,
-      context.subjectName,
+      context,
       generating,
       refreshBalance,
       router,

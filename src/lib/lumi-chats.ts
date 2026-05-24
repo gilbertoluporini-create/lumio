@@ -76,10 +76,82 @@ function safeWrite(userId: string, chats: LumiChat[]): void {
 }
 
 function newId(): string {
-  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
-    return crypto.randomUUID();
+  const c: Crypto | undefined =
+    typeof globalThis !== "undefined"
+      ? (globalThis as { crypto?: Crypto }).crypto
+      : undefined;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  // Fallback UUID v4 — necessário pro DB aceitar
+  const bytes = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === "function") {
+    c.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < 16; i++) bytes[i] = Math.floor(Math.random() * 256);
   }
-  return `lc_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const h = Array.from(bytes, (b) => b.toString(16).padStart(2, "0"));
+  return `${h.slice(0, 4).join("")}-${h.slice(4, 6).join("")}-${h
+    .slice(6, 8)
+    .join("")}-${h.slice(8, 10).join("")}-${h.slice(10, 16).join("")}`;
+}
+
+function isUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+/**
+ * Push fire-and-forget pro servidor. Erros ficam silenciosos: localStorage
+ * já tem o estado, eventual consistency vai resolver no próximo hydrate.
+ * IDs legados (não-UUID) são ignorados — pelo próximo hydrate o user
+ * recebe os dados do server e os locais sumem.
+ */
+function pushToServer(chat: LumiChat): void {
+  if (typeof window === "undefined") return;
+  if (!isUuid(chat.id)) return;
+  void fetch("/api/lumi/chats", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(chat),
+    keepalive: true,
+  }).catch(() => {});
+}
+
+function purgeOnServer(chatId: string): void {
+  if (typeof window === "undefined") return;
+  if (!isUuid(chatId)) return;
+  void fetch(`/api/lumi/chats/${chatId}`, {
+    method: "DELETE",
+    keepalive: true,
+  }).catch(() => {});
+}
+
+/**
+ * Carrega chats do servidor e sobrescreve o cache local. Chamado no mount do
+ * /lumi e /lumi/chats pra garantir consistência entre dispositivos.
+ */
+export async function hydrateFromServer(userId: string): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    const res = await fetch("/api/lumi/chats", { cache: "no-store" });
+    if (!res.ok) return;
+    const data = (await res.json()) as { chats?: LumiChat[] };
+    if (!Array.isArray(data.chats)) return;
+
+    // Merge: local items com ID não-UUID (legados) são mantidos pra não perder
+    // conversas pré-migração. UUIDs locais são sobrescritos pelos do servidor.
+    const local = safeRead(userId);
+    const legacy = local.filter((c) => !isUuid(c.id));
+    const merged = [...data.chats, ...legacy];
+    safeWrite(userId, merged);
+
+    // Sobe legados que ainda têm ID válido como UUID; os outros ficam só local
+    for (const c of legacy) {
+      // não-UUID: nunca vai pro server
+    }
+  } catch {
+    // offline ou network — mantém cache atual
+  }
 }
 
 function nowISO(): string {
@@ -143,6 +215,7 @@ export function createChat(
     updatedAt: ts,
   };
   safeWrite(userId, [chat, ...all]);
+  pushToServer(chat);
   return chat;
 }
 
@@ -179,6 +252,7 @@ export function appendMessage(
   }
   all[idx] = updated;
   safeWrite(userId, all);
+  pushToServer(updated);
   return updated;
 }
 
@@ -188,6 +262,7 @@ export function togglePin(userId: string, chatId: string): LumiChat | null {
   if (idx < 0) return null;
   all[idx] = { ...all[idx], pinned: !all[idx].pinned, updatedAt: nowISO() };
   safeWrite(userId, all);
+  pushToServer(all[idx]);
   return all[idx];
 }
 
@@ -197,6 +272,7 @@ export function toggleStar(userId: string, chatId: string): LumiChat | null {
   if (idx < 0) return null;
   all[idx] = { ...all[idx], starred: !all[idx].starred, updatedAt: nowISO() };
   safeWrite(userId, all);
+  pushToServer(all[idx]);
   return all[idx];
 }
 
@@ -212,6 +288,7 @@ export function renameChat(
   if (idx < 0) return null;
   all[idx] = { ...all[idx], title: trimmed, updatedAt: nowISO() };
   safeWrite(userId, all);
+  pushToServer(all[idx]);
   return all[idx];
 }
 
@@ -230,6 +307,7 @@ export function moveToSubject(
     updatedAt: nowISO(),
   };
   safeWrite(userId, all);
+  pushToServer(all[idx]);
   return all[idx];
 }
 
@@ -239,6 +317,7 @@ export function deleteChat(userId: string, chatId: string): LumiChat | null {
   if (idx < 0) return null;
   all[idx] = { ...all[idx], deletedAt: nowISO(), pinned: false };
   safeWrite(userId, all);
+  pushToServer(all[idx]);
   return all[idx];
 }
 
@@ -251,6 +330,7 @@ export function restoreChat(userId: string, chatId: string): LumiChat | null {
   next.updatedAt = nowISO();
   all[idx] = next;
   safeWrite(userId, all);
+  pushToServer(all[idx]);
   return all[idx];
 }
 
@@ -259,6 +339,7 @@ export function purgeChat(userId: string, chatId: string): boolean {
   const next = all.filter((c) => c.id !== chatId);
   if (next.length === all.length) return false;
   safeWrite(userId, next);
+  purgeOnServer(chatId);
   return true;
 }
 

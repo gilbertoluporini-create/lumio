@@ -49,11 +49,18 @@ export type LectureSummarySection = {
   relatedQA: Array<{ question: string; answer: string }>;
 };
 
+export type LectureSummaryImage = {
+  url: string;
+  alt: string;
+  caption?: string;
+};
+
 export type LectureSummary = {
   generatedAt: string;
   generalSummary: string;
   highlights: string[];
   sections: LectureSummarySection[];
+  images?: LectureSummaryImage[];
 };
 
 export type TranscriptMarker = "concept" | "doubt" | "example";

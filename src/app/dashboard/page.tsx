@@ -6,15 +6,18 @@ import { useRouter } from "next/navigation";
 import {
   Activity,
   ArrowRight,
+  ArrowUpRight,
   Atom,
   BookOpen,
   Brain,
   Briefcase,
+  CalendarDays,
   Calculator,
   Clock,
   Code,
   Dna,
   Dumbbell,
+  FileText,
   Flame,
   FlaskConical,
   Gavel,
@@ -42,6 +45,8 @@ import {
   Stethoscope,
   Syringe,
   Trash2,
+  TrendingUp,
+  Upload,
   Users,
   Wind,
   Wrench,
@@ -53,7 +58,7 @@ import { AppShell } from "@/components/app/app-shell";
 import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import {
   subscribeFavorites,
   toggleFavorite,
@@ -70,7 +75,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -117,19 +121,8 @@ function timeToMinutes(t: string): number {
   return h * 60 + m;
 }
 
-/**
- * Escolhe um ícone temático com base no nome da matéria.
- * Cobre cursos brasileiros mais comuns (medicina, direito, engenharia,
- * exatas, humanas, computação, biologia, línguas, artes, ed. física).
- * Fallback: BookOpen (livro genérico).
- *
- * Regras em ordem de especificidade — a primeira que casar ganha.
- * Mantém regex em PT-BR sem depender de acento.
- */
 function getSubjectIcon(name: string): LucideIcon {
   const n = name.toLowerCase();
-
-  // Medicina — sistemas e clínica
   if (/cardio|cora[cç][aã]o|cardiovasc|circulat|hemato|vascul/.test(n)) return HeartPulse;
   if (/respirat|pulm[aã]o|pulmonar|pneumo/.test(n)) return Wind;
   if (/endo|horm[oô]n|metabol|diabet/.test(n)) return Pill;
@@ -139,158 +132,42 @@ function getSubjectIcon(name: string): LucideIcon {
   if (/aten[cç][aã]o\s*prim|aps|sa[uú]de\s+coletiva|sa[uú]de\s+p[uú]blica|epidemio/.test(n)) return Activity;
   if (/pesquisa|inova[cç][aã]o|metodol|tcc|tese|monografia/.test(n)) return Microscope;
   if (/reuni[aã]o|integ|tutor|grupo|tbl|pbl/.test(n)) return Users;
-
-  // Biologia / ciências naturais
   if (/gen[eé]tic|dna|cromoss/.test(n)) return Dna;
   if (/bioqu[ií]m|qu[ií]mic/.test(n)) return FlaskConical;
   if (/f[ií]sic|mec[aâ]nic\s+(quant|cl[aá]ss)/.test(n)) return Atom;
   if (/biolog|bases\s+biol|histol|embriol|ecolog|botan|zoolog/.test(n)) return Leaf;
-
-  // Matemática / estatística
   if (/c[aá]lculo|c[áa]lculo|matem[aá]tic|alg[eé]bra|geometria/.test(n)) return Calculator;
   if (/estat[ií]stic|probabilidad/.test(n)) return Sigma;
-
-  // Direito
   if (/direito|civil|penal|constituci|tribut|processual|trabalh.*direito|oab/.test(n)) return Gavel;
   if (/[eé]tica|cidadan|deont/.test(n)) return Scale;
-
-  // Humanas
   if (/filosof|sociol|antropol|hist[oó]ri|geogr/.test(n)) return Landmark;
   if (/literat|portugu[eê]s\b|reda[cç][aã]o/.test(n)) return Library;
-
-  // Línguas
   if (/ingl[eê]s|espanhol|franc[eê]s|alem[aã]o|l[ií]ngua|idioma/.test(n)) return Languages;
-
-  // Computação / tecnologia
   if (/program|software|c[oó]digo|algoritmo|estrutur.*dados|engenharia\s+de\s+softw/.test(n)) return Code;
   if (/redes|sistema.*operac|computa[cç][aã]o|inform[aá]tic|dados|ia\b|machine\s+learning/.test(n)) return Code;
-
-  // Engenharia (geral, depois das específicas)
   if (/engenharia|el[eé]tric|eletr[oô]nic|mec[aâ]nic|civil|materiais|projeto/.test(n)) return Wrench;
-
-  // Administração / negócios / economia
   if (/admin|gest[aã]o|empreend|neg[oó]cio|marketing|contab|empres/.test(n)) return Briefcase;
   if (/economi|finan[cç]/.test(n)) return Landmark;
-
-  // Geografia / ambiente
   if (/geografia|ambient|sustent/.test(n)) return Globe;
-
-  // Artes
   if (/m[uú]sic|sonor/.test(n)) return Music;
   if (/arte|design|artes\s+visuais|desenho/.test(n)) return Palette;
-
-  // Educação física
   if (/educa[cç][aã]o\s+f[ií]sic|esporte|treinament|fitness/.test(n)) return Dumbbell;
-
-  // Inovação / ideias soltas
   if (/inova[cç][aã]o|criativ/.test(n)) return Lightbulb;
-
   return BookOpen;
 }
 
-/**
- * Mapeia o nome da primeira matéria do user pra uma "área de estudo"
- * usada no headline dinâmico do dashboard ("futuro da medicina",
- * "futuro do direito", etc). Fallback genérico: "estudo".
- */
-function getStudyArea(primarySubjectName: string | undefined): string {
-  if (!primarySubjectName) return "estudo";
-  const n = primarySubjectName.toLowerCase();
-  if (/medicina|cl[ií]nic|sa[uú]de|enferm|odonto|farm[aá]cia|fisioter|nutri|veterin/.test(n))
-    return "medicina";
-  if (/direito|jur[ií]dic|advoc|oab/.test(n)) return "direito";
-  if (/engenharia|el[eé]tric|eletr[oô]nic|mec[aâ]nic|civil|materiais/.test(n))
-    return "engenharia";
-  if (/admin|gest[aã]o|empreend|neg[oó]cio|marketing|contab|economi|finan[cç]/.test(n))
-    return "negócio";
-  if (/computa|software|program|c[oó]digo|dados|sistema.*informa|ia\b/.test(n))
-    return "tecnologia";
-  if (/arquitet|urban/.test(n)) return "arquitetura";
-  if (/biolog|qu[ií]mic|f[ií]sic|geolog/.test(n)) return "ciência";
-  if (/letras|literat|portugu[eê]s|jornal|comunica/.test(n)) return "linguagem";
-  if (/psicolog/.test(n)) return "psicologia";
-  if (/pedagog|educa[cç][aã]o|licenc/.test(n)) return "educação";
-  return "estudo";
+/** Tom de cor por matéria pra dar variação no grid de pastas. */
+function getSubjectTone(name: string): { bg: string; text: string } {
+  const palette = getSubjectPalette(name);
+  return { bg: palette.soft, text: palette.text };
 }
 
-/**
- * Conta aulas nas últimas N semanas. Retorna array do mais antigo → mais
- * recente, pra plotar sparkline da esquerda pra direita.
- */
-function getWeeklyLectureCounts(lectures: Lecture[], weeks = 8): number[] {
-  const counts = Array(weeks).fill(0);
-  const now = Date.now();
-  const weekMs = 7 * 24 * 60 * 60 * 1000;
-  for (const l of lectures) {
-    const created = new Date(l.createdAt).getTime();
-    const diff = now - created;
-    if (diff < 0) continue;
-    const weekIdx = Math.floor(diff / weekMs);
-    if (weekIdx < weeks) counts[weeks - 1 - weekIdx]++;
-  }
-  return counts;
-}
-
-/**
- * Minutos gravados em cada dia da semana atual (Seg → Dom).
- */
-function getWeekMinutesByDay(lectures: Lecture[]): number[] {
-  const counts = Array(7).fill(0);
-  const now = new Date();
-  const startOfWeek = new Date(now);
-  startOfWeek.setHours(0, 0, 0, 0);
-  const dayOffset = (now.getDay() + 6) % 7; // 0=Seg ... 6=Dom
-  startOfWeek.setDate(now.getDate() - dayOffset);
-
-  for (const l of lectures) {
-    const created = new Date(l.createdAt);
-    if (created >= startOfWeek) {
-      const idx = (created.getDay() + 6) % 7;
-      counts[idx] += Math.round(l.durationSec / 60);
-    }
-  }
-  return counts;
-}
-
-function formatHoursMinutes(min: number): { h: number; m: number; label: string } {
-  if (min < 60) return { h: 0, m: min, label: `${min}min` };
+function formatHoursMinutes(min: number): string {
+  if (min <= 0) return "0min";
+  if (min < 60) return `${min}min`;
   const h = Math.floor(min / 60);
   const m = min % 60;
-  return { h, m, label: m > 0 ? `${h}h ${m}min` : `${h}h` };
-}
-
-/** Sparkline SVG simples — gradient roxo, line + area fill. */
-function MiniLineChart({ data, height = 36 }: { data: number[]; height?: number }) {
-  if (data.length === 0) return null;
-  const max = Math.max(1, ...data);
-  const w = 100;
-  const padY = 4;
-  const stepX = w / Math.max(1, data.length - 1);
-  const points = data.map((v, i) => {
-    const x = i * stepX;
-    const y = padY + (1 - v / max) * (height - 2 * padY);
-    return [x, y] as const;
-  });
-  const linePath = points.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
-  const areaPath = `${linePath} L${w},${height} L0,${height} Z`;
-
-  return (
-    <svg viewBox={`0 0 ${w} ${height}`} preserveAspectRatio="none" className="w-full h-full" aria-hidden="true">
-      <defs>
-        <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="oklch(0.6 0.25 290)" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="oklch(0.6 0.25 290)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-      <path d={areaPath} fill="url(#spark-fill)" />
-      <path d={linePath} fill="none" stroke="oklch(0.6 0.25 290)" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
-      {points.map(([x, y], i) =>
-        i === points.length - 1 ? (
-          <circle key={i} cx={x} cy={y} r="2.5" fill="oklch(0.6 0.25 290)" />
-        ) : null,
-      )}
-    </svg>
-  );
+  return m > 0 ? `${h}h ${m}min` : `${h}h`;
 }
 
 /** Bar chart de 7 dias da semana com labels S T Q Q S S D. */
@@ -300,9 +177,9 @@ function WeekBarChart({ data }: { data: number[] }) {
   const todayIdx = (new Date().getDay() + 6) % 7;
 
   return (
-    <div className="flex items-end gap-1 h-12 w-full">
+    <div className="flex items-end gap-1 h-10 w-full">
       {data.map((v, i) => {
-        const pct = Math.max(8, (v / max) * 100); // mínimo 8% pra dar feedback visual
+        const pct = Math.max(8, (v / max) * 100);
         const isToday = i === todayIdx;
         return (
           <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0">
@@ -318,12 +195,6 @@ function WeekBarChart({ data }: { data: number[] }) {
               style={{ height: `${pct}%` }}
               title={`${labels[i]}: ${v}min`}
             />
-            <span className={cn(
-              "text-[9px] font-mono",
-              isToday ? "text-primary font-semibold" : "text-muted-foreground",
-            )}>
-              {labels[i]}
-            </span>
           </div>
         );
       })}
@@ -337,6 +208,7 @@ type NextSlot = {
   dayLabel: string;
   isToday: boolean;
   isTomorrow: boolean;
+  startsInMinutes: number;
 };
 
 function findNextSlot(subjects: Subject[]): NextSlot | null {
@@ -351,7 +223,6 @@ function findNextSlot(subjects: Subject[]): NextSlot | null {
     for (const slot of s.schedule ?? []) {
       const dayDiff = (slot.dayOfWeek - currentDow + 7) % 7;
       const slotMin = timeToMinutes(slot.startTime);
-      // Hoje, mas já passou → considera próxima semana
       let distance = dayDiff * 24 * 60 + (slotMin - currentMin);
       if (dayDiff === 0 && slotMin <= currentMin) {
         distance += 7 * 24 * 60;
@@ -365,6 +236,7 @@ function findNextSlot(subjects: Subject[]): NextSlot | null {
         isToday,
         isTomorrow,
         distance,
+        startsInMinutes: distance,
       });
     }
   }
@@ -372,6 +244,80 @@ function findNextSlot(subjects: Subject[]): NextSlot | null {
   if (candidates.length === 0) return null;
   candidates.sort((a, b) => a.distance - b.distance);
   return candidates[0];
+}
+
+/** Lista todos os slots que caem hoje, ordenados por horário. */
+function findTodaySlots(subjects: Subject[]): { subject: Subject; slot: ScheduleSlot }[] {
+  const dow = new Date().getDay();
+  const items: { subject: Subject; slot: ScheduleSlot }[] = [];
+  for (const s of subjects) {
+    for (const slot of s.schedule ?? []) {
+      if (slot.dayOfWeek === dow) items.push({ subject: s, slot });
+    }
+  }
+  items.sort(
+    (a, b) =>
+      timeToMinutes(a.slot.startTime) - timeToMinutes(b.slot.startTime),
+  );
+  return items;
+}
+
+/** Calcula trend % entre últimos 7 dias e os 7 anteriores. */
+function computeWeekTrends(lectures: Lecture[]) {
+  const day = 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  const currentStart = now - 7 * day;
+  const prevStart = now - 14 * day;
+
+  let curMinutes = 0;
+  let prevMinutes = 0;
+  let curSummaries = 0;
+  let prevSummaries = 0;
+
+  for (const l of lectures) {
+    const t = new Date(l.createdAt).getTime();
+    const min = Math.round(l.durationSec / 60);
+    if (t >= currentStart) {
+      curMinutes += min;
+      if (l.summary) curSummaries += 1;
+    } else if (t >= prevStart) {
+      prevMinutes += min;
+      if (l.summary) prevSummaries += 1;
+    }
+  }
+
+  return {
+    minutesTrend:
+      prevMinutes > 0
+        ? Math.round(((curMinutes - prevMinutes) / prevMinutes) * 100)
+        : curMinutes > 0
+          ? 100
+          : 0,
+    summariesTrend:
+      prevSummaries > 0
+        ? Math.round(((curSummaries - prevSummaries) / prevSummaries) * 100)
+        : curSummaries > 0
+          ? 100
+          : 0,
+  };
+}
+
+function getWeekMinutesByDay(lectures: Lecture[]): number[] {
+  const counts = Array(7).fill(0);
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setHours(0, 0, 0, 0);
+  const dayOffset = (now.getDay() + 6) % 7;
+  startOfWeek.setDate(now.getDate() - dayOffset);
+
+  for (const l of lectures) {
+    const created = new Date(l.createdAt);
+    if (created >= startOfWeek) {
+      const idx = (created.getDay() + 6) % 7;
+      counts[idx] += Math.round(l.durationSec / 60);
+    }
+  }
+  return counts;
 }
 
 function Dashboard({ user }: { user: User }) {
@@ -388,7 +334,6 @@ function Dashboard({ user }: { user: User }) {
   const [favorites, setFavorites] = useState<FavoriteEntry[]>([]);
   const [wizardOpen, setWizardOpen] = useState(false);
 
-  // Sub no canal de favoritos pra re-renderizar quando alguém favorita
   useEffect(() => {
     return subscribeFavorites(user.id, setFavorites);
   }, [user.id]);
@@ -418,26 +363,24 @@ function Dashboard({ user }: { user: User }) {
 
   const stats = useMemo(() => {
     const totalLectures = lectures.length;
-    const totalMinutes = Math.floor(
-      lectures.reduce((acc, l) => acc + l.durationSec, 0) / 60,
-    );
     const withSummary = lectures.filter((l) => l.summary).length;
-    const weeklySeries = getWeeklyLectureCounts(lectures, 8);
     const weekMinutesByDay = getWeekMinutesByDay(lectures);
     const weekMinutesTotal = weekMinutesByDay.reduce((a, b) => a + b, 0);
+    const progressPct =
+      totalLectures > 0 ? Math.round((withSummary / totalLectures) * 100) : 0;
     return {
       totalLectures,
-      totalMinutes,
       withSummary,
-      weeklySeries,
       weekMinutesByDay,
       weekMinutesTotal,
+      progressPct,
     };
   }, [lectures]);
 
+  const trends = useMemo(() => computeWeekTrends(lectures), [lectures]);
   const streak = useMemo(() => calculateStreak(lectures), [lectures]);
-
   const nextSlot = useMemo(() => findNextSlot(subjects), [subjects]);
+  const todayAgenda = useMemo(() => findTodaySlots(subjects), [subjects]);
 
   const lecturesBySubject = useMemo(() => {
     const map: Record<string, Lecture[]> = {};
@@ -459,6 +402,16 @@ function Dashboard({ user }: { user: User }) {
         .slice(0, 6),
     [lectures],
   );
+
+  /** Aula mais recente que ainda não foi concluída (sem resumo, não live). */
+  const continueLecture = useMemo(() => {
+    return lectures
+      .filter((l) => l.status !== "live" && !l.summary)
+      .sort(
+        (a, b) =>
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+      )[0];
+  }, [lectures]);
 
   async function handleCreateSubject() {
     const trimmed = newName.trim();
@@ -529,40 +482,23 @@ function Dashboard({ user }: { user: User }) {
   }
 
   const firstName = user.name.split(" ")[0];
-  const greeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 6) return "Boa madrugada";
-    if (h < 12) return "Bom dia";
-    if (h < 18) return "Boa tarde";
-    return "Boa noite";
-  }, []);
-
-  // Área de estudo dinâmica baseada na primeira matéria
-  const studyArea = useMemo(
-    () => getStudyArea(subjects[0]?.name),
-    [subjects],
-  );
 
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-5 py-8">
         <div className="h-8 w-48 rounded-md bg-secondary/50 animate-pulse mb-3" />
         <div className="h-4 w-72 rounded-md bg-secondary/40 animate-pulse mb-8" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          {[1, 2, 3].map((i) => (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-8">
+          {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
               className="h-24 rounded-2xl bg-secondary/30 animate-pulse"
             />
           ))}
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div
-              key={i}
-              className="h-32 rounded-xl bg-secondary/30 animate-pulse"
-            />
-          ))}
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-6">
+          <div className="h-64 rounded-2xl bg-secondary/30 animate-pulse" />
+          <div className="h-64 rounded-2xl bg-secondary/30 animate-pulse" />
         </div>
       </div>
     );
@@ -571,98 +507,42 @@ function Dashboard({ user }: { user: User }) {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8">
       {/* Header */}
-      <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between mb-8">
+      <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0">
-          <div className="text-sm text-muted-foreground mb-2 flex items-center gap-3 flex-wrap">
-            <span>
-              {greeting}, {firstName}
-            </span>
-            {streak.current > 0 && (
-              <span
-                className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 px-2.5 py-0.5 text-xs font-medium"
-                title={`Streak atual: ${streak.current} dia(s)${streak.longest > streak.current ? ` · maior: ${streak.longest}` : ""}`}
-              >
-                <Flame className="h-4 w-4 text-amber-500" />
-                {streak.current} dia{streak.current === 1 ? "" : "s"} seguido
-                {streak.current === 1 ? "" : "s"}
-              </span>
-            )}
-          </div>
-          <h1 className="text-4xl md:text-5xl font-semibold leading-[1.05] tracking-tight">
-            Foco de hoje,{" "}
-            <span className="text-primary">futuro da {studyArea}.</span>
+          <h1 className="text-display text-3xl sm:text-4xl font-semibold leading-[1.05]">
+            Bom te ver, {firstName}.
           </h1>
-          <p className="mt-3 text-sm text-muted-foreground max-w-xl">
-            Continue seu progresso e transforme estudo em memória.
+          <p className="text-display mt-1 text-2xl sm:text-3xl font-semibold leading-[1.05] text-primary">
+            Bora estudar com clareza.
           </p>
         </div>
-        <div className="flex gap-2 shrink-0">
-          <Dialog open={newOpen} onOpenChange={setNewOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
-                <Plus className="h-4 w-4" /> Nova matéria
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Nova matéria</DialogTitle>
-                <DialogDescription>
-                  Cria uma pasta pra organizar aulas, slides e resumos.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="new-subject-name" className="mb-1.5 block">
-                    Nome da matéria
-                  </Label>
-                  <Input
-                    id="new-subject-name"
-                    autoFocus
-                    placeholder="Ex: Cálculo, Anatomia, Direito Civil…"
-                    value={newName}
-                    onChange={(e) => {
-                      setNewName(e.target.value);
-                      setIconName(null);
-                    }}
-                    onKeyDown={(e) =>
-                      e.key === "Enter" && handleCreateSubject()
-                    }
-                  />
-                </div>
-                <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-secondary/30 p-3">
-                  <SubjectIconPicker
-                    value={iconName}
-                    subjectName={newName}
-                    onChange={setIconName}
-                    palette={{
-                      bg: getSubjectPalette(newName).soft,
-                      text: getSubjectPalette(newName).text,
-                    }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium">
-                      {iconName ? "Ícone escolhido" : "Ícone sugerido"}
-                    </div>
-                    <div className="text-xs text-muted-foreground">
-                      Clique no quadrado pra trocar.
-                    </div>
-                  </div>
-                </div>
+
+        {streak.current > 0 && (
+          <Link
+            href="/schedule"
+            className="group hidden md:inline-flex items-center gap-3 rounded-2xl bg-primary/5 hover:bg-primary/10 border border-primary/15 px-4 py-2.5 transition-colors shrink-0"
+            title={`Streak atual: ${streak.current} dia(s). Melhor: ${streak.longest}`}
+          >
+            <div className="h-9 w-9 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
+              <Flame className="h-5 w-5 text-amber-500" />
+            </div>
+            <div className="leading-tight">
+              <div className="text-sm font-semibold text-primary">
+                {streak.current} dias de sequência
               </div>
-              <DialogFooter>
-                <Button variant="ghost" onClick={() => setNewOpen(false)}>
-                  Cancelar
-                </Button>
-                <Button variant="gradient" onClick={handleCreateSubject}>
-                  Criar matéria
-                </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              <div className="text-xs text-muted-foreground">
+                Melhor sequência: {streak.longest} dias
+              </div>
+            </div>
+            <ArrowRight className="h-3.5 w-3.5 text-primary/60 group-hover:translate-x-0.5 transition-transform" />
+          </Link>
+        )}
+
+        <div className="flex gap-2 shrink-0">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="gradient">
-                <Mic className="h-4 w-4" /> Nova aula
+                <Plus className="h-4 w-4" /> Nova aula
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
@@ -680,211 +560,289 @@ function Dashboard({ user }: { user: User }) {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          <Button variant="outline" onClick={() => setWizardOpen(true)}>
+            <Upload className="h-4 w-4" /> Novo upload
+          </Button>
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
-        {/* KPI 1: Próxima aula */}
-        {nextSlot ? (
-          <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 hover:shadow-md transition-all">
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-4">
-              <Clock className="h-3.5 w-3.5 text-primary" />
-              Próxima aula
+      {/* 4 KPI cards */}
+      <div className="mb-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <KPICard
+          Icon={CalendarDays}
+          label="Próxima aula"
+          value={nextSlot ? nextSlot.subject.name : "Sem agenda"}
+          sub={
+            nextSlot
+              ? `${nextSlot.isToday ? "Hoje" : nextSlot.isTomorrow ? "Amanhã" : nextSlot.dayLabel}, ${nextSlot.slot.startTime} · ${
+                  timeToMinutes(nextSlot.slot.endTime) -
+                  timeToMinutes(nextSlot.slot.startTime)
+                } min`
+              : "Configure sua grade"
+          }
+          href={nextSlot ? `/subject/${nextSlot.subject.id}` : "/onboarding"}
+        />
+
+        <KPICard
+          Icon={TrendingUp}
+          label="Tempo de estudo da semana"
+          value={formatHoursMinutes(stats.weekMinutesTotal)}
+          sub={
+            trends.minutesTrend > 0
+              ? `↑ ${trends.minutesTrend}% vs. semana passada`
+              : trends.minutesTrend < 0
+                ? `↓ ${Math.abs(trends.minutesTrend)}% vs. semana passada`
+                : "Sem variação"
+          }
+          subTone={trends.minutesTrend >= 0 ? "positive" : "negative"}
+          chart={<WeekBarChart data={stats.weekMinutesByDay} />}
+        />
+
+        <KPICard
+          Icon={FileText}
+          label="Resumos gerados"
+          value={String(stats.withSummary)}
+          sub={
+            trends.summariesTrend > 0
+              ? `↑ ${trends.summariesTrend}% vs. semana passada`
+              : trends.summariesTrend < 0
+                ? `↓ ${Math.abs(trends.summariesTrend)}% vs. semana passada`
+                : "Sem variação"
+          }
+          subTone={trends.summariesTrend >= 0 ? "positive" : "negative"}
+          href="/resumos"
+        />
+
+        <KPICard
+          Icon={Star}
+          label="Progresso geral"
+          value={`${stats.progressPct}%`}
+          sub={
+            stats.progressPct >= 70
+              ? "Continue assim!"
+              : stats.progressPct >= 40
+                ? "Tá no caminho."
+                : "Bora acelerar."
+          }
+          subTone="positive"
+          progress={stats.progressPct}
+        />
+      </div>
+
+      {/* Main + aside */}
+      <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+        <div className="min-w-0 space-y-6">
+          {/* Continuar aula */}
+          {continueLecture ? (
+            <ContinueLectureCard
+              lecture={continueLecture}
+              subject={subjects.find((s) => s.id === continueLecture.subjectId)}
+            />
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border/60 bg-card/40 p-6 flex flex-col sm:flex-row items-center gap-5">
+              <div className="flex justify-center sm:block">
+                <LumiCharacter mood="waving" size="md" float />
+              </div>
+              <div className="flex-1 text-center sm:text-left">
+                <h3 className="text-base font-semibold">
+                  Tudo em dia por aqui.
+                </h3>
+                <p className="mt-1 text-sm text-muted-foreground max-w-md">
+                  Nenhuma aula em andamento. Bora gravar a próxima ou subir um
+                  PDF pra gerar resumo.
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <Button
+                  variant="gradient"
+                  onClick={() => startNewLecture()}
+                  size="sm"
+                >
+                  <Mic className="h-4 w-4" /> Gravar
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setWizardOpen(true)}
+                  size="sm"
+                >
+                  <Upload className="h-4 w-4" /> Upload
+                </Button>
+              </div>
             </div>
-            <Link
-              href={`/subject/${nextSlot.subject.id}`}
-              className="group flex items-center gap-3 mb-4 -mx-2 px-2 py-1 rounded-lg hover:bg-secondary/40 transition-colors"
-            >
-              <div className="h-10 w-10 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
-                {createElement(getSubjectIcon(nextSlot.subject.name), {
-                  className: "h-5 w-5 text-primary",
-                  strokeWidth: 2.2,
+          )}
+
+          {/* Matérias */}
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+                Minhas matérias
+              </h2>
+              <div className="flex items-center gap-2">
+                {subjects.length > 0 && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setNewOpen(true)}
+                    className="text-xs"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Nova
+                  </Button>
+                )}
+                {subjects.length > 0 && (
+                  <Link
+                    href="/documents"
+                    className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+                  >
+                    Ver todas <ArrowRight className="h-3 w-3" />
+                  </Link>
+                )}
+              </div>
+            </div>
+            {subjects.length === 0 ? (
+              <SubjectsEmpty onCreate={() => setNewOpen(true)} />
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+                {subjects.slice(0, 10).map((s) => {
+                  const subjectLectures = lecturesBySubject[s.id] ?? [];
+                  const fav = favorites.some(
+                    (f) => f.kind === "subject" && f.id === s.id,
+                  );
+                  return (
+                    <SubjectMiniCard
+                      key={s.id}
+                      subject={s}
+                      lectures={subjectLectures}
+                      onDelete={() => handleDeleteSubject(s)}
+                      onNewLecture={() => startNewLecture(s.id)}
+                      favorited={fav}
+                      onToggleFavorite={() =>
+                        toggleFavorite(user.id, "subject", s.id)
+                      }
+                    />
+                  );
                 })}
               </div>
-              <div className="min-w-0">
-                <div className="font-semibold truncate group-hover:text-primary transition-colors">
-                  {nextSlot.subject.name}
+            )}
+          </section>
+
+          {/* Atividade recente */}
+          {recentLectures.length > 0 && (
+            <section>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+                  Atividade recente
+                </h2>
+                {lectures.length > 6 && (
+                  <Link
+                    href="/gravacoes"
+                    className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+                  >
+                    Ver toda atividade <ArrowRight className="h-3 w-3" />
+                  </Link>
+                )}
+              </div>
+              <div className="rounded-xl border border-border/60 bg-card overflow-hidden divide-y divide-border/50">
+                {recentLectures.map((l) => {
+                  const subject = subjects.find((s) => s.id === l.subjectId);
+                  const fav = favorites.some(
+                    (f) => f.kind === "lecture" && f.id === l.id,
+                  );
+                  return (
+                    <ActivityRow
+                      key={l.id}
+                      lecture={l}
+                      subject={subject}
+                      favorited={fav}
+                      onToggleFavorite={() =>
+                        toggleFavorite(user.id, "lecture", l.id)
+                      }
+                    />
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {recentLectures.length === 0 && subjects.length > 0 && (
+            <EmptyLectures onNew={() => startNewLecture()} />
+          )}
+        </div>
+
+        {/* Aside */}
+        <aside className="space-y-4">
+          <AgendaCard items={todayAgenda} />
+          <LumiSuggestionsCard
+            continueLecture={continueLecture}
+            hasLectures={lectures.length > 0}
+          />
+          <LearningInsightsCard
+            progressPct={stats.progressPct}
+            summariesTrend={trends.summariesTrend}
+          />
+        </aside>
+      </div>
+
+      {/* Dialog Nova matéria */}
+      <Dialog open={newOpen} onOpenChange={setNewOpen}>
+        <DialogTrigger asChild>
+          <span className="hidden" />
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Nova matéria</DialogTitle>
+            <DialogDescription>
+              Cria uma pasta pra organizar aulas, slides e resumos.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="new-subject-name" className="mb-1.5 block">
+                Nome da matéria
+              </Label>
+              <Input
+                id="new-subject-name"
+                autoFocus
+                placeholder="Ex: Cálculo, Anatomia, Direito Civil…"
+                value={newName}
+                onChange={(e) => {
+                  setNewName(e.target.value);
+                  setIconName(null);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && handleCreateSubject()}
+              />
+            </div>
+            <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-secondary/30 p-3">
+              <SubjectIconPicker
+                value={iconName}
+                subjectName={newName}
+                onChange={setIconName}
+                palette={{
+                  bg: getSubjectPalette(newName).soft,
+                  text: getSubjectPalette(newName).text,
+                }}
+              />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium">
+                  {iconName ? "Ícone escolhido" : "Ícone sugerido"}
                 </div>
-                <div className="text-xs text-muted-foreground font-mono">
-                  {nextSlot.isToday
-                    ? "Hoje"
-                    : nextSlot.isTomorrow
-                      ? "Amanhã"
-                      : nextSlot.dayLabel}{" "}
-                  · {nextSlot.slot.startTime}–{nextSlot.slot.endTime}
+                <div className="text-xs text-muted-foreground">
+                  Clique no quadrado pra trocar.
                 </div>
               </div>
-            </Link>
-            <Button asChild variant="outline" size="sm" className="text-xs">
-              <Link href={`/subject/${nextSlot.subject.id}`}>Ver detalhes</Link>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNewOpen(false)}>
+              Cancelar
             </Button>
-          </div>
-        ) : (
-          <Link
-            href="/onboarding"
-            className="group relative overflow-hidden rounded-2xl border border-dashed border-border/60 bg-card/40 p-5 hover:border-primary/40 transition-colors"
-          >
-            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-              <Clock className="h-3.5 w-3.5 text-primary" />
-              Próxima aula
-            </div>
-            <div className="text-sm text-muted-foreground max-w-[200px] mb-4">
-              Suba sua grade horária pra ver aqui
-            </div>
-            <div className="text-xs text-primary font-medium inline-flex items-center gap-1">
-              Configurar agora <ArrowRight className="h-3 w-3" />
-            </div>
-          </Link>
-        )}
+            <Button variant="gradient" onClick={handleCreateSubject}>
+              Criar matéria
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        {/* KPI 2: Aulas gravadas + sparkline */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 hover:shadow-md transition-all">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-            Aulas gravadas
-          </div>
-          <div className="flex items-end justify-between gap-3 mb-3">
-            <div>
-              <div className="text-3xl md:text-4xl font-semibold font-mono tabular-nums leading-none">
-                {stats.totalLectures}
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                aulas gravadas
-              </div>
-            </div>
-            <div className="w-24 h-12 shrink-0">
-              <MiniLineChart data={stats.weeklySeries} height={48} />
-            </div>
-          </div>
-          <Link
-            href="/gravacoes"
-            className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
-          >
-            Ver todas as gravações <ArrowRight className="h-3 w-3" />
-          </Link>
-        </div>
-
-        {/* KPI 3: Tempo de estudo + bar chart semana */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 hover:shadow-md transition-all">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-            Tempo de estudo
-          </div>
-          <div className="flex items-end justify-between gap-3 mb-3">
-            <div>
-              <div className="text-3xl md:text-4xl font-semibold tabular-nums leading-none">
-                {formatHoursMinutes(stats.weekMinutesTotal).label || "0min"}
-              </div>
-              <div className="mt-1 text-xs text-muted-foreground">esta semana</div>
-            </div>
-            <div className="w-28 shrink-0">
-              <WeekBarChart data={stats.weekMinutesByDay} />
-            </div>
-          </div>
-          <Link
-            href="/schedule"
-            className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
-          >
-            Ver estatísticas <ArrowRight className="h-3 w-3" />
-          </Link>
-        </div>
-      </div>
-
-      {/* Matérias (pastas) */}
-      <div className="mb-10">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-            Minhas matérias
-          </h2>
-          <div className="flex items-center gap-2">
-            {subjects.length > 0 && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setNewOpen(true)}
-                className="text-xs"
-              >
-                <Plus className="h-3.5 w-3.5" /> Nova
-              </Button>
-            )}
-            {subjects.length > 0 && (
-              <Link
-                href="/documents"
-                className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
-              >
-                Ver todas as matérias <ArrowRight className="h-3 w-3" />
-              </Link>
-            )}
-          </div>
-        </div>
-        {subjects.length === 0 ? (
-          <SubjectsEmpty onCreate={() => setNewOpen(true)} />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {subjects.map((s) => {
-              const subjectLectures = lecturesBySubject[s.id] ?? [];
-              const fav = favorites.some(
-                (f) => f.kind === "subject" && f.id === s.id,
-              );
-              return (
-                <SubjectFolder
-                  key={s.id}
-                  subject={s}
-                  lectures={subjectLectures}
-                  onDelete={() => handleDeleteSubject(s)}
-                  onNewLecture={() => startNewLecture(s.id)}
-                  favorited={fav}
-                  onToggleFavorite={() =>
-                    toggleFavorite(user.id, "subject", s.id)
-                  }
-                />
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Aulas recentes — lista linear */}
-      {recentLectures.length > 0 && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-              Aulas recentes
-            </h2>
-            {lectures.length > 6 && (
-              <Link
-                href="/gravacoes"
-                className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
-              >
-                Ver todas <ArrowRight className="h-3 w-3" />
-              </Link>
-            )}
-          </div>
-          <div className="rounded-xl border border-border/60 bg-card overflow-hidden divide-y divide-border/50">
-            {recentLectures.map((l) => {
-              const subject = subjects.find((s) => s.id === l.subjectId);
-              const fav = favorites.some(
-                (f) => f.kind === "lecture" && f.id === l.id,
-              );
-              return (
-                <LectureRow
-                  key={l.id}
-                  lecture={l}
-                  subject={subject}
-                  favorited={fav}
-                  onToggleFavorite={() => toggleFavorite(user.id, "lecture", l.id)}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Empty state quando sem aulas mas com matérias */}
-      {recentLectures.length === 0 && subjects.length > 0 && (
-        <EmptyLectures onNew={() => startNewLecture()} />
-      )}
-
-      {/* Dialog Nova Aula */}
+      {/* Dialog Nova aula */}
       <Dialog open={lectureOpen} onOpenChange={setLectureOpen}>
         <DialogContent>
           <DialogHeader>
@@ -958,7 +916,163 @@ function Dashboard({ user }: { user: User }) {
   );
 }
 
-function SubjectFolder({
+/* ---------- Sub-componentes ---------- */
+
+function KPICard({
+  Icon,
+  label,
+  value,
+  sub,
+  subTone,
+  href,
+  chart,
+  progress,
+}: {
+  Icon: LucideIcon;
+  label: string;
+  value: string;
+  sub?: string;
+  subTone?: "positive" | "negative" | "neutral";
+  href?: string;
+  chart?: React.ReactNode;
+  progress?: number;
+}) {
+  const subColor =
+    subTone === "positive"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : subTone === "negative"
+        ? "text-rose-600 dark:text-rose-400"
+        : "text-muted-foreground";
+
+  const content = (
+    <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 hover:border-primary/40 hover:shadow-md transition-all h-full">
+      <div className="flex items-start justify-between gap-2 mb-3">
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground line-clamp-1">
+          {label}
+        </div>
+        <div className="h-8 w-8 shrink-0 rounded-lg bg-primary/10 flex items-center justify-center">
+          <Icon className="h-4 w-4 text-primary" strokeWidth={2.2} />
+        </div>
+      </div>
+      <div className="display-num text-2xl sm:text-[26px] font-semibold leading-none line-clamp-1">
+        {value}
+      </div>
+      {sub && (
+        <div className={cn("mt-1.5 text-[11px] line-clamp-1", subColor)}>
+          {sub}
+        </div>
+      )}
+      {chart && <div className="mt-3 h-10 w-full">{chart}</div>}
+      {typeof progress === "number" && (
+        <div className="mt-3 h-1.5 bg-secondary/60 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary rounded-full transition-all"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} className="block">
+        {content}
+      </Link>
+    );
+  }
+  return content;
+}
+
+function ContinueLectureCard({
+  lecture,
+  subject,
+}: {
+  lecture: Lecture;
+  subject?: Subject;
+}) {
+  const subjectName = subject?.name ?? "Aula sem matéria";
+  const Icon = subject ? getSubjectIcon(subject.name) : Play;
+  const tone = subject ? getSubjectTone(subject.name) : { bg: "", text: "" };
+  const durationMin = Math.round(lecture.durationSec / 60);
+  const hasTranscript = !!lecture.transcript;
+  const progress = hasTranscript ? 58 : 12; // placeholder visual
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card">
+      <div className="flex flex-col sm:flex-row">
+        {/* Slot visual (sem imagem feia) — gradient + icon */}
+        <div
+          className="relative h-32 sm:h-auto sm:w-48 shrink-0 flex items-center justify-center bg-gradient-to-br from-primary/20 via-primary/10 to-fuchsia-500/10"
+          style={{
+            backgroundColor: tone.bg || undefined,
+          }}
+        >
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.4),transparent_60%)] dark:bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.08),transparent_60%)]" />
+          <div className="relative h-16 w-16 rounded-2xl bg-background/80 backdrop-blur flex items-center justify-center shadow-sm">
+            {createElement(Icon, {
+              className: "h-8 w-8 text-primary",
+              strokeWidth: 2,
+            })}
+          </div>
+        </div>
+
+        <div className="flex-1 min-w-0 p-5 flex flex-col">
+          <div className="flex items-center gap-2 mb-2">
+            {subject && (
+              <Badge variant="outline" className="text-[10px] uppercase tracking-wider">
+                {subjectName}
+              </Badge>
+            )}
+            <div className="text-xs text-muted-foreground flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {durationMin > 0
+                ? `${durationMin} min gravados`
+                : formatRelativeTime(lecture.updatedAt)}
+            </div>
+          </div>
+
+          <h3 className="text-lg sm:text-xl font-semibold leading-tight line-clamp-1">
+            {lecture.title}
+          </h3>
+
+          {hasTranscript && (
+            <p className="mt-1 text-sm text-muted-foreground line-clamp-1">
+              Última atividade: {formatRelativeTime(lecture.updatedAt)}
+            </p>
+          )}
+
+          <div className="mt-3 flex items-center gap-3">
+            <div className="flex-1 h-1.5 bg-secondary/60 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-primary rounded-full transition-all"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className="text-xs text-muted-foreground font-mono tabular-nums shrink-0">
+              {progress}% concluído
+            </span>
+          </div>
+
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <div className="text-xs text-muted-foreground">
+              {hasTranscript
+                ? "Sem resumo ainda — bora gerar"
+                : "Bora retomar a transcrição"}
+            </div>
+            <Button asChild variant="gradient" size="sm">
+              <Link href={`/lecture/${lecture.id}`}>
+                <Play className="h-4 w-4" /> Continuar aula
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SubjectMiniCard({
   subject,
   lectures,
   onDelete,
@@ -975,75 +1089,48 @@ function SubjectFolder({
 }) {
   const lectureCount = lectures.length;
   const withSummary = lectures.filter((l) => l.summary).length;
-  const progress = lectureCount > 0
-    ? Math.round((withSummary / lectureCount) * 100)
-    : 0;
-
-  const lastLecture = lectures
-    .slice()
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    )[0];
-  const lastLectureLabel = lastLecture
-    ? new Date(lastLecture.updatedAt).toLocaleDateString("pt-BR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "2-digit",
-      })
-    : "—";
-
+  const progress =
+    lectureCount > 0 ? Math.round((withSummary / lectureCount) * 100) : 0;
   const subjectIcon = getSubjectIcon(subject.name);
+  const tone = getSubjectTone(subject.name);
 
   return (
     <div className="group relative rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-md transition-all">
-      <Link
-        href={`/subject/${subject.id}`}
-        className="block p-4"
-      >
-        <div className="flex items-center gap-4">
-          <div className="h-11 w-11 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
+      <Link href={`/subject/${subject.id}`} className="block p-3">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <div
+            className="h-9 w-9 shrink-0 rounded-lg flex items-center justify-center"
+            style={{ backgroundColor: tone.bg, color: tone.text }}
+          >
             {createElement(subjectIcon, {
-              className: "h-5 w-5 text-primary",
+              className: "h-4 w-4",
               strokeWidth: 2.2,
             })}
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold text-sm leading-tight line-clamp-1 group-hover:text-primary transition-colors">
-              {subject.name}
-            </div>
-            <div className="mt-2 flex items-center gap-2">
-              <div className="flex-1 h-1.5 bg-secondary/60 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full transition-all"
-                  style={{ width: `${progress}%` }}
-                />
-              </div>
-              <span className="text-[10px] font-mono text-muted-foreground tabular-nums shrink-0">
-                {progress}%
-              </span>
-            </div>
-          </div>
-          <div className="hidden sm:flex flex-col items-end gap-0.5 shrink-0 pl-2 border-l border-border/40 pr-1">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              Última aula
-            </span>
-            <span className="text-xs font-mono tabular-nums">
-              {lastLectureLabel}
-            </span>
-          </div>
-          <div className="hidden md:flex flex-col items-end gap-0.5 shrink-0 pl-3 border-l border-border/40">
-            <span className="text-sm font-semibold tabular-nums">
-              {lectureCount}
-            </span>
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {lectureCount === 1 ? "material" : "materiais"}
-            </span>
-          </div>
+          <span className="text-[10px] font-mono text-muted-foreground tabular-nums">
+            {progress}%
+          </span>
+        </div>
+        <div className="text-sm font-semibold leading-tight line-clamp-1 group-hover:text-primary transition-colors">
+          {subject.name}
+        </div>
+        <div className="mt-2 h-1.5 bg-secondary/60 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary rounded-full transition-all"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+        <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+          <span>
+            {lectureCount} {lectureCount === 1 ? "aula" : "aulas"}
+          </span>
+          <span>
+            {withSummary} {withSummary === 1 ? "resumo" : "resumos"}
+          </span>
         </div>
       </Link>
 
-      <div className="absolute top-2 right-2 flex items-center gap-0.5">
+      <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5">
         <button
           onClick={(e) => {
             e.preventDefault();
@@ -1055,22 +1142,22 @@ function SubjectFolder({
             favorited ? "Remover dos favoritos" : "Adicionar aos favoritos"
           }
           className={cn(
-            "h-7 w-7 inline-flex items-center justify-center rounded-md transition-all",
+            "h-6 w-6 inline-flex items-center justify-center rounded-md transition-all",
             favorited
               ? "text-amber-500 hover:bg-amber-500/10"
               : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-foreground",
           )}
         >
-          <Star className={cn("h-3.5 w-3.5", favorited && "fill-current")} />
+          <Star className={cn("h-3 w-3", favorited && "fill-current")} />
         </button>
         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
                 onClick={(e) => e.preventDefault()}
-                className="h-7 w-7 inline-flex items-center justify-center rounded-md hover:bg-secondary"
+                className="h-6 w-6 inline-flex items-center justify-center rounded-md hover:bg-secondary"
               >
-                <MoreVertical className="h-3.5 w-3.5" />
+                <MoreVertical className="h-3 w-3" />
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
@@ -1095,7 +1182,7 @@ function SubjectFolder({
   );
 }
 
-function LectureRow({
+function ActivityRow({
   lecture,
   subject,
   favorited,
@@ -1106,8 +1193,36 @@ function LectureRow({
   favorited: boolean;
   onToggleFavorite: () => void;
 }) {
-  const hasSummary = !!lecture.summary;
   const isLive = lecture.status === "live";
+  const hasSummary = !!lecture.summary;
+
+  const { label, Icon, iconBg, iconColor } = hasSummary
+    ? {
+        label: "Resumo gerado",
+        Icon: FileText,
+        iconBg: "bg-violet-500/15",
+        iconColor: "text-violet-600 dark:text-violet-400",
+      }
+    : isLive
+      ? {
+          label: "Ao vivo",
+          Icon: Mic,
+          iconBg: "bg-rose-500/15",
+          iconColor: "text-rose-500",
+        }
+      : lecture.transcript
+        ? {
+            label: "Gravação enviada",
+            Icon: Mic,
+            iconBg: "bg-emerald-500/15",
+            iconColor: "text-emerald-600 dark:text-emerald-400",
+          }
+        : {
+            label: "Em andamento",
+            Icon: Play,
+            iconBg: "bg-primary/10",
+            iconColor: "text-primary",
+          };
 
   return (
     <div className="group relative">
@@ -1115,26 +1230,41 @@ function LectureRow({
         href={`/lecture/${lecture.id}`}
         className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/30 transition-colors"
       >
-        <div className="h-9 w-9 shrink-0 rounded-full bg-primary/10 dark:bg-primary/15 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-          <Play className="h-4 w-4 text-primary fill-primary" />
+        <div
+          className={cn(
+            "h-8 w-8 shrink-0 rounded-lg flex items-center justify-center",
+            iconBg,
+          )}
+        >
+          <Icon className={cn("h-4 w-4", iconColor)} strokeWidth={2.2} />
         </div>
+
+        <div className="hidden sm:block w-32 shrink-0">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
+            {label}
+          </div>
+        </div>
+
         <div className="flex-1 min-w-0">
           <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
             {lecture.title}
           </div>
-          {subject && (
-            <div className="text-xs text-muted-foreground truncate">
-              {subject.name}
-            </div>
-          )}
         </div>
-        <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-          <Clock className="h-3 w-3" />
+
+        {subject && (
+          <Badge variant="outline" className="hidden md:inline-flex shrink-0 text-[10px]">
+            {subject.name}
+          </Badge>
+        )}
+
+        <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground shrink-0 min-w-[100px] justify-end">
           {formatRelativeTime(lecture.createdAt)}
         </div>
-        <div className="hidden md:flex items-center gap-1 text-xs text-muted-foreground font-mono shrink-0 min-w-[60px]">
+
+        <div className="hidden md:flex text-xs text-muted-foreground font-mono shrink-0 min-w-[50px] justify-end">
           {lecture.durationSec > 0 ? formatDuration(lecture.durationSec) : "—"}
         </div>
+
         <div className="shrink-0 pr-8">
           {isLive ? (
             <Badge variant="live" className="gap-1">
@@ -1142,15 +1272,13 @@ function LectureRow({
               AO VIVO
             </Badge>
           ) : hasSummary ? (
-            <Badge variant="secondary" className="gap-1 text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/15">
-              <Sparkles className="h-2.5 w-2.5" />
-              Assistida
+            <Badge
+              variant="secondary"
+              className="gap-1 text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/15"
+            >
+              <Sparkles className="h-2.5 w-2.5" /> Assistida
             </Badge>
-          ) : (
-            <Badge variant="outline" className="text-[10px]">
-              Em andamento
-            </Badge>
-          )}
+          ) : null}
         </div>
       </Link>
       <button
@@ -1168,92 +1296,240 @@ function LectureRow({
             : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-foreground",
         )}
       >
-        <Star
-          className={cn("h-4 w-4", favorited && "fill-current")}
-        />
+        <Star className={cn("h-4 w-4", favorited && "fill-current")} />
       </button>
     </div>
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function LectureCard({
-  lecture,
-  subject,
+function AgendaCard({
+  items,
 }: {
-  lecture: Lecture;
-  subject: Subject | undefined;
+  items: { subject: Subject; slot: ScheduleSlot }[];
 }) {
-  const hasSlides = (lecture.slides?.length ?? 0) > 0;
-  const hasSummary = !!lecture.summary;
-  const msgCount = lecture.messages.length;
+  return (
+    <div className="rounded-2xl border border-border/60 bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="h-4 w-4 text-primary" />
+          <h3 className="text-sm font-semibold">Agenda de hoje</h3>
+        </div>
+        <span className="text-[10px] uppercase tracking-wider text-muted-foreground tabular-nums">
+          {items.length} {items.length === 1 ? "item" : "itens"}
+        </span>
+      </div>
+      {items.length === 0 ? (
+        <div className="rounded-xl bg-secondary/30 px-3 py-6 text-center">
+          <p className="text-xs text-muted-foreground">
+            Nenhuma aula agendada pra hoje.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {items.slice(0, 4).map(({ subject, slot }, i) => {
+            const tone = getSubjectTone(subject.name);
+            return (
+              <Link
+                key={`${subject.id}-${i}`}
+                href={`/subject/${subject.id}`}
+                className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-secondary/40 transition-colors"
+              >
+                <div className="text-xs font-mono tabular-nums text-muted-foreground w-10 shrink-0">
+                  {slot.startTime}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate">
+                    {subject.name}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {slot.room ? `${slot.room} · ` : ""}até {slot.endTime}
+                  </div>
+                </div>
+                <span
+                  className="h-2 w-2 rounded-full shrink-0"
+                  style={{ backgroundColor: tone.text }}
+                />
+              </Link>
+            );
+          })}
+        </div>
+      )}
+      <Link
+        href="/schedule"
+        className="mt-3 inline-flex items-center gap-1 text-xs text-primary font-medium hover:gap-1.5 transition-all"
+      >
+        Ver calendário completo <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+}
+
+function LumiSuggestionsCard({
+  continueLecture,
+  hasLectures,
+}: {
+  continueLecture: Lecture | undefined;
+  hasLectures: boolean;
+}) {
+  type Suggestion = {
+    href: string;
+    title: string;
+    sub: string;
+    Icon: LucideIcon;
+    tone: string;
+  };
+
+  const suggestions: Suggestion[] = [];
+
+  if (continueLecture) {
+    suggestions.push({
+      href: `/lecture/${continueLecture.id}`,
+      title: "Gerar resumo",
+      sub: `Resuma '${continueLecture.title.slice(0, 28)}${continueLecture.title.length > 28 ? "…" : ""}'`,
+      Icon: FileText,
+      tone: "bg-violet-500/15 text-violet-600 dark:text-violet-400",
+    });
+  }
+
+  if (hasLectures) {
+    suggestions.push({
+      href: "/flashcards",
+      title: "Revisar flashcards",
+      sub: "Cards aguardando revisão",
+      Icon: Layers,
+      tone: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+    });
+  }
+
+  suggestions.push({
+    href: "/lumi",
+    title: "Continuar chat",
+    sub: "Tire dúvidas com o Lumi",
+    Icon: MessageSquare,
+    tone: "bg-primary/15 text-primary",
+  });
 
   return (
-    <Link href={`/lecture/${lecture.id}`}>
-      <Card className="group h-full transition-all hover:border-primary/40 hover:shadow-md hover:-translate-y-0.5 cursor-pointer">
-        <CardContent className="p-5">
-          <div className="flex items-start justify-between gap-2 mb-3">
-            {subject ? (
-              <Badge variant="outline" className="gap-1.5">
-                <span
-                  className={cn(
-                    "h-2 w-2 rounded-full bg-gradient-to-br shrink-0",
-                    subject.color,
-                  )}
-                />
-                {subject.name}
-              </Badge>
-            ) : (
-              <span />
-            )}
-            {lecture.status === "live" && (
-              <Badge variant="live" className="gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-red-500 pulse-dot" />
-                AO VIVO
-              </Badge>
-            )}
-          </div>
-          <h3 className="font-semibold text-base line-clamp-2 group-hover:text-primary transition-colors">
-            {lecture.title}
-          </h3>
-          {lecture.transcript && (
-            <p className="mt-2 text-sm text-muted-foreground line-clamp-2 leading-relaxed">
-              {lecture.transcript.slice(0, 140)}
-              {lecture.transcript.length > 140 && "…"}
-            </p>
-          )}
-          {(hasSlides || hasSummary || msgCount > 0) && (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {hasSlides && (
-                <Badge variant="secondary" className="gap-1 text-[10px]">
-                  <Layers className="h-2.5 w-2.5" /> Slides
-                </Badge>
+    <div className="rounded-2xl border border-border/60 bg-card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <Sparkles className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-semibold">Sugestões do Lumi</h3>
+      </div>
+      <div className="space-y-1.5">
+        {suggestions.map((s) => (
+          <Link
+            key={s.href + s.title}
+            href={s.href}
+            className="group flex items-center gap-3 rounded-lg p-2 hover:bg-secondary/40 transition-colors"
+          >
+            <div
+              className={cn(
+                "h-9 w-9 shrink-0 rounded-lg flex items-center justify-center",
+                s.tone,
               )}
-              {hasSummary && (
-                <Badge variant="secondary" className="gap-1 text-[10px]">
-                  <Sparkles className="h-2.5 w-2.5" /> Resumo
-                </Badge>
-              )}
-              {msgCount > 0 && (
-                <Badge variant="secondary" className="gap-1 text-[10px]">
-                  <MessageSquare className="h-2.5 w-2.5" /> {msgCount}
-                </Badge>
-              )}
+            >
+              <s.Icon className="h-4 w-4" strokeWidth={2.2} />
             </div>
-          )}
-          <div className="mt-4 flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1">
-              <Clock className="h-3 w-3" /> {formatRelativeTime(lecture.createdAt)}
-            </span>
-            {lecture.durationSec > 0 && (
-              <span className="inline-flex items-center gap-1">
-                <Mic className="h-3 w-3" /> {formatDuration(lecture.durationSec)}
-              </span>
-            )}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-medium truncate">{s.title}</div>
+              <div className="text-[11px] text-muted-foreground truncate">
+                {s.sub}
+              </div>
+            </div>
+            <ArrowUpRight className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+          </Link>
+        ))}
+      </div>
+      <Link
+        href="/lumi"
+        className="mt-3 inline-flex items-center gap-1 text-xs text-primary font-medium hover:gap-1.5 transition-all"
+      >
+        Ver todas as sugestões <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+}
+
+function LearningInsightsCard({
+  progressPct,
+  summariesTrend,
+}: {
+  progressPct: number;
+  summariesTrend: number;
+}) {
+  const trendLabel =
+    summariesTrend > 0
+      ? `↑ ${summariesTrend}% vs. mês passado`
+      : summariesTrend < 0
+        ? `↓ ${Math.abs(summariesTrend)}% vs. mês passado`
+        : "Sem variação";
+
+  const insight =
+    progressPct >= 70
+      ? "Você tem alta taxa de resumos finalizados. Continue assim!"
+      : progressPct >= 40
+        ? "Você tá no caminho — bora fechar os resumos pendentes."
+        : "Gere mais resumos pra fortalecer a retenção.";
+
+  // Dial circular SVG
+  const size = 64;
+  const stroke = 6;
+  const radius = (size - stroke) / 2;
+  const circ = 2 * Math.PI * radius;
+  const offset = circ - (progressPct / 100) * circ;
+
+  return (
+    <div className="rounded-2xl border border-border/60 bg-card p-4">
+      <div className="flex items-center gap-2 mb-3">
+        <TrendingUp className="h-4 w-4 text-primary" />
+        <h3 className="text-sm font-semibold">Insights de aprendizado</h3>
+      </div>
+      <div className="flex items-center gap-3">
+        <div className="relative shrink-0" style={{ width: size, height: size }}>
+          <svg width={size} height={size} className="-rotate-90">
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke="oklch(0.92 0.01 280)"
+              strokeWidth={stroke}
+            />
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              fill="none"
+              stroke="oklch(0.52 0.22 280)"
+              strokeWidth={stroke}
+              strokeLinecap="round"
+              strokeDasharray={circ}
+              strokeDashoffset={offset}
+              className="transition-all"
+            />
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular-nums">
+            {progressPct}%
           </div>
-        </CardContent>
-      </Card>
-    </Link>
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-xs text-muted-foreground">Taxa de resumos</div>
+          <div className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5">
+            {trendLabel}
+          </div>
+        </div>
+      </div>
+      <div className="mt-3 rounded-xl bg-amber-500/10 border border-amber-500/20 p-2.5 flex items-start gap-2">
+        <Lightbulb className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
+        <p className="text-[11px] text-foreground/80 leading-snug">{insight}</p>
+      </div>
+      <Link
+        href="/dashboard/insights"
+        className="mt-3 inline-flex items-center gap-1 text-xs text-primary font-medium hover:gap-1.5 transition-all"
+      >
+        Ver relatório completo <ArrowRight className="h-3 w-3" />
+      </Link>
+    </div>
   );
 }
 

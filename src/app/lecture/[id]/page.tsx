@@ -30,7 +30,7 @@ import type {
   User,
 } from "@/lib/types";
 import { renderPdfToImages } from "@/lib/pdf-render";
-import { formatDuration, generateId } from "@/lib/utils";
+import { formatDuration, generateId, stripChatFormatting } from "@/lib/utils";
 import {
   isSpeechRecognitionSupported,
   useSpeechRecognition,
@@ -576,7 +576,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       const assistantMsg: ChatMessage = {
         id: generateId(),
         role: "assistant",
-        content: acc.trim(),
+        content: stripChatFormatting(acc.trim()),
         createdAt: new Date().toISOString(),
       };
       const finalMessages = [...nextMessages, assistantMsg];

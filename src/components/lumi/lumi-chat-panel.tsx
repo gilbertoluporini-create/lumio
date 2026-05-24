@@ -291,7 +291,7 @@ export function LumiChatPanel({
             placeholder ??
             "Ex.: Qual a função do cortisol? (Enter envia, Shift+Enter quebra linha)"
           }
-          className="min-h-[40px] max-h-[120px] resize-none text-sm bg-background/80"
+          className="min-h-[56px] max-h-[180px] resize-none text-sm bg-background/80"
           rows={1}
           disabled={sending}
         />

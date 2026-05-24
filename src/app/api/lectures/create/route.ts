@@ -67,9 +67,13 @@ export async function POST(req: Request) {
     // 1) Verifica plano + uso mensal
     const { data: profile } = await admin
       .from("profiles")
-      .select("monthly_lectures_used, monthly_lectures_reset_at")
+      .select("monthly_lectures_used, monthly_lectures_reset_at, role")
       .eq("id", user.id)
       .maybeSingle();
+
+    // Admin/founder: bypass do limite mensal — útil pra testes e demos.
+    const role = (profile as { role?: string } | null)?.role ?? "user";
+    const isAdmin = role === "admin" || role === "founder";
 
     const { data: sub } = await admin
       .from("subscriptions")
@@ -103,7 +107,7 @@ export async function POST(req: Request) {
         .eq("id", user.id);
     }
 
-    if (used >= limit) {
+    if (used >= limit && !isAdmin) {
       return Response.json(
         {
           error: `Você atingiu o limite de ${limit} aulas/mês do seu plano (${plan}). Faça upgrade ou espere a próxima renovação mensal.`,
@@ -111,6 +115,7 @@ export async function POST(req: Request) {
           limit,
           used,
           upgrade: "/pricing",
+          code: "monthly_limit_reached",
         },
         { status: 402 },
       );

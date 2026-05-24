@@ -39,6 +39,7 @@ import {
   PanelLeft,
   Pause,
   Play,
+  RefreshCw,
   Share2,
   Sparkles,
   Square,
@@ -47,12 +48,13 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
+import { ContentWizard } from "@/components/ai/content-wizard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -120,6 +122,27 @@ type AssetCounts = {
 /*  Utilities                                                                 */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Limpa o markdown vindo do gerador antes de renderizar:
+ *  - converte `[[termo]]` (referência estilo Obsidian) em `**termo**`
+ *  - remove primeiro H1 (título já vive na header da página)
+ *  - tira separadores soltos `---` no início/fim
+ *  - normaliza linhas em branco
+ */
+function cleanSummaryMarkdown(md: string): string {
+  if (!md) return "";
+  let out = md;
+  // Wikilinks → bold (já é nosso destaque visual)
+  out = out.replace(/\[\[([^\]]+)\]\]/g, "**$1**");
+  // Remove primeiro H1 e linha em branco subsequente
+  out = out.replace(/^#\s+.+\n+/, "");
+  // Remove separadores soltos no início/fim
+  out = out.replace(/^---\s*\n/m, "").replace(/\n---\s*$/m, "");
+  // Compacta múltiplas blank lines
+  out = out.replace(/\n{3,}/g, "\n\n");
+  return out.trim();
+}
+
 function formatDateBR(d: Date): string {
   return d.toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -180,6 +203,7 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("summary");
   const [ttsState, setTtsState] = useState<"idle" | "playing" | "paused">("idle");
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [assetCounts, setAssetCounts] = useState<AssetCounts>({
     flashcards: { count: 0, assetId: null },
     quiz: { count: 0, assetId: null },
@@ -502,7 +526,18 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
   const tags = summary.highlights?.slice(0, 4) ?? [];
 
   return (
-    <div className="mx-auto max-w-[1400px] px-4 md:px-6 py-6 md:py-8">
+    <>
+      {/* Barra de progresso fixa no topo — sempre visível durante scroll */}
+      <div
+        className="fixed top-[60px] left-0 right-0 z-30 h-1 bg-secondary/40 pointer-events-none"
+        aria-hidden="true"
+      >
+        <div
+          className="h-full bg-gradient-to-r from-primary via-fuchsia-500 to-primary transition-all duration-150"
+          style={{ width: `${readingPct}%` }}
+        />
+      </div>
+    <div className="mx-auto max-w-[1600px] px-4 md:px-6 lg:px-8 py-6 md:py-8">
       {/* Breadcrumb */}
       <nav className="mb-3 text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
         <Link href="/resumos" className="hover:text-foreground transition-colors">
@@ -575,30 +610,7 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
           </div>
         </div>
 
-        {/* Reading progress card */}
-        <div className="rounded-xl border border-border/60 bg-card p-3 w-full md:w-[200px] shrink-0">
-          <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1.5">
-            <span>Progresso de leitura</span>
-            <span className="font-mono tabular-nums">{readingPct}%</span>
-          </div>
-          <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-            <div
-              className="h-full bg-gradient-to-r from-primary to-fuchsia-500 transition-all"
-              style={{ width: `${readingPct}%` }}
-            />
-          </div>
-          <div className="mt-2 flex items-center justify-between">
-            <Badge
-              variant="secondary"
-              className="gap-1 text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
-            >
-              <Sparkles className="h-2.5 w-2.5" /> Concluído
-            </Badge>
-            <span className="text-[10px] text-muted-foreground tabular-nums">
-              {sectionList.length} seç.
-            </span>
-          </div>
-        </div>
+        {/* Card de progresso movido pra sidebar direita (fica sticky durante scroll) */}
       </div>
 
       {/* Actions row */}
@@ -654,6 +666,9 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={() => setWizardOpen(true)}>
+              <RefreshCw className="h-3.5 w-3.5" /> Re-gerar resumo
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={handleShare}>
               <Share2 className="h-3.5 w-3.5" /> Compartilhar
             </DropdownMenuItem>
@@ -682,25 +697,22 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
         </Button>
       </div>
 
-      {/* Grid 3-col */}
-      <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_300px] gap-6">
-        {/* LEFT: Navegação */}
-        <aside className="hidden lg:block">
-          <div className="sticky top-[80px]">
-            <SectionNav
-              sections={sectionList}
-              activeId={activeSectionId}
-              onSelect={handleScrollToSection}
-            />
-          </div>
-        </aside>
-
+      {/* Grid 2-col: main amplo + sidebar direita (420px pra respirar o chat) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_420px] gap-8">
         {/* CENTER: Content */}
         <main ref={contentRef} className="min-w-0">
           <SummaryContent
             summary={summary}
             sectionList={sectionList}
             sectionRefs={sectionRefs}
+            lectureId={lectureId}
+            onImagesUpdated={(images) => {
+              setLecture((prev) =>
+                prev && prev.summary
+                  ? { ...prev, summary: { ...prev.summary, images } }
+                  : prev,
+              );
+            }}
           />
 
           {/* CTAs grid */}
@@ -738,6 +750,38 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
         {/* RIGHT: Sidebar (desktop) */}
         <aside className="hidden lg:block">
           <div className="sticky top-[80px] space-y-4 max-h-[calc(100vh-100px)] overflow-y-auto pr-1">
+            {/* Progresso de leitura — sticky pra sempre visível durante scroll */}
+            <div className="rounded-xl border border-border/60 bg-card p-3">
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1.5">
+                <span>Progresso de leitura</span>
+                <span className="font-mono tabular-nums">{readingPct}%</span>
+              </div>
+              <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-primary to-fuchsia-500 transition-all"
+                  style={{ width: `${readingPct}%` }}
+                />
+              </div>
+              <div className="mt-2 flex items-center justify-between">
+                <Badge
+                  variant="secondary"
+                  className="gap-1 text-[10px] bg-emerald-500/15 text-emerald-700 dark:text-emerald-300"
+                >
+                  <Sparkles className="h-2.5 w-2.5" /> Concluído
+                </Badge>
+                <span className="text-[10px] text-muted-foreground tabular-nums">
+                  {sectionList.length} seç.
+                </span>
+              </div>
+            </div>
+
+            {sectionList.length > 0 && (
+              <SectionNav
+                sections={sectionList}
+                activeId={activeSectionId}
+                onSelect={handleScrollToSection}
+              />
+            )}
             <QuickSummaryCard
               summary={summary}
               onJumpToHighlights={() =>
@@ -749,6 +793,7 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
               contextLabel={lecture.title}
               variant="summary"
               suggestedQuestions={buildSuggestions(summary)}
+              historyHeight={360}
             />
             <RelatedCard related={related} />
             <NextStepsCard
@@ -886,7 +931,22 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
           </div>
         </div>
       </div>
+
+      {/* Wizard pra re-gerar o resumo */}
+      <ContentWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        mode="summary"
+        userId={user.id}
+        initialSourceLectureId={lecture.id}
+        onCreated={({ lectureId: newLectureId }) => {
+          if (newLectureId && newLectureId !== lecture.id) {
+            router.push(`/resumo/${newLectureId}`);
+          }
+        }}
+      />
     </div>
+    </>
   );
 }
 
@@ -974,24 +1034,107 @@ function SummaryContent({
   summary,
   sectionList,
   sectionRefs,
+  lectureId,
+  onImagesUpdated,
 }: {
   summary: LectureSummary;
   sectionList: SectionRef[];
   sectionRefs: React.MutableRefObject<Map<string, HTMLElement>>;
+  lectureId: string;
+  onImagesUpdated: (images: NonNullable<LectureSummary["images"]>) => void;
 }) {
+  // Lightbox compartilhado pra qualquer imagem dentro do markdown (renderizada
+  // via ReactMarkdown). Diferente do gallery que tem múltiplas imagens, aqui
+  // é só uma de cada vez.
+  const [mdPreview, setMdPreview] = useState<{ url: string; alt: string } | null>(null);
+
+  useEffect(() => {
+    if (!mdPreview) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMdPreview(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mdPreview]);
+
+  const downloadCurrent = useCallback(async () => {
+    if (!mdPreview) return;
+    try {
+      const resp = await fetch(mdPreview.url);
+      const blob = await resp.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      const safe = (mdPreview.alt || "ilustracao")
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-zA-Z0-9-_ ]/g, "")
+        .slice(0, 60);
+      a.download = `${safe || "ilustracao"}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(blobUrl);
+      toast.success("Imagem baixada.");
+    } catch (err) {
+      toast.error(`Falha: ${(err as Error).message}`);
+    }
+  }, [mdPreview]);
+
+  // Custom components ReactMarkdown — transforma <img> em botão clicável que
+  // abre o preview em lightbox.
+  const mdComponents: Components = {
+    img: (props) => {
+      const src = String(props.src ?? "");
+      const alt = String(props.alt ?? "");
+      if (!src) return null;
+      return (
+        <button
+          type="button"
+          onClick={() => setMdPreview({ url: src, alt })}
+          className="group relative my-4 block w-full overflow-hidden rounded-xl border border-border/60 shadow-sm cursor-zoom-in"
+          aria-label={`Ampliar: ${alt}`}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={src}
+            alt={alt}
+            loading="lazy"
+            className="w-full h-auto object-cover transition-transform group-hover:scale-[1.01]"
+          />
+          <span className="absolute inset-0 flex items-end justify-end p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="rounded-md bg-background/90 px-2 py-1 text-[10px] font-medium shadow-sm">
+              Clique pra ampliar
+            </span>
+          </span>
+        </button>
+      );
+    },
+  };
+
   return (
-    <article className="rounded-2xl border border-border/60 bg-card p-6 md:p-8 space-y-8">
+    <article className="rounded-2xl border border-border/60 bg-card p-6 md:p-10 lg:p-12 space-y-10">
       {/* Resumo geral em destaque */}
       {summary.generalSummary && (
         <div className="rounded-xl bg-gradient-to-br from-primary/8 via-card to-fuchsia-500/8 border border-primary/15 p-5">
-          <div className="text-[11px] uppercase tracking-wider text-primary/90 font-medium mb-2 inline-flex items-center gap-1.5">
+          <div className="text-[11px] uppercase tracking-wider text-primary/90 font-medium mb-3 inline-flex items-center gap-1.5">
             <Sparkles className="h-3 w-3" /> Resumo geral
           </div>
-          <p className="text-sm md:text-base leading-relaxed text-foreground/90 whitespace-pre-line">
-            {summary.generalSummary}
-          </p>
+          <div className="prose prose-base md:prose-lg dark:prose-invert max-w-none prose-p:leading-relaxed prose-p:my-4 prose-headings:scroll-mt-20 prose-headings:font-semibold prose-h1:text-2xl prose-h1:mt-0 prose-h2:text-xl prose-h2:mt-7 prose-h3:text-lg prose-strong:text-foreground prose-strong:font-semibold prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl prose-img:border prose-img:border-border/60 prose-img:shadow-sm prose-hr:my-6 prose-hr:border-border/40 prose-ul:my-3 prose-li:my-1 prose-blockquote:border-l-primary prose-blockquote:bg-primary/5 prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:rounded-r-lg prose-blockquote:not-italic">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+              {cleanSummaryMarkdown(summary.generalSummary)}
+            </ReactMarkdown>
+          </div>
         </div>
       )}
+
+      {/* Imagens ilustrativas geradas por IA */}
+      <SummaryImagesBlock
+        images={summary.images}
+        lectureId={lectureId}
+        onImagesUpdated={onImagesUpdated}
+      />
+
 
       {/* Pontos centrais — destaque */}
       {summary.highlights && summary.highlights.length > 0 && (
@@ -1047,8 +1190,8 @@ function SummaryContent({
 
             {sec.spokenContent && (
               <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-strong:text-foreground prose-img:rounded-lg prose-img:border prose-img:border-border/60 prose-headings:scroll-mt-20">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {sec.spokenContent}
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                  {cleanSummaryMarkdown(sec.spokenContent)}
                 </ReactMarkdown>
               </div>
             )}
@@ -1079,7 +1222,359 @@ function SummaryContent({
           </section>
         );
       })}
+      {/* Lightbox pra imagens dentro do markdown */}
+      {mdPreview && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Imagem: ${mdPreview.alt}`}
+          onClick={() => setMdPreview(null)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 sm:p-8 animate-in fade-in"
+        >
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void downloadCurrent();
+              }}
+              className="h-10 w-10 inline-flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              aria-label="Baixar imagem"
+              title="Baixar imagem"
+            >
+              <Download className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMdPreview(null);
+              }}
+              className="h-10 w-10 inline-flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              aria-label="Fechar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-6xl max-h-full flex flex-col items-center gap-3"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={mdPreview.url}
+              alt={mdPreview.alt}
+              className="max-h-[85vh] max-w-full object-contain rounded-lg shadow-2xl"
+            />
+            {mdPreview.alt && (
+              <div className="text-sm text-white/85 text-center max-w-2xl px-4">
+                {mdPreview.alt}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </article>
+  );
+}
+
+/**
+ * Bloco de imagens IA: se já tem images salvas → renderiza gallery.
+ * Se não tem → mostra CTA "Gerar ilustrações" + polling automático enquanto
+ * o endpoint /api/ai/summary-images responde. Custa coins (debitado server-side).
+ */
+function SummaryImagesBlock({
+  images,
+  lectureId,
+  onImagesUpdated,
+}: {
+  images: LectureSummary["images"];
+  lectureId: string;
+  onImagesUpdated: (images: NonNullable<LectureSummary["images"]>) => void;
+}) {
+  const [generating, setGenerating] = useState(false);
+
+  const handleGenerate = useCallback(async () => {
+    setGenerating(true);
+    try {
+      const resp = await fetch("/api/ai/summary-images", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ lectureId, count: 3 }),
+      });
+      const json = (await resp.json()) as {
+        images?: NonNullable<LectureSummary["images"]>;
+        error?: string;
+      };
+      if (!resp.ok) {
+        toast.error(
+          json.error ?? "Falha ao gerar ilustrações. Tente de novo em instantes.",
+        );
+        return;
+      }
+      if (json.images && json.images.length > 0) {
+        onImagesUpdated(json.images);
+        toast.success("Ilustrações geradas!");
+      } else {
+        toast.error(
+          "Não consegui extrair conceitos visuais. Tente de novo ou reformule o resumo.",
+        );
+      }
+    } catch (err) {
+      toast.error(`Falha de rede: ${(err as Error).message}`);
+    } finally {
+      setGenerating(false);
+    }
+  }, [lectureId, onImagesUpdated]);
+
+  if (images && images.length > 0) {
+    return <SummaryImageGallery images={images} />;
+  }
+
+  return (
+    <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-5 flex flex-col sm:flex-row items-center gap-4">
+      <div className="h-12 w-12 rounded-xl bg-gradient-to-br from-primary/20 to-fuchsia-500/20 flex items-center justify-center shrink-0">
+        <Sparkles className="h-5 w-5 text-primary" />
+      </div>
+      <div className="min-w-0 flex-1 text-center sm:text-left">
+        <div className="text-sm font-semibold">
+          Gere ilustrações pra esse resumo
+        </div>
+        <div className="mt-1 text-xs text-muted-foreground max-w-md">
+          A IA identifica 3 conceitos visuais e desenha diagramas educacionais
+          com a Imagen 3. Aparecem aqui depois.
+        </div>
+      </div>
+      <Button
+        variant="gradient"
+        size="sm"
+        onClick={handleGenerate}
+        disabled={generating}
+        className="shrink-0"
+      >
+        {generating ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" /> Gerando...
+          </>
+        ) : (
+          <>
+            <Sparkles className="h-4 w-4" /> Gerar ilustrações
+          </>
+        )}
+      </Button>
+    </div>
+  );
+}
+
+function SummaryImageGallery({
+  images,
+}: {
+  images: { url: string; alt: string; caption?: string }[];
+}) {
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+
+  const openAt = useCallback((i: number) => setLightboxIdx(i), []);
+  const close = useCallback(() => setLightboxIdx(null), []);
+  const prev = useCallback(() => {
+    setLightboxIdx((cur) =>
+      cur === null ? null : (cur - 1 + images.length) % images.length,
+    );
+  }, [images.length]);
+  const next = useCallback(() => {
+    setLightboxIdx((cur) =>
+      cur === null ? null : (cur + 1) % images.length,
+    );
+  }, [images.length]);
+
+  /** Baixa a imagem como arquivo local (sem salvar no app). */
+  const downloadImage = useCallback(
+    async (url: string, alt: string) => {
+      try {
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error("Falha ao baixar");
+        const blob = await resp.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = blobUrl;
+        const safeName = alt
+          .normalize("NFD")
+          .replace(/[̀-ͯ]/g, "")
+          .replace(/[^a-zA-Z0-9-_ ]/g, "")
+          .trim()
+          .slice(0, 60) || "ilustracao";
+        a.download = `${safeName}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(blobUrl);
+        toast.success("Imagem baixada.");
+      } catch (err) {
+        toast.error(`Falha ao baixar: ${(err as Error).message}`);
+      }
+    },
+    [],
+  );
+
+  // Atalhos de teclado: Esc fecha, ← → navegam
+  useEffect(() => {
+    if (lightboxIdx === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") close();
+      else if (e.key === "ArrowLeft") prev();
+      else if (e.key === "ArrowRight") next();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxIdx, close, prev, next]);
+
+  if (!images || images.length === 0) return null;
+  const current = lightboxIdx !== null ? images[lightboxIdx] : null;
+
+  return (
+    <>
+      <div>
+        <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-3 inline-flex items-center gap-1.5">
+          <Sparkles className="h-3 w-3 text-primary" /> Ilustrações
+        </div>
+        <div
+          className={cn(
+            "grid gap-3",
+            images.length === 1 ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2",
+          )}
+        >
+          {images.map((img, i) => (
+            <figure
+              key={i}
+              className="group relative overflow-hidden rounded-xl border border-border/60 bg-card"
+            >
+              <button
+                type="button"
+                onClick={() => openAt(i)}
+                className="relative block w-full overflow-hidden cursor-zoom-in"
+                aria-label={`Ampliar: ${img.alt}`}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={img.url}
+                  alt={img.alt}
+                  loading="lazy"
+                  className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02]"
+                />
+                <span className="absolute inset-0 flex items-end justify-end p-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="rounded-md bg-background/90 px-2 py-1 text-[10px] font-medium shadow-sm">
+                    Clique pra ampliar
+                  </span>
+                </span>
+              </button>
+              {/* Botão de download flutuante */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void downloadImage(img.url, img.alt);
+                }}
+                title="Baixar imagem"
+                aria-label="Baixar imagem"
+                className="absolute top-2 right-2 h-8 w-8 inline-flex items-center justify-center rounded-md bg-background/90 hover:bg-background shadow-sm opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <Download className="h-4 w-4" />
+              </button>
+              {(img.caption || img.alt) && (
+                <figcaption className="px-3 py-2 text-xs text-muted-foreground border-t border-border/60">
+                  {img.caption ?? img.alt}
+                </figcaption>
+              )}
+            </figure>
+          ))}
+        </div>
+      </div>
+
+      {/* Lightbox modal */}
+      {current && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Ilustração ${(lightboxIdx ?? 0) + 1} de ${images.length}`}
+          onClick={close}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 backdrop-blur-sm p-4 sm:p-8 animate-in fade-in"
+        >
+          <div className="absolute top-4 right-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                void downloadImage(current.url, current.alt);
+              }}
+              className="h-10 w-10 inline-flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              aria-label="Baixar imagem"
+              title="Baixar imagem"
+            >
+              <Download className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                close();
+              }}
+              className="h-10 w-10 inline-flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+              aria-label="Fechar"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {images.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  prev();
+                }}
+                className="absolute left-4 top-1/2 -translate-y-1/2 h-12 w-12 inline-flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                aria-label="Imagem anterior"
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  next();
+                }}
+                className="absolute right-4 top-1/2 -translate-y-1/2 h-12 w-12 inline-flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+                aria-label="Próxima imagem"
+              >
+                <ArrowRight className="h-5 w-5" />
+              </button>
+            </>
+          )}
+
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="max-w-6xl max-h-full flex flex-col items-center gap-3"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={current.url}
+              alt={current.alt}
+              className="max-h-[80vh] max-w-full object-contain rounded-lg shadow-2xl"
+            />
+            {(current.caption || current.alt) && (
+              <div className="text-sm text-white/85 text-center max-w-2xl px-4">
+                {current.caption ?? current.alt}
+              </div>
+            )}
+            {images.length > 1 && (
+              <div className="text-xs text-white/60 font-mono tabular-nums">
+                {(lightboxIdx ?? 0) + 1} / {images.length}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

@@ -29,6 +29,7 @@ import { LumioMark } from "@/components/brand/logo";
 import { LumiIcon } from "@/components/brand/lumi-icon";
 import { CommandPalette } from "@/components/app/command-palette";
 import { NotificationsButton } from "@/components/app/notifications-button";
+import { JobsTray } from "@/components/jobs/jobs-tray";
 import { PlanPremiumCard } from "@/components/app/plan-premium-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -222,14 +223,14 @@ export function AppShell({
 
   const navItems: SidebarNavItem[] = [
     { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
+    { href: "/lumi", label: "Assistente Lumi", Icon: Sparkles },
     {
-      href: "/lumi",
-      label: "Assistente Lumi",
-      Icon: Sparkles,
+      href: "/lumi/chats",
+      label: "Meus chats",
+      Icon: MessageSquare,
       badgeCount: lumiChatCount,
       badgeTone: "violet",
     },
-    { href: "/lumi/chats", label: "Meus chats", Icon: MessageSquare },
     { href: "/schedule", label: "Calendário", Icon: Calendar },
     { href: "/resumos", label: "Resumos", Icon: FileText },
     { href: "/flashcards", label: "Flashcards", Icon: Layers },
@@ -382,8 +383,9 @@ export function AppShell({
             <Search className="h-5 w-5" />
           </button>
 
-          {/* Right cluster — notifications, theme, avatar */}
+          {/* Right cluster — jobs tray, notifications, theme, avatar */}
           <div className="flex items-center gap-1 md:gap-2 ml-auto md:ml-0">
+            <JobsTray />
             <NotificationsButton />
             <ThemeToggle />
 

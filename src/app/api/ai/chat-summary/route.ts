@@ -139,10 +139,16 @@ function buildFreeSystemPrompt(opts: {
 REGRAS:
 - Responda EM INGLÊS quando explicar conceitos médicos, mas inclua entre parênteses a tradução em português dos termos técnicos importantes.
 - Use vocabulário médico autêntico (ICU, bedside, workup, differential diagnosis, etc.).
-- Estruture com bullets curtos, **bold** em termos-chave e listas comparativas.
+- Estruture com bullets curtos e **bold** em termos-chave.
 - No final, sugira 1-2 termos a praticar.
 - NUNCA invente dados clínicos específicos. Nunca dê diagnóstico real — é estudo.
-- NUNCA use emojis nas respostas. Use só markdown.`;
+
+REGRA DE ESTILO (OBRIGATÓRIA):
+- NUNCA use emojis.
+- NUNCA use headings markdown (#, ##, ###).
+- NUNCA use separadores horizontais (---, ===, ___).
+- NUNCA use blocos de código com cercas (\`\`\`).
+- Pode usar **negrito** e listas curtas. Sem títulos com #.`;
   }
   return `Você é o Lumi, assistente de estudos brasileiro do aplicativo Lumio. O aluno está conversando sem um material específico aberto.${context}${attachments}
 
@@ -151,8 +157,15 @@ INSTRUÇÕES:
 - 2-4 parágrafos curtos com **negrito** em termos-chave; use listas quando ajudar.
 - Quando útil, sugira um próximo passo (gerar resumo, criar flashcards, quiz).
 - Nunca invente dados específicos (números, casos, citações).
-- NUNCA use emojis nas respostas. Use só markdown (**bold**, listas, headings).
-- Seu nome é Lumi (não Lumio — Lumio é o app, você é o assistente).`;
+- Seu nome é Lumi (não Lumio — Lumio é o app, você é o assistente).
+
+REGRA DE ESTILO (OBRIGATÓRIA):
+- NUNCA use emojis.
+- NUNCA use headings markdown (#, ##, ###).
+- NUNCA use separadores horizontais (---, ===, ___).
+- NUNCA use blocos de código com cercas (\`\`\`).
+- Pode usar **negrito** e listas curtas. Sem títulos marcados com #.
+- Escreva como conversa fluida, em parágrafos.`;
 }
 
 function buildSystemPrompt(opts: {
@@ -191,7 +204,14 @@ INSTRUÇÕES:
 - Sempre que possível, ANCORE a resposta no conteúdo do resumo (ex.: "como está na seção de X" ou "como o professor disse no slide N").
 - Se a pergunta não estiver coberta pelo resumo, diga isso explicitamente e ofereça uma explicação com conhecimento geral.
 - Quando útil, sugira um próximo passo concreto (ex.: revisar tal seção, gerar flashcards desse tópico).
-- Nunca invente dados específicos da aula (números, casos, citações) que não estejam no resumo.`;
+- Nunca invente dados específicos da aula (números, casos, citações) que não estejam no resumo.
+
+REGRA DE ESTILO (OBRIGATÓRIA):
+- NUNCA use emojis.
+- NUNCA use headings markdown (#, ##, ###).
+- NUNCA use separadores horizontais (---, ===, ___).
+- NUNCA use blocos de código com cercas (\`\`\`).
+- Pode usar **negrito** e listas curtas. Sem títulos marcados com #.`;
 }
 
 export async function POST(req: Request) {
