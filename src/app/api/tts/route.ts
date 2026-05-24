@@ -115,6 +115,31 @@ export async function POST(req: Request) {
     );
   }
 
+  /* ---------------- 2b) Cap diário de voice replies (anti-abuse) ----------------
+   * Conta voice_reply nas últimas 24h. Acima do cap → 429 amigável.
+   * Não aplica pra summary_with_images (leitura longa é cobrada por chamada). */
+  if (reason === "voice_reply") {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { count: dailyVoiceCount } = await admin
+      .from("coin_transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("reason", "voice_reply")
+      .gte("created_at", since);
+    const used = dailyVoiceCount ?? 0;
+    if (used >= COIN_COSTS.voiceReplyDailyCap) {
+      return Response.json(
+        {
+          error: `Limite diário de respostas por voz atingido (${COIN_COSTS.voiceReplyDailyCap}/dia). Volta amanhã ou usa o chat por texto.`,
+          fallback: "browser",
+          dailyUsed: used,
+          dailyCap: COIN_COSTS.voiceReplyDailyCap,
+        },
+        { status: 429 },
+      );
+    }
+  }
+
   /* ---------------- 3) Chamada ElevenLabs ---------------- */
   const elResp = await fetch(
     `${ELEVENLABS_URL}/${voiceId}?output_format=mp3_44100_128`,

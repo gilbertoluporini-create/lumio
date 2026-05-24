@@ -244,6 +244,20 @@ export function LumiVoiceMode({
             } catch {
               /* ignore */
             }
+          } else if (resp.status === 429) {
+            // Cap diário de voice replies atingido (anti-abuse)
+            try {
+              const j = (await resp.json()) as {
+                dailyUsed?: number;
+                dailyCap?: number;
+              };
+              toast.info(
+                `Limite diário de voz atingido (${j.dailyUsed ?? "?"}/${j.dailyCap ?? "?"}). Usando voz padrão.`,
+                { duration: 4500 },
+              );
+            } catch {
+              toast.info("Limite diário de voz atingido.");
+            }
           } else if (resp.status === 503) {
             toast.info(
               "ElevenLabs offline — usando voz padrão do navegador.",

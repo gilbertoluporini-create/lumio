@@ -18,11 +18,14 @@ export const COIN_COSTS = {
   chatMessage: 1,
   /**
    * Resposta por voz (ElevenLabs Multilingual v2).
-   * Custo real: ~$0.30/1k chars no plano Creator ($22/mês = ~100k chars).
-   * Resposta média 200-400 chars = $0.06-$0.12 USD = R$0.30-R$0.60 BRL.
-   * Coin vale ~R$0.10-0.12. Cobramos 3 coins por resposta independente do tamanho.
+   * Custo real: $0.30/1k chars (Pay-as-you-go). Média 300 chars = R$0,45.
+   * Coin vale ~R$0,08-0,19 dependendo do plano (Power tem coin mais barata).
+   * Subimos de 3 pra 5 coins pra cobrir margem em Pro/Power; cap diário no
+   * /api/tts limita abuso (VOICE_REPLY_DAILY_CAP = 50 por user/24h).
    */
-  voiceReply: 3,
+  voiceReply: 5,
+  /** Cap diário de voice replies por usuário (anti-abuse + custo controlado). */
+  voiceReplyDailyCap: 50,
 } as const;
 
 export type AIMode = "summary" | "flashcards" | "quiz" | "mindmap";
