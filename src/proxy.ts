@@ -8,6 +8,7 @@ const PUBLIC_PATHS = [
   "/signup",
   "/pricing",
   "/success",
+  "/clear-session",
   "/api/stripe/webhook", // webhook valida via signature
   "/api/health",
 ];

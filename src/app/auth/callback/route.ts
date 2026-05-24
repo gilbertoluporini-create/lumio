@@ -30,6 +30,24 @@ export async function GET(request: Request) {
     if (!error) {
       return NextResponse.redirect(`${url.origin}${next}`);
     }
+    // Log detalhado pra debugar via Vercel logs.
+    console.error("[auth/callback] exchangeCodeForSession failed", {
+      host,
+      isAdminHost,
+      code_prefix: code.slice(0, 8),
+      error_message: error.message,
+      error_status: (error as { status?: number }).status,
+      error_code: (error as { code?: string }).code,
+    });
+    // Sintoma típico: cookie PKCE code_verifier ficou em scope host-only de uma
+    // sessão anterior. Redireciona pra /clear-session que limpa tudo e manda
+    // o user logar de novo.
+    const reason = error.message?.toLowerCase().includes("verifier")
+      ? "stale_verifier"
+      : "callback_failed";
+    return NextResponse.redirect(
+      `${url.origin}/clear-session?reason=${reason}&next=${encodeURIComponent(next)}`,
+    );
   }
 
   return NextResponse.redirect(
