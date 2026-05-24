@@ -8,13 +8,11 @@
 
 import { NextResponse } from "next/server";
 import { createClient, createAdminClient } from "./supabase/server";
+import { isAdminEmail, ADMIN_EMAILS } from "./admin-emails";
 
-const ADMIN_EMAILS = ["gilbertoluporini@gmail.com"];
-
-export function isAdminEmail(email: string | null | undefined): boolean {
-  if (!email) return false;
-  return ADMIN_EMAILS.includes(email.toLowerCase().trim());
-}
+// Re-export pra manter retrocompatibilidade com imports existentes (todos
+// os route handlers e o /admin/layout.tsx importam daqui).
+export { isAdminEmail, ADMIN_EMAILS };
 
 export type AdminUser = {
   id: string;

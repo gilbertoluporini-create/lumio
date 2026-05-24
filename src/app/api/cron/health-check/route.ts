@@ -23,7 +23,10 @@ export const maxDuration = 60;
 const ELEVENLABS_USER_URL = "https://api.elevenlabs.io/v1/user/subscription";
 const ALERT_THRESHOLD_USD = Number(process.env.DAILY_ALERT_THRESHOLD_USD ?? 20);
 const ALERT_EMAIL = process.env.ALERT_EMAIL ?? "gilbertoluporini@gmail.com";
-const RESEND_FROM = process.env.RESEND_FROM ?? "Lumio Alerts <no-reply@lumioapp.net>";
+const RESEND_FROM =
+  process.env.RESEND_FROM_EMAIL ??
+  process.env.RESEND_FROM ??
+  "Lumio Alerts <no-reply@lumioapp.net>";
 
 type ElevenLabsSubscription = {
   character_count?: number;

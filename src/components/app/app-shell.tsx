@@ -26,7 +26,7 @@ import {
   UserIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { isAdminEmail } from "@/lib/admin";
+import { isAdminEmail } from "@/lib/admin-emails";
 import { LumioMark } from "@/components/brand/logo";
 import { LumiIcon } from "@/components/brand/lumi-icon";
 import { CommandPalette } from "@/components/app/command-palette";
