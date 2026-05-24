@@ -13,7 +13,7 @@ import { LumiCharacter } from "@/components/brand/lumi";
 import { signIn } from "@/lib/storage";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
-type Mode = "password" | "magic";
+type Mode = "password" | "magic" | "forgot";
 
 function GoogleIcon({ className }: { className?: string }) {
   return (
@@ -84,6 +84,21 @@ function LoginInner() {
         return;
       }
 
+      if (mode === "forgot") {
+        const res = await fetch("/api/auth/reset-password", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data?.error || "Não foi possível enviar o link.");
+        }
+        setSent(true);
+        toast.success("Link pra redefinir a senha enviado pro seu email.");
+        return;
+      }
+
       // password
       const res = await fetch("/api/auth/signin-password", {
         method: "POST",
@@ -112,7 +127,9 @@ function LoginInner() {
           </div>
           <CardTitle className="text-2xl">Cheque seu email</CardTitle>
           <CardDescription>
-            Enviamos um link mágico pra <strong>{email}</strong>.
+            {mode === "forgot"
+              ? <>Enviamos um link de redefinição pra <strong>{email}</strong>.</>
+              : <>Enviamos um link mágico pra <strong>{email}</strong>.</>}
           </CardDescription>
         </CardHeader>
         <CardContent className="text-center text-sm text-muted-foreground">
@@ -205,21 +222,46 @@ function LoginInner() {
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <>
-                {mode === "magic" ? "Enviar link mágico" : "Entrar"} <ArrowRight className="h-4 w-4" />
+                {mode === "magic"
+                  ? "Enviar link mágico"
+                  : mode === "forgot"
+                  ? "Enviar link de redefinição"
+                  : "Entrar"}{" "}
+                <ArrowRight className="h-4 w-4" />
               </>
             )}
           </Button>
 
           {supaOn && (
-            <button
-              type="button"
-              onClick={() => setMode(mode === "password" ? "magic" : "password")}
-              className="block w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              {mode === "password"
-                ? "Esqueci a senha — receber link mágico"
-                : "Entrar com senha"}
-            </button>
+            <div className="flex flex-col gap-1.5">
+              {mode === "password" && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setMode("forgot")}
+                    className="block w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Esqueci minha senha
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode("magic")}
+                    className="block w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Entrar sem senha (link mágico)
+                  </button>
+                </>
+              )}
+              {mode !== "password" && (
+                <button
+                  type="button"
+                  onClick={() => setMode("password")}
+                  className="block w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Voltar pra entrar com senha
+                </button>
+              )}
+            </div>
           )}
 
           <p className="text-center text-sm text-muted-foreground">
