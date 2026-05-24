@@ -6,24 +6,42 @@ import { useRouter } from "next/navigation";
 import {
   Activity,
   ArrowRight,
+  Atom,
   BookOpen,
   Brain,
+  Briefcase,
+  Calculator,
   Clock,
+  Code,
+  Dna,
+  Dumbbell,
   FlaskConical,
+  Gavel,
+  Globe,
   HeartPulse,
+  Languages,
+  Landmark,
   Layers,
+  Leaf,
+  Library,
+  Lightbulb,
   MessageSquare,
   Microscope,
   Mic,
   MoreVertical,
+  Music,
+  Palette,
   Pill,
   Plus,
   Scale,
+  Sigma,
   Sparkles,
   Stethoscope,
+  Syringe,
   Trash2,
   Users,
   Wind,
+  Wrench,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -89,21 +107,72 @@ function timeToMinutes(t: string): number {
 
 /**
  * Escolhe um ícone temático com base no nome da matéria.
- * Cobertura focada em medicina (curso principal do beta) mas
- * cai num ícone de livro pra qualquer matéria não reconhecida.
+ * Cobre cursos brasileiros mais comuns (medicina, direito, engenharia,
+ * exatas, humanas, computação, biologia, línguas, artes, ed. física).
+ * Fallback: BookOpen (livro genérico).
+ *
+ * Regras em ordem de especificidade — a primeira que casar ganha.
+ * Mantém regex em PT-BR sem depender de acento.
  */
 function getSubjectIcon(name: string): LucideIcon {
   const n = name.toLowerCase();
-  if (/cardio|cora[cç][aã]o|cardiovasc|circulat/.test(n)) return HeartPulse;
-  if (/respirat|pulm[aã]o|pulmonar/.test(n)) return Wind;
-  if (/endo|horm[oô]n|metabol/.test(n)) return Pill;
-  if (/anatomia|sistema\s+nerv|c[eé]rebro|neuro|psiqui/.test(n)) return Brain;
-  if (/[eé]tica|cidadan|huma|filosof|deont/.test(n)) return Scale;
-  if (/biolog|bases\s+biol|bioqu[ií]m|gen[eé]tic|histol|embriol/.test(n)) return FlaskConical;
-  if (/habilidad|cl[ií]nic/.test(n)) return Stethoscope;
-  if (/aten[cç][aã]o\s*prim|aps|sa[uú]de\s+coletiva|sa[uú]de\s+p[uú]blica/.test(n)) return Activity;
-  if (/pesquisa|inova[cç][aã]o|gest[aã]o|metodol/.test(n)) return Microscope;
-  if (/reuni[aã]o|integ|tutor|grupo/.test(n)) return Users;
+
+  // Medicina — sistemas e clínica
+  if (/cardio|cora[cç][aã]o|cardiovasc|circulat|hemato|vascul/.test(n)) return HeartPulse;
+  if (/respirat|pulm[aã]o|pulmonar|pneumo/.test(n)) return Wind;
+  if (/endo|horm[oô]n|metabol|diabet/.test(n)) return Pill;
+  if (/farmaco|medicament|terap[eê]utic|vacin/.test(n)) return Syringe;
+  if (/anatomia|sistema\s+nerv|c[eé]rebro|neuro|psiqui|psicolog/.test(n)) return Brain;
+  if (/habilidad|cl[ií]nic|semiolog|propedeu/.test(n)) return Stethoscope;
+  if (/aten[cç][aã]o\s*prim|aps|sa[uú]de\s+coletiva|sa[uú]de\s+p[uú]blica|epidemio/.test(n)) return Activity;
+  if (/pesquisa|inova[cç][aã]o|metodol|tcc|tese|monografia/.test(n)) return Microscope;
+  if (/reuni[aã]o|integ|tutor|grupo|tbl|pbl/.test(n)) return Users;
+
+  // Biologia / ciências naturais
+  if (/gen[eé]tic|dna|cromoss/.test(n)) return Dna;
+  if (/bioqu[ií]m|qu[ií]mic/.test(n)) return FlaskConical;
+  if (/f[ií]sic|mec[aâ]nic\s+(quant|cl[aá]ss)/.test(n)) return Atom;
+  if (/biolog|bases\s+biol|histol|embriol|ecolog|botan|zoolog/.test(n)) return Leaf;
+
+  // Matemática / estatística
+  if (/c[aá]lculo|c[áa]lculo|matem[aá]tic|alg[eé]bra|geometria/.test(n)) return Calculator;
+  if (/estat[ií]stic|probabilidad/.test(n)) return Sigma;
+
+  // Direito
+  if (/direito|civil|penal|constituci|tribut|processual|trabalh.*direito|oab/.test(n)) return Gavel;
+  if (/[eé]tica|cidadan|deont/.test(n)) return Scale;
+
+  // Humanas
+  if (/filosof|sociol|antropol|hist[oó]ri|geogr/.test(n)) return Landmark;
+  if (/literat|portugu[eê]s\b|reda[cç][aã]o/.test(n)) return Library;
+
+  // Línguas
+  if (/ingl[eê]s|espanhol|franc[eê]s|alem[aã]o|l[ií]ngua|idioma/.test(n)) return Languages;
+
+  // Computação / tecnologia
+  if (/program|software|c[oó]digo|algoritmo|estrutur.*dados|engenharia\s+de\s+softw/.test(n)) return Code;
+  if (/redes|sistema.*operac|computa[cç][aã]o|inform[aá]tic|dados|ia\b|machine\s+learning/.test(n)) return Code;
+
+  // Engenharia (geral, depois das específicas)
+  if (/engenharia|el[eé]tric|eletr[oô]nic|mec[aâ]nic|civil|materiais|projeto/.test(n)) return Wrench;
+
+  // Administração / negócios / economia
+  if (/admin|gest[aã]o|empreend|neg[oó]cio|marketing|contab|empres/.test(n)) return Briefcase;
+  if (/economi|finan[cç]/.test(n)) return Landmark;
+
+  // Geografia / ambiente
+  if (/geografia|ambient|sustent/.test(n)) return Globe;
+
+  // Artes
+  if (/m[uú]sic|sonor/.test(n)) return Music;
+  if (/arte|design|artes\s+visuais|desenho/.test(n)) return Palette;
+
+  // Educação física
+  if (/educa[cç][aã]o\s+f[ií]sic|esporte|treinament|fitness/.test(n)) return Dumbbell;
+
+  // Inovação / ideias soltas
+  if (/inova[cç][aã]o|criativ/.test(n)) return Lightbulb;
+
   return BookOpen;
 }
 
@@ -622,15 +691,10 @@ function SubjectFolder({
         className="block p-4"
       >
         <div className="flex items-start gap-3 mb-3">
-          <div
-            className={cn(
-              "h-11 w-11 shrink-0 rounded-lg bg-gradient-to-br shadow-sm flex items-center justify-center",
-              subject.color,
-            )}
-          >
+          <div className="h-11 w-11 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
             {(() => {
               const SubjectIcon = getSubjectIcon(subject.name);
-              return <SubjectIcon className="h-5 w-5 text-white" strokeWidth={2.2} />;
+              return <SubjectIcon className="h-5 w-5 text-primary" strokeWidth={2.2} />;
             })()}
           </div>
           <div className="min-w-0 flex-1">
