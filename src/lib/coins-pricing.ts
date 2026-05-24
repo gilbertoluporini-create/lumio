@@ -21,11 +21,11 @@ export const COIN_COSTS = {
    * Custo real: $0.30/1k chars (Pay-as-you-go). Média 300 chars = R$0,45.
    * Coin vale ~R$0,08-0,19 dependendo do plano (Power tem coin mais barata).
    * Subimos de 3 pra 5 coins pra cobrir margem em Pro/Power; cap diário no
-   * /api/tts limita abuso (VOICE_REPLY_DAILY_CAP = 50 por user/24h).
+   * /api/tts limita abuso (VOICE_REPLY_DAILY_CAP = 30 por user/24h).
    */
   voiceReply: 5,
   /** Cap diário de voice replies por usuário (anti-abuse + custo controlado). */
-  voiceReplyDailyCap: 50,
+  voiceReplyDailyCap: 30,
 } as const;
 
 export type AIMode = "summary" | "flashcards" | "quiz" | "mindmap";
