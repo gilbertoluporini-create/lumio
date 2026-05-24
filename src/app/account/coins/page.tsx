@@ -157,8 +157,8 @@ function CoinsView({ user }: { user: User }) {
                 ≈ {balance ? `R$ ${(balance * 0.1).toFixed(2).replace(".", ",")}` : "R$ 0,00"} em valor de uso
               </div>
             </div>
-            <div className="hidden md:flex flex-col items-center gap-3">
-              <LumioCoinSpinning size={180} />
+            <div className="hidden md:flex flex-col items-center gap-3 -my-4">
+              <LumioCoinSpinning size={260} />
             </div>
           </div>
 
