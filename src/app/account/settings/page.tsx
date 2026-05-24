@@ -146,7 +146,9 @@ function SettingsView({ user }: { user: User }) {
         >
           <div className="mt-3 flex items-center justify-between rounded-lg border border-border/60 bg-card/60 px-4 py-3">
             <div className="flex items-center gap-2">
-              <span className="text-lg">🇧🇷</span>
+              <span className="text-[10px] font-mono font-semibold text-muted-foreground border border-border/60 rounded px-1.5 py-0.5">
+                PT-BR
+              </span>
               <span className="text-sm font-medium">Português (Brasil)</span>
             </div>
             <span className="text-[11px] text-muted-foreground">

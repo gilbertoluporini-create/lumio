@@ -41,6 +41,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { listSubjectsAsync } from "@/lib/db";
+import { resolveSubjectIcon } from "@/lib/subject-icon";
 import {
   deleteChat,
   listChats,
@@ -271,20 +272,32 @@ function LumiChatsHub({ user }: { user: User }) {
   }, [chats]);
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 lg:px-8">
-      {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+    <div className="mx-auto flex h-[calc(100vh-60px)] w-full max-w-7xl flex-col overflow-hidden px-4 py-4 lg:px-8">
+      {/* Header compacto */}
+      <div className="flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div className="min-w-0">
+          <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
             Meus chats
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Histórico de conversas com o Assistente Lumi
-          </p>
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
+            <span className="inline-flex items-center gap-1">
+              <MessageSquare className="h-3 w-3" /> {stats.total} conversas
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Pin className="h-3 w-3" /> {stats.pinned} fixadas
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <Calendar className="h-3 w-3" /> {stats.thisWeek} esta semana
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <BookOpen className="h-3 w-3" /> {stats.subjectsCount} matérias
+            </span>
+          </div>
         </div>
         <Button
           asChild
           variant="gradient"
+          size="sm"
           className="self-start md:self-auto"
         >
           <Link href="/lumi?new=1">
@@ -294,42 +307,10 @@ function LumiChatsHub({ user }: { user: User }) {
         </Button>
       </div>
 
-      {/* KPIs */}
-      <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-        <KpiCard
-          Icon={MessageSquare}
-          value={stats.total}
-          label="Chats"
-          sub="Total de conversas"
-          tone="bg-primary/10 text-primary"
-        />
-        <KpiCard
-          Icon={Pin}
-          value={stats.pinned}
-          label="Fixados"
-          sub="Conversas fixadas"
-          tone="bg-fuchsia-500/10 text-fuchsia-600"
-        />
-        <KpiCard
-          Icon={Calendar}
-          value={stats.thisWeek}
-          label="Esta semana"
-          sub="Conversas iniciadas"
-          tone="bg-sky-500/10 text-sky-600"
-        />
-        <KpiCard
-          Icon={BookOpen}
-          value={stats.subjectsCount}
-          label="Por matéria"
-          sub="Matérias diferentes"
-          tone="bg-emerald-500/10 text-emerald-600"
-        />
-      </div>
-
-      {/* Main grid */}
-      <div className="mt-6 grid gap-6 lg:grid-cols-[240px_1fr_360px]">
+      {/* Main grid — ocupa todo o restante e respeita overflow */}
+      <div className="mt-4 grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[220px_1fr_320px]">
         {/* Left tree */}
-        <aside className="hidden lg:flex flex-col gap-1 rounded-2xl border border-border/60 bg-card p-3">
+        <aside className="hidden min-h-0 overflow-y-auto lg:flex lg:flex-col gap-1 rounded-2xl border border-border/60 bg-card p-3">
           <TreeButton
             label={`Todos os chats (${stats.total})`}
             active={filter === "all" && !subjectFilter}
@@ -387,8 +368,8 @@ function LumiChatsHub({ user }: { user: User }) {
         </aside>
 
         {/* Center list */}
-        <section className="flex flex-col gap-3">
-          <div className="flex flex-col gap-3">
+        <section className="flex min-h-0 flex-col gap-3 overflow-hidden">
+          <div className="flex shrink-0 flex-col gap-3">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
@@ -440,7 +421,7 @@ function LumiChatsHub({ user }: { user: User }) {
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
             {visible.length === 0 && (
               <div className="rounded-2xl border border-dashed border-border/60 bg-card p-10 text-center">
                 <MessageSquare className="mx-auto h-8 w-8 text-muted-foreground/40" />
@@ -478,7 +459,7 @@ function LumiChatsHub({ user }: { user: User }) {
         </section>
 
         {/* Right preview */}
-        <aside className="hidden lg:block">
+        <aside className="hidden min-h-0 overflow-y-auto lg:block">
           {selected ? (
             <PreviewPanel
               chat={selected}
@@ -549,59 +530,26 @@ function LumiChatsHub({ user }: { user: User }) {
               <Sparkles className="h-4 w-4 text-muted-foreground" />
               Sem matéria
             </button>
-            {subjects.map((s) => (
-              <button
-                key={s.id}
-                type="button"
-                onClick={() => handleMove({ id: s.id, name: s.name })}
-                className="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-secondary/60"
-              >
-                <span className="text-base leading-none">{s.emoji || "📚"}</span>
-                <span className="flex-1 truncate">{s.name}</span>
-                <span className="text-[10px] text-muted-foreground">
-                  {subjectCounts.get(s.name) ?? 0}
-                </span>
-              </button>
-            ))}
+            {subjects.map((s) => {
+              const SubjectIcon = resolveSubjectIcon(s.icon, s.name);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => handleMove({ id: s.id, name: s.name })}
+                  className="flex items-center gap-2 rounded-md px-3 py-2 text-left text-sm hover:bg-secondary/60"
+                >
+                  <SubjectIcon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <span className="flex-1 truncate">{s.name}</span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {subjectCounts.get(s.name) ?? 0}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </DialogContent>
       </Dialog>
-    </div>
-  );
-}
-
-function KpiCard({
-  Icon,
-  value,
-  label,
-  sub,
-  tone,
-}: {
-  Icon: typeof MessageSquare;
-  value: number;
-  label: string;
-  sub: string;
-  tone: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-border/60 bg-card p-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-2xl font-semibold tabular-nums text-foreground">
-            {value}
-          </div>
-          <div className="text-xs font-medium text-foreground">{label}</div>
-          <div className="text-[10px] text-muted-foreground">{sub}</div>
-        </div>
-        <div
-          className={cn(
-            "flex h-10 w-10 items-center justify-center rounded-xl",
-            tone,
-          )}
-        >
-          <Icon className="h-5 w-5" />
-        </div>
-      </div>
     </div>
   );
 }
@@ -692,27 +640,43 @@ function ChatRow({
     .find((m) => m.role === "assistant");
   const preview =
     lastAssistant?.content || lastUser?.content || "Nenhuma mensagem ainda.";
+  const openHref = isTrashed ? "#" : `/lumi?chatId=${chat.id}`;
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={cn(
-        "group flex items-start gap-3 rounded-2xl border bg-card p-3 text-left transition-all",
+        "group relative flex items-start gap-3 rounded-2xl border bg-card p-3 transition-all",
         active
           ? "border-primary/40 bg-primary/5 border-l-4 border-l-primary"
           : "border-border/60 hover:border-primary/20 hover:bg-secondary/30",
       )}
+      onMouseEnter={onSelect}
     >
+      {!isTrashed && (
+        <Link
+          href={openHref}
+          className="absolute inset-0 z-0 rounded-2xl"
+          aria-label={`Abrir conversa ${chat.title}`}
+          onClick={onSelect}
+        />
+      )}
+      {isTrashed && (
+        <button
+          type="button"
+          onClick={onSelect}
+          className="absolute inset-0 z-0 rounded-2xl"
+          aria-label={`Selecionar ${chat.title}`}
+        />
+      )}
       <div
         className={cn(
-          "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+          "pointer-events-none relative z-[1] flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
           tone,
         )}
       >
         <Icon className="h-5 w-5" />
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="pointer-events-none relative z-[1] min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <h3 className="truncate text-sm font-semibold text-foreground">
             {chat.title}
@@ -733,8 +697,8 @@ function ChatRow({
           </div>
         )}
       </div>
-      <div className="flex flex-col items-end gap-1.5">
-        <span className="text-[10px] text-muted-foreground">
+      <div className="relative z-[2] flex flex-col items-end gap-1.5">
+        <span className="pointer-events-none text-[10px] text-muted-foreground">
           {formatRelativeDate(chat.updatedAt)}
         </span>
         <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
@@ -813,7 +777,7 @@ function ChatRow({
           </DropdownMenu>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -842,7 +806,7 @@ function PreviewPanel({
     "Nenhuma mensagem ainda.";
 
   return (
-    <div className="sticky top-[80px] flex flex-col gap-4 rounded-2xl border border-border/60 bg-card p-5">
+    <div className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card p-5">
       <div className="flex items-center justify-between">
         <div
           className={cn(

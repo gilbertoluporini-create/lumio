@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, Save } from "lucide-react";
+import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
 type AppConfig = {
@@ -123,9 +123,12 @@ export default function AdminSettingsPage() {
                 </div>
               ))}
             </div>
-            <p className="mt-3 text-[11px] text-neutral-500 font-mono">
-              ⚠️ Pricing oficial vive em <code>src/lib/coins-pricing.ts</code> — esses
-              valores aqui são apenas pra preview futuro.
+            <p className="mt-3 text-[11px] text-neutral-500 font-mono inline-flex items-start gap-1.5">
+              <AlertTriangle className="h-4 w-4 shrink-0 mt-px" />
+              <span>
+                Pricing oficial vive em <code>src/lib/coins-pricing.ts</code> — esses
+                valores aqui são apenas pra preview futuro.
+              </span>
             </p>
           </Section>
 

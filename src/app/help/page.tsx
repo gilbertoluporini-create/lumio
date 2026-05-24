@@ -163,7 +163,7 @@ function HelpView({ user }: { user: User }) {
             Central de ajuda
           </div>
           <p className="text-sm text-muted-foreground">
-            {greeting}, {first} <span aria-hidden="true">👋</span>
+            {greeting}, {first}
           </p>
           <h1 className="mt-1 text-3xl md:text-4xl font-semibold tracking-tight">
             Ajuda e suporte

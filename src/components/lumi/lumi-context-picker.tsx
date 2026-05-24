@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BookOpen, Check, ChevronDown, Sparkles } from "lucide-react";
+import { resolveSubjectIcon } from "@/lib/subject-icon";
 import { cn } from "@/lib/utils";
 import type { Lecture, Subject } from "@/lib/types";
 
@@ -118,6 +119,7 @@ export function LumiContextPicker({
               const subjLectures = grouped.get(s.id) ?? [];
               const subjectSelected =
                 value.subjectId === s.id && !value.lectureId;
+              const SubjectIcon = resolveSubjectIcon(s.icon, s.name);
               return (
                 <div key={s.id} className="mb-1">
                   <button
@@ -131,9 +133,7 @@ export function LumiContextPicker({
                       subjectSelected && "bg-primary/10",
                     )}
                   >
-                    <span className="text-base leading-none">
-                      {s.emoji || "📚"}
-                    </span>
+                    <SubjectIcon className="h-4 w-4 text-muted-foreground shrink-0" />
                     <span className="flex-1 truncate font-medium">
                       {s.name}
                     </span>

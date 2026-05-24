@@ -627,7 +627,7 @@ function ScheduleView({ user }: { user: User }) {
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs text-muted-foreground mb-1">
-            {greetingPrefix()}, {firstName} <span aria-hidden>👋</span>
+            {greetingPrefix()}, {firstName}
           </p>
           <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
             Calendário de estudos

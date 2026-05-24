@@ -136,7 +136,7 @@ function SignUpInner() {
         <div className="flex justify-center mb-2">
           <LumiCharacter mood="waving" size="md" float />
         </div>
-        <CardTitle className="text-2xl">Oi, eu sou o Lumi 👋</CardTitle>
+        <CardTitle className="text-2xl">Oi, eu sou o Lumi</CardTitle>
         <CardDescription>
           {supaOn
             ? "Cria sua conta e ganha 50 coins de boas-vindas."

@@ -1,25 +1,26 @@
 "use client";
 
 import { useReducedMotion } from "framer-motion";
+import { getSubjectIcon } from "@/lib/subject-icon";
 import { cn } from "@/lib/utils";
 
 const SUBJECTS = [
-  { label: "Anatomia", emoji: "🫀" },
-  { label: "Cardiologia", emoji: "💓" },
-  { label: "Bioquímica", emoji: "🧬" },
-  { label: "Farmacologia", emoji: "💊" },
-  { label: "Direito Civil", emoji: "⚖️" },
-  { label: "Processo Penal", emoji: "📜" },
-  { label: "Cálculo I", emoji: "∫" },
-  { label: "Mecânica dos Sólidos", emoji: "🏗️" },
-  { label: "Histologia", emoji: "🔬" },
-  { label: "Constitucional", emoji: "🏛️" },
-  { label: "Tributário", emoji: "💰" },
-  { label: "Termodinâmica", emoji: "🔥" },
-  { label: "Patologia", emoji: "🧫" },
-  { label: "Embriologia", emoji: "🥚" },
-  { label: "Sinais e Sistemas", emoji: "📡" },
-  { label: "Eletromagnetismo", emoji: "⚡" },
+  { label: "Anatomia" },
+  { label: "Cardiologia" },
+  { label: "Bioquímica" },
+  { label: "Farmacologia" },
+  { label: "Direito Civil" },
+  { label: "Processo Penal" },
+  { label: "Cálculo I" },
+  { label: "Mecânica dos Sólidos" },
+  { label: "Histologia" },
+  { label: "Constitucional" },
+  { label: "Tributário" },
+  { label: "Termodinâmica" },
+  { label: "Patologia" },
+  { label: "Embriologia" },
+  { label: "Sinais e Sistemas" },
+  { label: "Eletromagnetismo" },
 ];
 
 export function SubjectsMarquee({
@@ -49,17 +50,18 @@ export function SubjectsMarquee({
             : `subjects-marquee ${speed}s linear infinite${reverse ? " reverse" : ""}`,
         }}
       >
-        {dup.map((s, i) => (
-          <span
-            key={`${s.label}-${i}`}
-            className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/70 backdrop-blur px-4 py-2 text-sm font-medium tracking-tight text-foreground/85 shadow-sm"
-          >
-            <span aria-hidden className="text-base leading-none">
-              {s.emoji}
+        {dup.map((s, i) => {
+          const Icon = getSubjectIcon(s.label);
+          return (
+            <span
+              key={`${s.label}-${i}`}
+              className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/70 backdrop-blur px-4 py-2 text-sm font-medium tracking-tight text-foreground/85 shadow-sm"
+            >
+              <Icon aria-hidden className="h-4 w-4 text-muted-foreground" />
+              {s.label}
             </span>
-            {s.label}
-          </span>
-        ))}
+          );
+        })}
       </div>
       <style jsx>{`
         @keyframes subjects-marquee {

@@ -1221,7 +1221,7 @@ function PageHeader({
     <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between mb-8">
       <div className="min-w-0">
         <div className="text-sm text-muted-foreground mb-1">
-          {greeting}, {firstName} <span aria-hidden>👋</span>
+          {greeting}, {firstName}
         </div>
         <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
           Quiz para aprender e evoluir.

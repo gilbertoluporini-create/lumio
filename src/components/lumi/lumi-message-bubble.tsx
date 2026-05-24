@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import {
+  ArrowRight,
   Check,
   CheckCheck,
   Copy,
-  ExternalLink,
   FileText,
   Layers,
   Network,
@@ -49,6 +49,22 @@ const ATTACHMENT_LABEL = {
   flashcards: "Deck de flashcards",
   quiz: "Quiz gerado",
   mindmap: "Mapa mental",
+} as const;
+
+const ATTACHMENT_TONE = {
+  summary: "from-violet-500/15 to-violet-500/5 text-violet-600 border-violet-500/20",
+  flashcards:
+    "from-fuchsia-500/15 to-fuchsia-500/5 text-fuchsia-600 border-fuchsia-500/20",
+  quiz:
+    "from-emerald-500/15 to-emerald-500/5 text-emerald-600 border-emerald-500/20",
+  mindmap: "from-sky-500/15 to-sky-500/5 text-sky-600 border-sky-500/20",
+} as const;
+
+const ATTACHMENT_CTA = {
+  summary: "Abrir resumo",
+  flashcards: "Abrir deck",
+  quiz: "Abrir quiz",
+  mindmap: "Abrir mapa",
 } as const;
 
 export function LumiMessageBubble({ message }: Props) {
@@ -113,35 +129,53 @@ export function LumiMessageBubble({ message }: Props) {
           </ReactMarkdown>
         </div>
 
-        {message.attachment && AttachmentIcon && (
-          <div className="mt-3 inline-flex items-center gap-3 rounded-xl border border-border/60 bg-card px-3 py-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <AttachmentIcon className="h-4 w-4" />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                {ATTACHMENT_LABEL[message.attachment.kind]}
+        {message.attachment && AttachmentIcon && (() => {
+          const att = message.attachment;
+          const tone = ATTACHMENT_TONE[att.kind];
+          const cta = ATTACHMENT_CTA[att.kind];
+          const cardClass = cn(
+            "mt-3 group flex w-full items-center gap-4 rounded-2xl border bg-gradient-to-br p-4 transition-all",
+            tone,
+            att.href && "hover:-translate-y-0.5 hover:shadow-lg hover:shadow-primary/10 cursor-pointer",
+          );
+          const inner = (
+            <>
+              <div
+                className={cn(
+                  "flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-card shadow-sm",
+                )}
+              >
+                <AttachmentIcon className="h-6 w-6" />
               </div>
-              <div className="text-sm font-semibold text-foreground">
-                {message.attachment.title}
+              <div className="min-w-0 flex-1 text-left">
+                <div className="text-[10px] font-semibold uppercase tracking-wider opacity-70">
+                  {ATTACHMENT_LABEL[att.kind]}
+                </div>
+                <div className="mt-0.5 truncate text-base font-semibold text-foreground">
+                  {att.title}
+                </div>
+                {att.preview && (
+                  <div className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                    {att.preview}
+                  </div>
+                )}
               </div>
-              {message.attachment.preview && (
-                <div className="text-[11px] text-muted-foreground">
-                  {message.attachment.preview}
+              {att.href && (
+                <div className="hidden sm:inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-card/80 px-3 py-1.5 text-xs font-semibold shadow-sm transition-transform group-hover:translate-x-0.5">
+                  {cta}
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </div>
               )}
-            </div>
-            {message.attachment.href && (
-              <Link
-                href={message.attachment.href}
-                className="inline-flex items-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/15"
-              >
-                Abrir
-                <ExternalLink className="h-3 w-3" />
-              </Link>
-            )}
-          </div>
-        )}
+            </>
+          );
+          return att.href ? (
+            <Link href={att.href} className={cardClass}>
+              {inner}
+            </Link>
+          ) : (
+            <div className={cardClass}>{inner}</div>
+          );
+        })()}
 
         <div className="mt-2 flex items-center gap-1 text-muted-foreground">
           <button

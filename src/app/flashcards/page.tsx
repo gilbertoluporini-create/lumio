@@ -19,6 +19,7 @@ import {
   Dna,
   Dumbbell,
   FlaskConical,
+  Frown,
   Gavel,
   Globe,
   HeartPulse,
@@ -28,6 +29,7 @@ import {
   Leaf,
   Library,
   Lightbulb,
+  Meh,
   Microscope,
   MoreHorizontal,
   Music,
@@ -40,6 +42,8 @@ import {
   Search,
   Shuffle,
   Sigma,
+  Smile,
+  SmilePlus,
   Sparkles,
   Stethoscope,
   Syringe,
@@ -676,7 +680,7 @@ function FlashcardsHubView({ user }: { user: User }) {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-7">
           <div className="min-w-0">
             <div className="text-sm text-muted-foreground mb-1">
-              {greeting}, {firstName} 👋
+              {greeting}, {firstName}
             </div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
               Flashcards
@@ -1278,7 +1282,7 @@ function StudySessionCard({
         )}
       >
         <DifficultyButton
-          emoji="😟"
+          Icon={Frown}
           label="Não lembro"
           range="0–10%"
           color="rose"
@@ -1287,7 +1291,7 @@ function StudySessionCard({
           onClick={() => onRate(0)}
         />
         <DifficultyButton
-          emoji="😕"
+          Icon={Meh}
           label="Lembrei pouco"
           range="10–40%"
           color="orange"
@@ -1296,7 +1300,7 @@ function StudySessionCard({
           onClick={() => onRate(1)}
         />
         <DifficultyButton
-          emoji="😐"
+          Icon={Smile}
           label="Lembrei bem"
           range="40–70%"
           color="amber"
@@ -1305,7 +1309,7 @@ function StudySessionCard({
           onClick={() => onRate(2)}
         />
         <DifficultyButton
-          emoji="😊"
+          Icon={SmilePlus}
           label="Lembrei muito bem"
           range="70–100%"
           color="emerald"
@@ -1329,6 +1333,7 @@ function StudySessionCard({
 // =====================================================================
 function DifficultyButton({
   emoji,
+  Icon,
   label,
   range,
   color,
@@ -1336,7 +1341,8 @@ function DifficultyButton({
   disabled,
   onClick,
 }: {
-  emoji: string;
+  emoji?: string;
+  Icon?: LucideIcon;
   label: string;
   range: string;
   color: "rose" | "orange" | "amber" | "emerald";
@@ -1364,9 +1370,13 @@ function DifficultyButton({
         colorClasses[color],
       )}
     >
-      <span className="text-base mb-1" aria-hidden>
-        {emoji}
-      </span>
+      {Icon ? (
+        <Icon className="h-5 w-5 mb-1" aria-hidden />
+      ) : emoji ? (
+        <span className="text-base mb-1" aria-hidden>
+          {emoji}
+        </span>
+      ) : null}
       <span className="font-semibold leading-tight">{label}</span>
       <span className="text-[10px] font-mono opacity-70 mt-0.5">{range}</span>
       <kbd className="absolute top-1.5 right-1.5 text-[9px] font-mono opacity-50 px-1 rounded bg-background/50 border border-current/20">

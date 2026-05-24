@@ -15,6 +15,7 @@ import {
   Layers,
   LayoutDashboard,
   LogOut,
+  MessageSquare,
   Mic,
   PanelLeft,
   Search,
@@ -68,7 +69,12 @@ function SidebarLink({
   coinBalance: number | null;
 }) {
   const { href, label, lumi, Icon, isCoin, badgeCount, badgeTone } = item;
-  const active = pathname === href || pathname?.startsWith(href + "/");
+  // Exact match para rotas que podem colidir (ex: /lumi vs /lumi/chats).
+  // Para o restante, prefixo + "/" continua válido pra sub-rotas.
+  const exactOnly = href === "/lumi";
+  const active = exactOnly
+    ? pathname === href
+    : pathname === href || pathname?.startsWith(href + "/");
   const lowBalance = isCoin && coinBalance !== null && coinBalance < 50;
   const showBadge =
     typeof badgeCount === "number" && badgeCount > 0 && !isCoin;
@@ -215,6 +221,14 @@ export function AppShell({
   }
 
   const navItems: SidebarNavItem[] = [
+    {
+      href: "/lumi",
+      label: "Assistente Lumi",
+      Icon: Sparkles,
+      badgeCount: lumiChatCount,
+      badgeTone: "violet",
+    },
+    { href: "/lumi/chats", label: "Meus chats", Icon: MessageSquare },
     { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
     { href: "/schedule", label: "Calendário", Icon: Calendar },
     { href: "/resumos", label: "Resumos", Icon: FileText },
@@ -223,13 +237,6 @@ export function AppShell({
     { href: "/gravacoes", label: "Gravações", Icon: Mic },
     { href: "/favoritos", label: "Favoritos", Icon: Star },
     { href: "/documentos", label: "Meus documentos", Icon: FolderOpen },
-    {
-      href: "/lumi",
-      label: "Assistente Lumi",
-      Icon: Sparkles,
-      badgeCount: lumiChatCount,
-      badgeTone: "violet",
-    },
     { href: "/account/coins", label: "Lumi Coins", isCoin: true },
   ];
 

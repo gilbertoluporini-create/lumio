@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Eye, EyeOff, RotateCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Eye, EyeOff, Lightbulb, RotateCw } from "lucide-react";
 import { LumiIcon } from "@/components/brand/lumi-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -141,8 +141,9 @@ export function FlashcardsView({ asset }: { asset: FlashcardsAsset }) {
                 {card.question}
               </p>
               {card.hint && showHint && (
-                <p className="mt-5 text-sm text-muted-foreground italic max-w-xl">
-                  💡 {card.hint}
+                <p className="mt-5 text-sm text-muted-foreground italic max-w-xl inline-flex items-start gap-1.5">
+                  <Lightbulb className="h-3.5 w-3.5 text-amber-500 shrink-0 mt-0.5" />
+                  <span>{card.hint}</span>
                 </p>
               )}
             </>

@@ -15,6 +15,7 @@ import {
   Code,
   Dna,
   Dumbbell,
+  Flame,
   FlaskConical,
   Gavel,
   Globe,
@@ -574,14 +575,14 @@ function Dashboard({ user }: { user: User }) {
         <div className="min-w-0">
           <div className="text-sm text-muted-foreground mb-2 flex items-center gap-3 flex-wrap">
             <span>
-              {greeting}, {firstName} <span aria-hidden>👋</span>
+              {greeting}, {firstName}
             </span>
             {streak.current > 0 && (
               <span
                 className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 px-2.5 py-0.5 text-xs font-medium"
                 title={`Streak atual: ${streak.current} dia(s)${streak.longest > streak.current ? ` · maior: ${streak.longest}` : ""}`}
               >
-                <span>🔥</span>
+                <Flame className="h-4 w-4 text-amber-500" />
                 {streak.current} dia{streak.current === 1 ? "" : "s"} seguido
                 {streak.current === 1 ? "" : "s"}
               </span>

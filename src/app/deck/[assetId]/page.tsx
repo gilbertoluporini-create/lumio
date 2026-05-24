@@ -26,18 +26,23 @@ import {
   Circle,
   Clock,
   FileText,
+  Frown,
   Layers,
   Loader2,
   MapIcon,
+  Meh,
   PanelLeft,
   Play,
   RotateCw,
   Shuffle,
+  Smile,
+  SmilePlus,
   Sparkles,
   Star,
   Timer,
   X,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
@@ -951,28 +956,28 @@ function StudyArea({
         )}
       >
         <DifficultyButton
-          emoji="😟"
+          Icon={Frown}
           label="Não lembro"
           color="rose"
           hotkey="1"
           onClick={() => onRate(0)}
         />
         <DifficultyButton
-          emoji="😕"
+          Icon={Meh}
           label="Lembrei pouco"
           color="orange"
           hotkey="2"
           onClick={() => onRate(1)}
         />
         <DifficultyButton
-          emoji="😐"
+          Icon={Smile}
           label="Lembrei bem"
           color="amber"
           hotkey="3"
           onClick={() => onRate(2)}
         />
         <DifficultyButton
-          emoji="😊"
+          Icon={SmilePlus}
           label="Lembrei muito"
           color="emerald"
           hotkey="4"
@@ -985,12 +990,14 @@ function StudyArea({
 
 function DifficultyButton({
   emoji,
+  Icon,
   label,
   color,
   hotkey,
   onClick,
 }: {
-  emoji: string;
+  emoji?: string;
+  Icon?: LucideIcon;
   label: string;
   color: "rose" | "orange" | "amber" | "emerald";
   hotkey: string;
@@ -1014,9 +1021,13 @@ function DifficultyButton({
         colorClasses[color],
       )}
     >
-      <span className="text-base mb-1" aria-hidden>
-        {emoji}
-      </span>
+      {Icon ? (
+        <Icon className="h-5 w-5 mb-1" aria-hidden />
+      ) : emoji ? (
+        <span className="text-base mb-1" aria-hidden>
+          {emoji}
+        </span>
+      ) : null}
       <span className="font-semibold leading-tight text-center">{label}</span>
       <kbd className="absolute top-1.5 right-1.5 text-[9px] font-mono opacity-50 px-1 rounded bg-background/50 border border-current/20">
         {hotkey}
