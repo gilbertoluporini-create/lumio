@@ -1,344 +1,201 @@
 # ESTADO — Lumio (snapshot pra resistir a compact)
 
-> Última atualização: 2026-05-23 (tarde, próximo do deploy). Resume tudo crítico.
+> Última atualização: **2026-05-24** (madrugada). App LIVE em produção, 9 rotas no sidebar, landing repaginada. Aguardando KYC Stripe aprovar pra começar checkout real.
 
-## ⚡ AUTONOMIA: você (Claude) tem autonomia pra agir
-- Faça commits a cada milestone (mas NÃO push automático)
-- Edite código sem pedir confirmação a cada passo
-- Cuidado só com ações destrutivas (rm -rf, drop table, force push)
-- Quando o user pede "implementa X", implementa direto sem refazer perguntas que já dá pra inferir
+## ⚡ AUTONOMIA (regras do user)
+
+- Faz commits a cada milestone mas NÃO push automático (só quando explicitamente pedido)
+- Edita código sem pedir confirmação a cada passo
+- Cuidado com ações destrutivas (rm -rf, drop table, force push)
+- "implementa X" = implementa direto sem refazer perguntas óbvias
+- Pode usar agentes em paralelo agressivamente (max plan, gastar tokens é trade-off favorável)
+- Nunca pede secrets/API keys pelo chat — instrui a colocar no `.env.local` direto
+- Honest empty states > fake data
+- Voz BR informal mas inteligente (sem "olá!", "incrível", "vamos juntos")
 
 ## Pitch
-SaaS de transcrição de aulas (Web Speech API) + chat IA contextual (Claude Haiku) + slides do professor (Vision Sonnet) + **produtos gerados** (resumos, flash cards, quiz, mapa mental) que ficam organizados em **subpastas por aula → matéria**. Mascote **Lumi** (lâmpada) + moeda **Lumio Coin** 3D roxa com "+". Mercado: estudantes universitários BR.
 
-## Repositório / Infra
+SaaS de transcrição de aulas (Web Speech API) + chat IA contextual (Claude Sonnet 4.5) + slides do professor (Vision) + **4 produtos gerados** (resumos, flashcards, quiz, mapa mental). Mascote **Lumi** (lâmpada) + moeda **Lumio Coin** 3D roxa com "+". Mercado: estudantes universitários BR, foco medicina.
+
+## Infra (LIVE)
+
 - Local: `/Users/gilbertoluporini/lumio`
 - GitHub: https://github.com/gilbertoluporini-create/lumio
+- Produção: **https://lumioapp.net** ✅ NO AR (Hostinger DNS → Vercel)
 - Dev: http://localhost:3001
-- Domínio: **lumioapp.net** ✅ COMPRADO (Hostinger, ~$14/ano, expira 2027-05-23)
-  - **Pending verification** (email pra `gilbertoluporini@gmail.com` deve ser clicado até 2026-06-07)
-  - Nameservers atuais: `apollo.dns-parking.com` + `athena.dns-parking.com` (parking — trocar)
-- Supabase: `pcatjumfdcxuthefixzf.supabase.co` ✅ Migration completa rodada (lecture_assets + monthly_lectures + subscriptions constraint atualizado)
-- Anthropic: ✅ configurado com créditos
-- Stripe: ✅ TEST MODE configurado (Price IDs colados, publishable key colada, secret key colada)
-- Resend: ✅ API key colada (RESEND_API_KEY no .env.local)
+- Domínio: lumioapp.net (Hostinger, expira 2027-05-23)
+- Supabase: `pcatjumfdcxuthefixzf.supabase.co` — migrations completas
+- Anthropic: ativa com créditos
+- **Stripe LIVE**: KYC submetido 23/05, aguardando aprovação (1-3 dias úteis)
+- **Resend**: domínio lumioapp.net verificado (DKIM+SPF+DMARC no Hostinger), SMTP custom configurado no Supabase como `no-reply@lumioapp.net`
+- Email forwarding: ImprovMX catchall `*@lumioapp.net` → gilbertoluporini@gmail.com
 
 ## User principal
+
 - Email: gilbertoluporini@gmail.com
-- ID: `1000206d-38bd-431f-b862-ff4a588b00e7`
+- ID Supabase: `1000206d-38bd-431f-b862-ff4a588b00e7`
 - Role: admin
-- Saldo: 50 coins
+- Saldo: 50 coins (welcome bonus)
+- MEI ATIVA: CNPJ 53.393.782/0001-32 (CNAE "Promoção de Vendas" — não casa com SaaS, contador precisa ajustar OU migrar pra ME)
 
----
+## Stack
 
-## 🚦 STATUS DE LAUNCH (onde paramos)
+- **Next.js 16.2.6** App Router + Turbopack
+  - ⚠️ **AGENTS.md warning**: APIs têm breaking changes. Sempre ler `node_modules/next/dist/docs/01-app/` antes de codar
+- React 19.2.4, TypeScript strict, Tailwind 4.3
+- Fonts: Bricolage Grotesque (sans) + Geist Mono + Instrument Serif
+- shadcn-style UI em `src/components/ui/`
+- Lucide-react (ícones)
+- Framer Motion 12 + Lenis (smooth scroll)
+- Anthropic SDK + Supabase SSR + Stripe + Resend + pdfjs-dist
+- Vercel hosting (deploy automático no push pra main)
 
-### ✅ Pronto (não precisa mexer)
-- Code-base 100% (4 produtos: summary 10c, flashcards 12c, quiz 15c, mindmap 20c)
-- 18 ícones 3D LumiIcon + mascote Lumi + moeda LumioCoin
-- Landing page profissional + Cmd+K + 404 + streak
-- Security: rate limit + ownership + CSP
-- Termos de Uso (/terms) + Política de Privacidade LGPD (/privacy) — usando emails `contato@lumioapp.net`, `privacidade@lumioapp.net`, `dpo@lumioapp.net`
-- Supabase migration rodada
-- Stripe TEST MODE: 3 Price IDs criados e colados em .env.local:
-  - STARTER: price_1TaN447DBswFpHEmIIWS5XgS
-  - PRO: price_1TaN4i7DBswFpHEmpGEsamVh
-  - POWER: price_1TaN557DBswFpHEmZbGxLN8J
+## Auth (3 fluxos)
 
-### ⏳ EM ANDAMENTO — RETOMAR AQUI APÓS COMPACT
+1. **Google OAuth** — Google Cloud OAuth client publicado (web app), Supabase Provider habilitado
+2. **Email + senha** — signup/login/reset proper com página dedicada
+3. **Magic link** — toggle alternativo
 
-**Próximo passo concreto: DEPLOY VERCEL**
+Páginas: `/(auth)/{signup,login,reset-password}` + `/auth/callback` (PKCE).
 
-1. **User precisa verificar email do domínio** (link no gmail dele)
-2. **Criar conta Vercel** + Import GitHub repo `gilbertoluporini-create/lumio`
-3. **Colar env vars** no Vercel — copia tudo de `.env.local`, MUDA APENAS:
-   - `NEXT_PUBLIC_APP_URL=https://lumioapp.net` (era localhost:3001)
-4. **Deploy**
+Endpoints: `/api/auth/{magic-link,signup-password,signin-password,reset-password}`.
 
-### 🔜 Sequência depois do deploy
-1. Pegar URL temporária `lumio-xxx.vercel.app` → testar que sobe
-2. Adicionar custom domain `lumioapp.net` no Vercel
-3. Vercel mostra registros DNS — adicionar no painel Hostinger:
-   - DNS / Nameservers → adicionar `A @` → IP da Vercel
-   - `CNAME www` → cname.vercel-dns.com
-   - `TXT` de verificação
-4. **Email forwarding na Hostinger** (free) — apontar contato@/privacidade@/dpo@/dpo@lumioapp.net pro gmail dele
-5. **Webhook Stripe PROD** — criar endpoint `https://lumioapp.net/api/stripe/webhook` (test mode primeiro, depois migrar pra live mode)
-6. **Customer Portal Stripe** — ativar em https://dashboard.stripe.com/test/settings/billing/portal
-7. **Supabase Site URL** — atualizar pra `https://lumioapp.net` no dashboard
-8. Testar checkout end-to-end em modo test
+Perfil: `/account/profile` tem trocar senha + zona de perigo "EXCLUIR" pra deletar conta (endpoint `/api/account/delete` cancela subscription Stripe + apaga customer + admin.deleteUser).
 
-### 🚀 MIGRAR PRA LIVE MODE (quando confiar que test funciona)
-- Toggle "Test mode" → "Live mode" no dashboard Stripe
-- Recriar os 3 produtos no live (Price IDs são diferentes!)
-- Substituir todas as 5 chaves Stripe no Vercel env
-- Stripe pede KYC (CPF/RG/dados bancários)
-- Webhook live apontando pra prod URL
+Site URL no Supabase: `https://www.lumioapp.net` (com www, pq Vercel redireciona naked→www). Redirect URLs incluem `https://www.lumioapp.net/**`, `https://lumioapp.net/**`, `http://localhost:3001/**`.
 
----
+## Rotas do app
 
-## Estado: REDESIGN COMPLETO + PRICING V2 + PRODUTOS GERADOS + SECURITY
+**Sidebar principal (6):**
+- `/dashboard` — KPIs (3 cards: próxima aula com ícone temático, aulas gravadas com sparkline, tempo de estudo com bar chart semana S T Q Q S S D) + matérias horizontais com progress bar (% concluído = aulas com summary / total) + lista linear de aulas recentes
+- `/schedule` — Calendário mês/semana/agenda + grid 6x7 + agenda lateral próximos 5 dias + 4 cards categorias (Próximas aulas com dados reais; Blocos/Provas/Trabalhos com "Em breve" honesto)
+- `/resumos` — Biblioteca: filtros (matéria/status/tipo/busca/ordenação) + featured card do resumo mais recente + tabela + sidebar com pastas por matéria + stats
+- `/flashcards` — 4 stat cards + study session card com flip + sidebar config + tabela decks. SRS toast "Em breve". Manual flip funciona
+- `/quiz` — 4 stat cards + pills de matéria + bancos à esquerda + practice panel à direita com feedback local de correto/errado
+- `/gravacoes` — Card destaque com preview transcrição + tabela todas as gravações + sidebar com stats + dica do Lumio
+- `/account/coins` — Carteira com moeda 3D animada + custos por feature + pacotes avulsos placeholder
 
-### ✅ Pricing v2 (mudança estratégica)
-**Filosofia**: ferramentas basais (chat, slides, transcrição) GRÁTIS no plano. Coins servem pra produzir **assets** que ficam salvos como subpasta da aula.
+**Sidebar secundária (após divisor):**
+- `/account/settings` — Configurações
+- `/help` — FAQ search + 5 categorias + 3 guias + 3 cards suporte
 
-| Plano | Preço | Aulas/mês | Coins/mês |
-|-------|-------|-----------|-----------|
-| Free | R$ 0 | 3 | 30 |
-| Starter | **R$ 39** | 20 | 200 |
-| Pro ⭐ | **R$ 69** | 100 (efetivo ∞) | 500 |
-| Power | **R$ 119** | ilimitado (999) | 1500 |
+**Outras:** `/onboarding`, `/lecture/[id]`, `/lecture/[id]/products`, `/subject/[id]`, `/account/profile`, `/account/billing`, `/admin/*`, `/pricing`, `/terms`, `/privacy`, `/success`.
 
-**Coin costs novos:**
-- chat_message: **0** (grátis)
-- extract_slides: **0** (grátis)
-- transcript_refine: **0** (grátis)
-- summary: **10** (resumo estruturado)
-- flashcards: **12** (set de 10 cards)
-- quiz: **15** (em breve)
-- mindmap: **20** (em breve)
+## Landing repaginada (commit 923a9c8)
 
-Implementado em `src/lib/coins.ts` (COIN_COSTS) e `src/lib/stripe.ts` (PLAN_COINS_PER_MONTH + PLAN_LECTURE_LIMIT). Pricing section da landing reescrita.
+Componentes em `src/components/landing/`:
+- `hero` (Lumi maior, "Beta privado · vagas abertas")
+- `logos-row` (8 faculdades como texto: Mandic, USP, Unifesp, FMUSP, Mackenzie, PUC-SP, UNICAMP, Insper)
+- `testimonials` (3 estudantes fictícios beta com badges)
+- `how-it-works` (4 steps com Lumi illustrations)
+- `personas` (Medicina/Direito/Engenharia com pain→solution específico)
+- `pricing-section` (50 coins welcome bonus + cards Starter/Pro/Power)
+- `faq-section` (8 perguntas honestas, reconhece trade-offs)
+- Footer 4-col com mailto contato@lumioapp.net
 
-### ✅ Limite mensal de aulas (server-side gate)
-- `src/app/api/lectures/create/route.ts` — novo endpoint que:
-  - Verifica plano ativo do user (subscriptions table)
-  - Lê `monthly_lectures_used` + `monthly_lectures_reset_at` de profiles
-  - Reseta automaticamente se passaram >30 dias
-  - Bloqueia se >= PLAN_LECTURE_LIMIT[plan]
-  - Cria a aula + incrementa contador
-- `createLectureAsync` no client agora chama esse endpoint (não Supabase direto)
+## Moeda 3D
 
-### ✅ Sistema de Produtos Gerados (subpastas da aula) — **TODOS OS 4 PRONTOS**
-- Tabela `lecture_assets` com kind: 'summary' | 'flashcards' | 'quiz' | 'mindmap'
-- payload JSONB armazena o asset completo
-- coins_spent registra custo
-- RLS owner-only via auth.uid()
-- Endpoint GET `/api/lectures/[id]/assets` retorna todos os assets da aula
-- `/api/correlate` (10 coins) — salva resumo como asset
-- `/api/flashcards` (12 coins) — 5-20 cards pergunta/resposta/hint/difficulty
-- `/api/quiz` (15 coins) — 3-15 questões múltipla escolha com explicação
-- `/api/mindmap` (20 coins) — estrutura hierárquica com tema central + branches coloridos
-- `/api/refine-transcript` (grátis) — Haiku 4.5 melhora pontuação/capitalização da transcrição
-- Componentes interativos: `<LectureSummaryView>`, `<FlashcardsView>`, `<QuizView>`, `<MindmapView>`
+- Componente: `src/components/brand/lumio-coin-spinning.tsx`
+- 2 formatos alpha: `/illustrations/lumio-coin.webm` (VP9, 736KB) + `/illustrations/lumio-coin.mov` (HEVC, 1.4MB)
+- Poster fallback: `/illustrations/lumio-coin.png` (transparente)
+- **Loop seamless via requestAnimationFrame** (timeupdate event tinha delay e deixava o último frame congelar)
+- Size default 260px (era 180 antes)
+- Source: Canva "fundo removido" + ffmpeg colorkey branco pra alpha real
+- Usar APENAS em destaques (card de saldo /account/coins). Resto usa `LumioCoin` PNG estática
 
-### ✅ Rota `/lecture/[id]/products`
-- Grid 2x2 com cards: Resumo · Flash cards · Quiz · Mindmap
-- Botão "Gerar" chama endpoint, salva como asset, refresca
-- Botão "Abrir" mostra viewer inline (LectureSummaryView / FlashcardsView)
-- Histórico de assets gerados embaixo (clicável)
-- Quiz e Mindmap marcados "Em breve"
+## Ícones temáticos
 
-### ✅ Componente FlashcardsView (viewer interativo)
-- Flip card (pergunta ↔ resposta)
-- Hint opcional, badge difficulty (Fácil/Médio/Difícil)
-- Progress bar
-- Atalhos: ←/→ navega, espaço/enter flipa, h pista
-- Botão "Recomeçar"
+Helper `getSubjectIcon(name)` duplicado em 5 arquivos. Cobre 30+ keywords: medicina (cardio/respirat/endócr/neuro/clinic/aps/genetic/etc), direito (Gavel/Scale), engenharia (Wrench), exatas (Calculator/Sigma/Atom), humanas (Landmark/Library), línguas (Languages), computação (Code), administração (Briefcase), artes (Palette/Music), ed. física (Dumbbell), inovação (Lightbulb). Fallback: BookOpen.
 
-### ✅ Organização hierárquica
-- **Dashboard redesenhado**: stats row (próxima aula + aulas + tempo) + grid de pastas-matéria + aulas recentes
-- **`/subject/[id]`** (nova rota): aulas como subpastas, cada uma com 4 features clicáveis (Transcrição/Slides/Dúvidas/Produtos)
-- **Deep links nas tabs**: `?tab=transcript|slides|qa|summary` no /lecture/[id]
-- **`/documents`** (nova rota): tree por matéria, search + filtros (Tudo/Aulas/Gerados/Uploadados)
+**TODO refator**: extrair pra `src/lib/subject-icon.ts`.
 
-### ✅ Identidade visual completa
+## Stripe (LIVE)
 
-**Lumi (mascote, 11 moods)**: default, thinking, studying, celebrating, sleeping, recording, confused, waving, coins, reading-pdf, generating + 4 cenas (hero-desk, writing-notes, calendar, funnel-summary) + 8 stickers. Componentes `<LumiCharacter>`, `<LumiScene>`, `<LumiSticker>`. Animações `lumi-float`, `lumi-glow`.
+- KYC submetido em **23/05/2026** — aguardando aprovação 1-3 dias úteis
+- Webhook LIVE: https://lumioapp.net/api/stripe/webhook (secret `whsec_8nb7kO6SpkWGU56ZPjBhwsCFTbHzQ0PZ`)
+- Customer Portal LIVE configurado
+- Price IDs LIVE em `.env.local`:
+  - `STRIPE_PRICE_ID_STARTER=price_1TaOO39ui6kMmrgUFYatvtX`
+  - `STRIPE_PRICE_ID_PRO=price_1TaOO39ui6kMmrgG2CUxRpOl`
+  - `STRIPE_PRICE_ID_POWER=price_1TaOO39ui6kMmrgIq76612s`
+  - `STRIPE_PRICE_ID_ANNUAL` vazio — **PRECISA CRIAR pros planos anuais**
 
-**Lumio Coin (moeda)**: PNG 3D roxa com "+" processada via rembg (alpha real), padding generoso. `<LumioCoin size>` SVG → reescrito pra `<img>` puro com `objectFit: contain` (Next/Image cacheava errado). Caminho: `public/illustrations/lumio-coin.png` (1521×1521).
+## Templates de email (aplicados no Supabase)
 
-**LumiIcon (18 ícones 3D oficiais)**: book, calendar, chat, clock, document, layers, mic, sparkle, trophy, plus, trash, settings, search, heart, download, upload, bell, lock. Em `public/illustrations/icons/`. Componente `<LumiIcon name="..." size={N} />`. Originais em `_originals/icons/`.
+4 HTMLs em `supabase/email-templates/`:
+- `confirm-signup.html` — "Confirma seu email pra começar no Lumio"
+- `magic-link.html` — "Seu link mágico do Lumio chegou ✨"
+- `reset-password.html` — "Define uma nova senha do Lumio"
+- `change-email.html` — "Confirma a troca do seu email no Lumio"
 
-**Substituições aplicadas**: sidebar nav (Aulas, Cronograma, Documentos), dashboard stats, subject folders, FeatureTab do subject, landing (steps + produtos + personas). Lucide mantido em botões pequenos e dropdowns (strokeWidth 1.6 global).
+Design: 560px, gradient roxo→fuchsia CTA, Lumi waving/thinking header, dark mode automático.
 
-### ✅ Fontes e sistema
-- **Bricolage Grotesque** (sans, Google Font variable) substitui Geist
-- **Instrument Serif** (italic editorial)
-- **Geist Mono** (números/código)
-- Sombras roxas customizadas `.shadow-lumio-sm/md/lg/xl`
-- Favicon: `src/app/icon.png`
-- OG image: `public/og-image.png` 1200×630
+## Plano de marketing (entregue, user não escolheu approach)
 
-### ✅ Sidebar lateral + Command Palette
-- Sidebar vertical colapsável (localStorage persistente)
-- 4 itens: Aulas, Cronograma, **Documentos** (novo), Lumio Coins
-- Saldo de coins inline (com badge âmbar se baixo)
-- Dropdown user: Perfil, Configurações, Assinatura, Sair
-- **Cmd+K / Ctrl+K** abre Command Palette com busca de aulas/matérias/ações + nav teclado (↑↓ Enter)
-- Botão visível no topbar com kbd "⌘K"
+3 fases 90 dias:
+- **Mês 1** (R$0): 10-20 betas via WhatsApp + 5 testimonials vídeo
+- **Mês 2** (R$200-500): Instagram + TikTok + 5-10 micro-influencers (acesso vitalício do Power em troca)
+- **Mês 3** (R$1000-2000): Meta Ads + 2-3 influencers maiores + 5-10 artigos SEO
 
-### ✅ Páginas /account
-- `/account/profile` — editar nome (Supabase update), avatar, info
-- `/account/settings` — tema (light/dark/system), notificações (localStorage), idioma, danger zone (CTA email pra excluir conta)
-- `/account/coins` — balance card grande com LumioCoin 140px, histórico, top-ups, custos por feature
-- `/account/billing` — Customer Portal (Stripe)
+**Aguardando user escolher**: A) Action humana validar com 5 amigos / B) Build indication program / C) Roteiro de vídeos
 
-### ✅ Landing page profissional
-- SpotlightCursor removido (era causa de bug perceptível)
-- Hero com Lumi peeking + LiveDemo
-- Marquee atualizado pra incluir "Resumos · Flash cards · Quizzes · Mapas mentais"
-- Seção **Produtos gerados** (4 cards explicando coins por feature)
-- Steps com ícones 3D
-- Personas com ícones 3D heart/book/trophy
-- Cena "hero-desk" do Lumi
-- Pricing v2
+## Próximos passos pendentes (priorizado)
 
-### ✅ 404 page customizada
-- `src/app/not-found.tsx`
-- Lumi confused no centro
-- CTAs: voltar ao dashboard / página inicial
+1. ⏳ **KYC Stripe aprovação** (1-3 dias úteis a partir de 23/05) → testar checkout real com small charge
+2. 📦 **Criar planos anuais** (Starter/Pro/Power anuais com desconto ~20%) + toggle Mensal/Anual na pricing-section da landing + atualizar `.env.local`
+3. 💼 **Contador**: ajustar CNAE do MEI pra TI (tipo 6201-5/01 Desenvolvimento de programas) OU migrar pra ME
+4. 🚀 **Executar marketing**: user escolher A/B/C e começar
+5. 🎨 (opcional) Polish sidebar: logo ícone gradient + search bar global Cmd+K mais proeminente + card "Plano Premium" no rodapé (estilo mockup)
+6. 🔧 (opcional) Implementar SRS real pros flashcards (hoje "Em breve")
+7. 🔧 (opcional) Persistir respostas do /quiz (hoje só estado local)
+8. 🔧 (opcional) Refatorar `getSubjectIcon` pra `src/lib/subject-icon.ts`
 
-### ✅ Segurança (security audit)
-**Rate limiting in-memory** (`src/lib/rate-limit.ts`):
-- chat: 30/min/IP + 60/min/user
-- flashcards: 5/min/IP + 10/min/user
-- correlate: 5/min/IP + 10/min/user
-- extract-slides: 3/min/IP + 5/min/user
-- lectures/create: 10/min/IP
-- 429 com `Retry-After` header
+## Últimos commits
 
-**Anti-IDOR** (`src/lib/lecture-auth.ts`):
-- `assertLectureOwnership(userId, lectureId)` antes de operações sensíveis
-- Aplicado em /api/flashcards e /api/correlate (quando lectureId)
-- /api/lectures/[id]/assets usa RLS Postgres owner-only
-
-**Headers** (`next.config.ts` já estava OK):
-- CSP whitelisted (Stripe, Supabase, Anthropic)
-- X-Frame-Options DENY
-- HSTS em prod (1 ano + preload)
-- Permissions-Policy: camera (), microphone (self), geolocation (), payment (self)
-- frame-ancestors 'none'
-
-### ✅ Streak (gamification)
-- `src/lib/streak.ts` calcula client-side
-- Badge âmbar 🔥 no header do dashboard
-- "Você já estudou hoje. Tô orgulhoso." quando todayDone
-- "Pronto pra estudar?" quando não
-
-### ✅ Cores diversificadas no cronograma
-- Bug raiz no onboarding: `subjects.length` stale dentro de loop fazia tudo cair na mesma cor
-- Fix: batch único `setSubjects(prev => [...prev, ...newOnes])` com cor por índice
-- Botão "Diversificar cores" no `/schedule` reatribui pra users existentes (atalho)
-- Endpoint `updateSubjectColorAsync` em `src/lib/db.ts`
-
-### ✅ Sistema de Coins (legado mantido)
-- Tabela `coin_transactions` + `profiles.coin_balance` + `coins_reset_at`
-- 1 coin = R$ 0,10 (markup 2x)
-- Trigger SQL dá 50 coins de boas-vindas (será 30 após nova migration final)
-- Welcome bonus retroativo já aplicado
-- `maxDuration` em todos AI endpoints (chat 60s, correlate 120s, extract-slides 300s, flashcards 120s)
-- Stripe webhook credita coins em checkout + invoice.paid (renovação)
-
-### 🐛 BUG histórico (corrigido)
-- Perda de 32 coins em extract-slides timeout. Restaurado manualmente. Fixes: maxDuration 300s + refund automático em catch E em parsing-empty path.
-
----
-
-## 🚨 PENDENTE pra subir o app
-
-### CRÍTICO (rodar antes de qualquer teste)
-1. **Migration `monthly_lectures_used` + `lecture_assets`** → SQL Editor Supabase
-   - Sem ela, criar aula falha (endpoint /api/lectures/create) e produtos não viram assets
-
-### Antes de monetizar
-2. **Stripe**: criar 3 Price IDs (STARTER R$39, PRO R$69, POWER R$119 monthly BRL) + atualizar webhook URL + Customer Portal config + statement descriptor anônimo
-3. **Resend**: API key + domínio verificado
-4. **Domínio**: comprar lumio.fun (~R$60/ano)
-5. **LGPD**: termos de uso + política de privacidade
-6. **Privacy fundador**: WHOIS privacy + statement descriptor "Lumio Studios" (não nome real)
-7. **Deploy Vercel**: env vars + atualizar Supabase Site URL + webhook URL Stripe
-
-### Bucket Storage (PDFs originais — Fase 2 da hierarquia)
-- Criar bucket `lecture-uploads` (private) no Supabase Dashboard
-- Aplicar policies do final do `migrations.sql` (estão comentadas — descomentar e rodar)
-- Modificar `/api/extract-slides` pra salvar PDF original em `${userId}/${lectureId}/${filename}`
-- Listar PDFs na aba "Uploadados" do `/documents`
-
-### Features pendentes futuras
-- Botão "Refinar transcrição" na lecture page (endpoint /api/refine-transcript pronto)
-- Onboarding tour interativo (primeira vez no dashboard)
-- Sound design opt-in (achievement, finish recording)
-- Export resumo como PDF (já tem MD)
-- Mais 1 polish: tooltip global com lista de atalhos teclado (?)
-
----
-
-## Stack final
-- Next.js 16.2.6 (App Router, Turbopack, proxy.ts)
-- React 19.2.4 + TS estrito (npx tsc --noEmit passa limpo)
-- Tailwind 4.3
-- **Bricolage Grotesque** + **Instrument Serif** + **Geist Mono**
-- Framer Motion 12 + Lenis (apenas rotas públicas /, /pricing, /success)
-- Radix UI + Lucide (strokeWidth 1.6) + **LumiIcon** (3D)
-- @anthropic-ai/sdk:
-  - Haiku 4.5 → /api/chat
-  - Sonnet 4.5 → /api/correlate, /api/extract-slides, /api/extract-schedule, **/api/flashcards**
-- @supabase/ssr + @supabase/supabase-js
-- stripe + @stripe/stripe-js
-- resend
-- pdfjs-dist 5.7 (worker local em /public/pdf.worker.min.mjs)
-- zod
-- **rembg + onnxruntime + u2net** (local Python pra processar PNGs do GPT Image)
-
-## Rotas (atualizado)
-
-| Rota | Tipo | Auth | Descrição |
-|---|---|---|---|
-| `/` | static | public | Landing redesenhada |
-| `/pricing` | static | public | Planos v2 |
-| `/success` | static | public | Pós-checkout |
-| `/login`, `/signup` | static | public | Auth |
-| `/auth/callback` | route | — | Supabase OAuth |
-| `/onboarding` | static | auth | Wizard matérias + grade |
-| `/dashboard` | static | auth | **NOVO** Pastas-matéria + stats + streak |
-| `/subject/[id]` | dynamic | auth | **NOVO** Aulas como subpastas |
-| `/lecture/[id]` | dynamic | auth | Aula + tabs (?tab=...) |
-| `/lecture/[id]/products` | dynamic | auth | **NOVO** Produtos gerados |
-| `/schedule` | static | auth | Cronograma + "Diversificar cores" |
-| `/documents` | static | auth | **NOVO** Tree por matéria |
-| `/account/profile` | static | auth | Editar perfil |
-| `/account/settings` | static | auth | Tema + notif |
-| `/account/coins` | static | auth | Saldo + histórico + top-ups |
-| `/account/billing` | static | auth | Customer Portal |
-| `/admin` | dynamic | admin | Métricas |
-| `/api/health` | route | public | Status integrações |
-| `/api/coins` | route | auth | GET saldo/histórico |
-| `/api/chat` | route | auth + rate-limit | Streaming Haiku, 60s, GRÁTIS |
-| `/api/correlate` | route | auth + coins(10) + rate-limit | JSON resumo, 120s, salva asset |
-| `/api/flashcards` | route | auth + coins(12) + rate-limit | **NOVO** Set cards, 120s, salva asset |
-| `/api/extract-slides` | route | auth + rate-limit | Vision PDF, 300s, GRÁTIS |
-| `/api/extract-schedule` | route | auth | Vision grade |
-| `/api/quiz` | route | auth + coins(15) + rate-limit | **NOVO** Quiz múltipla escolha, salva asset |
-| `/api/mindmap` | route | auth + coins(20) + rate-limit | **NOVO** Mapa mental hierárquico, salva asset |
-| `/api/refine-transcript` | route | auth + rate-limit | **NOVO** Haiku cleanup, 120s, GRÁTIS |
-| `/api/lectures/create` | route | auth + rate-limit + monthly gate | **NOVO** Cria aula com limit do plano |
-| `/api/lectures/[id]/assets` | route | auth (RLS) | **NOVO** GET assets da aula |
-| `/api/checkout` | route | auth | Stripe Session |
-| `/api/portal` | route | auth | Customer Portal |
-| `/api/stripe/webhook` | route | sig | Webhook + credit coins |
-| `/api/auth/magic-link` | route | public | Magic link |
-
-## Comandos
-
-```bash
-cd /Users/gilbertoluporini/lumio
-npm run dev                       # localhost:3001
-npx tsc --noEmit                  # type check (passa limpo)
-curl http://localhost:3001/api/health
-bash /tmp/lumio-coin-debug.sh     # debug script: saldo + histórico de transações
+```
+923a9c8 (2026-05-24) feat(app): repagina /schedule + cria /resumos /flashcards /quiz /help + landing rework + sidebar
+09998da feat(gravacoes): nova página /gravacoes
+47d0530 feat(app): renomeia 'Aulas'→'Dashboard', adiciona 'Gravações' + lista linear de aulas
+c850c46 fix(coin): loop seamless + tamanho maior + vídeo trimado
+2d05112 feat(dashboard): fase 2 do redesign — KPI com gráficos + cards horizontais
+96c4e69 feat(dashboard): moeda 3D real (vídeo com alpha) + ícones expandidos + cards neutros
+cddd947 feat(dashboard): fase 1 do redesign — ícones temáticos + greeting natural
+88b1482 feat(auth): fluxo proper de reset password
+b2219f3 chore(emails): templates HTML do Supabase Auth com brand Lumio
+9d6ff6d feat(account): trocar senha + excluir conta com confirmação "EXCLUIR"
+3c758dc feat(auth): signup/login híbrido — Google OAuth + senha + magic link
 ```
 
-## Decisões importantes da noite
+## Comandos úteis
 
-- **Coins viram "moeda criativa"**: chat/slides/transcrição grátis. Coins SÓ pra produtos gerados (resumo/flashcards/quiz/mindmap).
-- **Pricing reajustado**: Free R$0 / Starter R$39 / Pro R$69 / Power R$119 — cobre custo Anthropic incluído no plano.
-- **Limite mensal de aulas**: 3 / 20 / 100 / ilimitado — proteção da margem.
-- **Produtos como assets**: tabela `lecture_assets` salva resumo + flashcards + quiz + mindmap com payload JSONB.
-- **`<LumioCoin>` virou PNG 3D com "+"** (era SVG com L) processado via rembg, padding 40%.
-- **18 ícones 3D oficiais (LumiIcon)** processados via rembg, substituem Lucide em pontos de destaque.
-- **Rate limit in-memory** (1ª linha de defesa) por IP e user.
-- **Anti-IDOR**: assertLectureOwnership antes de operações sensíveis.
-- **Cmd+K palette** em todas as rotas autenticadas.
-- **Streak** calculado client-side da lista de lectures.
-- **Landing**: removido SpotlightCursor (bug de cursor). Mais clean. Seção Produtos integrada.
+```bash
+# Dev
+cd /Users/gilbertoluporini/lumio && npm run dev
+
+# Typecheck
+npx tsc --noEmit
+
+# Lint
+npm run lint
+
+# Build local
+npm run build
+
+# Git log curto
+git log --oneline -15
+```
+
+## Variáveis de ambiente importantes (`.env.local`)
+
+- `NEXT_PUBLIC_APP_URL=https://lumioapp.net`
+- `ANTHROPIC_API_KEY=sk-ant-...`
+- `NEXT_PUBLIC_SUPABASE_URL=https://pcatjumfdcxuthefixzf.supabase.co`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY=...`
+- `SUPABASE_SERVICE_ROLE_KEY=...`
+- `STRIPE_SECRET_KEY=sk_live_...`
+- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...`
+- `STRIPE_WEBHOOK_SECRET=whsec_8nb7kO6SpkWGU56ZPjBhwsCFTbHzQ0PZ`
+- `STRIPE_PRICE_ID_{STARTER,PRO,POWER}=price_...`
+- `RESEND_API_KEY=re_...`
+- `RESEND_FROM_EMAIL=Lumio <onboarding@resend.dev>` (TODO: trocar pra `no-reply@lumioapp.net` agora que domínio verificou)
+- `ADMIN_EMAILS=gilbertoluporini@gmail.com`

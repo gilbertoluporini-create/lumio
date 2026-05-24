@@ -71,13 +71,13 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
-      className={`${bricolage.variable} ${geistMono.variable} ${instrumentSerif.variable} h-full antialiased`}
+      className={`${bricolage.variable} ${geistMono.variable} ${instrumentSerif.variable} antialiased`}
       suppressHydrationWarning
     >
       <head>
         <ThemeScript />
       </head>
-      <body className="min-h-full bg-background text-foreground">
+      <body className="bg-background text-foreground">
         <SmoothScroll>{children}</SmoothScroll>
         <Toaster
           position="bottom-right"

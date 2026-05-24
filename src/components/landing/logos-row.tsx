@@ -3,7 +3,6 @@
 import { motion } from "framer-motion";
 
 const FACULTIES = [
-  "Mandic",
   "USP",
   "Unifesp",
   "FMUSP",
@@ -11,16 +10,14 @@ const FACULTIES = [
   "PUC-SP",
   "UNICAMP",
   "Insper",
+  "FGV",
 ];
 
 export function LogosRow() {
   return (
     <div className="text-center">
-      <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/60 backdrop-blur px-3 py-1 mb-6">
-        <span className="relative flex h-1.5 w-1.5">
-          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/60" />
-          <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-        </span>
+      <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card px-3 py-1 mb-6">
+        <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
         <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-medium">
           Beta privado · Medicina, Direito e Engenharia
         </span>

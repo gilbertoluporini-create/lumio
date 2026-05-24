@@ -11,8 +11,6 @@ type Persona = {
   title: string;
   pain: string;
   solution: string;
-  bg: string;
-  accent: string;
 };
 
 const PERSONAS: Persona[] = [
@@ -23,8 +21,6 @@ const PERSONAS: Persona[] = [
     pain: "Você copia ciclo de Krebs no caderno enquanto o professor já tá em outra via metabólica. Em casa, metade da letra não dá pra ler.",
     solution:
       "Lumio transcreve tudo, gera flash card por reação e te pergunta no quiz. Você presta atenção no slide — a anotação fica com a gente.",
-    bg: "bg-gradient-to-br from-rose-500/5 via-card to-pink-500/5",
-    accent: "text-rose-500",
   },
   {
     icon: "book",
@@ -33,8 +29,6 @@ const PERSONAS: Persona[] = [
     pain: "Você precisa lembrar qual STJ falou o quê em qual ano, e o professor cita seis julgados na hora.",
     solution:
       "Pergunta no chat na hora: 'qual o número do REsp que ele citou?' O Lumio acha no texto e cola no resumo da aula.",
-    bg: "bg-gradient-to-br from-indigo-500/5 via-card to-violet-500/5",
-    accent: "text-indigo-500",
   },
   {
     icon: "trophy",
@@ -43,8 +37,6 @@ const PERSONAS: Persona[] = [
     pain: "A dedução tá no que o professor fala — não no slide. Você copia equação sem entender por que.",
     solution:
       "Resumo estruturado mostra cada passo da dedução em texto, do lado da fórmula original. Revisão da prova em 20min.",
-    bg: "bg-gradient-to-br from-emerald-500/5 via-card to-teal-500/5",
-    accent: "text-emerald-500",
   },
 ];
 
@@ -58,9 +50,9 @@ export function Personas() {
         <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
           — Pra quem é —
         </p>
-        <h2 className="text-3xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
+        <h2 className="text-3xl md:text-5xl font-semibold tracking-[-0.025em] leading-[1.02]">
           Cada curso tem{" "}
-          <span className="font-serif italic font-normal">a própria dor</span>.
+          <span className="gradient-text font-bold">a própria dor</span>.
         </h2>
         <p className="mt-5 text-base text-muted-foreground max-w-xl">
           A gente entendeu três delas pra valer. Se a sua não tá aqui ainda, escreve em{" "}
@@ -78,13 +70,12 @@ export function Personas() {
         {PERSONAS.map((p, i) => (
           <StaggerItem key={p.badge}>
             <motion.div
-              whileHover={{ y: -6 }}
+              whileHover={{ y: -2 }}
               transition={{ type: "spring", stiffness: 280, damping: 20 }}
-              className={`group relative h-full overflow-hidden rounded-2xl border border-border/60 p-7 hover:border-primary/40 hover:shadow-xl transition-all ${p.bg}`}
+              className="group relative h-full overflow-hidden rounded-2xl border border-border/60 bg-card p-7 hover:border-primary/40 transition-colors"
             >
               <div className="flex items-center justify-between mb-5">
-                <span className={`inline-flex items-center gap-1.5 rounded-full bg-background/80 backdrop-blur px-2.5 py-1 text-[11px] font-medium ${p.accent}`}>
-                  <span className={`h-1.5 w-1.5 rounded-full bg-current`} />
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-medium text-foreground/80">
                   {p.badge}
                 </span>
                 <span className="editorial-num text-3xl text-foreground/15 leading-none">

@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useMemo, useState } from "react";
+import { createElement, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -19,6 +19,7 @@ import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { LumiIcon, type LumiIconName } from "@/components/brand/lumi-icon";
+import { getSubjectIcon } from "@/lib/subject-icon";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -196,12 +197,12 @@ function SubjectView({
       {/* Header da matéria */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-8">
         <div className="flex items-start gap-4 min-w-0">
-          <div
-            className={cn(
-              "h-16 w-16 shrink-0 rounded-2xl bg-gradient-to-br shadow-lg",
-              subject.color,
-            )}
-          />
+          <div className="h-16 w-16 shrink-0 rounded-2xl bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
+            {createElement(getSubjectIcon(subject.name), {
+              className: "h-8 w-8 text-primary",
+              strokeWidth: 2.2,
+            })}
+          </div>
           <div className="min-w-0">
             <h1 className="text-3xl font-semibold tracking-tight truncate">
               {subject.name}

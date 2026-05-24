@@ -32,6 +32,9 @@ import {
 import { listLecturesAsync, listSubjectsAsync } from "@/lib/db";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn, formatDuration } from "@/lib/utils";
+import { Waveform } from "@/components/audio/waveform";
+import { AudioPlayer } from "@/components/audio/audio-player";
+import { ChevronDown, ChevronUp } from "lucide-react";
 
 /**
  * Mapa de ícones por área temática (mesma lógica do dashboard).
@@ -271,8 +274,9 @@ function GravacoesView({ user }: { user: User }) {
               </div>
 
               {/* Headers da tabela */}
-              <div className="hidden md:grid grid-cols-[1fr_100px_140px_140px_60px] gap-3 px-5 py-2.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/50 bg-secondary/20">
+              <div className="hidden md:grid grid-cols-[1fr_180px_90px_120px_120px_60px] gap-3 px-5 py-2.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/50 bg-secondary/20">
                 <div>Aula / Matéria</div>
+                <div>Áudio</div>
                 <div>Duração</div>
                 <div>Transcrição</div>
                 <div>Data</div>
@@ -375,8 +379,21 @@ function RecentLectureCard({
         </div>
       </Link>
 
-      {/* Preview da transcrição (em vez do player de áudio, já que o
-          Lumio transcreve via Web Speech sem armazenar áudio) */}
+      {/* Player de áudio quando disponível */}
+      {lecture.audioUrl && (
+        <div className="mt-5 pt-5 border-t border-border/50">
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
+            <Play className="h-3 w-3" />
+            Áudio da aula
+          </div>
+          <AudioPlayer
+            src={lecture.audioUrl}
+            initialDurationSec={lecture.durationSec}
+          />
+        </div>
+      )}
+
+      {/* Preview da transcrição */}
       {hasTranscript && (
         <div className="mt-5 pt-5 border-t border-border/50">
           <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
@@ -412,6 +429,7 @@ function LectureTableRow({
 }) {
   const Icon = subject ? getSubjectIcon(subject.name) : FileText;
   const hasTranscript = !!lecture.transcript && lecture.transcript.length > 0;
+  const hasAudio = !!lecture.audioUrl;
   const date = new Date(lecture.updatedAt);
   const dateLabel = date.toLocaleDateString("pt-BR", {
     day: "2-digit",
@@ -423,79 +441,150 @@ function LectureTableRow({
     minute: "2-digit",
   });
   const isLive = lecture.status === "live";
+  const [expanded, setExpanded] = useState(false);
+
+  function toggleExpand(e: React.MouseEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!hasAudio) return;
+    setExpanded((v) => !v);
+  }
 
   return (
-    <Link
-      href={`/lecture/${lecture.id}`}
-      className="group grid md:grid-cols-[1fr_100px_140px_140px_60px] grid-cols-[1fr_60px] gap-3 px-5 py-3 hover:bg-secondary/30 transition-colors items-center"
-    >
-      {/* Coluna 1: ícone + título + matéria */}
-      <div className="flex items-center gap-3 min-w-0">
-        <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
-          <Icon className="h-4 w-4 text-primary" strokeWidth={2.2} />
-        </div>
-        <div className="min-w-0">
-          <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-            {lecture.title}
+    <div className="group">
+      <div className="grid md:grid-cols-[1fr_180px_90px_120px_120px_60px] grid-cols-[1fr_60px] gap-3 px-5 py-3 hover:bg-secondary/30 transition-colors items-center">
+        {/* Coluna 1: ícone + título + matéria (clicável → abre aula) */}
+        <Link
+          href={`/lecture/${lecture.id}`}
+          className="flex items-center gap-3 min-w-0"
+        >
+          <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
+            <Icon className="h-4 w-4 text-primary" strokeWidth={2.2} />
           </div>
-          {subject && (
-            <div className="text-xs text-muted-foreground truncate">
-              {subject.name}
+          <div className="min-w-0">
+            <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+              {lecture.title}
+            </div>
+            {subject && (
+              <div className="text-xs text-muted-foreground truncate">
+                {subject.name}
+              </div>
+            )}
+          </div>
+        </Link>
+
+        {/* Coluna 2: waveform (clicável pra expandir player) */}
+        <div className="hidden md:flex items-center min-w-0">
+          {hasAudio ? (
+            <button
+              type="button"
+              onClick={toggleExpand}
+              className={cn(
+                "flex-1 min-w-0 flex items-center gap-2 px-2 py-1 rounded-md",
+                "hover:bg-secondary/60 transition-colors group/wave",
+              )}
+              title={expanded ? "Recolher player" : "Ouvir áudio da aula"}
+            >
+              <Waveform
+                src={lecture.audioUrl}
+                bars={40}
+                height={28}
+                progress={expanded ? undefined : 0}
+                className="flex-1"
+              />
+              {expanded ? (
+                <ChevronUp className="h-3 w-3 text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronDown className="h-3 w-3 text-muted-foreground shrink-0 opacity-0 group-hover/wave:opacity-100 transition-opacity" />
+              )}
+            </button>
+          ) : (
+            <div className="flex-1 min-w-0 px-2">
+              <Waveform
+                decorative
+                seed={lecture.durationSec || lecture.id.length}
+                bars={40}
+                height={28}
+                label="Sem áudio"
+              />
             </div>
           )}
         </div>
-      </div>
 
-      {/* Coluna 2: duração */}
-      <div className="hidden md:flex items-center gap-1 text-xs text-muted-foreground font-mono tabular-nums">
-        <Clock className="h-3 w-3 shrink-0" />
-        {lecture.durationSec > 0 ? formatDuration(lecture.durationSec) : "—"}
-      </div>
-
-      {/* Coluna 3: status transcrição */}
-      <div className="hidden md:block">
-        {isLive ? (
-          <Badge variant="live" className="gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-red-500 pulse-dot" />
-            AO VIVO
-          </Badge>
-        ) : hasTranscript ? (
-          <Badge
-            variant="secondary"
-            className="gap-1 text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/15"
-          >
-            <CheckCircle2 className="h-2.5 w-2.5" />
-            Pronta
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-[10px]">
-            Não disponível
-          </Badge>
-        )}
-      </div>
-
-      {/* Coluna 4: data */}
-      <div className="hidden md:flex flex-col">
-        <span className="text-xs font-mono tabular-nums">{dateLabel}</span>
-        <span className="text-[10px] text-muted-foreground font-mono">{timeLabel}</span>
-      </div>
-
-      {/* Coluna 5: ações */}
-      <div className="flex items-center gap-1 justify-end shrink-0">
-        <span className="h-8 w-8 inline-flex items-center justify-center rounded-md bg-primary/10 group-hover:bg-primary/20 transition-colors">
-          <Play className="h-3.5 w-3.5 text-primary fill-primary" />
-        </span>
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            // placeholder — menu kebab por aula (próxima iteração)
-          }}
-          className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-secondary/60"
+        {/* Coluna 3: duração */}
+        <Link
+          href={`/lecture/${lecture.id}`}
+          className="hidden md:flex items-center gap-1 text-xs text-muted-foreground font-mono tabular-nums"
         >
-          <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
+          <Clock className="h-3 w-3 shrink-0" />
+          {lecture.durationSec > 0 ? formatDuration(lecture.durationSec) : "—"}
+        </Link>
+
+        {/* Coluna 4: status transcrição */}
+        <Link href={`/lecture/${lecture.id}`} className="hidden md:block">
+          {isLive ? (
+            <Badge variant="live" className="gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500 pulse-dot" />
+              AO VIVO
+            </Badge>
+          ) : hasTranscript ? (
+            <Badge
+              variant="secondary"
+              className="gap-1 text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/15"
+            >
+              <CheckCircle2 className="h-2.5 w-2.5" />
+              Pronta
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-[10px]">
+              Não disponível
+            </Badge>
+          )}
+        </Link>
+
+        {/* Coluna 5: data */}
+        <Link
+          href={`/lecture/${lecture.id}`}
+          className="hidden md:flex flex-col"
+        >
+          <span className="text-xs font-mono tabular-nums">{dateLabel}</span>
+          <span className="text-[10px] text-muted-foreground font-mono">
+            {timeLabel}
+          </span>
+        </Link>
+
+        {/* Coluna 6: ações */}
+        <div className="flex items-center gap-1 justify-end shrink-0">
+          <Link
+            href={`/lecture/${lecture.id}`}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-md bg-primary/10 group-hover:bg-primary/20 transition-colors"
+            aria-label="Abrir aula"
+          >
+            <Play className="h-3.5 w-3.5 text-primary fill-primary" />
+          </Link>
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              // placeholder — menu kebab por aula (próxima iteração)
+            }}
+            className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-secondary/60"
+            aria-label="Mais opções"
+          >
+            <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
+          </button>
+        </div>
       </div>
-    </Link>
+
+      {/* Player expandido */}
+      {expanded && hasAudio && lecture.audioUrl && (
+        <div className="px-5 pb-4 pt-1 bg-secondary/15 border-t border-border/40">
+          <AudioPlayer
+            src={lecture.audioUrl}
+            initialDurationSec={lecture.durationSec}
+          />
+        </div>
+      )}
+    </div>
   );
 }
 

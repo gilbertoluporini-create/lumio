@@ -1,5 +1,5 @@
 /**
- * Lumio Coins — sistema de débito/crédito server-side.
+ * Lumi Coins — sistema de débito/crédito server-side.
  *
  * Regras:
  * - Apenas o service_role pode alterar saldos (bypassa RLS).

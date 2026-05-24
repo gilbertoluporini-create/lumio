@@ -173,7 +173,7 @@ export async function POST(req: Request) {
     if (!charge.ok) {
       return new Response(
         JSON.stringify({
-          error: "Saldo de Lumio Coins insuficiente.",
+          error: "Saldo de Lumi Coins insuficiente.",
           required: charge.required,
           balance: charge.balance,
           upgrade: "/account/coins",

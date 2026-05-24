@@ -129,7 +129,7 @@ export async function POST(req: Request) {
         messages: [],
       })
       .select(
-        "id, user_id, subject_id, title, transcript, duration_sec, status, slides_file_name, slides, summary, messages, created_at, updated_at",
+        "id, user_id, subject_id, title, transcript, duration_sec, status, slides_file_name, slides, summary, messages, audio_url, created_at, updated_at",
       )
       .single();
 

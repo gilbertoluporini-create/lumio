@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { createElement, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -37,6 +37,7 @@ import {
   Scale,
   Sigma,
   Sparkles,
+  Star,
   Stethoscope,
   Syringe,
   Trash2,
@@ -48,9 +49,15 @@ import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  subscribeFavorites,
+  toggleFavorite,
+  type FavoriteEntry,
+} from "@/lib/favorites";
 import {
   Dialog,
   DialogContent,
@@ -69,7 +76,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ColorPicker } from "@/components/app/emoji-color-picker";
+import { SubjectIconPicker } from "@/components/app/subject-icon-picker";
 import {
   createLectureAsync,
   createSubjectAsync,
@@ -79,8 +86,12 @@ import {
 } from "@/lib/db";
 import { calculateStreak } from "@/lib/streak";
 import {
+  getSubjectGradientFromName,
+  getSubjectPalette,
+} from "@/lib/subject-color";
+import { getSubjectIconName } from "@/lib/subject-icon";
+import {
   DAY_LABELS_SHORT,
-  SUBJECT_PALETTE,
   type Lecture,
   type ScheduleSlot,
   type Subject,
@@ -174,6 +185,31 @@ function getSubjectIcon(name: string): LucideIcon {
   if (/inova[cç][aã]o|criativ/.test(n)) return Lightbulb;
 
   return BookOpen;
+}
+
+/**
+ * Mapeia o nome da primeira matéria do user pra uma "área de estudo"
+ * usada no headline dinâmico do dashboard ("futuro da medicina",
+ * "futuro do direito", etc). Fallback genérico: "estudo".
+ */
+function getStudyArea(primarySubjectName: string | undefined): string {
+  if (!primarySubjectName) return "estudo";
+  const n = primarySubjectName.toLowerCase();
+  if (/medicina|cl[ií]nic|sa[uú]de|enferm|odonto|farm[aá]cia|fisioter|nutri|veterin/.test(n))
+    return "medicina";
+  if (/direito|jur[ií]dic|advoc|oab/.test(n)) return "direito";
+  if (/engenharia|el[eé]tric|eletr[oô]nic|mec[aâ]nic|civil|materiais/.test(n))
+    return "engenharia";
+  if (/admin|gest[aã]o|empreend|neg[oó]cio|marketing|contab|economi|finan[cç]/.test(n))
+    return "negócio";
+  if (/computa|software|program|c[oó]digo|dados|sistema.*informa|ia\b/.test(n))
+    return "tecnologia";
+  if (/arquitet|urban/.test(n)) return "arquitetura";
+  if (/biolog|qu[ií]mic|f[ií]sic|geolog/.test(n)) return "ciência";
+  if (/letras|literat|portugu[eê]s|jornal|comunica/.test(n)) return "linguagem";
+  if (/psicolog/.test(n)) return "psicologia";
+  if (/pedagog|educa[cç][aã]o|licenc/.test(n)) return "educação";
+  return "estudo";
 }
 
 /**
@@ -346,8 +382,15 @@ function Dashboard({ user }: { user: User }) {
   const [lectureTitle, setLectureTitle] = useState("");
   const [lectureSubject, setLectureSubject] = useState<string>("");
   const [newName, setNewName] = useState("");
-  const [color, setColor] = useState(SUBJECT_PALETTE[0].color);
+  const [iconName, setIconName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [favorites, setFavorites] = useState<FavoriteEntry[]>([]);
+  const [wizardOpen, setWizardOpen] = useState(false);
+
+  // Sub no canal de favoritos pra re-renderizar quando alguém favorita
+  useEffect(() => {
+    return subscribeFavorites(user.id, setFavorites);
+  }, [user.id]);
 
   async function refresh() {
     const [s, l] = await Promise.all([
@@ -359,7 +402,16 @@ function Dashboard({ user }: { user: User }) {
   }
 
   useEffect(() => {
-    refresh().finally(() => setLoading(false));
+    let cancelled = false;
+    void refresh().finally(() => {
+      if (!cancelled) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -408,19 +460,18 @@ function Dashboard({ user }: { user: User }) {
   );
 
   async function handleCreateSubject() {
-    if (!newName.trim()) return;
+    const trimmed = newName.trim();
+    if (!trimmed) return;
     try {
-      const nextColorIdx = subjects.length;
-      const finalColor =
-        color === SUBJECT_PALETTE[0].color
-          ? SUBJECT_PALETTE[nextColorIdx % SUBJECT_PALETTE.length].color
-          : color;
+      const finalColor = getSubjectGradientFromName(trimmed);
+      const finalIcon = iconName ?? getSubjectIconName(trimmed);
       const subject = await createSubjectAsync(user.id, {
-        name: newName.trim(),
+        name: trimmed,
         color: finalColor,
+        icon: finalIcon,
       });
       setNewName("");
-      setColor(SUBJECT_PALETTE[0].color);
+      setIconName(null);
       setNewOpen(false);
       await refresh();
       toast.success(`Matéria "${subject.name}" criada.`);
@@ -485,6 +536,12 @@ function Dashboard({ user }: { user: User }) {
     return "Boa noite";
   }, []);
 
+  // Área de estudo dinâmica baseada na primeira matéria
+  const studyArea = useMemo(
+    () => getStudyArea(subjects[0]?.name),
+    [subjects],
+  );
+
   if (loading) {
     return (
       <div className="mx-auto max-w-7xl px-5 py-8">
@@ -515,8 +572,10 @@ function Dashboard({ user }: { user: User }) {
       {/* Header */}
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between mb-8">
         <div className="min-w-0">
-          <div className="text-sm text-muted-foreground mb-1 flex items-center gap-3 flex-wrap">
-            <span>{greeting}, {firstName}.</span>
+          <div className="text-sm text-muted-foreground mb-2 flex items-center gap-3 flex-wrap">
+            <span>
+              {greeting}, {firstName} <span aria-hidden>👋</span>
+            </span>
             {streak.current > 0 && (
               <span
                 className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-300 px-2.5 py-0.5 text-xs font-medium"
@@ -528,12 +587,11 @@ function Dashboard({ user }: { user: User }) {
               </span>
             )}
           </div>
-          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-            {streak.todayDone
-              ? "Mais um dia foco em dia."
-              : "Pronto pra mais uma aula?"}
+          <h1 className="text-4xl md:text-5xl font-semibold leading-[1.05] tracking-tight">
+            Foco de hoje,{" "}
+            <span className="text-primary">futuro da {studyArea}.</span>
           </h1>
-          <p className="mt-2 text-sm text-muted-foreground max-w-xl">
+          <p className="mt-3 text-sm text-muted-foreground max-w-xl">
             Continue seu progresso e transforme estudo em memória.
           </p>
         </div>
@@ -551,23 +609,44 @@ function Dashboard({ user }: { user: User }) {
                   Cria uma pasta pra organizar aulas, slides e resumos.
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <ColorPicker value={color} onChange={setColor} />
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="new-subject-name" className="mb-1.5 block">
+                    Nome da matéria
+                  </Label>
                   <Input
+                    id="new-subject-name"
                     autoFocus
-                    placeholder="Ex: Cálculo, Anatomia…"
+                    placeholder="Ex: Cálculo, Anatomia, Direito Civil…"
                     value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
+                    onChange={(e) => {
+                      setNewName(e.target.value);
+                      setIconName(null);
+                    }}
                     onKeyDown={(e) =>
                       e.key === "Enter" && handleCreateSubject()
                     }
                   />
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  A cor é escolhida automaticamente — clique no quadrado pra
-                  trocar.
-                </p>
+                <div className="flex items-center gap-4 rounded-xl border border-border/60 bg-secondary/30 p-3">
+                  <SubjectIconPicker
+                    value={iconName}
+                    subjectName={newName}
+                    onChange={setIconName}
+                    palette={{
+                      bg: getSubjectPalette(newName).soft,
+                      text: getSubjectPalette(newName).text,
+                    }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium">
+                      {iconName ? "Ícone escolhido" : "Ícone sugerido"}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      Clique no quadrado pra trocar.
+                    </div>
+                  </div>
+                </div>
               </div>
               <DialogFooter>
                 <Button variant="ghost" onClick={() => setNewOpen(false)}>
@@ -579,9 +658,27 @@ function Dashboard({ user }: { user: User }) {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-          <Button variant="gradient" onClick={() => startNewLecture()}>
-            <Mic className="h-4 w-4" /> Nova aula
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="gradient">
+                <Mic className="h-4 w-4" /> Nova aula
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56">
+              <DropdownMenuItem
+                onClick={() => startNewLecture()}
+                className="gap-2"
+              >
+                <Mic className="h-4 w-4" /> Gravar aula
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setWizardOpen(true)}
+                className="gap-2"
+              >
+                <Sparkles className="h-4 w-4" /> Gerar resumo de PDF/aula
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -589,20 +686,20 @@ function Dashboard({ user }: { user: User }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
         {/* KPI 1: Próxima aula */}
         {nextSlot ? (
-          <Link
-            href="/schedule"
-            className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 hover:shadow-md transition-all"
-          >
+          <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 hover:shadow-md transition-all">
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-wider text-muted-foreground mb-4">
               <Clock className="h-3.5 w-3.5 text-primary" />
               Próxima aula
             </div>
-            <div className="flex items-center gap-3 mb-4">
+            <Link
+              href={`/subject/${nextSlot.subject.id}`}
+              className="group flex items-center gap-3 mb-4 -mx-2 px-2 py-1 rounded-lg hover:bg-secondary/40 transition-colors"
+            >
               <div className="h-10 w-10 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
-                {(() => {
-                  const Ic = getSubjectIcon(nextSlot.subject.name);
-                  return <Ic className="h-5 w-5 text-primary" strokeWidth={2.2} />;
-                })()}
+                {createElement(getSubjectIcon(nextSlot.subject.name), {
+                  className: "h-5 w-5 text-primary",
+                  strokeWidth: 2.2,
+                })}
               </div>
               <div className="min-w-0">
                 <div className="font-semibold truncate group-hover:text-primary transition-colors">
@@ -617,11 +714,11 @@ function Dashboard({ user }: { user: User }) {
                   · {nextSlot.slot.startTime}–{nextSlot.slot.endTime}
                 </div>
               </div>
-            </div>
-            <div className="text-xs text-primary font-medium inline-flex items-center gap-1 group-hover:gap-1.5 transition-all">
-              Ver cronograma <ArrowRight className="h-3 w-3" />
-            </div>
-          </Link>
+            </Link>
+            <Button asChild variant="outline" size="sm" className="text-xs">
+              <Link href={`/subject/${nextSlot.subject.id}`}>Ver detalhes</Link>
+            </Button>
+          </div>
         ) : (
           <Link
             href="/onboarding"
@@ -641,36 +738,37 @@ function Dashboard({ user }: { user: User }) {
         )}
 
         {/* KPI 2: Aulas gravadas + sparkline */}
-        <Link
-          href="/dashboard"
-          className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 hover:shadow-md transition-all"
-        >
-          <div className="flex items-start justify-between mb-3">
-            <div className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              Aulas gravadas
-            </div>
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 hover:shadow-md transition-all">
+          <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
+            Aulas gravadas
           </div>
-          <div className="flex items-end justify-between gap-3">
+          <div className="flex items-end justify-between gap-3 mb-3">
             <div>
               <div className="text-3xl md:text-4xl font-semibold font-mono tabular-nums leading-none">
                 {stats.totalLectures}
               </div>
               <div className="mt-1 text-xs text-muted-foreground">
-                em {subjects.length} matéria{subjects.length === 1 ? "" : "s"}
+                aulas gravadas
               </div>
             </div>
             <div className="w-24 h-12 shrink-0">
               <MiniLineChart data={stats.weeklySeries} height={48} />
             </div>
           </div>
-        </Link>
+          <Link
+            href="/gravacoes"
+            className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+          >
+            Ver todas as gravações <ArrowRight className="h-3 w-3" />
+          </Link>
+        </div>
 
         {/* KPI 3: Tempo de estudo + bar chart semana */}
-        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5">
+        <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-5 hover:border-primary/40 hover:shadow-md transition-all">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
             Tempo de estudo
           </div>
-          <div className="flex items-end justify-between gap-3">
+          <div className="flex items-end justify-between gap-3 mb-3">
             <div>
               <div className="text-3xl md:text-4xl font-semibold tabular-nums leading-none">
                 {formatHoursMinutes(stats.weekMinutesTotal).label || "0min"}
@@ -681,6 +779,12 @@ function Dashboard({ user }: { user: User }) {
               <WeekBarChart data={stats.weekMinutesByDay} />
             </div>
           </div>
+          <Link
+            href="/schedule"
+            className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+          >
+            Ver estatísticas <ArrowRight className="h-3 w-3" />
+          </Link>
         </div>
       </div>
 
@@ -690,16 +794,26 @@ function Dashboard({ user }: { user: User }) {
           <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
             Minhas matérias
           </h2>
-          {subjects.length > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setNewOpen(true)}
-              className="text-xs"
-            >
-              <Plus className="h-3.5 w-3.5" /> Nova
-            </Button>
-          )}
+          <div className="flex items-center gap-2">
+            {subjects.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setNewOpen(true)}
+                className="text-xs"
+              >
+                <Plus className="h-3.5 w-3.5" /> Nova
+              </Button>
+            )}
+            {subjects.length > 0 && (
+              <Link
+                href="/documents"
+                className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+              >
+                Ver todas as matérias <ArrowRight className="h-3 w-3" />
+              </Link>
+            )}
+          </div>
         </div>
         {subjects.length === 0 ? (
           <SubjectsEmpty onCreate={() => setNewOpen(true)} />
@@ -707,6 +821,9 @@ function Dashboard({ user }: { user: User }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {subjects.map((s) => {
               const subjectLectures = lecturesBySubject[s.id] ?? [];
+              const fav = favorites.some(
+                (f) => f.kind === "subject" && f.id === s.id,
+              );
               return (
                 <SubjectFolder
                   key={s.id}
@@ -714,6 +831,10 @@ function Dashboard({ user }: { user: User }) {
                   lectures={subjectLectures}
                   onDelete={() => handleDeleteSubject(s)}
                   onNewLecture={() => startNewLecture(s.id)}
+                  favorited={fav}
+                  onToggleFavorite={() =>
+                    toggleFavorite(user.id, "subject", s.id)
+                  }
                 />
               );
             })}
@@ -740,7 +861,18 @@ function Dashboard({ user }: { user: User }) {
           <div className="rounded-xl border border-border/60 bg-card overflow-hidden divide-y divide-border/50">
             {recentLectures.map((l) => {
               const subject = subjects.find((s) => s.id === l.subjectId);
-              return <LectureRow key={l.id} lecture={l} subject={subject} />;
+              const fav = favorites.some(
+                (f) => f.kind === "lecture" && f.id === l.id,
+              );
+              return (
+                <LectureRow
+                  key={l.id}
+                  lecture={l}
+                  subject={subject}
+                  favorited={fav}
+                  onToggleFavorite={() => toggleFavorite(user.id, "lecture", l.id)}
+                />
+              );
             })}
           </div>
         </div>
@@ -811,6 +943,16 @@ function Dashboard({ user }: { user: User }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ContentWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        mode="summary"
+        userId={user.id}
+        onCreated={({ lectureId }) => {
+          router.push(`/lecture/${lectureId}`);
+        }}
+      />
     </div>
   );
 }
@@ -820,11 +962,15 @@ function SubjectFolder({
   lectures,
   onDelete,
   onNewLecture,
+  favorited,
+  onToggleFavorite,
 }: {
   subject: Subject;
   lectures: Lecture[];
   onDelete: () => void;
   onNewLecture: () => void;
+  favorited: boolean;
+  onToggleFavorite: () => void;
 }) {
   const lectureCount = lectures.length;
   const withSummary = lectures.filter((l) => l.summary).length;
@@ -846,7 +992,7 @@ function SubjectFolder({
       })
     : "—";
 
-  const SubjectIcon = getSubjectIcon(subject.name);
+  const subjectIcon = getSubjectIcon(subject.name);
 
   return (
     <div className="group relative rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-md transition-all">
@@ -856,7 +1002,10 @@ function SubjectFolder({
       >
         <div className="flex items-center gap-4">
           <div className="h-11 w-11 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
-            <SubjectIcon className="h-5 w-5 text-primary" strokeWidth={2.2} />
+            {createElement(subjectIcon, {
+              className: "h-5 w-5 text-primary",
+              strokeWidth: 2.2,
+            })}
           </div>
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-sm leading-tight line-clamp-1 group-hover:text-primary transition-colors">
@@ -893,28 +1042,53 @@ function SubjectFolder({
         </div>
       </Link>
 
-      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              onClick={(e) => e.preventDefault()}
-              className="h-7 w-7 inline-flex items-center justify-center rounded-md hover:bg-secondary"
-            >
-              <MoreVertical className="h-3.5 w-3.5" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem onClick={onNewLecture}>
-              <Mic className="h-4 w-4" /> Nova aula aqui
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={onDelete}
-              className="text-destructive focus:text-destructive"
-            >
-              <Trash2 className="h-4 w-4" /> Excluir matéria
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      <div className="absolute top-2 right-2 flex items-center gap-0.5">
+        <button
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onToggleFavorite();
+          }}
+          title={favorited ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+          aria-label={
+            favorited ? "Remover dos favoritos" : "Adicionar aos favoritos"
+          }
+          className={cn(
+            "h-7 w-7 inline-flex items-center justify-center rounded-md transition-all",
+            favorited
+              ? "text-amber-500 hover:bg-amber-500/10"
+              : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-foreground",
+          )}
+        >
+          <Star className={cn("h-3.5 w-3.5", favorited && "fill-current")} />
+        </button>
+        <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                onClick={(e) => e.preventDefault()}
+                className="h-7 w-7 inline-flex items-center justify-center rounded-md hover:bg-secondary"
+              >
+                <MoreVertical className="h-3.5 w-3.5" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={onNewLecture}>
+                <Mic className="h-4 w-4" /> Nova aula aqui
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={onToggleFavorite}>
+                <Star className="h-4 w-4" />
+                {favorited ? "Remover dos favoritos" : "Favoritar matéria"}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={onDelete}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" /> Excluir matéria
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </div>
   );
@@ -923,56 +1097,81 @@ function SubjectFolder({
 function LectureRow({
   lecture,
   subject,
+  favorited,
+  onToggleFavorite,
 }: {
   lecture: Lecture;
   subject: Subject | undefined;
+  favorited: boolean;
+  onToggleFavorite: () => void;
 }) {
   const hasSummary = !!lecture.summary;
   const isLive = lecture.status === "live";
 
   return (
-    <Link
-      href={`/lecture/${lecture.id}`}
-      className="group flex items-center gap-3 px-4 py-3 hover:bg-secondary/30 transition-colors"
-    >
-      <div className="h-9 w-9 shrink-0 rounded-full bg-primary/10 dark:bg-primary/15 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
-        <Play className="h-4 w-4 text-primary fill-primary" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-          {lecture.title}
+    <div className="group relative">
+      <Link
+        href={`/lecture/${lecture.id}`}
+        className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/30 transition-colors"
+      >
+        <div className="h-9 w-9 shrink-0 rounded-full bg-primary/10 dark:bg-primary/15 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+          <Play className="h-4 w-4 text-primary fill-primary" />
         </div>
-        {subject && (
-          <div className="text-xs text-muted-foreground truncate">
-            {subject.name}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+            {lecture.title}
           </div>
+          {subject && (
+            <div className="text-xs text-muted-foreground truncate">
+              {subject.name}
+            </div>
+          )}
+        </div>
+        <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+          <Clock className="h-3 w-3" />
+          {formatRelativeTime(lecture.createdAt)}
+        </div>
+        <div className="hidden md:flex items-center gap-1 text-xs text-muted-foreground font-mono shrink-0 min-w-[60px]">
+          {lecture.durationSec > 0 ? formatDuration(lecture.durationSec) : "—"}
+        </div>
+        <div className="shrink-0 pr-8">
+          {isLive ? (
+            <Badge variant="live" className="gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-red-500 pulse-dot" />
+              AO VIVO
+            </Badge>
+          ) : hasSummary ? (
+            <Badge variant="secondary" className="gap-1 text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/15">
+              <Sparkles className="h-2.5 w-2.5" />
+              Assistida
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-[10px]">
+              Em andamento
+            </Badge>
+          )}
+        </div>
+      </Link>
+      <button
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onToggleFavorite();
+        }}
+        title={favorited ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+        aria-label={favorited ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+        className={cn(
+          "absolute right-3 top-1/2 -translate-y-1/2 h-7 w-7 inline-flex items-center justify-center rounded-md transition-all",
+          favorited
+            ? "text-amber-500 hover:bg-amber-500/10"
+            : "text-muted-foreground opacity-0 group-hover:opacity-100 hover:bg-secondary hover:text-foreground",
         )}
-      </div>
-      <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
-        <Clock className="h-3 w-3" />
-        {formatRelativeTime(lecture.createdAt)}
-      </div>
-      <div className="hidden md:flex items-center gap-1 text-xs text-muted-foreground font-mono shrink-0 min-w-[60px]">
-        {lecture.durationSec > 0 ? formatDuration(lecture.durationSec) : "—"}
-      </div>
-      <div className="shrink-0">
-        {isLive ? (
-          <Badge variant="live" className="gap-1">
-            <span className="h-1.5 w-1.5 rounded-full bg-red-500 pulse-dot" />
-            AO VIVO
-          </Badge>
-        ) : hasSummary ? (
-          <Badge variant="secondary" className="gap-1 text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/15">
-            <Sparkles className="h-2.5 w-2.5" />
-            Assistida
-          </Badge>
-        ) : (
-          <Badge variant="outline" className="text-[10px]">
-            Em andamento
-          </Badge>
-        )}
-      </div>
-    </Link>
+      >
+        <Star
+          className={cn("h-4 w-4", favorited && "fill-current")}
+        />
+      </button>
+    </div>
   );
 }
 

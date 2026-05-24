@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   Activity,
   ArrowRight,
@@ -17,7 +19,9 @@ import {
   Clock,
   Code,
   Dna,
+  Download,
   Dumbbell,
+  ExternalLink,
   FileText,
   Folder,
   Filter,
@@ -46,6 +50,7 @@ import {
   Syringe,
   Tag,
   Timer,
+  Trash2,
   Users,
   Wind,
   Wrench,
@@ -53,6 +58,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -63,7 +69,15 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { listLecturesAsync, listSubjectsAsync } from "@/lib/db";
+import {
+  listLecturesAsync,
+  listSubjectsAsync,
+  updateLectureAsync,
+} from "@/lib/db";
+import {
+  subscribeFavorites,
+  toggleFavorite as toggleFavoriteLib,
+} from "@/lib/favorites";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -181,10 +195,15 @@ function getSummaryTags(lecture: Lecture, max = 3): string[] {
   });
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Favorites — delega pra src/lib/favorites.ts (compartilhado com /favoritos) */
+/* -------------------------------------------------------------------------- */
+
 type StatusFilter = "all" | SummaryStatus;
 type SortOrder = "recent" | "oldest" | "az";
 
 function ResumosView({ user }: { user: User }) {
+  const router = useRouter();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,6 +212,9 @@ function ResumosView({ user }: { user: User }) {
   const [filterType, setFilterType] = useState<string>("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
   const [search, setSearch] = useState("");
+  const [favorites, setFavorites] = useState<string[]>([]);
+  const [newSummaryOpen, setNewSummaryOpen] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -209,6 +231,60 @@ function ResumosView({ user }: { user: User }) {
       active = false;
     };
   }, [user.id]);
+
+  // Hydrate favorites + assina mudanças (sincroniza com /favoritos e outras abas)
+  useEffect(() => {
+    return subscribeFavorites(user.id, (entries) => {
+      setFavorites(
+        entries.filter((f) => f.kind === "summary").map((f) => f.id),
+      );
+    });
+  }, [user.id]);
+
+  const toggleFavorite = useCallback(
+    (lectureId: string) => {
+      const nowFavorited = toggleFavoriteLib(user.id, "summary", lectureId);
+      toast.success(
+        nowFavorited
+          ? "Adicionado aos favoritos"
+          : "Removido dos favoritos",
+      );
+      // setFavorites é atualizado pelo subscribeFavorites listener
+    },
+    [user.id],
+  );
+
+  const handleDeleteSummary = useCallback(
+    async (lecture: Lecture) => {
+      if (!lecture.summary) return;
+      const confirmed =
+        typeof window !== "undefined"
+          ? window.confirm(
+              `Excluir o resumo de "${lecture.title}"?\n\nA aula e a transcrição serão mantidas; apenas o resumo será removido.`,
+            )
+          : true;
+      if (!confirmed) return;
+      setDeletingId(lecture.id);
+      try {
+        // Passamos `summary: null` cast pra Partial<Lecture> — o backend
+        // (Supabase) aceita null e o local storage faz spread normalmente.
+        await updateLectureAsync(user.id, lecture.id, {
+          summary: null as unknown as Lecture["summary"],
+        });
+        setLectures((prev) =>
+          prev.map((l) =>
+            l.id === lecture.id ? { ...l, summary: undefined } : l,
+          ),
+        );
+        toast.success("Resumo excluído.");
+      } catch (err) {
+        toast.error(`Erro ao excluir: ${(err as Error).message}`);
+      } finally {
+        setDeletingId(null);
+      }
+    },
+    [user.id],
+  );
 
   const subjectById = useMemo(() => {
     const map: Record<string, Subject> = {};
@@ -250,11 +326,17 @@ function ResumosView({ user }: { user: User }) {
         const summaryText = l.summary?.generalSummary?.toLowerCase() ?? "";
         const highlights =
           l.summary?.highlights?.join(" ").toLowerCase() ?? "";
+        const sectionTitles =
+          l.summary?.sections
+            ?.map((sec) => sec.slideTitle ?? "")
+            .join(" ")
+            .toLowerCase() ?? "";
         return (
           l.title.toLowerCase().includes(q) ||
           subjName.includes(q) ||
           summaryText.includes(q) ||
-          highlights.includes(q)
+          highlights.includes(q) ||
+          sectionTitles.includes(q)
         );
       }
       return true;
@@ -291,14 +373,17 @@ function ResumosView({ user }: { user: User }) {
       else if (st === "in_progress") inProgress++;
       else notStarted++;
     }
+    // Conta apenas favoritos que ainda existem como lectures
+    const lectureIds = new Set(lectures.map((l) => l.id));
+    const favoritesCount = favorites.filter((id) => lectureIds.has(id)).length;
     return {
       total: completed, // "total de resumos" = aulas com summary
       completed,
       inProgress,
       notStarted,
-      favorites: 0,
+      favorites: favoritesCount,
     };
-  }, [lectures]);
+  }, [lectures, favorites]);
 
   // Subjects com counts (só conta lectures com summary)
   const subjectCounts = useMemo(() => {
@@ -351,11 +436,12 @@ function ResumosView({ user }: { user: User }) {
               <Plus className="h-4 w-4" /> Nova matéria
             </Link>
           </Button>
-          <Button variant="gradient" disabled title="Crie resumos a partir de uma aula">
+          <Button
+            variant="gradient"
+            onClick={() => setNewSummaryOpen(true)}
+            title="Gerar resumo a partir de uma aula"
+          >
             <Sparkles className="h-4 w-4" /> Novo resumo
-            <span className="ml-1.5 hidden sm:inline-flex items-center rounded-full bg-white/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider">
-              Em breve
-            </span>
           </Button>
         </div>
       </div>
@@ -463,6 +549,28 @@ function ResumosView({ user }: { user: User }) {
         </DropdownMenu>
       </div>
 
+      {/* Active filter chip — quando filtrando por matéria via sidebar */}
+      {filterSubject !== "all" && subjectById[filterSubject] && (
+        <div className="mb-4 flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Filtrando por:</span>
+          <Badge
+            variant="secondary"
+            className="gap-1 bg-primary/10 text-primary border-primary/20"
+          >
+            <Folder className="h-3 w-3" />
+            {subjectById[filterSubject].name}
+            <button
+              type="button"
+              onClick={() => setFilterSubject("all")}
+              className="ml-1 -mr-0.5 hover:text-primary/70"
+              aria-label="Limpar filtro de matéria"
+            >
+              ×
+            </button>
+          </Badge>
+        </div>
+      )}
+
       {/* Grid: conteúdo (9) + sidebar (3) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className="lg:col-span-9 space-y-6">
@@ -473,7 +581,7 @@ function ResumosView({ user }: { user: User }) {
               subject={featuredSubject}
             />
           ) : (
-            <FeaturedEmptyState />
+            <FeaturedEmptyState onCreate={() => setNewSummaryOpen(true)} />
           )}
 
           {/* Recent table */}
@@ -511,6 +619,10 @@ function ResumosView({ user }: { user: User }) {
                     key={l.id}
                     lecture={l}
                     subject={subjectById[l.subjectId]}
+                    isFavorite={favorites.includes(l.id)}
+                    isDeleting={deletingId === l.id}
+                    onToggleFavorite={toggleFavorite}
+                    onDeleteSummary={handleDeleteSummary}
                   />
                 ))}
               </div>
@@ -531,10 +643,27 @@ function ResumosView({ user }: { user: User }) {
 
         {/* Sidebar */}
         <div className="lg:col-span-3 space-y-5">
-          <FoldersCard subjects={subjects} subjectCounts={subjectCounts} />
+          <FoldersCard
+            subjects={subjects}
+            subjectCounts={subjectCounts}
+            activeSubjectId={filterSubject}
+            onSelectSubject={(id) => setFilterSubject(id)}
+          />
           <StatsCard stats={stats} />
         </div>
       </div>
+
+      {/* Wizard: gera novo resumo end-to-end */}
+      <ContentWizard
+        open={newSummaryOpen}
+        onOpenChange={setNewSummaryOpen}
+        mode="summary"
+        userId={user.id}
+        onCreated={({ lectureId }) => {
+          // Wizard mode="summary" cria o resumo — leva direto pra tela rica.
+          router.push(`/resumo/${lectureId}`);
+        }}
+      />
     </div>
   );
 }
@@ -550,12 +679,13 @@ function FeaturedSummaryCard({
   lecture: Lecture;
   subject: Subject | undefined;
 }) {
-  const Icon = subject ? getSubjectIcon(subject.name) : FileText;
+  const iconComp = subject ? getSubjectIcon(subject.name) : FileText;
   const date = new Date(lecture.updatedAt);
   const dateLabel = formatDateBR(date);
   const tags = getSummaryTags(lecture, 3);
   const snippet = getSummarySnippet(lecture, 360);
-  const href = `/lecture/${lecture.id}`;
+  // Featured card aponta pra tela rica de visualização do resumo.
+  const href = `/resumo/${lecture.id}`;
 
   return (
     <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 via-card to-fuchsia-500/5 overflow-hidden">
@@ -580,7 +710,10 @@ function FeaturedSummaryCard({
             {subject && (
               <span className="inline-flex items-center gap-1.5">
                 <span className="h-6 w-6 rounded-md bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
-                  <Icon className="h-3.5 w-3.5 text-primary" strokeWidth={2.2} />
+                  {createElement(iconComp, {
+                    className: "h-3.5 w-3.5 text-primary",
+                    strokeWidth: 2.2,
+                  })}
                 </span>
                 <span className="font-medium text-foreground/80">
                   {subject.name}
@@ -650,7 +783,7 @@ function FeaturedSummaryCard({
   );
 }
 
-function FeaturedEmptyState() {
+function FeaturedEmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="rounded-2xl border border-dashed border-border/60 bg-card/40 p-10 text-center">
       <div className="flex justify-center mb-3">
@@ -661,10 +794,8 @@ function FeaturedEmptyState() {
         Os resumos são gerados a partir das aulas que você grava. Comece criando
         sua primeira aula — o Lumio cuida do resto.
       </p>
-      <Button asChild variant="gradient" size="lg" className="mt-6">
-        <Link href="/dashboard">
-          <Sparkles className="h-4 w-4" /> Criar primeiro resumo
-        </Link>
+      <Button variant="gradient" size="lg" className="mt-6" onClick={onCreate}>
+        <Sparkles className="h-4 w-4" /> Criar primeiro resumo
       </Button>
     </div>
   );
@@ -708,25 +839,42 @@ function StatusPill({ status }: { status: SummaryStatus }) {
 function SummaryTableRow({
   lecture,
   subject,
+  isFavorite,
+  isDeleting,
+  onToggleFavorite,
+  onDeleteSummary,
 }: {
   lecture: Lecture;
   subject: Subject | undefined;
+  isFavorite: boolean;
+  isDeleting: boolean;
+  onToggleFavorite: (id: string) => void;
+  onDeleteSummary: (lecture: Lecture) => void;
 }) {
   const status = getStatus(lecture);
   const date = new Date(lecture.updatedAt);
   const dateLabel = formatDateBR(date);
   const tags = getSummaryTags(lecture, 2);
-  const href = `/lecture/${lecture.id}`;
+  // Row da tabela leva pra tela rica do resumo (mantém /lecture só pra "Abrir aula original").
+  const href = `/resumo/${lecture.id}`;
+  const subjectIconComp = subject ? getSubjectIcon(subject.name) : FileText;
+  const hasSummary = !!lecture.summary;
 
   return (
     <Link
       href={href}
-      className="group grid md:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_110px_90px_minmax(0,1.4fr)_120px_44px] grid-cols-[1fr_auto] gap-3 px-5 py-3 hover:bg-secondary/30 transition-colors items-center"
+      className={cn(
+        "group grid md:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_110px_90px_minmax(0,1.4fr)_120px_44px] grid-cols-[1fr_auto] gap-3 px-5 py-3 hover:bg-secondary/30 transition-colors items-center",
+        isDeleting && "opacity-50 pointer-events-none",
+      )}
     >
       {/* Resumo (título + ícone + estrela) */}
       <div className="flex items-center gap-3 min-w-0">
         <div className="h-9 w-9 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
-          <FileText className="h-4 w-4 text-primary" strokeWidth={2.2} />
+          {createElement(subjectIconComp, {
+            className: "h-4 w-4 text-primary",
+            strokeWidth: 2.2,
+          })}
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
@@ -741,13 +889,22 @@ function SummaryTableRow({
           type="button"
           onClick={(e) => {
             e.preventDefault();
+            e.stopPropagation();
+            onToggleFavorite(lecture.id);
           }}
-          className="shrink-0 h-7 w-7 inline-flex items-center justify-center rounded-md text-muted-foreground/60 hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
-          title="Favoritar (em breve)"
-          disabled
-          aria-label="Favoritar resumo"
+          className={cn(
+            "shrink-0 h-7 w-7 inline-flex items-center justify-center rounded-md transition-colors",
+            isFavorite
+              ? "text-amber-500 hover:bg-amber-500/10"
+              : "text-muted-foreground/60 hover:text-amber-500 hover:bg-amber-500/10",
+          )}
+          title={isFavorite ? "Remover dos favoritos" : "Favoritar resumo"}
+          aria-label={isFavorite ? "Remover dos favoritos" : "Favoritar resumo"}
+          aria-pressed={isFavorite}
         >
-          <Star className="h-3.5 w-3.5" />
+          <Star
+            className={cn("h-3.5 w-3.5", isFavorite && "fill-amber-500")}
+          />
         </button>
       </div>
 
@@ -795,15 +952,71 @@ function SummaryTableRow({
         <span className="md:hidden">
           <StatusPill status={status} />
         </span>
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-          }}
-          className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-secondary/60"
-          aria-label="Mais ações"
-        >
-          <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-secondary/60"
+              aria-label="Mais ações"
+            >
+              <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuItem asChild>
+              <Link href={href} className="gap-2 cursor-pointer">
+                <ExternalLink className="h-3.5 w-3.5" />
+                Abrir resumo
+              </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                onToggleFavorite(lecture.id);
+              }}
+              className="gap-2"
+            >
+              <Star
+                className={cn(
+                  "h-3.5 w-3.5",
+                  isFavorite && "fill-amber-500 text-amber-500",
+                )}
+              />
+              {isFavorite ? "Remover favorito" : "Marcar como favorito"}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                toast("Exportar PDF — em breve", {
+                  description: "Estamos finalizando o gerador de PDF.",
+                });
+              }}
+              className="gap-2"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Exportar PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                if (!hasSummary) {
+                  toast.error("Esta aula ainda não tem resumo.");
+                  return;
+                }
+                onDeleteSummary(lecture);
+              }}
+              className="gap-2 text-red-600 focus:text-red-700"
+              disabled={!hasSummary || isDeleting}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Excluir resumo
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </Link>
   );
@@ -816,9 +1029,13 @@ function SummaryTableRow({
 function FoldersCard({
   subjects,
   subjectCounts,
+  activeSubjectId,
+  onSelectSubject,
 }: {
   subjects: Subject[];
   subjectCounts: Record<string, number>;
+  activeSubjectId: string;
+  onSelectSubject: (id: string) => void;
 }) {
   const visible = subjects.slice(0, 6);
   return (
@@ -841,17 +1058,39 @@ function FoldersCard({
           {visible.map((s) => {
             const Icon = getSubjectIcon(s.name);
             const count = subjectCounts[s.id] ?? 0;
+            const isActive = activeSubjectId === s.id;
             return (
               <li key={s.id}>
-                <Link
-                  href={`/subject/${s.id}`}
-                  className="group flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-secondary/40 transition-colors"
+                <button
+                  type="button"
+                  onClick={() => onSelectSubject(isActive ? "all" : s.id)}
+                  className={cn(
+                    "group w-full flex items-center gap-3 px-2 py-2 rounded-lg transition-colors text-left",
+                    isActive
+                      ? "bg-primary/10 hover:bg-primary/15"
+                      : "hover:bg-secondary/40",
+                  )}
+                  aria-pressed={isActive}
                 >
-                  <div className="h-8 w-8 shrink-0 rounded-md bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
+                  <div
+                    className={cn(
+                      "h-8 w-8 shrink-0 rounded-md flex items-center justify-center",
+                      isActive
+                        ? "bg-primary/20"
+                        : "bg-primary/10 dark:bg-primary/15",
+                    )}
+                  >
                     <Folder className="h-3.5 w-3.5 text-primary" strokeWidth={2.2} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium truncate group-hover:text-primary transition-colors flex items-center gap-1.5">
+                    <div
+                      className={cn(
+                        "text-sm font-medium truncate transition-colors flex items-center gap-1.5",
+                        isActive
+                          ? "text-primary"
+                          : "group-hover:text-primary",
+                      )}
+                    >
                       <Icon
                         className="h-3 w-3 text-muted-foreground shrink-0"
                         strokeWidth={2.2}
@@ -863,7 +1102,7 @@ function FoldersCard({
                     </div>
                   </div>
                   <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60 shrink-0" />
-                </Link>
+                </button>
               </li>
             );
           })}
@@ -916,20 +1155,33 @@ function StatsCard({
         <StatLine
           label="Favoritos"
           value={stats.favorites}
-          icon={<Star className="h-3.5 w-3.5 text-muted-foreground" />}
-          muted
+          icon={
+            <Star
+              className={cn(
+                "h-3.5 w-3.5",
+                stats.favorites > 0
+                  ? "fill-amber-500 text-amber-500"
+                  : "text-muted-foreground",
+              )}
+            />
+          }
+          muted={stats.favorites === 0}
         />
       </dl>
 
       <div className="mt-4 pt-3 border-t border-border/40">
-        <span
-          className={cn(
-            "text-xs font-medium inline-flex items-center gap-1 text-muted-foreground/70 cursor-not-allowed",
-          )}
-          title="Em breve"
+        <button
+          type="button"
+          onClick={() =>
+            toast("Relatório completo — em breve", {
+              description:
+                "Estamos preparando uma visão consolidada do seu estudo.",
+            })
+          }
+          className="text-xs font-medium inline-flex items-center gap-1 text-primary hover:gap-1.5 transition-all"
         >
           Ver relatório completo <ArrowRight className="h-3 w-3" />
-        </span>
+        </button>
       </div>
     </div>
   );
@@ -972,3 +1224,4 @@ function StatLine({
     </div>
   );
 }
+

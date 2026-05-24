@@ -19,6 +19,7 @@ export type Subject = {
   name: string;
   emoji: string;
   color: string;
+  icon?: string;
   schedule?: ScheduleSlot[];
   createdAt: string;
 };
@@ -55,12 +56,41 @@ export type LectureSummary = {
   sections: LectureSummarySection[];
 };
 
+export type TranscriptMarker = "concept" | "doubt" | "example";
+export type TranscriptSpeaker = "professor" | "student" | "other";
+
+export type TranscriptEntry = {
+  id: string;
+  startSec: number;
+  endSec: number;
+  speaker: TranscriptSpeaker;
+  text: string;
+  slideIndex?: number;
+  marker?: TranscriptMarker;
+  audioOffsetSec?: number;
+};
+
+export type TranscriptTopic = {
+  id: string;
+  title: string;
+  startSec: number;
+  color: "violet" | "emerald" | "amber" | "rose";
+};
+
+export type TranscriptInsights = {
+  keyTerms: string[];
+  topics: TranscriptTopic[];
+  updatedAt: string;
+};
+
 export type Lecture = {
   id: string;
   userId: string;
   subjectId: string;
   title: string;
   transcript: string;
+  transcriptEntries?: TranscriptEntry[];
+  transcriptInsights?: TranscriptInsights;
   durationSec: number;
   createdAt: string;
   updatedAt: string;
@@ -73,6 +103,8 @@ export type Lecture = {
   correlationUpdatedAt?: string;
   summary?: LectureSummary;
   summaryUpdatedAt?: string;
+  /** URL pública (ou signed) do áudio gravado em paralelo à transcrição. */
+  audioUrl?: string;
 };
 
 export type ChatMessage = {

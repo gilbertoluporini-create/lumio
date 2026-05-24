@@ -56,9 +56,9 @@ export function HowItWorks() {
         <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
           — Como funciona —
         </p>
-        <h2 className="text-3xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
+        <h2 className="text-3xl md:text-5xl font-semibold tracking-[-0.025em] leading-[1.02]">
           Quatro passos.{" "}
-          <span className="font-serif italic font-normal">
+          <span className="font-bold">
             <Highlighter delay={0.3}>Zero fricção</Highlighter>
           </span>
           .
@@ -101,20 +101,13 @@ export function HowItWorks() {
               </div>
 
               <div className="relative h-32 -mx-2 mb-3 flex items-center justify-center">
-                <div
-                  className="pointer-events-none absolute inset-0 m-auto h-24 w-24 rounded-full blur-2xl opacity-50"
-                  style={{
-                    background:
-                      "radial-gradient(closest-side, oklch(0.6 0.25 290 / 0.3), transparent 70%)",
-                  }}
-                />
                 <Image
                   src={step.illustration}
                   alt={step.alt}
                   width={120}
                   height={120}
                   unoptimized
-                  className="relative z-10 object-contain drop-shadow-lg transition-transform group-hover:scale-105 group-hover:-rotate-2"
+                  className="relative z-10 object-contain transition-transform group-hover:scale-105"
                   draggable={false}
                 />
               </div>

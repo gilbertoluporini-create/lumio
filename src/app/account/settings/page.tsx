@@ -168,7 +168,7 @@ function SettingsView({ user }: { user: User }) {
               <div className="flex-1">
                 <p className="text-sm font-medium">Excluir minha conta</p>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Apaga permanentemente todas as aulas, transcrições, slides e seus Lumio Coins. Não dá pra reverter.
+                  Apaga permanentemente todas as aulas, transcrições, slides e seus Lumi Coins. Não dá pra reverter.
                 </p>
               </div>
               <Button

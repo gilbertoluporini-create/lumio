@@ -23,7 +23,7 @@ const MOODS: Record<LumiMood, { src: string; alt: string }> = {
   recording: { src: "/illustrations/lumi-recording.png", alt: "Lumi gravando" },
   confused: { src: "/illustrations/lumi-confused.png", alt: "Lumi confuso" },
   waving: { src: "/illustrations/lumi-waving.png", alt: "Lumi acenando" },
-  coins: { src: "/illustrations/lumi-coins.png", alt: "Lumi com Lumio Coins" },
+  coins: { src: "/illustrations/lumi-coins.png", alt: "Lumi com Lumi Coins" },
   "reading-pdf": { src: "/illustrations/lumi-reading-pdf.png", alt: "Lumi lendo PDF" },
   generating: { src: "/illustrations/lumi-generating.png", alt: "Lumi gerando resumo" },
 };

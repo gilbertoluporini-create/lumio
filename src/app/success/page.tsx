@@ -27,7 +27,7 @@ export default function SuccessPage() {
             Pagamento <span className="font-serif italic">confirmado</span>.
           </h1>
           <p className="mt-4 text-muted-foreground leading-relaxed">
-            Sua assinatura tá ativa e seus Lumio Coins já foram creditados. Em instantes você recebe o recibo por email — já pode entrar e usar tudo.
+            Sua assinatura tá ativa e seus Lumi Coins já foram creditados. Em instantes você recebe o recibo por email — já pode entrar e usar tudo.
           </p>
           <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
             <Button asChild variant="gradient" size="lg" className="min-w-[200px]">

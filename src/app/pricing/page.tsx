@@ -2,37 +2,57 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { ArrowLeft, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { LumioWordmark } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PricingSection } from "@/components/landing/pricing-section";
-import { Magnetic } from "@/components/landing/magnetic";
+import type { BillingInterval } from "@/lib/stripe";
+
+type PaidPlan = "starter" | "pro" | "power" | "annual";
 
 function PricingContent() {
   const router = useRouter();
   const params = useSearchParams();
-  const [loading, setLoading] = useState<"starter" | "pro" | "power" | "annual" | null>(null);
+  const [loading, setLoading] = useState<PaidPlan | null>(null);
 
-  if (params.get("canceled") === "1") {
-    toast.info("Checkout cancelado. Você pode tentar de novo quando quiser.");
-  }
+  const initialInterval: BillingInterval =
+    params.get("interval") === "annual" ? "annual" : "monthly";
+  const [interval, setInterval] = useState<BillingInterval>(initialInterval);
 
-  async function checkout(plan: "starter" | "pro" | "power" | "annual") {
+  useEffect(() => {
+    if (params.get("canceled") === "1") {
+      toast.info("Checkout cancelado. Você pode tentar de novo quando quiser.");
+    }
+  }, [params]);
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (interval === "annual") {
+      url.searchParams.set("interval", "annual");
+    } else {
+      url.searchParams.delete("interval");
+    }
+    window.history.replaceState(null, "", url.toString());
+  }, [interval]);
+
+  async function checkout(plan: PaidPlan, chosenInterval: BillingInterval) {
     setLoading(plan);
     try {
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ plan }),
+        body: JSON.stringify({ plan, interval: chosenInterval }),
       });
       const data = await res.json();
       if (!res.ok) {
         if (res.status === 401) {
           toast.info("Faça login pra continuar com a assinatura.");
-          router.push(`/login?next=/pricing?plan=${plan}`);
+          router.push(
+            `/login?next=/pricing?plan=${plan}&interval=${chosenInterval}`,
+          );
           return;
         }
         toast.error(data?.error || "Falha ao iniciar checkout.");
@@ -46,15 +66,16 @@ function PricingContent() {
     }
   }
 
-  // Hooka os botões da PricingSection sobrescrevendo via event delegation
-  // (PricingSection usa <Link>, então interceptamos)
   return (
     <div className="relative min-h-screen overflow-x-hidden">
       <div className="pointer-events-none fixed inset-0 grid-bg opacity-40" />
 
       <header className="sticky top-0 z-30 backdrop-blur-xl bg-background/70 border-b border-border/40">
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
-          <Link href="/" className="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground transition-colors">
+          <Link
+            href="/"
+            className="flex items-center gap-3 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
             <ArrowLeft className="h-4 w-4" />
             <span>Voltar</span>
           </Link>
@@ -77,12 +98,14 @@ function PricingContent() {
           if (!link) return;
           e.preventDefault();
           const href = link.getAttribute("href") || "";
-          const m = href.match(/plan=(starter|pro|power|annual)/);
-          const plan = (m?.[1] ?? "pro") as "starter" | "pro" | "power" | "annual";
-          checkout(plan);
+          const planMatch = href.match(/plan=(starter|pro|power|annual)/);
+          const intervalMatch = href.match(/interval=(monthly|annual)/);
+          const plan = (planMatch?.[1] ?? "pro") as PaidPlan;
+          const chosenInterval = (intervalMatch?.[1] ?? interval) as BillingInterval;
+          checkout(plan, chosenInterval);
         }}
       >
-        <PricingSection />
+        <PricingSection interval={interval} onIntervalChange={setInterval} />
       </div>
 
       {loading && (

@@ -1,34 +1,14 @@
 "use client";
 
-import { use, useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
+import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  AlertCircle,
-  Bot,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  FileText,
-  Layers,
-  Loader2,
-  Mic,
-  MicOff,
-  Paperclip,
-  Save,
-  Send,
-  Sparkles,
-  Trash2,
-  User as UserIcon,
-} from "lucide-react";
+import { AlertCircle, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
+
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter, LumiScene } from "@/components/brand/lumi";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
 import {
   LectureSummaryView,
   summaryToMarkdown,
@@ -46,16 +26,50 @@ import type {
   LectureSummary,
   Slide,
   Subject,
+  TranscriptInsights,
   User,
 } from "@/lib/types";
 import { renderPdfToImages } from "@/lib/pdf-render";
-import { cn, formatDuration, generateId } from "@/lib/utils";
+import { formatDuration, generateId } from "@/lib/utils";
 import {
   isSpeechRecognitionSupported,
   useSpeechRecognition,
 } from "@/hooks/use-speech-recognition";
+import {
+  AudioRecorder,
+  isAudioRecorderSupported,
+} from "@/lib/audio-recorder";
+import { uploadLectureAudio } from "@/lib/audio-storage";
+import { AudioPlayer } from "@/components/audio/audio-player";
 
-export default function LecturePage({ params }: { params: Promise<{ id: string }> }) {
+import {
+  LectureHeader,
+  type LectureHeaderView,
+} from "@/components/lecture/lecture-header";
+import { LiveTranscriptColumn } from "@/components/lecture/live-transcript-column";
+import { SlidesColumn } from "@/components/lecture/slides-column";
+import { ChatColumn } from "@/components/lecture/chat-column";
+import { KeyPointsCard } from "@/components/lecture/bottom-cards/key-points";
+import { TopicsListCard } from "@/components/lecture/bottom-cards/topics-list";
+import {
+  NextActionsCard,
+  type NextActionId,
+} from "@/components/lecture/bottom-cards/next-actions";
+import { StatsCard } from "@/components/lecture/bottom-cards/stats-card";
+import { useTranscriptSync } from "@/components/lecture/use-transcript-sync";
+
+const SUGGESTED_PROMPTS = [
+  "Faz um resumo da aula",
+  "Quais os pontos principais?",
+  "Crie 5 questões pra revisão",
+  "Explica de novo a parte mais difícil",
+];
+
+export default function LecturePage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
   const { id } = use(params);
   return (
     <AuthGuard>
@@ -68,78 +82,112 @@ export default function LecturePage({ params }: { params: Promise<{ id: string }
   );
 }
 
+type MarkerFilter = "all" | "concept" | "doubt" | "example";
+
 function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const initialTab = searchParams.get("tab"); // transcript | slides | qa | summary | null
+  const initialTab = searchParams.get("tab");
+
   const [lecture, setLecture] = useState<Lecture | null>(null);
   const [subject, setSubject] = useState<Subject | null>(null);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState("");
+
   const [interim, setInterim] = useState("");
-  const [transcript, setTranscript] = useState("");
   const [durationSec, setDurationSec] = useState(0);
+
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [streamingReply, setStreamingReply] = useState("");
+
   const [slides, setSlides] = useState<Slide[] | undefined>(undefined);
-  const [slidesFileName, setSlidesFileName] = useState<string | undefined>(undefined);
+  const [, setSlidesFileName] = useState<string | undefined>(undefined);
   const [attaching, setAttaching] = useState(false);
+  const [currentSlideIdx, setCurrentSlideIdx] = useState(0);
+  const [showPdfBesides, setShowPdfBesides] = useState(true);
+
   const [summary, setSummary] = useState<LectureSummary | undefined>(undefined);
   const [generatingSummary, setGeneratingSummary] = useState(false);
-  const [view, setView] = useState<"live" | "summary">(
+
+  const [view, setView] = useState<LectureHeaderView>(
     initialTab === "summary" ? "summary" : "live",
   );
-  const [leftPanel, setLeftPanel] = useState<"transcript" | "slides">(
-    initialTab === "slides" ? "slides" : "transcript",
-  );
-  // Quando vem de deep link ?tab=qa o foco visual é o chat (panel direito).
-  // Auto-scroll é tratado quando lecture carrega (effect abaixo).
-  const initialFocusQa = useRef(initialTab === "qa");
-  const [currentSlideIdx, setCurrentSlideIdx] = useState(0);
+
+  const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState<MarkerFilter>("all");
+  const [actionLoading, setActionLoading] = useState<NextActionId | null>(null);
+
   const slidesInputRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<number | null>(null);
   const lastTickRef = useRef<number | null>(null);
-  const transcriptBoxRef = useRef<HTMLDivElement>(null);
-  const chatBoxRef = useRef<HTMLDivElement>(null);
 
-  // Refs sempre atualizados — usados pelo auto-trigger pós-stop
-  // (evita closure stale do React)
-  const transcriptRef = useRef(transcript);
-  const interimRef = useRef(interim);
+  // Refs always-fresh
   const slidesRef = useRef(slides);
   const messagesRef = useRef(messages);
-  useEffect(() => {
-    transcriptRef.current = transcript;
-  }, [transcript]);
-  useEffect(() => {
-    interimRef.current = interim;
-  }, [interim]);
+  const durationRef = useRef(0);
+  const currentSlideRef = useRef<number | undefined>(undefined);
   useEffect(() => {
     slidesRef.current = slides;
-  }, [slides]);
+    if (slides && slides.length > 0) {
+      currentSlideRef.current = currentSlideIdx;
+    } else {
+      currentSlideRef.current = undefined;
+    }
+  }, [slides, currentSlideIdx]);
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+  useEffect(() => {
+    durationRef.current = durationSec;
+  }, [durationSec]);
 
   const [browserSupported, setBrowserSupported] = useState(true);
   useEffect(() => {
     setBrowserSupported(isSpeechRecognitionSupported());
   }, []);
 
+  // ===== Audio recording =====
+  const audioRecorderRef = useRef<AudioRecorder | null>(null);
+  const [audioSupported, setAudioSupported] = useState(true);
+  const [audioRecording, setAudioRecording] = useState(false);
+  const [audioUploading, setAudioUploading] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | undefined>(undefined);
+  const audioPlayerRef = useRef<{ seek: (s: number) => void } | null>(null);
+  useEffect(() => {
+    setAudioSupported(isAudioRecorderSupported());
+  }, []);
+  useEffect(() => {
+    return () => {
+      audioRecorderRef.current?.abort();
+      audioRecorderRef.current = null;
+    };
+  }, []);
+
+  // ===== Transcript sync state =====
+  const persistFnRef = useRef<
+    (
+      entries: import("@/lib/types").TranscriptEntry[],
+      insights?: TranscriptInsights,
+    ) => void
+  >(() => {});
+
+  const sync = useTranscriptSync({
+    currentSlideIndexRef: currentSlideRef,
+    durationRef,
+    onPersist: (entries, insights) => persistFnRef.current(entries, insights),
+  });
+
+  // ===== Speech recognition =====
   const speech = useSpeechRecognition({
     lang: "pt-BR",
     onFinal: (text) => {
-      setTranscript((prev) => {
-        const next = (prev ? prev + " " : "") + text.trim();
-        return next.replace(/\s+/g, " ");
-      });
+      sync.addFinal(text);
       setInterim("");
     },
     onInterim: (text) => setInterim(text),
   });
 
+  // ===== Load lecture =====
   useEffect(() => {
     let active = true;
     (async () => {
@@ -151,23 +199,54 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         return;
       }
       setLecture(l);
-      setTitleDraft(l.title);
-      setTranscript(l.transcript || "");
       setDurationSec(l.durationSec || 0);
       setMessages(l.messages || []);
-      setSlides(l.slides);
-      setSlidesFileName(l.slidesFileName);
+      // FIX BUG PDF: trata array vazio como ausência de slides
+      const validSlides =
+        Array.isArray(l.slides) && l.slides.length > 0 ? l.slides : undefined;
+      setSlides(validSlides);
+      setSlidesFileName(validSlides ? l.slidesFileName : undefined);
       setSummary(l.summary);
+      setAudioUrl(l.audioUrl);
+      // Hydrate transcript entries (fallback: split simples se só tiver string)
+      if (l.transcriptEntries && l.transcriptEntries.length > 0) {
+        sync.replaceAll(l.transcriptEntries);
+      } else if (l.transcript) {
+        sync.replaceAll([
+          {
+            id: generateId(),
+            startSec: 0,
+            endSec: l.durationSec || 0,
+            speaker: "professor",
+            text: l.transcript,
+          },
+        ]);
+      }
       const s = await getSubjectAsync(user.id, l.subjectId);
       if (active) setSubject(s);
     })();
     return () => {
       active = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id, lectureId, router]);
 
-  // FIX #1 do code review: contador de duração usando delta real entre ticks.
-  // Tolera throttle de aba em background — soma tempo real (não +1 por tick).
+  // ===== Persist factory (gets lecture from closure when called) =====
+  persistFnRef.current = (entries, insights) => {
+    if (!lecture) return;
+    const transcript = entries.map((e) => e.text).join(" ").trim();
+    updateLectureAsync(user.id, lecture.id, {
+      transcriptEntries: entries,
+      transcript,
+      ...(insights ? { transcriptInsights: insights } : {}),
+    })
+      .then((updated) => {
+        if (updated) setLecture(updated);
+      })
+      .catch((err) => console.error("[lecture] persist entries failed", err));
+  };
+
+  // ===== Duration timer =====
   useEffect(() => {
     if (speech.state === "listening") {
       lastTickRef.current = Date.now();
@@ -191,89 +270,47 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     };
   }, [speech.state]);
 
-  useEffect(() => {
-    if (transcriptBoxRef.current) {
-      transcriptBoxRef.current.scrollTop = transcriptBoxRef.current.scrollHeight;
-    }
-  }, [transcript, interim]);
+  const persist = useCallback(
+    (patch: Partial<Lecture>) => {
+      if (!lecture) return;
+      updateLectureAsync(user.id, lecture.id, patch)
+        .then((updated) => {
+          if (updated) setLecture(updated);
+        })
+        .catch((err) => console.error("[lecture] persist failed", err));
+    },
+    [lecture, user.id],
+  );
 
-  useEffect(() => {
-    if (chatBoxRef.current) {
-      chatBoxRef.current.scrollTop = chatBoxRef.current.scrollHeight;
-    }
-  }, [messages, streamingReply]);
-
-  // Deep-link ?tab=qa: rola pro chat ao carregar
-  useEffect(() => {
-    if (!initialFocusQa.current || !lecture) return;
-    initialFocusQa.current = false;
-    const el = chatBoxRef.current;
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  }, [lecture]);
-
-  const persist = (patch: Partial<Lecture>) => {
-    if (!lecture) return;
-    // Fire-and-forget — UI já está atualizada via state; só sincroniza com storage
-    updateLectureAsync(user.id, lecture.id, patch)
-      .then((updated) => {
-        if (updated) setLecture(updated);
-      })
-      .catch((err) => {
-        console.error("[lecture] persist failed", err);
-      });
-  };
-
-  // FIX #2 do code review: aguarda speech parar de fato antes de persistir/gerar resumo.
-  // O speech.stop() é async (onend dispara um pouco depois com um último burst).
-  // Usamos refs (transcriptRef) pra sempre ler o estado mais recente, não closure stale.
-  function toggleRecording() {
-    if (speech.state === "listening") {
-      speech.stop();
-      // Não persistimos aqui — o effect abaixo dispara quando speech.state vira "idle"
-    } else {
-      if (!browserSupported) {
-        toast.error("Seu navegador não suporta reconhecimento de voz. Use Chrome, Edge ou Safari.");
-        return;
-      }
-      speech.start();
-      persist({ status: "live" });
-    }
-  }
-
-  // Effect responsável por finalizar a gravação: dispara quando speech.state volta a "idle"
+  // ===== Recording control =====
   const wasListeningRef = useRef(false);
-  // Auto-switch pra tab Slides quando slides são anexados
-  const lastSlidesLen = useRef(0);
-  useEffect(() => {
-    const len = slides?.length ?? 0;
-    if (len > 0 && lastSlidesLen.current === 0) {
-      setLeftPanel("slides");
-      setCurrentSlideIdx(0);
-    }
-    lastSlidesLen.current = len;
-  }, [slides]);
-
   useEffect(() => {
     if (speech.state === "listening") {
       wasListeningRef.current = true;
-      setLeftPanel("transcript");
       return;
     }
     if (speech.state === "idle" && wasListeningRef.current) {
       wasListeningRef.current = false;
-      const finalTranscript = transcriptRef.current.trim();
+      // Persiste tudo no stop
+      const entries = sync.entries;
+      const transcript = entries.map((e) => e.text).join(" ").trim();
       persist({
-        transcript: transcriptRef.current,
-        durationSec: Math.round(durationSec),
+        transcript,
+        transcriptEntries: entries,
+        durationSec: Math.round(durationRef.current),
         status: "completed",
       });
-      const hasContent = finalTranscript.length > 50;
+      if (lecture?.id) {
+        void finalizeAudioUpload(lecture.id);
+      }
+      // Classifica e gera insights uma vez ao parar
+      void sync.classifyNow();
+      void sync.refreshInsightsNow(lecture?.title);
+
+      const hasContent = transcript.length > 50;
       const hasSlides = !!slidesRef.current && slidesRef.current.length > 0;
       if (hasContent && (hasSlides || messagesRef.current.length > 0)) {
-        toast.success("Aula salva. Gerando resumo automaticamente…");
-        // Tiny delay pra garantir que o último onresult chegou
+        toast.success("Aula salva. Gerando resumo automaticamente...");
         setTimeout(() => generateSummary({ silent: true }), 250);
       } else {
         toast.success("Aula salva.");
@@ -282,34 +319,57 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [speech.state]);
 
-  function saveTranscript() {
-    persist({ transcript, durationSec });
-    toast.success("Transcrição salva.");
-  }
-
-  function saveTitle() {
-    const t = titleDraft.trim();
-    if (!t) {
-      setTitleDraft(lecture?.title || "");
-      setEditingTitle(false);
+  async function toggleRecording() {
+    if (speech.state === "listening") {
+      speech.stop();
       return;
     }
-    persist({ title: t });
-    setEditingTitle(false);
+    if (!browserSupported) {
+      toast.error(
+        "Seu navegador não suporta reconhecimento de voz. Use Chrome, Edge ou Safari.",
+      );
+      return;
+    }
+    if (audioSupported && !audioRecorderRef.current) {
+      const rec = new AudioRecorder();
+      try {
+        await rec.start();
+        audioRecorderRef.current = rec;
+        setAudioRecording(true);
+      } catch (err) {
+        console.warn("[lecture] audio recorder failed to start", err);
+        audioRecorderRef.current = null;
+        setAudioRecording(false);
+        toast.warning("Sem permissão pra gravar áudio. Transcrição segue normal.");
+      }
+    }
+    speech.start();
+    persist({ status: "live" });
   }
 
-  async function handleDelete() {
-    if (!lecture) return;
-    if (!confirm("Excluir esta aula? Esta ação não pode ser desfeita.")) return;
+  async function finalizeAudioUpload(lectureIdLocal: string) {
+    const rec = audioRecorderRef.current;
+    if (!rec) return;
+    audioRecorderRef.current = null;
+    setAudioRecording(false);
     try {
-      await deleteLectureAsync(user.id, lecture.id);
-      toast.success("Aula excluída.");
-      router.replace("/dashboard");
+      setAudioUploading(true);
+      const blob = await rec.stop();
+      if (!blob || blob.size === 0) return;
+      const result = await uploadLectureAudio(user.id, lectureIdLocal, blob);
+      if (result?.url) {
+        setAudioUrl(result.url);
+        persist({ audioUrl: result.url });
+        toast.success("Áudio salvo na nuvem.");
+      }
     } catch (err) {
-      toast.error(`Erro: ${(err as Error).message}`);
+      console.error("[lecture] finalizeAudioUpload failed", err);
+    } finally {
+      setAudioUploading(false);
     }
   }
 
+  // ===== Slides handling =====
   async function handleSlidesFile(file: File) {
     if (attaching) return;
     if (file.type !== "application/pdf") {
@@ -321,13 +381,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       return;
     }
     setAttaching(true);
-    const t = toast.loading("Renderizando slides do PDF…");
+    const t = toast.loading("Renderizando slides do PDF...");
     try {
-      // 1. Rasteriza páginas pra imagens (client-side)
       const rendered = await renderPdfToImages(file);
-      toast.loading("Extraindo conteúdo de cada slide…", { id: t });
-
-      // 2. Envia o mesmo PDF pro Claude pra extrair texto/título
+      toast.loading("Extraindo conteúdo de cada slide...", { id: t });
       const fd = new FormData();
       fd.append("file", file);
       const res = await fetch("/api/extract-slides", {
@@ -340,8 +397,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         return;
       }
       const extracted: Slide[] = data.slides || [];
-
-      // 3. Mescla: pageNumber em comum recebe imageDataUrl + title/text
       const merged: Slide[] = rendered.map((r) => {
         const match = extracted.find((s) => s.pageNumber === r.pageNumber);
         return {
@@ -351,30 +406,24 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           imageDataUrl: r.imageDataUrl,
         };
       });
-
-      // Caso o extrator retorne slides extras (improvável), inclui sem imagem
       for (const s of extracted) {
         if (!merged.find((m) => m.pageNumber === s.pageNumber)) {
           merged.push({ ...s });
         }
       }
       merged.sort((a, b) => a.pageNumber - b.pageNumber);
-
       setSlides(merged);
       setSlidesFileName(data.fileName || file.name);
+      setCurrentSlideIdx(0);
       persist({
         slides: merged,
         slidesFileName: data.fileName || file.name,
         slidesAddedAt: new Date().toISOString(),
       });
-      if (data.demo) {
-        toast.warning(`Modo demo: ${merged.length} slides com imagens renderizadas mas texto fictício. Configure ANTHROPIC_API_KEY pra extração real.`, {
-          id: t,
-          duration: 6000,
-        });
-      } else {
-        toast.success(`${merged.length} slide${merged.length === 1 ? "" : "s"} anexado${merged.length === 1 ? "" : "s"} com imagens.`, { id: t });
-      }
+      toast.success(
+        `${merged.length} slide${merged.length === 1 ? "" : "s"} anexado${merged.length === 1 ? "" : "s"}.`,
+        { id: t },
+      );
     } catch (err) {
       toast.error(`Erro ao processar PDF: ${(err as Error).message}`, { id: t });
     } finally {
@@ -383,32 +432,56 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     }
   }
 
-  function removeSlides() {
+  // ===== FIX BUG: remove slides — sincroniza e refetch =====
+  async function removeSlides() {
     if (!confirm("Remover os slides anexados?")) return;
     setSlides(undefined);
     setSlidesFileName(undefined);
-    persist({
-      slides: undefined,
-      slidesFileName: undefined,
-      slidesAddedAt: undefined,
-    });
-    toast.success("Slides removidos.");
+    setCurrentSlideIdx(0);
+    if (!lecture) return;
+    try {
+      // Update síncrono no DB com null explícito
+      const updated = await updateLectureAsync(user.id, lecture.id, {
+        slides: undefined,
+        slidesFileName: undefined,
+      });
+      // Refetch pra garantir consistência (não confia só no retorno do UPDATE)
+      const refetched = await getLectureAsync(user.id, lecture.id);
+      const final = refetched ?? updated;
+      if (final) {
+        setLecture(final);
+        const hasSlidesNow =
+          Array.isArray(final.slides) && final.slides.length > 0;
+        if (hasSlidesNow) {
+          // Se voltou com slides ainda (cache stale), force novo update
+          console.warn("[lecture] slides still present after delete, retrying");
+          await updateLectureAsync(user.id, lecture.id, {
+            slides: undefined,
+            slidesFileName: undefined,
+          });
+          setSlides(undefined);
+          setSlidesFileName(undefined);
+        }
+      }
+      toast.success("Slides removidos.");
+    } catch (err) {
+      console.error("[lecture] removeSlides failed", err);
+      toast.error(`Erro ao remover slides: ${(err as Error).message}`);
+    }
   }
 
+  // ===== Summary =====
   async function generateSummary(opts?: { silent?: boolean }) {
     if (generatingSummary) return;
-    // Usa refs pra evitar closure stale (FIX #14 do code review)
-    const finalTranscript = (
-      transcriptRef.current + (interimRef.current ? " " + interimRef.current : "")
-    ).trim();
-    if (!finalTranscript) {
+    const transcript = sync.entries.map((e) => e.text).join(" ").trim();
+    if (!transcript) {
       if (!opts?.silent) {
         toast.error("Transcrição vazia. Grave a aula ou cole o texto antes.");
       }
       return;
     }
     setGeneratingSummary(true);
-    const t = opts?.silent ? null : toast.loading("Gerando resumo da aula…");
+    const t = opts?.silent ? null : toast.loading("Gerando resumo da aula...");
     try {
       const res = await fetch("/api/correlate", {
         method: "POST",
@@ -416,9 +489,14 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         body: JSON.stringify({
           lectureTitle: lecture?.title,
           subject: subject?.name ?? "Geral",
-          transcript: finalTranscript,
+          transcript,
           slides: slidesRef.current ?? undefined,
-          messages: messagesRef.current.map(({ role, content }) => ({ role, content, id: "", createdAt: "" })),
+          messages: messagesRef.current.map(({ role, content }) => ({
+            role,
+            content,
+            id: "",
+            createdAt: "",
+          })),
         }),
       });
       const data = await res.json();
@@ -431,12 +509,8 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       const s: LectureSummary = data.summary;
       setSummary(s);
       persist({ summary: s, summaryUpdatedAt: s.generatedAt });
-      if (data.demo) {
-        if (t) toast.warning("Resumo demo gerado (sem ANTHROPIC_API_KEY).", { id: t });
-      } else {
-        if (t) toast.success("Resumo gerado.", { id: t });
-        else toast.success("Resumo atualizado automaticamente.");
-      }
+      if (t) toast.success("Resumo gerado.", { id: t });
+      else toast.success("Resumo atualizado.");
       setView("summary");
     } catch (err) {
       const msg = (err as Error).message;
@@ -447,20 +521,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     }
   }
 
-  function downloadSummaryMd() {
-    if (!summary || !lecture) return;
-    const md = summaryToMarkdown(lecture, subject, summary);
-    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${(lecture.title || "aula").replace(/[^\w\-]+/g, "_")}__resumo.md`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }
-
+  // ===== Chat =====
   async function sendMessage() {
     const text = input.trim();
     if (!text || sending) return;
@@ -489,18 +550,19 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           context: {
             lectureTitle: lecture.title,
             subject: subject?.name ?? "Geral",
-            transcript: (transcript + (interim ? " " + interim : "")).trim(),
+            transcript: (
+              sync.entries.map((e) => e.text).join(" ") +
+              (interim ? " " + interim : "")
+            ).trim(),
             slides: slides ?? undefined,
           },
         }),
       });
-
       if (!res.ok) {
         const errText = await res.text().catch(() => "");
         throw new Error(errText || `HTTP ${res.status}`);
       }
       if (!res.body) throw new Error("Resposta vazia.");
-
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let acc = "";
@@ -511,7 +573,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         acc += chunk;
         setStreamingReply(acc);
       }
-
       const assistantMsg: ChatMessage = {
         id: generateId(),
         role: "assistant",
@@ -532,6 +593,116 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     }
   }
 
+  // ===== Header handlers =====
+  async function handleDelete() {
+    if (!lecture) return;
+    if (!confirm("Excluir esta aula? Esta ação não pode ser desfeita.")) return;
+    try {
+      await deleteLectureAsync(user.id, lecture.id);
+      toast.success("Aula excluída.");
+      router.replace("/dashboard");
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    }
+  }
+
+  function handleShare() {
+    if (typeof window === "undefined" || !lecture) return;
+    const url = window.location.origin + `/lecture/${lecture.id}`;
+    navigator.clipboard
+      .writeText(url)
+      .then(() => toast.success("Link copiado!"))
+      .catch(() => toast.error("Falha ao copiar link."));
+  }
+
+  function handleExportPdf() {
+    if (!summary || !lecture) {
+      toast.error("Gere o resumo antes de exportar.");
+      return;
+    }
+    const md = summaryToMarkdown(lecture, subject, summary);
+    const blob = new Blob([md], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${(lecture.title || "aula").replace(/[^\w\-]+/g, "_")}__resumo.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleNextAction(id: NextActionId) {
+    if (!lecture) return;
+    if (sync.entries.length === 0) {
+      toast.error("Grave a aula primeiro pra gerar este conteúdo.");
+      return;
+    }
+    setActionLoading(id);
+    try {
+      if (id === "summary") {
+        await generateSummary();
+      } else {
+        // Redireciona pro wizard pré-configurado
+        router.push(`/lecture/${lecture.id}/products?mode=${id}`);
+      }
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  function handleJumpToSlide(idx: number) {
+    setCurrentSlideIdx(idx);
+    if (!showPdfBesides) setShowPdfBesides(true);
+  }
+
+  function handleSelectTopic(startSec: number) {
+    if (audioPlayerRef.current) audioPlayerRef.current.seek(startSec);
+    // Scroll handled by transcript column itself
+  }
+
+  function handlePlay(offsetSec: number) {
+    if (audioPlayerRef.current) audioPlayerRef.current.seek(offsetSec);
+  }
+
+  // ===== Suggestions dinâmicas =====
+  const suggestions = useMemo(() => {
+    if (sync.insights?.keyTerms && sync.insights.keyTerms.length >= 2) {
+      const terms = sync.insights.keyTerms.slice(0, 3);
+      return [
+        `Explique ${terms[0]}`,
+        `Resuma os principais pontos sobre ${terms[1] ?? terms[0]}`,
+        terms[2] ? `Como ${terms[2]} se relaciona com ${terms[0]}?` : SUGGESTED_PROMPTS[2],
+        SUGGESTED_PROMPTS[3],
+      ];
+    }
+    return SUGGESTED_PROMPTS;
+  }, [sync.insights]);
+
+  // ===== Stats =====
+  const doubtsCount = useMemo(
+    () => sync.entries.filter((e) => e.marker === "doubt").length,
+    [sync.entries],
+  );
+  const transcribedPct = useMemo(() => {
+    if (durationSec < 30) return 0;
+    const expectedWords = (durationSec / 60) * 130; // ~130 palavras/min
+    const actualWords = sync.entries
+      .map((e) => e.text.split(/\s+/).length)
+      .reduce((a, b) => a + b, 0);
+    if (expectedWords <= 0) return 0;
+    return Math.min(100, (actualWords / expectedWords) * 100);
+  }, [sync.entries, durationSec]);
+
+  // ===== Synced slide (último entry com slideIndex) =====
+  const syncedSlideIdx = useMemo(() => {
+    for (let i = sync.entries.length - 1; i >= 0; i--) {
+      const s = sync.entries[i].slideIndex;
+      if (typeof s === "number") return s;
+    }
+    return undefined;
+  }, [sync.entries]);
+
   if (!lecture) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -541,383 +712,196 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   }
 
   const isLive = speech.state === "listening";
+  const hasSlides = !!slides && slides.length > 0;
+  const showSlidesColumn = hasSlides && showPdfBesides;
+  const gridCols = showSlidesColumn
+    ? "lg:grid-cols-[1fr_1.2fr_360px]"
+    : "lg:grid-cols-[1fr_360px]";
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-5">
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Button variant="ghost" size="sm" onClick={() => router.push("/dashboard")}>
-          <ChevronLeft className="h-4 w-4" /> Voltar
-        </Button>
-        {subject && (
-          <Badge variant="outline" className="gap-1.5">
-            <span
-              className={cn(
-                "h-2 w-2 rounded-full bg-gradient-to-br shrink-0",
-                subject.color,
-              )}
-            />
-            {subject.name}
-          </Badge>
-        )}
-        {isLive && (
-          <Badge variant="live" className="gap-1.5">
-            <span className="h-1.5 w-1.5 rounded-full bg-red-500 pulse-dot" /> AO VIVO
-          </Badge>
-        )}
-        <div className="ml-auto flex items-center gap-1.5 flex-wrap">
-          <div className="inline-flex rounded-md border border-border/70 bg-card p-0.5">
-            <button
-              onClick={() => setView("live")}
-              className={cn(
-                "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors flex items-center gap-1.5",
-                view === "live"
-                  ? "bg-secondary text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Mic className="h-3 w-3" /> Aula
-            </button>
-            <button
-              onClick={() => setView("summary")}
-              className={cn(
-                "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors flex items-center gap-1.5",
-                view === "summary"
-                  ? "bg-secondary text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Sparkles className="h-3 w-3" /> Resumo
-              {summary && (
-                <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-              )}
-            </button>
-          </div>
-          <Button
-            asChild
-            variant="outline"
-            size="sm"
-            className="text-xs"
-            title="Resumos, flash cards, quiz e mais"
-          >
-            <Link href={`/lecture/${lectureId}/products`}>
-              <Sparkles className="h-3 w-3" /> Produtos
-            </Link>
-          </Button>
-          {view === "live" && (
-            <Button variant="ghost" size="sm" onClick={saveTranscript}>
-              <Save className="h-4 w-4" /> Salvar
-            </Button>
-          )}
-          {view === "summary" && (
-            <Button
-              variant="gradient"
-              size="sm"
-              onClick={() => generateSummary()}
-              disabled={generatingSummary}
-            >
-              {generatingSummary ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Sparkles className="h-4 w-4" />
-              )}
-              {summary ? "Regenerar resumo" : "Gerar resumo"}
-            </Button>
-          )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={handleDelete}
-            className="text-muted-foreground hover:text-destructive"
-            title="Excluir aula"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
+    <>
+      <input
+        ref={slidesInputRef}
+        type="file"
+        accept="application/pdf"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) handleSlidesFile(f);
+        }}
+      />
 
-      <div className="mb-4">
-        {editingTitle ? (
-          <div className="flex items-center gap-2">
-            <Input
-              autoFocus
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              onBlur={saveTitle}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") saveTitle();
-                if (e.key === "Escape") {
-                  setTitleDraft(lecture.title);
-                  setEditingTitle(false);
-                }
-              }}
-              className="text-xl font-semibold h-11"
-            />
-            <Button variant="ghost" size="icon" onClick={saveTitle}>
-              <Check className="h-4 w-4" />
-            </Button>
+      <LectureHeader
+        title={lecture.title}
+        subjectName={subject?.name}
+        subjectColor={subject?.color}
+        professorName={user.name}
+        isLive={isLive}
+        durationSec={durationSec}
+        view={view}
+        hasSummary={!!summary}
+        generatingSummary={generatingSummary}
+        productsHref={`/lecture/${lecture.id}/products`}
+        onTitleChange={(t) => persist({ title: t })}
+        onToggleRecording={toggleRecording}
+        onChangeView={(v) => setView(v)}
+        onSave={() => {
+          persist({
+            transcript: sync.entries.map((e) => e.text).join(" "),
+            transcriptEntries: sync.entries,
+            durationSec,
+          });
+          toast.success("Aula salva.");
+        }}
+        onGenerateSummary={view === "summary" ? () => generateSummary() : undefined}
+        onShare={handleShare}
+        onExportPdf={handleExportPdf}
+        onDelete={handleDelete}
+        onBack={() => router.push("/dashboard")}
+      />
+
+      <div className="mx-auto max-w-[1600px] px-4 py-5 space-y-5">
+        {!browserSupported && (
+          <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-5 py-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>
+              Reconhecimento de voz não disponível. Use Chrome, Edge ou Safari.
+            </span>
           </div>
+        )}
+        {speech.error && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-5 py-3 text-sm text-destructive flex items-start gap-2">
+            <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
+            <span>{speech.error}</span>
+          </div>
+        )}
+
+        {view === "summary" ? (
+          <SummaryPane
+            lecture={lecture}
+            subject={subject}
+            summary={summary}
+            slides={slides}
+            generating={generatingSummary}
+            onGenerate={() => generateSummary()}
+            onDownload={handleExportPdf}
+          />
         ) : (
-          <h1
-            className="text-2xl md:text-3xl font-semibold tracking-tight cursor-text hover:bg-secondary/40 rounded-md px-2 -mx-2 py-1 transition-colors"
-            onClick={() => setEditingTitle(true)}
-            title="Clique pra renomear"
-          >
-            {lecture.title}
-          </h1>
+          <>
+            <div className={`grid gap-6 ${gridCols}`}>
+              <LiveTranscriptColumn
+                entries={sync.entries}
+                interim={interim}
+                isLive={isLive}
+                keyTerms={sync.insights?.keyTerms ?? []}
+                hasAudio={!!audioUrl}
+                search={search}
+                activeFilter={activeFilter}
+                onSearchChange={setSearch}
+                onFilterChange={setActiveFilter}
+                onPlay={handlePlay}
+                onJumpToSlide={handleJumpToSlide}
+              />
+
+              {showSlidesColumn && (
+                <SlidesColumn
+                  slides={slides}
+                  attaching={attaching}
+                  showPdfBesides={showPdfBesides}
+                  onTogglePdfBesides={setShowPdfBesides}
+                  currentIdx={currentSlideIdx}
+                  onSelect={setCurrentSlideIdx}
+                  onAttachClick={() => slidesInputRef.current?.click()}
+                  onRemove={removeSlides}
+                  syncedSlideIdx={syncedSlideIdx}
+                />
+              )}
+
+              <ChatColumn
+                messages={messages}
+                streamingReply={streamingReply}
+                suggestions={suggestions}
+                input={input}
+                onInputChange={setInput}
+                onSend={sendMessage}
+                sending={sending}
+              />
+            </div>
+
+            {!hasSlides && (
+              <div className="rounded-2xl border border-dashed border-border/60 bg-card/30 p-6 flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
+                    <Sparkles className="h-5 w-5 text-violet-500" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold">
+                      Anexe os slides pra ativar a sincronização
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Cada frase será correlacionada com o slide aberto no momento.
+                    </p>
+                  </div>
+                </div>
+                <Button
+                  onClick={() => slidesInputRef.current?.click()}
+                  variant="gradient"
+                  size="sm"
+                  disabled={attaching}
+                >
+                  {attaching ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Anexar PDF"
+                  )}
+                </Button>
+              </div>
+            )}
+
+            {audioUrl && !isLive && (
+              <div className="rounded-2xl border border-border/60 bg-card p-4">
+                <AudioPlayer src={audioUrl} initialDurationSec={durationSec} />
+              </div>
+            )}
+
+            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+              <KeyPointsCard
+                terms={sync.insights?.keyTerms ?? []}
+                activeTerm={search || undefined}
+                onSelectTerm={(t) => setSearch(t)}
+              />
+              <TopicsListCard
+                topics={sync.insights?.topics ?? []}
+                onSelect={handleSelectTopic}
+              />
+              <NextActionsCard
+                loading={actionLoading}
+                onAction={handleNextAction}
+                disabled={sync.entries.length === 0}
+              />
+              <StatsCard
+                slidesCount={slides?.length ?? 0}
+                durationSec={durationSec}
+                transcribedPct={transcribedPct}
+                doubtsCount={doubtsCount}
+              />
+            </div>
+
+            {audioUploading && (
+              <div className="text-xs text-muted-foreground text-center inline-flex items-center justify-center gap-1.5">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Salvando áudio na nuvem...
+              </div>
+            )}
+            {audioRecording && (
+              <div className="text-xs text-rose-600 dark:text-rose-400 text-center font-medium">
+                ● Gravando áudio em paralelo à transcrição
+              </div>
+            )}
+          </>
         )}
       </div>
-
-      {view === "summary" ? (
-        <SummaryPane
-          lecture={lecture}
-          subject={subject}
-          summary={summary}
-          slides={slides}
-          generating={generatingSummary}
-          onGenerate={() => generateSummary()}
-          onDownload={downloadSummaryMd}
-        />
-      ) : (
-      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5 min-h-[70vh]">
-        {/* LEFT PANEL — tabs: Transcrição | Slides */}
-        <div className="flex flex-col rounded-xl border border-border/70 bg-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border/60 px-3 py-2.5 bg-card gap-2 flex-wrap">
-            <div className="inline-flex rounded-md border border-border/70 bg-background p-0.5">
-              <button
-                onClick={() => setLeftPanel("transcript")}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors flex items-center gap-1.5",
-                  leftPanel === "transcript"
-                    ? "bg-secondary text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <FileText className="h-3.5 w-3.5" />
-                Transcrição
-                {durationSec > 0 && (
-                  <span className="text-[10px] text-muted-foreground/70 font-mono ml-1">
-                    {formatDuration(durationSec)}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setLeftPanel("slides")}
-                className={cn(
-                  "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors flex items-center gap-1.5",
-                  leftPanel === "slides"
-                    ? "bg-secondary text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <Layers className="h-3.5 w-3.5" />
-                Slides
-                {slides && slides.length > 0 && (
-                  <Badge variant="secondary" className="rounded-full px-1.5 py-0 text-[10px]">
-                    {slides.length}
-                  </Badge>
-                )}
-              </button>
-            </div>
-
-            <div className="flex items-center gap-1.5">
-              <input
-                ref={slidesInputRef}
-                type="file"
-                accept="application/pdf"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleSlidesFile(f);
-                }}
-              />
-              <Button
-                variant={isLive ? "destructive" : "gradient"}
-                size="sm"
-                onClick={toggleRecording}
-                disabled={!browserSupported && !isLive}
-              >
-                {isLive ? (
-                  <>
-                    <MicOff className="h-4 w-4" /> Pausar
-                  </>
-                ) : (
-                  <>
-                    <Mic className="h-4 w-4" /> {durationSec > 0 ? "Continuar" : "Iniciar"}
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {!browserSupported && leftPanel === "transcript" && (
-            <div className="border-b border-amber-500/30 bg-amber-500/10 px-5 py-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span>
-                Reconhecimento de voz não disponível neste navegador. Use Chrome, Edge ou Safari pra gravar — ou cole o texto manualmente abaixo.
-              </span>
-            </div>
-          )}
-
-          {speech.error && leftPanel === "transcript" && (
-            <div className="border-b border-destructive/30 bg-destructive/10 px-5 py-3 text-sm text-destructive flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 mt-0.5 shrink-0" />
-              <span>{speech.error}</span>
-            </div>
-          )}
-
-          {leftPanel === "transcript" ? (
-            <>
-              <div
-                ref={transcriptBoxRef}
-                className="flex-1 overflow-y-auto p-5 scrollbar-thin"
-              >
-                {transcript || interim ? (
-                  <div className="text-sm leading-relaxed text-foreground whitespace-pre-wrap">
-                    {transcript}
-                    {interim && (
-                      <span className="text-muted-foreground italic ml-1">
-                        {" "}
-                        {interim}
-                      </span>
-                    )}
-                    {isLive && (
-                      <span className="inline-block ml-1 h-4 w-0.5 bg-primary align-middle animate-pulse" />
-                    )}
-                  </div>
-                ) : (
-                  <div className="h-full flex flex-col items-center justify-center text-center py-12">
-                    <div className="mb-2">
-                      <LumiCharacter mood={isLive ? "recording" : "default"} size="lg" float />
-                    </div>
-                    <p className="text-base font-semibold">
-                      {isLive ? "Tô ouvindo…" : "Pronto pra começar?"}
-                    </p>
-                    <p className="mt-1.5 text-xs text-muted-foreground max-w-xs">
-                      {isLive
-                        ? "A transcrição aparece aqui assim que o Lumi reconhecer as primeiras palavras."
-                        : "Clique em \"Iniciar\" e o Lumio começa a transcrever em tempo real. Você também pode colar o texto na caixa abaixo."}
-                    </p>
-                  </div>
-                )}
-              </div>
-
-              <div className="border-t border-border/60 p-3 bg-card">
-                <Textarea
-                  placeholder="Edite ou cole a transcrição manualmente aqui…"
-                  value={transcript}
-                  onChange={(e) => setTranscript(e.target.value)}
-                  onBlur={() => persist({ transcript })}
-                  className="min-h-[80px] text-sm scrollbar-thin"
-                />
-              </div>
-            </>
-          ) : (
-            <SlidesViewer
-              slides={slides}
-              slidesFileName={slidesFileName}
-              attaching={attaching}
-              currentIdx={currentSlideIdx}
-              onSelect={setCurrentSlideIdx}
-              onAttachClick={() => slidesInputRef.current?.click()}
-              onRemove={removeSlides}
-            />
-          )}
-        </div>
-
-        {/* CHAT PANEL */}
-        <div className="flex flex-col rounded-xl border border-border/70 bg-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
-            <div className="flex items-center gap-2">
-              <Bot className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">Chat com a aula</span>
-            </div>
-            <Badge variant="outline" className="gap-1 text-[10px]">
-              <Sparkles className="h-2.5 w-2.5 text-primary" /> Claude
-            </Badge>
-          </div>
-
-          <div
-            ref={chatBoxRef}
-            className="flex-1 overflow-y-auto p-4 space-y-3 scrollbar-thin"
-          >
-            {messages.length === 0 && !streamingReply && (
-              <div className="h-full flex flex-col items-center justify-center text-center py-8">
-                <div className="mb-2">
-                  <LumiCharacter mood="thinking" size="md" float />
-                </div>
-                <p className="text-sm font-semibold">Pergunte sobre a aula</p>
-                <p className="mt-1 text-xs text-muted-foreground max-w-[260px]">
-                  O Lumi enxerga toda a transcrição e os slides. Tire dúvidas, peça resumos ou explicações.
-                </p>
-                <div className="mt-5 flex flex-wrap gap-2 justify-center max-w-sm">
-                  {SUGGESTED_PROMPTS.map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setInput(p)}
-                      className="text-xs rounded-full border border-border/60 bg-background hover:bg-secondary/60 px-3 py-1.5 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {messages.map((m) => (
-              <ChatBubble key={m.id} message={m} />
-            ))}
-            {streamingReply && (
-              <ChatBubble
-                message={{
-                  id: "streaming",
-                  role: "assistant",
-                  content: streamingReply,
-                  createdAt: new Date().toISOString(),
-                }}
-                streaming
-              />
-            )}
-          </div>
-
-          <div className="border-t border-border/60 p-3 bg-card">
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                sendMessage();
-              }}
-              className="flex items-end gap-2"
-            >
-              <Textarea
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage();
-                  }
-                }}
-                placeholder={
-                  transcript
-                    ? "Pergunte sobre a aula…"
-                    : "Pergunte algo (transcreva primeiro pra IA ter contexto)…"
-                }
-                className="min-h-[44px] max-h-[160px] text-sm resize-none"
-                rows={1}
-              />
-              <Button
-                type="submit"
-                variant="gradient"
-                size="icon"
-                disabled={sending || !input.trim()}
-              >
-                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-              </Button>
-            </form>
-          </div>
-        </div>
-      </div>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -944,12 +928,14 @@ function SummaryPane({
         <div className="flex justify-center mb-3">
           <LumiScene scene="funnel-summary" className="w-[280px]" float />
         </div>
-        <h3 className="text-base font-semibold">Gerando resumo da aula…</h3>
+        <h3 className="text-base font-semibold">Gerando resumo da aula...</h3>
         <p className="text-sm text-muted-foreground mt-2">
           O Lumi tá correlacionando a transcrição
           {slides && slides.length > 0 ? `, os ${slides.length} slides` : ""}
           {lecture.messages.length > 0 ? " e as perguntas do chat" : ""}.
-          Pode levar alguns segundos.
+        </p>
+        <p className="mt-3 font-mono text-xs text-muted-foreground/70">
+          {formatDuration(lecture.durationSec)}
         </p>
       </div>
     );
@@ -962,10 +948,16 @@ function SummaryPane({
         </div>
         <h3 className="text-base font-semibold">Nenhum resumo ainda</h3>
         <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-          O resumo é gerado automaticamente quando você pausa a gravação.
-          Você também pode gerar manualmente quando quiser.
+          O resumo é gerado automaticamente quando você para a gravação.
+          Você também pode gerar manualmente.
         </p>
-        <Button onClick={onGenerate} variant="gradient" size="lg" className="mt-6" disabled={generating}>
+        <Button
+          onClick={onGenerate}
+          variant="gradient"
+          size="lg"
+          className="mt-6"
+          disabled={generating}
+        >
           <Sparkles className="h-4 w-4" /> Gerar resumo agora
         </Button>
       </div>
@@ -979,214 +971,5 @@ function SummaryPane({
       slides={slides}
       onDownloadMarkdown={onDownload}
     />
-  );
-}
-
-function ChatBubble({ message, streaming }: { message: ChatMessage; streaming?: boolean }) {
-  const isUser = message.role === "user";
-  return (
-    <div className={cn("flex gap-2", isUser ? "justify-end" : "justify-start")}>
-      {!isUser && (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-violet-500 mt-0.5">
-          <Bot className="h-3.5 w-3.5 text-white" />
-        </div>
-      )}
-      <div
-        className={cn(
-          "max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap",
-          isUser
-            ? "bg-primary text-primary-foreground rounded-br-sm"
-            : "bg-secondary/70 text-foreground rounded-bl-sm",
-        )}
-      >
-        {message.content}
-        {streaming && (
-          <span className="inline-block ml-1 h-3 w-0.5 bg-current animate-pulse align-middle" />
-        )}
-      </div>
-      {isUser && (
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-secondary border border-border/60 mt-0.5">
-          <UserIcon className="h-3.5 w-3.5 text-muted-foreground" />
-        </div>
-      )}
-    </div>
-  );
-}
-
-const SUGGESTED_PROMPTS = [
-  "Faz um resumo da aula",
-  "Quais os pontos principais?",
-  "Crie 5 questões pra revisão",
-  "Explica de novo a parte mais difícil",
-];
-
-function SlidesViewer({
-  slides,
-  slidesFileName,
-  attaching,
-  currentIdx,
-  onSelect,
-  onAttachClick,
-  onRemove,
-}: {
-  slides: Slide[] | undefined;
-  slidesFileName: string | undefined;
-  attaching: boolean;
-  currentIdx: number;
-  onSelect: (idx: number) => void;
-  onAttachClick: () => void;
-  onRemove: () => void;
-}) {
-  if (!slides || slides.length === 0) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8 text-center">
-        <div className="mb-3">
-          {attaching ? (
-            <LumiCharacter mood="generating" size="lg" float />
-          ) : (
-            <LumiCharacter mood="reading-pdf" size="lg" float />
-          )}
-        </div>
-        <h3 className="text-base font-semibold">
-          {attaching ? "Lendo os slides…" : "Anexe os slides da aula"}
-        </h3>
-        <p className="mt-1.5 text-sm text-muted-foreground max-w-xs">
-          {attaching
-            ? "O Lumi tá processando o PDF e extraindo o conteúdo de cada slide."
-            : "Envie o PDF que o professor disponibilizou. O Lumi vai correlacionar cada slide com a transcrição e o chat."}
-        </p>
-        <Button
-          variant="gradient"
-          size="lg"
-          className="mt-6"
-          onClick={onAttachClick}
-          disabled={attaching}
-        >
-          {attaching ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" /> Processando…
-            </>
-          ) : (
-            <>
-              <Paperclip className="h-4 w-4" /> Anexar PDF dos slides
-            </>
-          )}
-        </Button>
-        <p className="mt-3 text-[11px] text-muted-foreground/70">
-          PDF até 20MB · ~16 coins por aula
-        </p>
-      </div>
-    );
-  }
-
-  const safeIdx = Math.min(Math.max(currentIdx, 0), slides.length - 1);
-  const current = slides[safeIdx];
-  const goPrev = () => onSelect(Math.max(0, safeIdx - 1));
-  const goNext = () => onSelect(Math.min(slides.length - 1, safeIdx + 1));
-
-  return (
-    <div className="flex-1 flex flex-col min-h-0">
-      {/* Toolbar com filename + remove */}
-      <div className="flex items-center justify-between border-b border-border/60 px-4 py-2 bg-card/60">
-        <div className="flex items-center gap-2 min-w-0">
-          <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          <span className="text-xs text-muted-foreground truncate">
-            {slidesFileName || "slides.pdf"}
-          </span>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs font-mono text-muted-foreground">
-            {safeIdx + 1} / {slides.length}
-          </span>
-          <button
-            onClick={onRemove}
-            className="text-muted-foreground hover:text-destructive transition-colors"
-            title="Remover slides"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
-
-      {/* Slide grande */}
-      <div className="relative flex-1 min-h-0 bg-muted/30 flex items-center justify-center p-4 overflow-hidden">
-        {current?.imageDataUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={current.imageDataUrl}
-            alt={`Slide ${current.pageNumber}${current.title ? " — " + current.title : ""}`}
-            className="max-h-full max-w-full object-contain rounded-md shadow-lg ring-1 ring-border/40"
-          />
-        ) : (
-          <div className="text-sm text-muted-foreground">Imagem indisponível</div>
-        )}
-
-        {/* Nav buttons sobre a imagem */}
-        {safeIdx > 0 && (
-          <button
-            onClick={goPrev}
-            className="absolute left-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-background/90 backdrop-blur border border-border/60 shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
-            aria-label="Slide anterior"
-          >
-            <ChevronLeft className="h-4 w-4" />
-          </button>
-        )}
-        {safeIdx < slides.length - 1 && (
-          <button
-            onClick={goNext}
-            className="absolute right-2 top-1/2 -translate-y-1/2 h-9 w-9 rounded-full bg-background/90 backdrop-blur border border-border/60 shadow-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-background transition-colors"
-            aria-label="Próximo slide"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        )}
-      </div>
-
-      {/* Título + texto extraído pelo Vision */}
-      {(current?.title || current?.text) && (
-        <div className="border-t border-border/60 px-4 py-3 bg-card/40 max-h-[120px] overflow-y-auto scrollbar-thin">
-          {current.title && (
-            <div className="text-xs font-semibold mb-1">{current.title}</div>
-          )}
-          {current.text && (
-            <p className="text-[11px] text-muted-foreground leading-relaxed line-clamp-3">
-              {current.text}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Strip de thumbnails */}
-      <div className="border-t border-border/60 bg-card p-2">
-        <div className="flex gap-1.5 overflow-x-auto scrollbar-thin pb-1">
-          {slides.map((s, idx) => (
-            <button
-              key={s.pageNumber}
-              onClick={() => onSelect(idx)}
-              className={cn(
-                "shrink-0 rounded-md overflow-hidden border-2 transition-all",
-                idx === safeIdx
-                  ? "border-primary shadow-sm scale-105"
-                  : "border-transparent hover:border-border opacity-70 hover:opacity-100",
-              )}
-              title={`Slide ${s.pageNumber}${s.title ? " — " + s.title : ""}`}
-            >
-              {s.imageDataUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={s.imageDataUrl}
-                  alt={`thumb ${s.pageNumber}`}
-                  className="h-14 w-20 object-cover bg-white"
-                />
-              ) : (
-                <div className="h-14 w-20 bg-muted flex items-center justify-center text-[10px] text-muted-foreground">
-                  {s.pageNumber}
-                </div>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
   );
 }

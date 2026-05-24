@@ -5,17 +5,14 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronRight,
-  Coffee,
   Mail,
   Quote,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { LumioWordmark } from "@/components/brand/logo";
-import { LumiCharacter, LumiScene, LumiSticker } from "@/components/brand/lumi";
-import { LumiIcon, type LumiIconName } from "@/components/brand/lumi-icon";
+import { LumiCharacter, LumiScene } from "@/components/brand/lumi";
 import { LumioCoin } from "@/components/brand/lumio-coin";
-import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   CountUp,
@@ -33,28 +30,14 @@ import { Testimonials } from "@/components/landing/testimonials";
 import { HowItWorks } from "@/components/landing/how-it-works";
 import { Personas } from "@/components/landing/personas";
 import { FaqSection } from "@/components/landing/faq-section";
+import { SubjectsMarquee } from "@/components/landing/subjects-marquee";
+import { ProductsTabs } from "@/components/landing/products-tabs";
+import { BeforeAfter } from "@/components/landing/before-after";
+import { LumiChatMock } from "@/components/landing/lumi-chat-mock";
 
 export default function LandingPage() {
   return (
-    <div className="relative min-h-screen overflow-x-hidden">
-      {/* Subtle paper-grid */}
-      <div className="pointer-events-none fixed inset-0 grid-bg opacity-[0.35]" />
-      {/* Soft glow accents — fixos, sutis, sem custo de cursor */}
-      <div
-        className="pointer-events-none fixed -top-40 right-1/3 h-[600px] w-[600px] opacity-25 blur-2xl"
-        style={{
-          background:
-            "radial-gradient(closest-side, oklch(0.85 0.18 90 / 0.4), transparent 70%)",
-        }}
-      />
-      <div
-        className="pointer-events-none fixed top-1/3 -left-32 h-[500px] w-[500px] opacity-25 blur-2xl"
-        style={{
-          background:
-            "radial-gradient(closest-side, oklch(0.65 0.22 290 / 0.35), transparent 70%)",
-        }}
-      />
-
+    <div className="relative min-h-screen overflow-x-clip">
       {/* Nav */}
       <motion.header
         initial={{ y: -20, opacity: 0 }}
@@ -91,26 +74,15 @@ export default function LandingPage() {
 
       {/* HERO */}
       <section className="relative z-10 mx-auto max-w-6xl px-6 pt-14 pb-20 md:pt-20 lg:pt-24">
-        {/* decorative stickers - desktop only */}
-        <div className="hidden lg:block absolute top-10 left-2 z-0 opacity-80">
-          <LumiSticker sticker="stars-1" size={48} rotate={-12} />
-        </div>
-        <div className="hidden lg:block absolute bottom-16 right-4 z-0 opacity-80">
-          <LumiSticker sticker="pencils" size={60} rotate={18} />
-        </div>
-
         <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-12 lg:gap-16 items-center">
           <div className="text-left relative">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5 }}
-              className="mb-6 inline-flex items-center gap-2.5 rounded-full border border-border/60 bg-card/60 backdrop-blur px-3 py-1"
+              className="mb-6 inline-flex items-center gap-2.5 rounded-full border border-border/60 bg-card/60 px-3 py-1"
             >
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/60" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              </span>
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
               <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-medium">
                 Beta privado · vagas abertas
               </span>
@@ -120,12 +92,12 @@ export default function LandingPage() {
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
-              className="text-[42px] leading-[1.02] sm:text-5xl md:text-6xl lg:text-[64px] font-semibold tracking-tight"
+              className="text-[42px] sm:text-5xl md:text-6xl lg:text-[68px] font-semibold text-display"
             >
               Volte a olhar pro{" "}
-              <span className="font-serif italic font-normal">professor.</span>
+              <span className="gradient-text font-bold">professor.</span>
               <br />
-              <span className="text-foreground/60">
+              <span className="text-foreground/55">
                 A gente cuida do{" "}
                 <PencilUnderline delay={1.2} className="text-foreground">
                   resto
@@ -140,9 +112,9 @@ export default function LandingPage() {
               transition={{ delay: 0.35, duration: 0.6 }}
               className="mt-7 max-w-xl text-lg text-muted-foreground leading-relaxed"
             >
-              Você fala 250 palavras por minuto durante a aula —{" "}
-              <Highlighter delay={1.6}>o Lumi acompanha</Highlighter>. Transcreve em português, responde dúvidas sobre o que{" "}
-              <em className="font-serif">acabou</em> de ser dito, e te entrega resumos, flash cards e quizzes organizados por matéria.
+              Transcreve a aula em tempo real,{" "}
+              <Highlighter delay={1.6}>responde dúvida na hora</Highlighter> e
+              gera resumo, flash card e quiz — organizado por matéria.
             </motion.p>
 
             <motion.div
@@ -180,17 +152,12 @@ export default function LandingPage() {
             >
               <div className="flex items-center gap-3">
                 <div className="flex -space-x-2">
-                  {[
-                    { g: "from-rose-400 to-pink-500", l: "BC" },
-                    { g: "from-amber-400 to-orange-500", l: "FP" },
-                    { g: "from-emerald-400 to-teal-500", l: "VT" },
-                    { g: "from-indigo-400 to-violet-500", l: "HM" },
-                  ].map((a, i) => (
+                  {["A", "B", "C", "D"].map((l, i) => (
                     <div
                       key={i}
-                      className={`h-7 w-7 rounded-full border-2 border-background bg-gradient-to-br ${a.g} flex items-center justify-center text-[9px] font-semibold text-white tracking-wider`}
+                      className="h-7 w-7 rounded-full border-2 border-background bg-muted flex items-center justify-center text-[9px] font-semibold text-muted-foreground tracking-wider"
                     >
-                      {a.l}
+                      {l}
                     </div>
                   ))}
                 </div>
@@ -224,7 +191,7 @@ export default function LandingPage() {
       </section>
 
       {/* MARQUEE */}
-      <section className="relative z-10 border-y border-border/40 bg-card/30 backdrop-blur py-5">
+      <section className="relative z-10 border-y border-border/40 py-5">
         <MarqueeRow
           speed={55}
           items={[
@@ -244,23 +211,42 @@ export default function LandingPage() {
         <LogosRow />
       </section>
 
+      {/* SUBJECTS MARQUEE */}
+      <section className="relative z-10 mx-auto max-w-6xl px-6 pb-12 -mt-4">
+        <Reveal className="text-center mb-6">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium">
+            — Já passou aqui —
+          </p>
+          <h3 className="mt-3 text-xl md:text-2xl font-semibold text-display max-w-xl mx-auto">
+            Funciona com{" "}
+            <span className="gradient-text">qualquer matéria</span>.
+          </h3>
+        </Reveal>
+        <SubjectsMarquee speed={42} />
+        <div className="mt-3">
+          <SubjectsMarquee speed={50} reverse />
+        </div>
+      </section>
+
       {/* STATS */}
       <section className="relative z-10 mx-auto max-w-6xl px-6 py-10">
         <Stagger className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border/40 border-y border-border/40">
           {STATS.map((s) => (
-            <StaggerItem key={s.label} className="py-8 px-6 text-center">
-              <div className="text-5xl md:text-6xl font-serif font-normal text-foreground mb-3">
+            <StaggerItem key={s.label} className="py-9 px-6 text-center">
+              <div className="display-num text-5xl md:text-6xl font-bold text-foreground mb-3 tabular-nums">
                 {typeof s.value === "number" ? (
                   <CountUp to={s.value} suffix={s.suffix ?? ""} />
                 ) : (
-                  s.value
+                  <span className="bg-gradient-to-br from-primary to-violet-500 bg-clip-text text-transparent">
+                    {s.value}
+                  </span>
                 )}
               </div>
-              <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground font-semibold">
                 {s.label}
               </p>
               {s.sub && (
-                <p className="text-[10px] text-muted-foreground/70 mt-1">
+                <p className="text-[10px] text-muted-foreground/70 mt-1.5">
                   {s.sub}
                 </p>
               )}
@@ -276,20 +262,19 @@ export default function LandingPage() {
       <HowItWorks />
 
       {/* MEET LUMI */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-20 overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.1fr] gap-12 lg:gap-16 items-center">
           <Reveal className="order-2 lg:order-1">
             <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
               — Conheça —
             </p>
-            <h2 className="text-4xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
+            <h2 className="text-4xl md:text-5xl font-semibold text-display">
               Esse é o{" "}
-              <span className="font-serif italic font-normal">Lumi</span>.
+              <span className="gradient-text font-bold">Lumi</span>.
             </h2>
             <p className="mt-5 text-lg text-muted-foreground leading-relaxed max-w-lg">
               Companheiro de estudos que escuta junto, anota tudo,{" "}
-              <Highlighter delay={0.3}>e te ajuda quando trava</Highlighter>. Sem
-              julgamento, sem letra miúda, sem mensagem das 3h.
+              <Highlighter delay={0.3}>te ajuda quando trava</Highlighter>.
             </p>
             <div className="mt-7 flex flex-wrap gap-2">
               {[
@@ -307,16 +292,12 @@ export default function LandingPage() {
                 </span>
               ))}
             </div>
+            <div className="mt-7 max-w-md">
+              <LumiChatMock />
+            </div>
           </Reveal>
 
-          <div className="order-1 lg:order-2 relative flex items-center justify-center">
-            <div
-              className="pointer-events-none absolute inset-0 m-auto h-[420px] w-[420px] rounded-full blur-3xl opacity-50"
-              style={{
-                background:
-                  "radial-gradient(closest-side, oklch(0.6 0.25 290 / 0.35), transparent 70%)",
-              }}
-            />
+          <div className="order-1 lg:order-2 relative flex items-center justify-center max-h-[420px] overflow-hidden">
             <LumiCharacter
               mood="studying"
               size="hero"
@@ -330,82 +311,44 @@ export default function LandingPage() {
       {/* PRODUTOS GERADOS */}
       <section
         id="products"
-        className="relative z-10 mx-auto max-w-6xl px-6 py-20"
+        className="relative z-10 mx-auto max-w-6xl px-6 py-20 overflow-hidden"
       >
-        <Reveal className="mb-12 max-w-2xl">
+        <Reveal className="mb-10 max-w-2xl">
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
             — Produtos gerados —
           </p>
-          <h2 className="text-3xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
-            Chat, slides e transcrição:{" "}
-            <span className="font-serif italic font-normal">grátis</span> no
-            plano.
-            <br />
-            <span className="text-foreground/60">
-              Coins servem pra <Highlighter delay={0.4}>produzir</Highlighter>.
-            </span>
+          <h2 className="text-3xl md:text-5xl font-semibold text-display">
+            Um clique vira{" "}
+            <Highlighter delay={0.4}>material de prova</Highlighter>.
           </h2>
-          <p className="mt-5 text-base text-muted-foreground leading-relaxed max-w-xl">
-            Cada produto gerado vai pra subpasta da aula. Você acumula material
-            de estudo conforme grava — e revisa quando quiser.
+          <p className="mt-5 text-base text-muted-foreground max-w-xl">
+            Clique nas abas pra ver cada formato.
           </p>
         </Reveal>
 
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {PRODUCTS.map((p) => (
-            <Reveal
-              key={p.title}
-              className="group relative overflow-hidden rounded-2xl border border-border/60 bg-card p-6 hover:border-primary/40 hover:shadow-md transition-all"
-            >
-              <div className="absolute top-4 right-4 opacity-90">
-                <LumiIcon name={p.icon} size={40} />
-              </div>
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-primary/10 text-primary text-[10px] font-mono font-medium px-2 py-0.5 mb-4">
-                <LumioCoin size={12} /> {p.coins}
-              </div>
-              <h3 className="font-semibold tracking-tight mb-1.5 pr-10">
-                {p.title}
-              </h3>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                {p.desc}
-              </p>
-              {p.soon && (
-                <Badge
-                  variant="secondary"
-                  className="absolute bottom-4 right-4 text-[10px]"
-                >
-                  Em breve
-                </Badge>
-              )}
-            </Reveal>
-          ))}
-        </div>
+        <Reveal>
+          <ProductsTabs />
+        </Reveal>
       </section>
 
-      {/* LUMIO EM AÇÃO */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 py-16">
+      {/* ANTES / DEPOIS — interativo */}
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
         <Reveal className="text-center mb-10 max-w-2xl mx-auto">
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-3">
-            — Em ação —
+            — Antes / Depois —
           </p>
-          <h2 className="text-3xl md:text-4xl font-semibold tracking-tight">
-            Você na aula.{" "}
-            <span className="font-serif italic font-normal">
-              O Lumi nas anotações.
-            </span>
+          <h2 className="text-3xl md:text-4xl font-semibold text-display">
+            Áudio bruto vira{" "}
+            <span className="gradient-text">resumo</span>.
           </h2>
         </Reveal>
-        <Reveal className="relative">
-          <div
-            className="pointer-events-none absolute inset-0 m-auto h-[60%] w-[80%] rounded-3xl blur-3xl opacity-40"
-            style={{
-              background:
-                "radial-gradient(closest-side, oklch(0.6 0.25 290 / 0.4), transparent 70%)",
-            }}
-          />
+        <Reveal className="relative max-w-4xl mx-auto">
+          <BeforeAfter />
+        </Reveal>
+        <Reveal className="relative mt-16">
           <LumiScene
             scene="hero-desk"
-            className="relative z-10 max-w-4xl mx-auto"
+            className="relative z-10 max-w-3xl mx-auto opacity-90"
           />
         </Reveal>
       </section>
@@ -415,22 +358,22 @@ export default function LandingPage() {
         <Reveal>
           <div className="relative rounded-3xl border border-border/60 bg-card/60 backdrop-blur p-8 md:p-12">
             <Quote className="absolute top-6 left-6 h-10 w-10 text-foreground/8" />
-            <p className="text-2xl md:text-3xl leading-relaxed font-serif italic text-foreground/90 pl-2 md:pl-6">
+            <p className="text-2xl md:text-3xl leading-[1.3] font-medium tracking-tight text-foreground/90 pl-2 md:pl-6">
               &ldquo;Eu chegava em casa exausto, com o caderno cheio mas a
               cabeça vazia. O Lumio resolveu isso — agora eu{" "}
-              <span className="not-italic font-sans font-medium">
+              <span>
                 <Highlighter>presto atenção</Highlighter>
               </span>{" "}
               e revisão fica pro fim do dia.&rdquo;
             </p>
             <div className="mt-8 flex items-center gap-3 pl-2 md:pl-6">
-              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-rose-400 to-orange-400 ring-2 ring-background flex items-center justify-center text-xs font-semibold text-white">
-                FP
+              <div className="h-10 w-10 rounded-full bg-muted ring-2 ring-background flex items-center justify-center text-xs font-semibold text-muted-foreground">
+                M
               </div>
               <div>
-                <p className="text-sm font-medium">Felipe P. · Medicina T11</p>
+                <p className="text-sm font-medium">Aluno do 3º ano · Medicina</p>
                 <p className="text-xs text-muted-foreground">
-                  Mandic · Beta privado, maio de 2026
+                  Beta privado, maio de 2026
                 </p>
               </div>
             </div>
@@ -449,31 +392,7 @@ export default function LandingPage() {
 
       {/* CTA */}
       <Reveal className="relative z-10 mx-auto max-w-6xl px-6 py-20">
-        <div className="relative rounded-3xl border border-border/80 bg-gradient-to-br from-primary/10 via-card to-fuchsia-500/10 p-10 md:p-16 text-center overflow-hidden">
-          <div
-            className="absolute -top-32 -right-32 h-[400px] w-[400px] rounded-full opacity-30 blur-2xl"
-            style={{
-              background:
-                "radial-gradient(closest-side, oklch(0.85 0.18 90 / 0.6), transparent 70%)",
-            }}
-          />
-          <div
-            className="absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full opacity-30 blur-2xl"
-            style={{
-              background:
-                "radial-gradient(closest-side, oklch(0.7 0.2 330 / 0.5), transparent 70%)",
-            }}
-          />
-          <div className="absolute inset-0 grid-bg opacity-20" />
-
-          {/* floating stickers */}
-          <div className="hidden md:block absolute top-8 right-12 opacity-90">
-            <LumiSticker sticker="stars-2" size={56} rotate={12} />
-          </div>
-          <div className="hidden md:block absolute bottom-10 left-10 opacity-90">
-            <LumiSticker sticker="bulbs" size={48} rotate={-10} />
-          </div>
-
+        <div className="relative rounded-3xl border border-border/80 bg-card p-10 md:p-16 text-center overflow-hidden">
           <div className="relative">
             <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-background/60 backdrop-blur px-3 py-1">
               <LumioCoin size={14} />
@@ -481,9 +400,9 @@ export default function LandingPage() {
                 50 coins de boas-vindas
               </span>
             </div>
-            <h2 className="text-3xl md:text-5xl lg:text-6xl font-semibold tracking-tight max-w-3xl mx-auto">
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-bold text-display max-w-3xl mx-auto">
               Sua próxima aula já podia estar{" "}
-              <span className="font-serif italic font-normal">resumida</span>.
+              <span className="gradient-text">resumida</span>.
             </h2>
             <p className="mx-auto mt-5 max-w-xl text-muted-foreground text-base md:text-lg">
               30 segundos pra criar conta. Sem cartão. Sem download. Sem letra miúda.
@@ -521,7 +440,7 @@ export default function LandingPage() {
         </div>
       </Reveal>
 
-      <footer className="relative z-10 border-t border-border/40 bg-card/30 mt-8">
+      <footer className="relative z-10 border-t border-border/40 mt-8">
         <div className="mx-auto max-w-6xl px-6 py-12">
           <div className="grid gap-8 md:grid-cols-[1.2fr_1fr_1fr_1fr]">
             <div>
@@ -571,10 +490,8 @@ export default function LandingPage() {
             </div>
           </div>
           <div className="mt-10 pt-6 border-t border-border/40 flex flex-col sm:flex-row items-center justify-between gap-3">
-            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-              © {new Date().getFullYear()} Lumio · Feito com
-              <Coffee className="h-3 w-3 text-amber-700" />
-              em São Paulo, pra quem estuda.
+            <p className="text-xs text-muted-foreground">
+              © {new Date().getFullYear()} Lumio · Feito em São Paulo, pra quem estuda.
             </p>
             <p className="text-[11px] text-muted-foreground/70 font-mono">
               v0.beta · maio 2026
@@ -627,39 +544,6 @@ const STATS: Array<{
   { value: "∞", label: "Histórico", sub: "sem expirar" },
   { value: 4, suffix: "h/dia", label: "Tempo médio salvo", sub: "por estudante" },
   { value: 30, suffix: "s", label: "Pra criar conta", sub: "sem cartão" },
-];
-
-const PRODUCTS: Array<{
-  icon: LumiIconName;
-  title: string;
-  desc: string;
-  coins: number;
-  soon?: boolean;
-}> = [
-  {
-    icon: "document",
-    title: "Resumo estruturado",
-    desc: "Resumo organizado por slide ou bloco, com bullets e dúvidas correlacionadas.",
-    coins: 10,
-  },
-  {
-    icon: "layers",
-    title: "Flash cards",
-    desc: "10 cartões pergunta-resposta com hint e difficulty. Atalhos: ← → e espaço.",
-    coins: 12,
-  },
-  {
-    icon: "trophy",
-    title: "Quiz interativo",
-    desc: "8 questões múltipla escolha com correção comentada. Atalhos 1-4 e Enter.",
-    coins: 15,
-  },
-  {
-    icon: "sparkle",
-    title: "Mapa mental",
-    desc: "Estrutura hierárquica com tema central + ramos coloridos e sub-tópicos.",
-    coins: 20,
-  },
 ];
 
 const BULLETS = [

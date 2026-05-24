@@ -6,12 +6,15 @@ import {
   ArrowRight,
   Calendar,
   FileText,
+  FolderOpen,
+  HelpCircle,
   Home,
+  Layers,
   Mic,
-  Plus,
   Search,
   Settings,
   Sparkles,
+  Star,
   UserIcon,
   type LucideIcon,
 } from "lucide-react";
@@ -24,12 +27,22 @@ import { VisuallyHidden } from "@/components/ui/visually-hidden";
 import { LumiIcon, type LumiIconName } from "@/components/brand/lumi-icon";
 import { LumioCoin } from "@/components/brand/lumio-coin";
 import { listLecturesAsync, listSubjectsAsync } from "@/lib/db";
+import { listFavorites } from "@/lib/favorites";
+import { helpCategories } from "@/lib/help-articles";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
+type CommandGroup =
+  | "Ações"
+  | "Matérias"
+  | "Aulas"
+  | "Resumos"
+  | "Favoritos"
+  | "Ajuda";
+
 type CommandItem = {
   id: string;
-  group: "Ações" | "Matérias" | "Aulas";
+  group: CommandGroup;
   label: string;
   detail?: string;
   href?: string;
@@ -40,6 +53,15 @@ type CommandItem = {
   keywords?: string[];
 };
 
+const GROUP_ORDER: CommandGroup[] = [
+  "Ações",
+  "Favoritos",
+  "Matérias",
+  "Aulas",
+  "Resumos",
+  "Ajuda",
+];
+
 export function CommandPalette({ user }: { user: User }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -47,6 +69,7 @@ export function CommandPalette({ user }: { user: User }) {
   const [selected, setSelected] = useState(0);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
 
   // Cmd+K / Ctrl+K toggle global
   useEffect(() => {
@@ -73,6 +96,8 @@ export function CommandPalette({ user }: { user: User }) {
       if (active) {
         setSubjects(s);
         setLectures(l);
+        const favs = listFavorites(user.id);
+        setFavoriteIds(new Set(favs.map((f) => `${f.kind}:${f.id}`)));
       }
     });
     setQuery("");
@@ -90,27 +115,107 @@ export function CommandPalette({ user }: { user: User }) {
         label: "Ir pro dashboard",
         href: "/dashboard",
         lucide: Home,
-        keywords: ["home", "início"],
+        keywords: ["home", "início", "painel"],
       },
       {
         id: "action:schedule",
         group: "Ações",
-        label: "Ver cronograma",
+        label: "Calendário de estudos",
         href: "/schedule",
-        lumi: "calendar",
-        keywords: ["semana", "horários", "aulas"],
+        lucide: Calendar,
+        keywords: ["agenda", "semana", "horários", "provas", "blocos"],
       },
       {
-        id: "action:documents",
+        id: "action:resumos",
         group: "Ações",
-        label: "Meus documentos",
-        href: "/documents",
-        lumi: "document",
+        label: "Biblioteca de resumos",
+        href: "/resumos",
+        lucide: FileText,
+        keywords: ["resumos", "notas", "highlights"],
+      },
+      {
+        id: "action:flashcards",
+        group: "Ações",
+        label: "Flashcards",
+        href: "/flashcards",
+        lucide: Layers,
+        keywords: ["cards", "srs", "repetição espaçada", "estudo"],
+      },
+      {
+        id: "action:quiz",
+        group: "Ações",
+        label: "Quiz",
+        href: "/quiz",
+        lucide: HelpCircle,
+        keywords: ["questões", "prática", "simulado"],
+      },
+      {
+        id: "action:gravacoes",
+        group: "Ações",
+        label: "Gravações",
+        href: "/gravacoes",
+        lucide: Mic,
+        keywords: ["aulas", "transcrição", "vídeos"],
+      },
+      {
+        id: "action:favoritos",
+        group: "Ações",
+        label: "Favoritos",
+        href: "/favoritos",
+        lucide: Star,
+        keywords: ["estrela", "salvos", "marcados"],
+      },
+      {
+        id: "action:documentos",
+        group: "Ações",
+        label: "Ir pra Meus documentos",
+        href: "/documentos",
+        lucide: FolderOpen,
+        keywords: [
+          "documentos",
+          "materiais",
+          "biblioteca",
+          "pastas",
+          "uploads",
+          "tudo",
+        ],
+      },
+      {
+        id: "action:lumi",
+        group: "Ações",
+        label: "Ir para Assistente Lumi",
+        href: "/lumi",
+        lucide: Sparkles,
+        keywords: [
+          "lumi",
+          "assistente",
+          "chat",
+          "ia",
+          "ai",
+          "perguntar",
+          "tirar dúvida",
+        ],
+      },
+      {
+        id: "action:lumi-chats",
+        group: "Ações",
+        label: "Meus chats com a Lumi",
+        href: "/lumi/chats",
+        lucide: Sparkles,
+        keywords: ["histórico", "conversas", "lumi", "chats"],
+      },
+      {
+        id: "action:help",
+        group: "Ações",
+        label: "Ajuda e suporte",
+        href: "/help",
+        lucide: HelpCircle,
+        keywords: ["faq", "tutorial", "suporte"],
       },
       {
         id: "action:coins",
         group: "Ações",
-        label: "Saldo de Lumio Coins",
+        label: "Saldo de Lumi Coins",
         href: "/account/coins",
         coin: true,
         keywords: ["carteira", "saldo", "comprar"],
@@ -131,11 +236,12 @@ export function CommandPalette({ user }: { user: User }) {
         keywords: ["tema", "notificações"],
       },
       {
-        id: "action:pricing",
+        id: "action:billing",
         group: "Ações",
         label: "Planos e assinatura",
         href: "/account/billing",
         lucide: Sparkles,
+        keywords: ["upgrade", "premium", "stripe"],
       },
     ],
     [],
@@ -172,9 +278,106 @@ export function CommandPalette({ user }: { user: User }) {
     [lectures, subjects],
   );
 
+  const summaryItems: CommandItem[] = useMemo(
+    () =>
+      lectures
+        .filter((l) => l.summary)
+        .slice(0, 30)
+        .map((l) => {
+          const s = subjects.find((x) => x.id === l.subjectId);
+          return {
+            id: `summary:${l.id}`,
+            group: "Resumos" as const,
+            label: l.title,
+            detail: s ? `Resumo · ${s.name}` : "Resumo",
+            href: `/lecture/${l.id}`,
+            lucide: FileText,
+            keywords: [
+              l.title,
+              s?.name ?? "",
+              l.summary?.generalSummary?.slice(0, 60) ?? "",
+            ],
+          };
+        }),
+    [lectures, subjects],
+  );
+
+  const favoriteItems: CommandItem[] = useMemo(() => {
+    const items: CommandItem[] = [];
+    favoriteIds.forEach((key) => {
+      const [kind, id] = key.split(":");
+      if (kind === "lecture") {
+        const l = lectures.find((x) => x.id === id);
+        if (l) {
+          const s = subjects.find((x) => x.id === l.subjectId);
+          items.push({
+            id: `fav:lecture:${id}`,
+            group: "Favoritos",
+            label: l.title,
+            detail: s ? `Aula · ${s.name}` : "Aula",
+            href: `/lecture/${id}`,
+            lucide: Mic,
+            keywords: [l.title, "favorito"],
+          });
+        }
+      } else if (kind === "summary") {
+        const l = lectures.find((x) => x.id === id);
+        if (l) {
+          const s = subjects.find((x) => x.id === l.subjectId);
+          items.push({
+            id: `fav:summary:${id}`,
+            group: "Favoritos",
+            label: l.title,
+            detail: s ? `Resumo · ${s.name}` : "Resumo",
+            href: `/lecture/${id}`,
+            lucide: FileText,
+            keywords: [l.title, "favorito", "resumo"],
+          });
+        }
+      } else if (kind === "subject") {
+        const s = subjects.find((x) => x.id === id);
+        if (s) {
+          items.push({
+            id: `fav:subject:${id}`,
+            group: "Favoritos",
+            label: s.name,
+            detail: "Matéria",
+            href: `/subject/${id}`,
+            lumi: "book",
+            keywords: [s.name, "favorito"],
+          });
+        }
+      }
+    });
+    return items;
+  }, [favoriteIds, lectures, subjects]);
+
+  const helpItems: CommandItem[] = useMemo(
+    () =>
+      helpCategories.flatMap((cat) =>
+        cat.articles.slice(0, 5).map((article) => ({
+          id: `help:${cat.slug}:${article.slug}`,
+          group: "Ajuda" as const,
+          label: article.title,
+          detail: `${cat.title} · ${article.readTimeMin} min`,
+          href: `/help/${cat.slug}/${article.slug}`,
+          lucide: HelpCircle,
+          keywords: [article.title, article.excerpt, cat.title],
+        })),
+      ),
+    [],
+  );
+
   const all = useMemo(
-    () => [...actions, ...subjectItems, ...lectureItems],
-    [actions, subjectItems, lectureItems],
+    () => [
+      ...actions,
+      ...favoriteItems,
+      ...subjectItems,
+      ...lectureItems,
+      ...summaryItems,
+      ...helpItems,
+    ],
+    [actions, favoriteItems, subjectItems, lectureItems, summaryItems, helpItems],
   );
 
   const q = query.trim().toLowerCase();
@@ -187,19 +390,22 @@ export function CommandPalette({ user }: { user: User }) {
     });
   }, [all, q]);
 
-  // Group items pra render
+  // Group items pra render (ordem fixa)
   const grouped = useMemo(() => {
-    const map = new Map<string, CommandItem[]>();
+    const map = new Map<CommandGroup, CommandItem[]>();
     for (const item of filtered) {
       const list = map.get(item.group) ?? [];
       list.push(item);
       map.set(item.group, list);
     }
-    return Array.from(map.entries());
+    return GROUP_ORDER.map(
+      (g) => [g, map.get(g) ?? []] as [CommandGroup, CommandItem[]],
+    ).filter(([, items]) => items.length > 0);
   }, [filtered]);
 
   // Reset selected quando query muda
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelected(0);
   }, [q]);
 
@@ -225,7 +431,7 @@ export function CommandPalette({ user }: { user: User }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogContent className="p-0 overflow-hidden gap-0 max-w-xl">
+      <DialogContent className="p-0 overflow-hidden gap-0 max-w-xl" hideClose>
         <VisuallyHidden>
           <DialogTitle>Comando rápido</DialogTitle>
         </VisuallyHidden>
@@ -234,7 +440,7 @@ export function CommandPalette({ user }: { user: User }) {
           <input
             autoFocus
             type="search"
-            placeholder="Buscar aulas, matérias, ações…"
+            placeholder="Buscar matérias, aulas, resumos…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}

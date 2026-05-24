@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import {
   Activity,
   ArrowRight,
@@ -41,6 +43,7 @@ import {
   Star,
   Stethoscope,
   Syringe,
+  Trophy,
   Users,
   Wind,
   Wrench,
@@ -49,6 +52,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -56,16 +60,27 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { listLecturesAsync, listSubjectsAsync } from "@/lib/db";
+import {
+  formatPracticeTime,
+  getAccuracyByAsset,
+  getStats,
+  listAttemptsAsync,
+  saveAttemptAsync,
+  subscribeAttempts,
+  type QuizAttempt,
+  type QuizStats,
+} from "@/lib/quiz-attempts";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // ============================================================================
 // Quiz payload shape — copiado de QuizView
-// (questions: { question, options, correctIndex, explanation })
 // ============================================================================
 type QuizQuestion = {
   question: string;
@@ -89,6 +104,13 @@ type QuizAssetRow = {
   updated_at: string;
 };
 
+// ============================================================================
+// Filtros
+// ============================================================================
+type DifficultyFilter = "all" | "easy" | "medium" | "hard";
+type StatusFilter = "all" | "untouched" | "in-progress" | "mastered";
+type PeriodFilter = "all" | "7d" | "30d" | "90d";
+
 export default function QuizPage() {
   return (
     <AuthGuard>
@@ -102,7 +124,7 @@ export default function QuizPage() {
 }
 
 // ============================================================================
-// Resolver de ícone por matéria (copiado do dashboard)
+// Resolver de ícone por matéria
 // ============================================================================
 function getSubjectIcon(name: string): LucideIcon {
   const n = name.toLowerCase();
@@ -139,7 +161,7 @@ function getSubjectIcon(name: string): LucideIcon {
 }
 
 // ============================================================================
-// Donut chart — usado pros stat cards + cada banco de questões
+// Donut
 // ============================================================================
 function Donut({
   pct,
@@ -160,7 +182,10 @@ function Donut({
   const dash = (safe / 100) * circ;
 
   return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+    <div
+      className="relative inline-flex items-center justify-center"
+      style={{ width: size, height: size }}
+    >
       <svg width={size} height={size} className="-rotate-90">
         <circle
           cx={size / 2}
@@ -205,7 +230,7 @@ function Donut({
 }
 
 // ============================================================================
-// Sparkline + bar chart (versões mini)
+// Sparkline + bar chart
 // ============================================================================
 function MiniLineChart({ data, height = 32 }: { data: number[]; height?: number }) {
   if (data.length === 0 || data.every((v) => v === 0)) {
@@ -254,27 +279,27 @@ function MiniLineChart({ data, height = 32 }: { data: number[]; height?: number 
   );
 }
 
-function WeekBarChart({ data }: { data: number[] }) {
-  const labels = ["S", "T", "Q", "Q", "S", "S", "D"];
-  const max = Math.max(1, ...data);
+function WeekBarChart({ data }: { data: { day: string; count: number }[] }) {
+  const max = Math.max(1, ...data.map((d) => d.count));
   const todayIdx = (new Date().getDay() + 6) % 7;
   return (
     <div className="flex items-end gap-1 h-10 w-full">
-      {data.map((v, i) => {
-        const pct = v === 0 ? 8 : Math.max(8, (v / max) * 100);
+      {data.map((d, i) => {
+        const pct = d.count === 0 ? 8 : Math.max(8, (d.count / max) * 100);
         const isToday = i === todayIdx;
         return (
           <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0">
             <div
               className={cn(
                 "w-full rounded-t-sm transition-colors",
-                v === 0
+                d.count === 0
                   ? "bg-muted-foreground/15"
                   : isToday
                     ? "bg-primary"
                     : "bg-primary/40",
               )}
               style={{ height: `${pct}%` }}
+              title={`${d.count} ${d.count === 1 ? "questão" : "questões"}`}
             />
             <span
               className={cn(
@@ -282,7 +307,7 @@ function WeekBarChart({ data }: { data: number[] }) {
                 isToday ? "text-primary font-semibold" : "text-muted-foreground",
               )}
             >
-              {labels[i]}
+              {d.day}
             </span>
           </div>
         );
@@ -307,49 +332,116 @@ function useGreeting() {
 // ============================================================================
 // Dificuldade derivada da quantidade de questões
 // ============================================================================
-function difficultyFromCount(n: number): { label: string; tone: string } {
-  if (n < 10) return { label: "Fácil", tone: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300" };
-  if (n <= 20) return { label: "Médio", tone: "bg-amber-500/15 text-amber-700 dark:text-amber-300" };
-  return { label: "Difícil", tone: "bg-rose-500/15 text-rose-700 dark:text-rose-300" };
+function difficultyFromCount(n: number): {
+  key: Exclude<DifficultyFilter, "all">;
+  label: string;
+  tone: string;
+} {
+  if (n < 10) {
+    return {
+      key: "easy",
+      label: "Fácil",
+      tone: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
+    };
+  }
+  if (n <= 20) {
+    return {
+      key: "medium",
+      label: "Médio",
+      tone: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+    };
+  }
+  return {
+    key: "hard",
+    label: "Difícil",
+    tone: "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+  };
+}
+
+function statusFromStats(s: { total: number; accuracy: number }): {
+  key: Exclude<StatusFilter, "all">;
+  label: string;
+} {
+  if (s.total === 0) return { key: "untouched", label: "Não iniciado" };
+  if (s.accuracy >= 80) return { key: "mastered", label: "Dominando" };
+  return { key: "in-progress", label: "Em progresso" };
+}
+
+function withinPeriod(dateIso: string | null, period: PeriodFilter): boolean {
+  if (period === "all" || !dateIso) return period === "all";
+  const d = new Date(dateIso);
+  if (Number.isNaN(d.getTime())) return false;
+  const days = period === "7d" ? 7 : period === "30d" ? 30 : 90;
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return d.getTime() >= cutoff;
+}
+
+function pctDelta(current: number, previous: number): number | null {
+  if (previous === 0) {
+    if (current === 0) return 0;
+    return null; // "novo" — sem baseline
+  }
+  return Math.round(((current - previous) / previous) * 100);
+}
+
+function comingSoon(label: string) {
+  toast.message(`${label} em breve.`, {
+    description: "Estamos costurando o relatório completo.",
+  });
 }
 
 // ============================================================================
 // View principal
 // ============================================================================
 function QuizView({ user }: { user: User }) {
+  const router = useRouter();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [quizzes, setQuizzes] = useState<QuizAssetRow[]>([]);
+  const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeSubjectId, setActiveSubjectId] = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
-  // Selected quiz + question for "Pratique agora"
+  // Filtros
+  const [activeSubjectId, setActiveSubjectId] = useState<string | null>(null);
+  const [difficultyFilter, setDifficultyFilter] =
+    useState<DifficultyFilter>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [periodFilter, setPeriodFilter] = useState<PeriodFilter>("all");
+
+  // Selected quiz + question pra "Pratique agora"
   const [selectedQuizId, setSelectedQuizId] = useState<string | null>(null);
   const [questionIdx, setQuestionIdx] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [revealed, setRevealed] = useState(false);
   const [showExplanation, setShowExplanation] = useState(false);
+  const questionStartRef = useRef<number>(Date.now());
 
   const greeting = useGreeting();
   const firstName = user.name.split(" ")[0] || "estudante";
 
+  // Carrega subjects, lectures, quizzes (Supabase) e attempts (local)
   useEffect(() => {
     let cancel = false;
     async function load() {
       try {
-        const [subs, lecs] = await Promise.all([
+        const [subs, lecs, atts] = await Promise.all([
           listSubjectsAsync(user.id),
           listLecturesAsync(user.id),
+          listAttemptsAsync(user.id),
         ]);
         if (cancel) return;
         setSubjects(subs);
         setLectures(lecs);
+        setAttempts(atts);
 
         if (isSupabaseConfigured()) {
           const supabase = createClient();
           const { data, error } = await supabase
             .from("lecture_assets")
-            .select("id, lecture_id, user_id, kind, payload, created_at, updated_at")
+            .select(
+              "id, lecture_id, user_id, kind, payload, created_at, updated_at",
+            )
             .eq("user_id", user.id)
             .eq("kind", "quiz")
             .order("created_at", { ascending: false });
@@ -374,7 +466,14 @@ function QuizView({ user }: { user: User }) {
     };
   }, [user.id]);
 
-  // Lookup helpers
+  // Reagir a mudanças em attempts (outras abas)
+  useEffect(() => {
+    return subscribeAttempts(user.id, (next) => {
+      setAttempts(next);
+    });
+  }, [user.id]);
+
+  // Lookups
   const lectureById = useMemo(() => {
     const map = new Map<string, Lecture>();
     for (const l of lectures) map.set(l.id, l);
@@ -387,18 +486,53 @@ function QuizView({ user }: { user: User }) {
     return map;
   }, [subjects]);
 
-  // Filtered quizzes by active subject
+  // Stats globais
+  const stats: QuizStats = useMemo(() => getStats(attempts), [attempts]);
+  const statsByAsset = useMemo(() => getAccuracyByAsset(attempts), [attempts]);
+
+  // Filtros aplicados aos bancos
   const filteredQuizzes = useMemo(() => {
-    if (!activeSubjectId) return quizzes;
     return quizzes.filter((q) => {
       const lec = lectureById.get(q.lecture_id);
-      return lec?.subjectId === activeSubjectId;
-    });
-  }, [quizzes, activeSubjectId, lectureById]);
+      if (activeSubjectId && lec?.subjectId !== activeSubjectId) return false;
 
-  // Default-select first quiz
+      const qCount = q.payload?.questions?.length ?? 0;
+      const diff = difficultyFromCount(qCount);
+      if (difficultyFilter !== "all" && diff.key !== difficultyFilter) {
+        return false;
+      }
+
+      const assetStats = statsByAsset.get(q.id) ?? {
+        total: 0,
+        correct: 0,
+        accuracy: 0,
+        lastAt: null,
+      };
+      const status = statusFromStats(assetStats);
+      if (statusFilter !== "all" && status.key !== statusFilter) return false;
+
+      if (periodFilter !== "all") {
+        if (!withinPeriod(assetStats.lastAt ?? q.updated_at, periodFilter)) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+  }, [
+    quizzes,
+    activeSubjectId,
+    difficultyFilter,
+    statusFilter,
+    periodFilter,
+    lectureById,
+    statsByAsset,
+  ]);
+
+  // Default-select first quiz quando lista filtrada muda
   useEffect(() => {
-    if (!loading && filteredQuizzes.length > 0) {
+    if (loading) return;
+    if (filteredQuizzes.length > 0) {
       const stillSelected =
         selectedQuizId && filteredQuizzes.some((q) => q.id === selectedQuizId);
       if (!stillSelected) {
@@ -407,11 +541,17 @@ function QuizView({ user }: { user: User }) {
         setSelectedAnswer(null);
         setRevealed(false);
         setShowExplanation(false);
+        questionStartRef.current = Date.now();
       }
-    } else if (!loading && filteredQuizzes.length === 0) {
+    } else {
       setSelectedQuizId(null);
     }
   }, [filteredQuizzes, loading, selectedQuizId]);
+
+  // Resetar timer quando troca de questão
+  useEffect(() => {
+    questionStartRef.current = Date.now();
+  }, [selectedQuizId, questionIdx]);
 
   const selectedQuiz = useMemo(
     () => quizzes.find((q) => q.id === selectedQuizId) ?? null,
@@ -424,50 +564,88 @@ function QuizView({ user }: { user: User }) {
     ? subjectById.get(selectedLecture.subjectId)
     : null;
 
-  const totalQuestions = useMemo(
+  const totalQuestionsAvailable = useMemo(
     () => quizzes.reduce((acc, q) => acc + (q.payload?.questions?.length ?? 0), 0),
     [quizzes],
   );
 
-  // Stats placeholders — sem persistência ainda
-  const stats = {
-    totalQuestions,
-    correctAnswers: 0,
-    answered: 0,
-    weeklySeries: new Array(8).fill(0),
-    streak: 0,
-    bestStreak: 0,
-    minutesByDay: new Array(7).fill(0),
-    minutesTotal: 0,
-  };
+  const weeklyDelta = pctDelta(stats.answeredThisWeek, stats.answeredLastWeek);
+  const activeFiltersCount =
+    (difficultyFilter !== "all" ? 1 : 0) +
+    (statusFilter !== "all" ? 1 : 0) +
+    (periodFilter !== "all" ? 1 : 0);
 
-  function pickQuiz(id: string) {
-    if (id === selectedQuizId) return;
-    setSelectedQuizId(id);
-    setQuestionIdx(0);
-    setSelectedAnswer(null);
-    setRevealed(false);
-    setShowExplanation(false);
-  }
+  const pickQuiz = useCallback(
+    (id: string) => {
+      if (id === selectedQuizId) return;
+      setSelectedQuizId(id);
+      setQuestionIdx(0);
+      setSelectedAnswer(null);
+      setRevealed(false);
+      setShowExplanation(false);
+      questionStartRef.current = Date.now();
+    },
+    [selectedQuizId],
+  );
 
-  function rotateQuestion() {
+  const rotateQuestion = useCallback(() => {
     if (!selectedQuiz) return;
     const total = selectedQuiz.payload.questions.length;
-    setQuestionIdx((prev) => (prev + 1) % total);
+    if (total <= 1) {
+      setSelectedAnswer(null);
+      setRevealed(false);
+      setShowExplanation(false);
+      questionStartRef.current = Date.now();
+      return;
+    }
+    // Próxima random ≠ atual
+    let next = Math.floor(Math.random() * total);
+    if (next === questionIdx) next = (next + 1) % total;
+    setQuestionIdx(next);
     setSelectedAnswer(null);
     setRevealed(false);
     setShowExplanation(false);
-  }
+    questionStartRef.current = Date.now();
+  }, [selectedQuiz, questionIdx]);
 
-  function answerAndAdvance() {
+  const answerAndAdvance = useCallback(async () => {
+    if (!selectedQuiz) return;
+    const q = selectedQuiz.payload.questions[questionIdx];
+    if (!q) return;
     if (selectedAnswer === null) return;
+
+    // Primeiro clique: revelar
     if (!revealed) {
+      const timeMs = Date.now() - questionStartRef.current;
+      const correct = selectedAnswer === q.correctIndex;
+      const attempt: QuizAttempt = {
+        id:
+          typeof crypto !== "undefined" && "randomUUID" in crypto
+            ? crypto.randomUUID()
+            : `att_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        user_id: user.id,
+        asset_id: selectedQuiz.id,
+        question_index: questionIdx,
+        selected_index: selectedAnswer,
+        correct,
+        answered_at: new Date().toISOString(),
+        time_ms: Math.max(0, timeMs),
+      };
+      try {
+        await saveAttemptAsync(attempt);
+        setAttempts((prev) => [...prev, attempt]);
+      } catch (err) {
+        console.error("[quiz] erro salvando attempt", err);
+        toast.error("Não consegui salvar sua resposta.");
+      }
       setRevealed(true);
       setShowExplanation(true);
       return;
     }
+
+    // Segundo clique: próxima
     rotateQuestion();
-  }
+  }, [selectedQuiz, questionIdx, selectedAnswer, revealed, rotateQuestion, user.id]);
 
   if (loading) {
     return (
@@ -504,31 +682,53 @@ function QuizView({ user }: { user: User }) {
   if (quizzes.length === 0) {
     return (
       <div className="mx-auto max-w-7xl px-5 py-8">
-        <PageHeader greeting={greeting} firstName={firstName} />
+        <PageHeader
+          greeting={greeting}
+          firstName={firstName}
+          onNewQuiz={() => setWizardOpen(true)}
+        />
         <div className="rounded-2xl border border-dashed border-border/60 bg-card/40 px-8 py-16 text-center">
           <div className="flex justify-center mb-3">
             <LumiCharacter mood="thinking" size="lg" float />
           </div>
-          <h2 className="text-xl font-semibold">Você ainda não tem quizzes.</h2>
+          <h2 className="text-xl font-semibold">
+            Você ainda não tem quizzes.
+          </h2>
           <p className="mt-2 text-sm text-muted-foreground max-w-md mx-auto">
-            Gere o primeiro quiz a partir de uma aula gravada — o Lumi monta
-            questões de múltipla escolha com correção comentada.
+            Gere um quiz agora a partir de uma aula, PDF ou material seu — o
+            Lumi monta questões de múltipla escolha com correção comentada.
           </p>
-          <Button asChild variant="gradient" size="lg" className="mt-6">
-            <Link href="/dashboard">
-              <Sparkles className="h-4 w-4" /> Criar primeiro quiz
-            </Link>
+          <Button
+            variant="gradient"
+            size="lg"
+            className="mt-6"
+            onClick={() => setWizardOpen(true)}
+          >
+            <Plus className="h-4 w-4" /> Criar primeiro quiz
           </Button>
         </div>
+        <ContentWizard
+          open={wizardOpen}
+          onOpenChange={setWizardOpen}
+          mode="quiz"
+          userId={user.id}
+          onCreated={({ lectureId }) => {
+            router.push(`/lecture/${lectureId}/products`);
+          }}
+        />
       </div>
     );
   }
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-8">
-      <PageHeader greeting={greeting} firstName={firstName} />
+      <PageHeader
+        greeting={greeting}
+        firstName={firstName}
+        onNewQuiz={() => setWizardOpen(true)}
+      />
 
-      {/* Stat cards */}
+      {/* KPI cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {/* 1. Desempenho geral */}
         <div className="rounded-2xl border border-border/60 bg-card p-5">
@@ -536,28 +736,41 @@ function QuizView({ user }: { user: User }) {
             Desempenho geral
           </div>
           <div className="flex items-center gap-4">
-            <Donut pct={null} size={64} stroke={8} muted />
-            <div className="min-w-0 flex-1 space-y-0.5">
+            <div className="flex flex-col items-center">
+              <Donut
+                pct={stats.total === 0 ? null : stats.accuracy}
+                size={68}
+                stroke={8}
+                muted={stats.total === 0}
+              />
+              <span className="mt-1 text-[10px] text-muted-foreground">
+                de acerto
+              </span>
+            </div>
+            <div className="min-w-0 flex-1 space-y-1">
               <div className="text-[11px] text-muted-foreground">
-                Total de questões:{" "}
+                Respondidas:{" "}
                 <span className="font-mono font-semibold text-foreground tabular-nums">
-                  {stats.totalQuestions}
+                  {stats.total.toLocaleString("pt-BR")}
                 </span>
               </div>
               <div className="text-[11px] text-muted-foreground">
                 Corretas:{" "}
                 <span className="font-mono font-semibold text-foreground tabular-nums">
-                  {stats.correctAnswers}
+                  {stats.correct.toLocaleString("pt-BR")}
                 </span>
               </div>
               <div className="text-[10px] text-muted-foreground/80 pt-1">
-                Responda quizzes pra ver
+                {totalQuestionsAvailable.toLocaleString("pt-BR")} disponíveis
               </div>
             </div>
           </div>
-          <div className="mt-3 text-[11px] text-primary font-medium inline-flex items-center gap-1">
+          <button
+            onClick={() => comingSoon("Relatório completo")}
+            className="mt-3 text-[11px] text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+          >
             Ver relatório completo <ArrowRight className="h-3 w-3" />
-          </div>
+          </button>
         </div>
 
         {/* 2. Questões respondidas */}
@@ -568,19 +781,33 @@ function QuizView({ user }: { user: User }) {
           <div className="flex items-end justify-between gap-3">
             <div className="min-w-0">
               <div className="text-3xl md:text-4xl font-semibold font-mono tabular-nums leading-none">
-                {stats.answered}
+                {stats.total.toLocaleString("pt-BR")}
               </div>
-              <div className="mt-1 text-[11px] text-muted-foreground">
-                +0% vs semana passada
+              <div
+                className={cn(
+                  "mt-1 text-[11px]",
+                  weeklyDelta === null
+                    ? "text-muted-foreground"
+                    : weeklyDelta >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-rose-600 dark:text-rose-400",
+                )}
+              >
+                {weeklyDelta === null
+                  ? "primeira semana"
+                  : `${weeklyDelta >= 0 ? "+" : ""}${weeklyDelta}% vs. semana passada`}
               </div>
             </div>
-            <div className="w-20 h-10 shrink-0 opacity-70">
+            <div className="w-20 h-10 shrink-0">
               <MiniLineChart data={stats.weeklySeries} height={40} />
             </div>
           </div>
-          <div className="mt-3 text-[11px] text-primary font-medium inline-flex items-center gap-1">
+          <button
+            onClick={() => comingSoon("Histórico")}
+            className="mt-3 text-[11px] text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+          >
             Ver histórico <ArrowRight className="h-3 w-3" />
-          </div>
+          </button>
         </div>
 
         {/* 3. Sequência atual */}
@@ -589,7 +816,14 @@ function QuizView({ user }: { user: User }) {
             Sequência atual
           </div>
           <div className="flex items-center gap-2">
-            <Flame className="h-7 w-7 text-amber-500" />
+            <Flame
+              className={cn(
+                "h-7 w-7",
+                stats.streak > 0
+                  ? "text-amber-500"
+                  : "text-muted-foreground/40",
+              )}
+            />
             <div className="text-3xl md:text-4xl font-semibold font-mono tabular-nums leading-none">
               {stats.streak}
             </div>
@@ -597,12 +831,16 @@ function QuizView({ user }: { user: User }) {
               dia{stats.streak === 1 ? "" : "s"}
             </div>
           </div>
-          <div className="mt-2 text-[11px] text-muted-foreground">
-            Melhor: {stats.bestStreak} dia{stats.bestStreak === 1 ? "" : "s"}
+          <div className="mt-2 text-[11px] text-muted-foreground inline-flex items-center gap-1">
+            <Trophy className="h-3 w-3" /> Melhor: {stats.bestStreak} dia
+            {stats.bestStreak === 1 ? "" : "s"}
           </div>
-          <div className="mt-3 text-[11px] text-primary font-medium inline-flex items-center gap-1">
+          <button
+            onClick={() => comingSoon("Conquistas")}
+            className="mt-3 text-[11px] text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+          >
             Ver conquistas <ArrowRight className="h-3 w-3" />
-          </div>
+          </button>
         </div>
 
         {/* 4. Tempo de prática */}
@@ -613,60 +851,169 @@ function QuizView({ user }: { user: User }) {
           <div className="flex items-end justify-between gap-3">
             <div>
               <div className="text-3xl md:text-4xl font-semibold tabular-nums leading-none">
-                {stats.minutesTotal}min
+                {formatPracticeTime(stats.totalTimeMs)}
               </div>
               <div className="mt-1 text-[11px] text-muted-foreground">
-                esta semana
+                acumulado
               </div>
             </div>
             <div className="w-24 shrink-0">
-              <WeekBarChart data={stats.minutesByDay} />
+              <WeekBarChart data={stats.weekly} />
             </div>
           </div>
-          <div className="mt-3 text-[11px] text-primary font-medium inline-flex items-center gap-1">
+          <button
+            onClick={() => comingSoon("Estatísticas")}
+            className="mt-3 text-[11px] text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+          >
             Ver estatísticas <ArrowRight className="h-3 w-3" />
-          </div>
+          </button>
         </div>
       </div>
 
       {/* Subject filter pills */}
       <div className="mb-6 flex items-center gap-2 flex-wrap">
-        <button
-          onClick={() => setActiveSubjectId(null)}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all",
-            activeSubjectId === null
-              ? "border-primary bg-primary/10 text-foreground"
-              : "border-border/60 bg-background hover:bg-secondary/40 text-muted-foreground",
-          )}
-        >
-          Todos
-        </button>
-        {subjects.map((s) => {
-          const Ic = getSubjectIcon(s.name);
-          const isActive = activeSubjectId === s.id;
-          return (
-            <button
-              key={s.id}
-              onClick={() => setActiveSubjectId(s.id)}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all max-w-[200px]",
-                isActive
-                  ? "border-primary bg-primary/10 text-foreground"
-                  : "border-border/60 bg-background hover:bg-secondary/40 text-muted-foreground",
-              )}
-            >
-              <Ic className="h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.2} />
-              <span className="truncate">{s.name}</span>
-            </button>
-          );
-        })}
-        <div className="ml-auto">
-          <Button variant="ghost" size="sm" className="text-xs gap-1.5">
-            <Filter className="h-3.5 w-3.5" /> Mais filtros
-            <ChevronDown className="h-3 w-3" />
-          </Button>
+        <div className="flex-1 min-w-0 flex items-center gap-2 overflow-x-auto pb-1 -mb-1 no-scrollbar">
+          <button
+            onClick={() => setActiveSubjectId(null)}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all shrink-0",
+              activeSubjectId === null
+                ? "border-primary bg-primary/10 text-foreground"
+                : "border-border/60 bg-background hover:bg-secondary/40 text-muted-foreground",
+            )}
+          >
+            <BookOpen className="h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.2} />
+            Todos
+          </button>
+          {subjects.map((s) => {
+            const Ic = getSubjectIcon(s.name);
+            const isActive = activeSubjectId === s.id;
+            return (
+              <button
+                key={s.id}
+                onClick={() =>
+                  setActiveSubjectId((prev) => (prev === s.id ? null : s.id))
+                }
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-all max-w-[200px] shrink-0",
+                  isActive
+                    ? "border-primary bg-primary/10 text-foreground"
+                    : "border-border/60 bg-background hover:bg-secondary/40 text-muted-foreground",
+                )}
+              >
+                <Ic className="h-3.5 w-3.5 shrink-0 text-primary" strokeWidth={2.2} />
+                <span className="truncate">{s.name}</span>
+              </button>
+            );
+          })}
         </div>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm" className="text-xs gap-1.5 shrink-0">
+              <Filter className="h-3.5 w-3.5" /> Mais filtros
+              {activeFiltersCount > 0 && (
+                <span className="ml-0.5 inline-flex items-center justify-center rounded-full bg-primary text-white text-[10px] h-4 min-w-4 px-1 font-mono">
+                  {activeFiltersCount}
+                </span>
+              )}
+              <ChevronDown className="h-3 w-3" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Dificuldade
+            </DropdownMenuLabel>
+            {(
+              [
+                ["all", "Todas"],
+                ["easy", "Fácil (< 10 questões)"],
+                ["medium", "Médio (10–20)"],
+                ["hard", "Difícil (> 20)"],
+              ] as const
+            ).map(([k, label]) => (
+              <DropdownMenuItem
+                key={k}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setDifficultyFilter(k);
+                }}
+                className="pl-2"
+              >
+                <span className="inline-flex h-4 w-4 items-center justify-center text-primary">
+                  {difficultyFilter === k && <Check className="h-3.5 w-3.5" />}
+                </span>
+                {label}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Status
+            </DropdownMenuLabel>
+            {(
+              [
+                ["all", "Todos"],
+                ["untouched", "Não iniciado"],
+                ["in-progress", "Em progresso"],
+                ["mastered", "Dominando (≥ 80%)"],
+              ] as const
+            ).map(([k, label]) => (
+              <DropdownMenuItem
+                key={k}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setStatusFilter(k);
+                }}
+                className="pl-2"
+              >
+                <span className="inline-flex h-4 w-4 items-center justify-center text-primary">
+                  {statusFilter === k && <Check className="h-3.5 w-3.5" />}
+                </span>
+                {label}
+              </DropdownMenuItem>
+            ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-[10px] uppercase tracking-wider text-muted-foreground">
+              Período (última atividade)
+            </DropdownMenuLabel>
+            {(
+              [
+                ["all", "Qualquer"],
+                ["7d", "Últimos 7 dias"],
+                ["30d", "Últimos 30 dias"],
+                ["90d", "Últimos 90 dias"],
+              ] as const
+            ).map(([k, label]) => (
+              <DropdownMenuItem
+                key={k}
+                onClick={(e) => {
+                  e.preventDefault();
+                  setPeriodFilter(k);
+                }}
+                className="pl-2"
+              >
+                <span className="inline-flex h-4 w-4 items-center justify-center text-primary">
+                  {periodFilter === k && <Check className="h-3.5 w-3.5" />}
+                </span>
+                {label}
+              </DropdownMenuItem>
+            ))}
+            {activeFiltersCount > 0 && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={() => {
+                    setDifficultyFilter("all");
+                    setStatusFilter("all");
+                    setPeriodFilter("all");
+                  }}
+                >
+                  <X className="h-3.5 w-3.5" /> Limpar filtros
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
       {/* Two-column layout */}
@@ -686,15 +1033,20 @@ function QuizView({ user }: { user: User }) {
           {filteredQuizzes.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-8 text-center">
               <p className="text-sm text-muted-foreground">
-                Nenhum quiz nesta matéria ainda.
+                Nenhum banco corresponde aos filtros atuais.
               </p>
               <Button
                 variant="ghost"
                 size="sm"
                 className="mt-2 text-xs"
-                onClick={() => setActiveSubjectId(null)}
+                onClick={() => {
+                  setActiveSubjectId(null);
+                  setDifficultyFilter("all");
+                  setStatusFilter("all");
+                  setPeriodFilter("all");
+                }}
               >
-                Limpar filtro
+                Limpar todos os filtros
               </Button>
             </div>
           ) : (
@@ -706,19 +1058,36 @@ function QuizView({ user }: { user: User }) {
                 const qCount = quiz.payload?.questions?.length ?? 0;
                 const diff = difficultyFromCount(qCount);
                 const isActive = quiz.id === selectedQuizId;
-                const lastUpdated = new Date(quiz.updated_at).toLocaleDateString(
-                  "pt-BR",
-                  { day: "2-digit", month: "short" },
-                );
+                const assetStats = statsByAsset.get(quiz.id) ?? {
+                  total: 0,
+                  correct: 0,
+                  accuracy: 0,
+                  lastAt: null,
+                };
+                const lastDateIso = assetStats.lastAt ?? quiz.updated_at;
+                const lastLabel = assetStats.lastAt
+                  ? `Última tentativa ${new Date(lastDateIso).toLocaleDateString(
+                      "pt-BR",
+                      { day: "2-digit", month: "2-digit", year: "2-digit" },
+                    )}`
+                  : "Nunca respondido";
                 return (
-                  <button
+                  <div
                     key={quiz.id}
                     onClick={() => pickQuiz(quiz.id)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        pickQuiz(quiz.id);
+                      }
+                    }}
                     className={cn(
-                      "w-full text-left rounded-xl border bg-card p-4 transition-all flex items-center gap-3",
+                      "w-full text-left rounded-xl border bg-card p-4 transition-all flex items-center gap-3 cursor-pointer outline-none",
                       isActive
                         ? "border-primary/60 shadow-md ring-1 ring-primary/30"
-                        : "border-border/60 hover:border-primary/40 hover:shadow-sm",
+                        : "border-border/60 hover:border-primary/40 hover:shadow-sm focus-visible:ring-1 focus-visible:ring-primary/50",
                     )}
                   >
                     <div className="h-10 w-10 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
@@ -736,12 +1105,17 @@ function QuizView({ user }: { user: User }) {
                         </span>
                         <span>·</span>
                         <span className="inline-flex items-center gap-1">
-                          <Clock className="h-3 w-3" /> {lastUpdated}
+                          <Clock className="h-3 w-3" /> {lastLabel}
                         </span>
                       </div>
                     </div>
                     <div className="hidden sm:flex flex-col items-center gap-1 shrink-0">
-                      <Donut pct={null} size={36} stroke={5} muted />
+                      <Donut
+                        pct={assetStats.total === 0 ? null : assetStats.accuracy}
+                        size={36}
+                        stroke={5}
+                        muted={assetStats.total === 0}
+                      />
                     </div>
                     <span
                       className={cn(
@@ -767,6 +1141,14 @@ function QuizView({ user }: { user: User }) {
                         align="end"
                         onClick={(e) => e.stopPropagation()}
                       >
+                        <DropdownMenuItem asChild>
+                          <Link href={`/quiz-banco/${quiz.id}`}>
+                            <ArrowRight className="h-4 w-4" /> Abrir banco completo
+                          </Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => pickQuiz(quiz.id)}>
+                          <Sparkles className="h-4 w-4" /> Praticar aqui
+                        </DropdownMenuItem>
                         {lec && (
                           <DropdownMenuItem asChild>
                             <Link href={`/lecture/${lec.id}/products`}>
@@ -774,12 +1156,9 @@ function QuizView({ user }: { user: User }) {
                             </Link>
                           </DropdownMenuItem>
                         )}
-                        <DropdownMenuItem onClick={() => pickQuiz(quiz.id)}>
-                          <Sparkles className="h-4 w-4" /> Praticar agora
-                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -812,6 +1191,16 @@ function QuizView({ user }: { user: User }) {
           />
         </div>
       </div>
+
+      <ContentWizard
+        open={wizardOpen}
+        onOpenChange={setWizardOpen}
+        mode="quiz"
+        userId={user.id}
+        onCreated={({ lectureId }) => {
+          router.push(`/lecture/${lectureId}/products`);
+        }}
+      />
     </div>
   );
 }
@@ -822,9 +1211,11 @@ function QuizView({ user }: { user: User }) {
 function PageHeader({
   greeting,
   firstName,
+  onNewQuiz,
 }: {
   greeting: string;
   firstName: string;
+  onNewQuiz: () => void;
 }) {
   return (
     <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between mb-8">
@@ -842,13 +1233,11 @@ function PageHeader({
       <div className="flex gap-2 shrink-0">
         <Button asChild variant="outline">
           <Link href="/dashboard">
-            <Plus className="h-4 w-4" /> Nova matéria
-          </Link>
-        </Button>
-        <Button asChild variant="gradient">
-          <Link href="/dashboard">
             <Mic className="h-4 w-4" /> Nova aula
           </Link>
+        </Button>
+        <Button variant="gradient" onClick={onNewQuiz}>
+          <Plus className="h-4 w-4" /> Novo quiz
         </Button>
       </div>
     </div>
@@ -941,7 +1330,7 @@ function PracticePanel({
         {questionIdx + 1}. {q.question}
       </h3>
 
-      <div className="space-y-2">
+      <div className="space-y-2" role="radiogroup" aria-label="Opções da questão">
         {q.options.map((opt, i) => {
           const isSel = selectedAnswer === i;
           const isCorr = i === q.correctIndex;
@@ -950,6 +1339,9 @@ function PracticePanel({
           return (
             <button
               key={i}
+              type="button"
+              role="radio"
+              aria-checked={isSel}
               onClick={() => onSelect(i)}
               disabled={revealed}
               className={cn(
@@ -996,6 +1388,7 @@ function PracticePanel({
           <button
             onClick={onToggleExplanation}
             className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            aria-expanded={showExplanation}
           >
             <ChevronRight
               className={cn(
@@ -1029,7 +1422,7 @@ function PracticePanel({
 
       <div className="mt-5 flex items-center justify-between gap-2">
         <div className="text-[10px] text-muted-foreground/80">
-          Respostas não são salvas ainda.
+          Suas respostas ficam salvas neste dispositivo.
         </div>
         <Button
           variant="gradient"

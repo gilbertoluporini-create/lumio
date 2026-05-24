@@ -19,7 +19,7 @@ const FAQS = [
     a: "Sim. Coloca o áudio do Zoom/Meet/Teams pra sair pelo alto-falante e o Lumio captura. Pra qualidade máxima, plug um fone com microfone que pegue o som do PC — funciona melhor que mic interno.",
   },
   {
-    q: "O que são os Lumio Coins?",
+    q: "O que são os Lumi Coins?",
     a: "São a moeda do app pra gerar produtos: resumo (10), flash cards (12), quiz (15) ou mapa mental (20). Chat IA, transcrição e slides já vêm inclusos no plano — coin é só pra produzir material novo.",
   },
   {
@@ -36,7 +36,7 @@ const FAQS = [
   },
   {
     q: "Quem tá por trás do Lumio?",
-    a: "Time pequeno baseado em São Paulo. O fundador é estudante de medicina na Mandic — começou construindo pra resolver o próprio problema. Suporte é por contato@lumioapp.net, gente real responde.",
+    a: "Time pequeno baseado em São Paulo. O fundador é universitário e começou construindo o Lumio pra resolver o próprio problema de estudo. Suporte é por contato@lumioapp.net, gente real responde.",
   },
 ];
 
@@ -50,9 +50,9 @@ export function FaqSection() {
         <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
           — Perguntas honestas —
         </p>
-        <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">
+        <h2 className="text-3xl md:text-5xl font-semibold tracking-[-0.025em] leading-[1.02]">
           Sem enrolação,{" "}
-          <span className="font-serif italic font-normal">sem asterisco</span>.
+          <span className="gradient-text font-bold">sem asterisco</span>.
         </h2>
       </Reveal>
 

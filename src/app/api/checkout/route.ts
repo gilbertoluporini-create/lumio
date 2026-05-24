@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 
 const Body = z.object({
   plan: z.enum(["starter", "pro", "power", "annual"]),
+  interval: z.enum(["monthly", "annual"]).optional(),
 });
 
 export async function POST(req: Request) {
@@ -35,7 +36,9 @@ export async function POST(req: Request) {
 
   const stripe = getStripe();
   const appUrl = getAppUrl();
-  const priceId = getPriceId(parsed.plan);
+  const interval =
+    parsed.interval ?? (parsed.plan === "annual" ? "annual" : "monthly");
+  const priceId = getPriceId(parsed.plan, interval);
 
   // Verifica se já há um customer ID associado ao user
   const { data: subData } = await supabase
@@ -59,9 +62,9 @@ export async function POST(req: Request) {
     customer,
     line_items: [{ price: priceId, quantity: 1 }],
     client_reference_id: user.id,
-    metadata: { user_id: user.id, plan: parsed.plan },
+    metadata: { user_id: user.id, plan: parsed.plan, interval },
     subscription_data: {
-      metadata: { user_id: user.id, plan: parsed.plan },
+      metadata: { user_id: user.id, plan: parsed.plan, interval },
     },
     payment_method_types: ["card"],
     locale: "pt-BR",

@@ -111,10 +111,10 @@ export default function TermsPage() {
             </li>
           </ul>
 
-          <h2>5. Lumio Coins</h2>
+          <h2>5. Lumi Coins</h2>
           <ul>
             <li>
-              Lumio Coins são <strong>créditos internos</strong>, não constituem
+              Lumi Coins são <strong>créditos internos</strong>, não constituem
               moeda corrente nem têm valor monetário fora da plataforma.
             </li>
             <li>

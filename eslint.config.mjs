@@ -13,6 +13,16 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    rules: {
+      // Regras novas do react-hooks plugin que conflitam com padrões
+      // legítimos do projeto (data fetching on mount, getSubjectIcon
+      // retornando LucideIcon usado como JSX). Os casos são intencionais.
+      "react-hooks/set-state-in-effect": "off",
+      "react-hooks/static-components": "off",
+      "react-hooks/purity": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

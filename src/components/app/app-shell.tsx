@@ -5,27 +5,32 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
   Calendar,
+  ChevronDown,
   ChevronLeft,
+  Coins,
   CreditCard,
   FileText,
+  FolderOpen,
   HelpCircle,
   Layers,
   LayoutDashboard,
   LogOut,
   Mic,
   PanelLeft,
+  Search,
   Settings,
   Sparkles,
+  Star,
   UserIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LumioMark } from "@/components/brand/logo";
-import { LumioCoin } from "@/components/brand/lumio-coin";
 import { LumiIcon } from "@/components/brand/lumi-icon";
 import { CommandPalette } from "@/components/app/command-palette";
+import { NotificationsButton } from "@/components/app/notifications-button";
+import { PlanPremiumCard } from "@/components/app/plan-premium-card";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,7 +40,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOutAsync } from "@/lib/auth";
-import type { User } from "@/lib/types";
+import { listSubjectsAsync } from "@/lib/db";
+import { listChats, subscribeChats } from "@/lib/lumi-chats";
+import type { Subject, User } from "@/lib/types";
 
 const SIDEBAR_STORAGE_KEY = "lumio.sidebar.collapsed";
 
@@ -45,6 +52,8 @@ type SidebarNavItem = {
   lumi?: "book" | "calendar" | "document";
   Icon?: typeof Calendar;
   isCoin?: boolean;
+  badgeCount?: number | null;
+  badgeTone?: "violet";
 };
 
 function SidebarLink({
@@ -58,9 +67,11 @@ function SidebarLink({
   collapsed: boolean;
   coinBalance: number | null;
 }) {
-  const { href, label, lumi, Icon, isCoin } = item;
+  const { href, label, lumi, Icon, isCoin, badgeCount, badgeTone } = item;
   const active = pathname === href || pathname?.startsWith(href + "/");
   const lowBalance = isCoin && coinBalance !== null && coinBalance < 50;
+  const showBadge =
+    typeof badgeCount === "number" && badgeCount > 0 && !isCoin;
 
   return (
     <Link
@@ -75,7 +86,7 @@ function SidebarLink({
       )}
     >
       {isCoin ? (
-        <LumioCoin size={22} className="shrink-0" />
+        <Coins className="h-5 w-5 shrink-0 text-amber-500" strokeWidth={2.2} />
       ) : lumi ? (
         <LumiIcon name={lumi} size={22} className="shrink-0" />
       ) : Icon ? (
@@ -95,6 +106,21 @@ function SidebarLink({
           )}
         >
           {coinBalance}
+        </span>
+      )}
+      {showBadge && (
+        <span
+          className={cn(
+            "rounded-full text-[10px] font-mono tabular-nums px-1.5 py-0.5",
+            collapsed
+              ? "absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center"
+              : "",
+            badgeTone === "violet"
+              ? "bg-primary/15 text-primary"
+              : "bg-secondary text-foreground",
+          )}
+        >
+          {badgeCount}
         </span>
       )}
       {active && !collapsed && (
@@ -117,6 +143,8 @@ export function AppShell({
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const [primarySubject, setPrimarySubject] = useState<string | null>(null);
+  const [lumiChatCount, setLumiChatCount] = useState<number>(0);
 
   // Hydrate sidebar state from localStorage
   useEffect(() => {
@@ -152,30 +180,60 @@ export function AppShell({
     };
   }, [pathname]);
 
+  // Track Lumi chats count (localStorage-only por enquanto)
+  useEffect(() => {
+    const refresh = () => setLumiChatCount(listChats(user.id).length);
+    refresh();
+    const unsub = subscribeChats(user.id, refresh);
+    return unsub;
+  }, [user.id]);
+
+  // Fetch primary subject (primeira matéria do user) pra mostrar no avatar
+  useEffect(() => {
+    let active = true;
+    listSubjectsAsync(user.id)
+      .then((subjects: Subject[]) => {
+        if (!active) return;
+        if (subjects.length > 0) setPrimarySubject(subjects[0].name);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
+
   async function handleLogout() {
     await signOutAsync();
     router.replace("/login");
   }
 
-  type NavItem = {
-    href: string;
-    label: string;
-    lumi?: "book" | "calendar" | "document";
-    Icon?: typeof Calendar;
-    isCoin?: boolean;
-  };
+  function openCommandPalette() {
+    // Dispara Cmd+K — listener global no CommandPalette captura
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "k", metaKey: true }),
+    );
+  }
 
-  const navItems: NavItem[] = [
+  const navItems: SidebarNavItem[] = [
     { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
     { href: "/schedule", label: "Calendário", Icon: Calendar },
     { href: "/resumos", label: "Resumos", Icon: FileText },
     { href: "/flashcards", label: "Flashcards", Icon: Layers },
     { href: "/quiz", label: "Quiz", Icon: Sparkles },
     { href: "/gravacoes", label: "Gravações", Icon: Mic },
-    { href: "/account/coins", label: "Lumio Coins", isCoin: true },
+    { href: "/favoritos", label: "Favoritos", Icon: Star },
+    { href: "/documentos", label: "Meus documentos", Icon: FolderOpen },
+    {
+      href: "/lumi",
+      label: "Assistente Lumi",
+      Icon: Sparkles,
+      badgeCount: lumiChatCount,
+      badgeTone: "violet",
+    },
+    { href: "/account/coins", label: "Lumi Coins", isCoin: true },
   ];
 
-  const secondaryNavItems: NavItem[] = [
+  const secondaryNavItems: SidebarNavItem[] = [
     { href: "/account/settings", label: "Configurações", Icon: Settings },
     { href: "/help", label: "Ajuda", Icon: HelpCircle },
   ];
@@ -186,6 +244,11 @@ export function AppShell({
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
+  const firstName = user.name.split(" ")[0];
+  // "Giba L." — primeiro nome + inicial do sobrenome
+  const lastInitial = user.name.split(" ").slice(1, 2)[0]?.[0]?.toUpperCase();
+  const compactName = lastInitial ? `${firstName} ${lastInitial}.` : firstName;
 
   const sidebarWidth = collapsed ? "w-[68px]" : "w-[220px]";
 
@@ -260,64 +323,9 @@ export function AppShell({
           ))}
         </nav>
 
-        {/* User footer */}
+        {/* Plan Premium upsell — footer */}
         <div className="border-t border-border/60 p-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                className={cn(
-                  "w-full flex items-center gap-2 px-2 py-2 rounded-lg hover:bg-secondary/60 transition-colors",
-                  collapsed && "justify-center",
-                )}
-                title={collapsed ? user.name : undefined}
-              >
-                <Avatar className="h-8 w-8 shrink-0">
-                  <AvatarFallback className="text-xs">{initials}</AvatarFallback>
-                </Avatar>
-                {!collapsed && (
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="text-xs font-medium truncate leading-tight">
-                      {user.name}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground truncate leading-tight">
-                      {user.email}
-                    </div>
-                  </div>
-                )}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent side="right" align="end" className="w-56">
-              <DropdownMenuLabel className="text-foreground">
-                <div className="font-medium truncate">{user.name}</div>
-                <div className="text-xs text-muted-foreground font-normal truncate">
-                  {user.email}
-                </div>
-              </DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/account/profile">
-                  <UserIcon /> Perfil
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/account/settings">
-                  <Settings /> Configurações
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/account/billing">
-                  <CreditCard /> Assinatura
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onClick={handleLogout}
-                className="text-destructive focus:text-destructive"
-              >
-                <LogOut /> Sair
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <PlanPremiumCard collapsed={collapsed} />
         </div>
       </aside>
 
@@ -328,8 +336,8 @@ export function AppShell({
           collapsed ? "lg:ml-[68px]" : "lg:ml-[220px]",
         )}
       >
-        {/* Top bar — mobile menu + theme toggle */}
-        <header className="sticky top-0 z-20 flex items-center justify-between gap-3 border-b border-border/60 bg-background/80 backdrop-blur-xl px-4 py-2.5 h-[60px]">
+        {/* Top bar */}
+        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border/60 bg-background/80 backdrop-blur-xl px-4 h-[60px]">
           <button
             onClick={() => setMobileOpen(true)}
             className="lg:hidden flex h-9 w-9 items-center justify-center rounded-md hover:bg-secondary/60 transition-colors"
@@ -340,26 +348,94 @@ export function AppShell({
           <div className="lg:hidden">
             <LumioMark className="h-8 w-8" />
           </div>
-          <div className="flex items-center gap-2 ml-auto">
+
+          {/* Search bar — grande, centralizado em desktop */}
+          <div className="flex-1 max-w-xl mx-auto hidden md:flex">
             <button
-              onClick={() => {
-                // Simula Cmd+K
-                window.dispatchEvent(
-                  new KeyboardEvent("keydown", {
-                    key: "k",
-                    metaKey: true,
-                  }),
-                );
-              }}
-              className="hidden md:inline-flex items-center gap-2 rounded-md border border-border/60 bg-secondary/40 hover:bg-secondary/60 px-2.5 py-1.5 text-xs text-muted-foreground transition-colors"
+              onClick={openCommandPalette}
+              className="w-full inline-flex items-center gap-2 rounded-lg border border-border/60 bg-secondary/30 hover:bg-secondary/50 hover:border-border px-3 py-2 text-sm text-muted-foreground transition-colors"
               title="Buscar (⌘K)"
             >
-              <span>Buscar…</span>
-              <kbd className="font-mono text-[10px] bg-background/80 rounded px-1.5 py-0.5 border border-border/40">
+              <Search className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left truncate">
+                Buscar matérias, aulas, resumos...
+              </span>
+              <kbd className="font-mono text-[10px] bg-background/80 rounded px-1.5 py-0.5 border border-border/40 shrink-0">
                 ⌘K
               </kbd>
             </button>
+          </div>
+
+          {/* Mobile search icon (only) */}
+          <button
+            onClick={openCommandPalette}
+            className="md:hidden ml-auto flex h-9 w-9 items-center justify-center rounded-md hover:bg-secondary/60 transition-colors"
+            aria-label="Buscar"
+          >
+            <Search className="h-5 w-5" />
+          </button>
+
+          {/* Right cluster — notifications, theme, avatar */}
+          <div className="flex items-center gap-1 md:gap-2 ml-auto md:ml-0">
+            <NotificationsButton />
             <ThemeToggle />
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-lg hover:bg-secondary/60 transition-colors"
+                  aria-label="Menu do usuário"
+                >
+                  <Avatar className="h-8 w-8 shrink-0">
+                    <AvatarFallback className="text-xs">
+                      {initials}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="hidden md:flex flex-col items-start min-w-0 leading-tight">
+                    <span className="text-xs font-semibold truncate max-w-[120px]">
+                      {compactName}
+                    </span>
+                    {primarySubject && (
+                      <span className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+                        {primarySubject}
+                      </span>
+                    )}
+                  </div>
+                  <ChevronDown className="hidden md:block h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuLabel className="text-foreground">
+                  <div className="font-medium truncate">{user.name}</div>
+                  <div className="text-xs text-muted-foreground font-normal truncate">
+                    {user.email}
+                  </div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/account/profile">
+                    <UserIcon /> Perfil
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/account/settings">
+                    <Settings /> Configurações
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link href="/account/billing">
+                    <CreditCard /> Assinatura
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onClick={handleLogout}
+                  className="text-destructive focus:text-destructive"
+                >
+                  <LogOut /> Sair
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
 

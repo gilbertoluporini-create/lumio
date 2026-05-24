@@ -1,18 +1,34 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, KeyRound, Loader2, Save, Trash2, UserIcon } from "lucide-react";
+import { AlertTriangle, CreditCard, KeyRound, Loader2, Save, Trash2, UserIcon } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { isSupabaseConfigured, createClient } from "@/lib/supabase/client";
+import { getMySubscriptionAsync, isActiveSubscription } from "@/lib/db";
 import type { User } from "@/lib/types";
+
+const PLAN_LABELS: Record<string, string> = {
+  pro: "Pro",
+  annual: "Anual",
+  free: "Free",
+};
 
 export default function ProfilePage() {
   return (
@@ -169,8 +185,29 @@ function DangerZone() {
   const router = useRouter();
   const [confirm, setConfirm] = useState("");
   const [deleting, setDeleting] = useState(false);
+  const [checking, setChecking] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [activePlan, setActivePlan] = useState<string | null>(null);
 
   const canDelete = confirm.trim().toLowerCase() === "excluir";
+
+  async function handleStartDelete() {
+    if (checking || deleting) return;
+    setChecking(true);
+    try {
+      const sub = await getMySubscriptionAsync();
+      if (isActiveSubscription(sub) && sub) {
+        setActivePlan(PLAN_LABELS[sub.plan] ?? sub.plan);
+        return;
+      }
+      setConfirm("");
+      setConfirmOpen(true);
+    } catch {
+      toast.error("Não consegui verificar tua assinatura. Tenta de novo.");
+    } finally {
+      setChecking(false);
+    }
+  }
 
   async function handleDelete() {
     if (deleting || !canDelete) return;
@@ -185,7 +222,6 @@ function DangerZone() {
       if (!res.ok) throw new Error(data?.error || "Erro ao excluir conta.");
 
       toast.success("Conta excluída.");
-      // Limpa session local e leva pra landing
       try {
         const supabase = createClient();
         await supabase.auth.signOut();
@@ -209,35 +245,101 @@ function DangerZone() {
         gerados e cancela qualquer assinatura ativa. <strong>Essa ação é permanente.</strong>
       </p>
 
-      <div className="space-y-3">
-        <div className="space-y-1.5">
-          <Label htmlFor="confirm-delete">
-            Digite <strong>EXCLUIR</strong> pra confirmar
-          </Label>
-          <Input
-            id="confirm-delete"
-            value={confirm}
-            onChange={(e) => setConfirm(e.target.value)}
-            placeholder="EXCLUIR"
-            autoComplete="off"
-          />
-        </div>
-
-        <div className="pt-1 flex justify-end">
-          <Button
-            onClick={handleDelete}
-            disabled={!canDelete || deleting}
-            variant="destructive"
-          >
-            {deleting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Trash2 className="h-4 w-4" />
-            )}
-            Excluir conta permanentemente
-          </Button>
-        </div>
+      <div className="flex justify-end">
+        <Button
+          onClick={handleStartDelete}
+          disabled={checking || deleting}
+          variant="destructive"
+        >
+          {checking ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <Trash2 className="h-4 w-4" />
+          )}
+          Excluir conta
+        </Button>
       </div>
+
+      <Dialog
+        open={activePlan !== null}
+        onOpenChange={(open) => {
+          if (!open) setActivePlan(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancele teu plano antes</DialogTitle>
+            <DialogDescription>
+              Você tem o plano <strong>{activePlan}</strong> ativo. Pra excluir a
+              conta, cancele a assinatura primeiro em Conta → Cobrança.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setActivePlan(null)}>
+              Cancelar
+            </Button>
+            <Button asChild variant="gradient">
+              <Link href="/account/billing" onClick={() => setActivePlan(null)}>
+                <CreditCard className="h-4 w-4" />
+                Ir para Cobrança
+              </Link>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={(open) => {
+          if (deleting) return;
+          setConfirmOpen(open);
+          if (!open) setConfirm("");
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Excluir conta permanentemente</DialogTitle>
+            <DialogDescription>
+              Essa ação não pode ser desfeita. Digite <strong>EXCLUIR</strong> abaixo
+              pra confirmar.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="confirm-delete">Confirmação</Label>
+            <Input
+              id="confirm-delete"
+              value={confirm}
+              onChange={(e) => setConfirm(e.target.value)}
+              placeholder="EXCLUIR"
+              autoComplete="off"
+              autoFocus
+            />
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmOpen(false)}
+              disabled={deleting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handleDelete}
+              disabled={!canDelete || deleting}
+              variant="destructive"
+            >
+              {deleting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
+              Excluir conta
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

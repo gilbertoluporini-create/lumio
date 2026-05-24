@@ -9,33 +9,29 @@ type Testimonial = {
   name: string;
   context: string;
   initials: string;
-  gradient: string;
 };
 
 const TESTIMONIALS: Testimonial[] = [
   {
     quote:
-      "Antes eu saía da aula com a mão doendo e a cabeça vazia. Agora consigo discutir o caso com a professora — quando chego em casa, o resumo já tá pronto.",
-    name: "Bia C.",
-    context: "Medicina T8 · Mandic",
-    initials: "BC",
-    gradient: "from-rose-400 to-pink-500",
+      "Antes eu saía da aula com a mão doendo e a cabeça vazia. Agora consigo discutir o caso na hora — quando chego em casa, o resumo já tá pronto.",
+    name: "Aluna do 3º ano",
+    context: "Medicina",
+    initials: "M",
   },
   {
     quote:
       "Uso pra Processo Civil. O quiz que ele gera é melhor que metade do material que eu pagava em PDF. Sério.",
-    name: "Henrique M.",
-    context: "Direito 4º sem. · USP",
-    initials: "HM",
-    gradient: "from-indigo-400 to-violet-500",
+    name: "Aluno do 4º semestre",
+    context: "Direito",
+    initials: "D",
   },
   {
     quote:
       "Mecânica dos Sólidos é três horas de quadro. Pergunto no chat depois e ele me explica do jeito que o prof falou, não com texto de Wikipedia.",
-    name: "Vinícius T.",
-    context: "Engenharia Civil · Mackenzie",
-    initials: "VT",
-    gradient: "from-emerald-400 to-teal-500",
+    name: "Aluno do 5º semestre",
+    context: "Engenharia Civil",
+    initials: "E",
   },
 ];
 
@@ -46,9 +42,9 @@ export function Testimonials() {
         <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
           — Beta privado · maio 2026 —
         </p>
-        <h2 className="text-3xl md:text-5xl font-semibold tracking-tight leading-[1.1]">
+        <h2 className="text-3xl md:text-5xl font-semibold tracking-[-0.025em] leading-[1.02]">
           O que estudantes{" "}
-          <span className="font-serif italic font-normal">de verdade</span>{" "}
+          <span className="gradient-text font-bold">de verdade</span>{" "}
           tão dizendo.
         </h2>
         <p className="mt-4 text-sm text-muted-foreground">
@@ -65,13 +61,11 @@ export function Testimonials() {
               className="relative h-full overflow-hidden rounded-2xl border border-border/60 bg-card/80 backdrop-blur p-7 hover:border-primary/40 hover:shadow-lg transition-colors"
             >
               <Quote className="absolute top-5 right-5 h-7 w-7 text-foreground/10" />
-              <p className="text-[15px] leading-relaxed text-foreground/90 font-serif">
+              <p className="text-[15px] leading-relaxed text-foreground/90">
                 &ldquo;{t.quote}&rdquo;
               </p>
               <div className="mt-6 flex items-center gap-3 pt-5 border-t border-border/40">
-                <div
-                  className={`h-9 w-9 rounded-full bg-gradient-to-br ${t.gradient} ring-2 ring-background flex items-center justify-center text-xs font-semibold text-white tracking-wide`}
-                >
+                <div className="h-9 w-9 rounded-full bg-muted ring-2 ring-background flex items-center justify-center text-xs font-semibold text-muted-foreground tracking-wide">
                   {t.initials}
                 </div>
                 <div className="min-w-0">

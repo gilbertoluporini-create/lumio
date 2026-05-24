@@ -17,7 +17,6 @@ import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { LumioCoin } from "@/components/brand/lumio-coin";
-import { LumioCoinSpinning } from "@/components/brand/lumio-coin-spinning";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { User } from "@/lib/types";
@@ -120,13 +119,13 @@ function CoinsView({ user }: { user: User }) {
       <div className="mb-6">
         <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/60 backdrop-blur px-3 py-1 text-xs mb-2">
           <LumioCoin size={14} />
-          Lumio Coins
+          Lumi Coins
         </div>
         <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
           Sua carteira
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground max-w-2xl">
-          Lumio Coins são usados pra rodar as features de IA. Pagamento por uso —
+          Lumi Coins são usados pra rodar as features de IA. Pagamento por uso —
           mais justo que cobrar plano caro quando você usa pouco.
         </p>
       </div>
@@ -156,9 +155,6 @@ function CoinsView({ user }: { user: User }) {
               <div className="mt-2 text-sm text-muted-foreground">
                 ≈ {balance ? `R$ ${(balance * 0.1).toFixed(2).replace(".", ",")}` : "R$ 0,00"} em valor de uso
               </div>
-            </div>
-            <div className="hidden md:flex flex-col items-center gap-3 -my-4">
-              <LumioCoinSpinning size={260} />
             </div>
           </div>
 

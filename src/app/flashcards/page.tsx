@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -11,6 +11,7 @@ import {
   Brain,
   Briefcase,
   Calculator,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -51,25 +52,45 @@ import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { listLecturesAsync, listSubjectsAsync } from "@/lib/db";
+import {
+  countDueForDeck,
+  countStudiedToday,
+  getDomain,
+  getDomainForDeck,
+  getDueCards,
+  listCardStatesAsync,
+  makeCardId,
+  nextReview,
+  saveCardStateAsync,
+  type CardState,
+  type Quality,
+} from "@/lib/srs";
 import { createClient } from "@/lib/supabase/client";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 // =====================================================================
 // Tipos locais — flash cards são salvos em lecture_assets.payload
-// Verifiquei flashcards-view.tsx: payload é { generatedAt, cards: [...] }
-// Cada card: { question, answer, hint?, difficulty? }
 // =====================================================================
 type Flashcard = {
   question: string;
@@ -106,6 +127,9 @@ type Deck = {
 };
 
 type Level = "Iniciante" | "Intermediário" | "Avançado";
+
+type SessionMode = "srs" | "random" | "sequential";
+type SessionOrder = "default" | "random" | "hard-first";
 
 function levelOfDeck(cardCount: number): Level {
   if (cardCount >= 100) return "Avançado";
@@ -167,7 +191,7 @@ export default function FlashcardsPage() {
 }
 
 // =====================================================================
-// Greeting (mesma lógica do dashboard)
+// Greeting
 // =====================================================================
 function useGreeting() {
   return useMemo(() => {
@@ -177,6 +201,64 @@ function useGreeting() {
     if (h < 18) return "Boa tarde";
     return "Boa noite";
   }, []);
+}
+
+// =====================================================================
+// Helpers de fila de sessão (aplicados aos cards de um deck)
+// =====================================================================
+function buildSessionQueue(
+  deck: Deck,
+  mode: SessionMode,
+  order: SessionOrder,
+  states: CardState[],
+  limit: number,
+  onlyDue: boolean = false,
+): number[] {
+  const allIds = deck.cards.map((_, i) => makeCardId(deck.assetId, i));
+  const stateById = new Map<string, CardState>(states.map((s) => [s.card_id, s]));
+  const dueIds = new Set(getDueCards(states, allIds));
+
+  let indices = deck.cards.map((_, i) => i);
+
+  if (mode === "srs" || onlyDue) {
+    // SRS: due first, depois o resto. Ordem dentro de cada grupo segue o `order`.
+    const due: number[] = [];
+    const rest: number[] = [];
+    for (const i of indices) {
+      const id = allIds[i];
+      if (dueIds.has(id)) due.push(i);
+      else rest.push(i);
+    }
+    indices = onlyDue ? due : [...due, ...rest];
+  } else if (mode === "random") {
+    indices = shuffle(indices);
+  }
+  // sequential = mantém indices na ordem natural
+
+  // Aplicar `order` como tiebreaker (mas SRS já priorizou due → respeitamos)
+  if (order === "random" && mode !== "random") {
+    indices = shuffle(indices);
+  } else if (order === "hard-first") {
+    indices = [...indices].sort((a, b) => {
+      const sa = stateById.get(allIds[a]);
+      const sb = stateById.get(allIds[b]);
+      // Menor ease = mais difícil = primeiro. Sem estado = neutro (2.5).
+      const ea = sa?.ease ?? 2.5;
+      const eb = sb?.ease ?? 2.5;
+      return ea - eb;
+    });
+  }
+
+  return indices.slice(0, Math.max(1, limit));
+}
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
 }
 
 // =====================================================================
@@ -190,32 +272,42 @@ function FlashcardsHubView({ user }: { user: User }) {
   const [decks, setDecks] = useState<Deck[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // SRS state
+  const [cardStates, setCardStates] = useState<CardState[]>([]);
+
   // Filtros
-  const [deckFilter, setDeckFilter] = useState<string>("all"); // all | <assetId>
-  const [subjectFilter, setSubjectFilter] = useState<string>("all"); // all | <subjectId>
-  const [levelFilter, setLevelFilter] = useState<string>("all"); // all | Iniciante | Intermediário | Avançado
+  const [deckFilter, setDeckFilter] = useState<string>("all");
+  const [subjectFilter, setSubjectFilter] = useState<string>("all");
+  const [levelFilter, setLevelFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
 
-  // Sessão de estudo
+  // Sessão ativa
   const [activeDeck, setActiveDeck] = useState<Deck | null>(null);
-  const [cardIdx, setCardIdx] = useState(0);
+  const [sessionQueue, setSessionQueue] = useState<number[]>([]);
+  const [queuePos, setQueuePos] = useState(0);
   const [flipped, setFlipped] = useState(false);
+  const [sessionStarted, setSessionStarted] = useState(false);
 
   // Config de sessão
-  const [mode, setMode] = useState<"srs" | "random" | "sequential">("srs");
-  const [order, setOrder] = useState<"default" | "hard-first">("default");
+  const [mode, setMode] = useState<SessionMode>("srs");
+  const [order, setOrder] = useState<SessionOrder>("default");
   const [cardsPerSession, setCardsPerSession] = useState<number>(20);
 
+  // Dialogs
+  const [newDeckOpen, setNewDeckOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+
   // =====================================================================
-  // Carga inicial: subjects + lectures + lecture_assets (flashcards)
+  // Carga inicial: subjects + lectures + flashcards + SRS states
   // =====================================================================
   useEffect(() => {
     let mounted = true;
     async function load() {
       try {
-        const [subjectsRes, lecturesRes] = await Promise.all([
+        const [subjectsRes, lecturesRes, statesRes] = await Promise.all([
           listSubjectsAsync(user.id),
           listLecturesAsync(user.id),
+          listCardStatesAsync(user.id),
         ]);
 
         const supabase = createClient();
@@ -266,6 +358,7 @@ function FlashcardsHubView({ user }: { user: User }) {
 
         if (mounted) {
           setDecks(built);
+          setCardStates(statesRes);
           setLoading(false);
         }
       } catch (err) {
@@ -283,7 +376,7 @@ function FlashcardsHubView({ user }: { user: User }) {
   }, [user.id]);
 
   // =====================================================================
-  // Lista de matérias únicas (vindo dos decks)
+  // Lista de matérias únicas
   // =====================================================================
   const subjectOptions = useMemo(() => {
     const map = new Map<string, string>();
@@ -301,66 +394,203 @@ function FlashcardsHubView({ user }: { user: User }) {
       if (subjectFilter !== "all" && d.subjectId !== subjectFilter) return false;
       if (levelFilter !== "all" && levelOfDeck(d.cards.length) !== levelFilter)
         return false;
-      if (q && !d.lectureTitle.toLowerCase().includes(q)) return false;
+      if (
+        q &&
+        !(
+          d.lectureTitle.toLowerCase().includes(q) ||
+          d.subjectName.toLowerCase().includes(q)
+        )
+      )
+        return false;
       return true;
     });
   }, [decks, deckFilter, subjectFilter, levelFilter, search]);
 
   // =====================================================================
-  // Stats globais (honestos — sem SRS data)
+  // IDs globais de todos os cards (pra stats globais)
+  // =====================================================================
+  const allCardIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const d of decks) {
+      for (let i = 0; i < d.cards.length; i++) {
+        ids.push(makeCardId(d.assetId, i));
+      }
+    }
+    return ids;
+  }, [decks]);
+
+  // =====================================================================
+  // Stats REAIS baseados em SRS
   // =====================================================================
   const stats = useMemo(() => {
+    const totalCards = allCardIds.length;
     const totalDecks = decks.length;
     const decksWithCards = decks.filter((d) => d.cards.length > 0).length;
-    const totalCards = decks.reduce((acc, d) => acc + d.cards.length, 0);
-    const mastery =
-      totalDecks > 0 ? Math.round((decksWithCards / totalDecks) * 100) : 0;
+    const masteryPct = Math.round(getDomain(cardStates) * 100);
+    const studiedToday = countStudiedToday(cardStates);
+    const dueIds = getDueCards(cardStates, allCardIds);
+    const duePending = dueIds.length;
     return {
       totalDecks,
       decksWithCards,
       totalCards,
-      mastery,
+      masteryPct,
+      studiedToday,
+      duePending,
     };
-  }, [decks]);
+  }, [decks, allCardIds, cardStates]);
 
   // =====================================================================
   // Sessão helpers
   // =====================================================================
-  const sessionTotal = activeDeck ? activeDeck.cards.length : 0;
+  const currentCardIdx =
+    sessionStarted && activeDeck && sessionQueue.length > 0
+      ? sessionQueue[queuePos] ?? null
+      : null;
   const currentCard =
-    activeDeck && sessionTotal > 0 ? activeDeck.cards[cardIdx] : null;
+    activeDeck && currentCardIdx !== null
+      ? (activeDeck.cards[currentCardIdx] ?? null)
+      : null;
+  const sessionTotal = sessionStarted ? sessionQueue.length : 0;
 
-  function pickDeckForStudy(d: Deck) {
+  const pickDeckForStudy = useCallback((d: Deck) => {
     setActiveDeck(d);
-    setCardIdx(0);
+    setSessionStarted(false);
+    setSessionQueue([]);
+    setQueuePos(0);
     setFlipped(false);
-  }
+  }, []);
 
-  function nextCard() {
-    if (!activeDeck) return;
-    setCardIdx((i) => Math.min(i + 1, activeDeck.cards.length - 1));
-    setFlipped(false);
-  }
-  function prevCard() {
-    if (!activeDeck) return;
-    setCardIdx((i) => Math.max(i - 1, 0));
-    setFlipped(false);
-  }
-  function resetSession() {
-    setCardIdx(0);
-    setFlipped(false);
-  }
+  const startSession = useCallback(
+    (opts?: { onlyDue?: boolean; shuffle?: boolean }) => {
+      if (!activeDeck) {
+        toast.info("Selecione um deck na tabela abaixo pra começar.");
+        return;
+      }
+      const effectiveOrder = opts?.shuffle ? "random" : order;
+      const queue = buildSessionQueue(
+        activeDeck,
+        mode,
+        effectiveOrder,
+        cardStates,
+        cardsPerSession,
+        opts?.onlyDue ?? false,
+      );
+      if (queue.length === 0) {
+        toast.info("Nenhum card pra estudar com essas configurações.");
+        return;
+      }
+      setSessionQueue(queue);
+      setQueuePos(0);
+      setFlipped(false);
+      setSessionStarted(true);
+      toast.success(`Sessão iniciada — ${queue.length} cards`);
+    },
+    [activeDeck, mode, order, cardsPerSession, cardStates],
+  );
 
-  function startSession() {
-    if (!activeDeck) {
-      toast.info("Selecione um deck na tabela abaixo pra começar.");
-      return;
+  const nextCard = useCallback(() => {
+    if (!sessionStarted) return;
+    setQueuePos((i) => Math.min(i + 1, sessionQueue.length - 1));
+    setFlipped(false);
+  }, [sessionStarted, sessionQueue.length]);
+
+  const prevCard = useCallback(() => {
+    if (!sessionStarted) return;
+    setQueuePos((i) => Math.max(i - 1, 0));
+    setFlipped(false);
+  }, [sessionStarted]);
+
+  const resetSession = useCallback(() => {
+    setQueuePos(0);
+    setFlipped(false);
+  }, []);
+
+  const endSession = useCallback(() => {
+    setSessionStarted(false);
+    setSessionQueue([]);
+    setQueuePos(0);
+    setFlipped(false);
+    toast.success("Sessão finalizada — bom trabalho!");
+  }, []);
+
+  const rateCurrentCard = useCallback(
+    async (quality: Quality) => {
+      if (!activeDeck || currentCardIdx === null) return;
+      const cardId = makeCardId(activeDeck.assetId, currentCardIdx);
+      const existing = cardStates.find((s) => s.card_id === cardId) ?? null;
+      const updated = nextReview(existing, quality, cardId, user.id);
+      // Atualiza state local
+      setCardStates((prev) => {
+        const idx = prev.findIndex((s) => s.card_id === cardId);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = updated;
+          return copy;
+        }
+        return [...prev, updated];
+      });
+      // Persiste
+      await saveCardStateAsync(updated);
+      // Avança
+      const isLast = queuePos >= sessionQueue.length - 1;
+      if (isLast) {
+        endSession();
+      } else {
+        nextCard();
+      }
+    },
+    [
+      activeDeck,
+      currentCardIdx,
+      cardStates,
+      user.id,
+      queuePos,
+      sessionQueue.length,
+      endSession,
+      nextCard,
+    ],
+  );
+
+  // Cards devidos no deck ativo (pra mostrar contagem em "Revisar pendentes")
+  const activeDeckPending = useMemo(() => {
+    if (!activeDeck) return 0;
+    const ids = activeDeck.cards.map((_, i) => makeCardId(activeDeck.assetId, i));
+    return countDueForDeck(cardStates, ids);
+  }, [activeDeck, cardStates]);
+
+  // Atalhos de teclado durante a sessão
+  useEffect(() => {
+    if (!sessionStarted) return;
+    function onKey(e: KeyboardEvent) {
+      // Ignora se está escrevendo em input
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      if (e.key === " " || e.key === "Enter") {
+        e.preventDefault();
+        setFlipped((v) => !v);
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        prevCard();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        nextCard();
+      } else if (flipped && e.key >= "1" && e.key <= "4") {
+        e.preventDefault();
+        const q = (parseInt(e.key, 10) - 1) as Quality;
+        void rateCurrentCard(q);
+      }
     }
-    toast.message("Repetição espaçada em breve.", {
-      description:
-        "A sessão SRS completa ainda está sendo construída. Por enquanto, você pode navegar pelos cards manualmente.",
-    });
-  }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sessionStarted, flipped, nextCard, prevCard, rateCurrentCard]);
 
   // =====================================================================
   // Loading skeleton
@@ -388,188 +618,245 @@ function FlashcardsHubView({ user }: { user: User }) {
   }
 
   // =====================================================================
-  // Empty state honesto
+  // Empty state
   // =====================================================================
   if (decks.length === 0) {
     return (
-      <div className="mx-auto max-w-2xl px-5 py-16 text-center">
-        <div className="flex justify-center mb-3">
-          <LumiCharacter mood="sleeping" size="lg" float />
-        </div>
-        <h1 className="text-2xl font-semibold tracking-tight">
-          Nenhum deck por enquanto
-        </h1>
-        <p className="mt-3 text-sm text-muted-foreground max-w-md mx-auto">
-          Os flash cards são gerados a partir das suas aulas. Abra uma aula com
-          transcrição e clique em &quot;Gerar flash cards&quot; pra criar seu primeiro
-          deck.
-        </p>
-        <div className="mt-6 flex justify-center gap-2">
-          <Button asChild variant="gradient" size="lg">
-            <Link href="/dashboard">
+      <>
+        <div className="mx-auto max-w-2xl px-5 py-16 text-center">
+          <div className="flex justify-center mb-3">
+            <LumiCharacter mood="sleeping" size="lg" float />
+          </div>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Nenhum deck por enquanto
+          </h1>
+          <p className="mt-3 text-sm text-muted-foreground max-w-md mx-auto">
+            Os flash cards são gerados a partir das suas aulas. Abra uma aula
+            com transcrição e clique em &quot;Gerar flash cards&quot; pra criar
+            seu primeiro deck.
+          </p>
+          <div className="mt-6 flex justify-center gap-2">
+            <Button
+              variant="gradient"
+              size="lg"
+              onClick={() => setNewDeckOpen(true)}
+            >
               <Plus className="h-4 w-4" /> Criar primeiro deck
-            </Link>
-          </Button>
+            </Button>
+            <Button
+              variant="outline"
+              size="lg"
+              onClick={() => setImportOpen(true)}
+            >
+              <Upload className="h-4 w-4" /> Importar deck
+            </Button>
+          </div>
         </div>
-      </div>
+        <ContentWizard
+          open={newDeckOpen}
+          onOpenChange={setNewDeckOpen}
+          mode="flashcards"
+          userId={user.id}
+          onCreated={({ lectureId }) => {
+            router.push(`/lecture/${lectureId}/products`);
+          }}
+        />
+        <ImportDeckDialog open={importOpen} onOpenChange={setImportOpen} />
+      </>
     );
   }
 
+  // Meta diária heurística — 120 cards ou 30% do total (o maior)
+  const dailyGoal = Math.max(120, Math.round(stats.totalCards * 0.3));
+
   return (
-    <div className="mx-auto max-w-7xl px-5 py-8">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-7">
-        <div className="min-w-0">
-          <div className="text-sm text-muted-foreground mb-1">
-            {greeting}, {firstName} 👋
+    <>
+      <div className="mx-auto max-w-7xl px-5 py-8">
+        {/* Header */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-7">
+          <div className="min-w-0">
+            <div className="text-sm text-muted-foreground mb-1">
+              {greeting}, {firstName} 👋
+            </div>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+              Flashcards
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground max-w-xl">
+              Reforce sua memória com repetição espaçada e estude com
+              eficiência.
+            </p>
           </div>
-          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-            Flashcards
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground max-w-xl">
-            Reforce sua memória com repetição espaçada e estude com eficiência.
-          </p>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            <Button variant="outline" onClick={() => setNewDeckOpen(true)}>
+              <Plus className="h-4 w-4" /> Novo deck
+            </Button>
+            <Button variant="gradient" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4" /> Importar deck
+            </Button>
+          </div>
         </div>
-        <div className="flex flex-wrap gap-2 shrink-0">
-          <Button
-            variant="outline"
-            disabled
-            title="Decks são gerados a partir das suas aulas"
-          >
-            <Plus className="h-4 w-4" /> Novo deck
-          </Button>
-          <Button
-            variant="gradient"
-            disabled
-            title="Em breve"
-          >
-            <Upload className="h-4 w-4" /> Importar deck
-          </Button>
+
+        {/* Filter row */}
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between mb-6">
+          <div className="flex flex-wrap gap-2">
+            <FilterSelect
+              value={deckFilter}
+              onChange={setDeckFilter}
+              options={[
+                { value: "all", label: "Todos os decks" },
+                ...decks.map((d) => ({
+                  value: d.assetId,
+                  label: d.lectureTitle,
+                })),
+              ]}
+            />
+            <FilterSelect
+              value={subjectFilter}
+              onChange={setSubjectFilter}
+              options={[
+                { value: "all", label: "Todas as matérias" },
+                ...subjectOptions.map((s) => ({ value: s.id, label: s.name })),
+              ]}
+            />
+            <FilterSelect
+              value={levelFilter}
+              onChange={setLevelFilter}
+              options={[
+                { value: "all", label: "Todos os níveis" },
+                { value: "Iniciante", label: "Iniciante" },
+                { value: "Intermediário", label: "Intermediário" },
+                { value: "Avançado", label: "Avançado" },
+              ]}
+            />
+          </div>
+          <div className="relative md:w-72 w-full">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+            <Input
+              placeholder="Buscar decks…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+        </div>
+
+        {/* 4 stat cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-7">
+          <ProgressDonutCard
+            value={stats.masteryPct}
+            hasData={cardStates.length > 0}
+          />
+          <StudiedTodayCard
+            studied={stats.studiedToday}
+            total={stats.totalCards}
+            goal={dailyGoal}
+          />
+          <ActiveDecksCard
+            active={stats.decksWithCards}
+            total={stats.totalDecks}
+          />
+          <PendingReviewsCard
+            pending={stats.duePending}
+            total={stats.totalCards}
+          />
+        </div>
+
+        {/* Main 2-col area: sessão (left) + sidebar (right) */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
+          {/* Sessão de estudo (col-span-2) */}
+          <div className="lg:col-span-2">
+            <StudySessionCard
+              deck={activeDeck}
+              card={currentCard}
+              idx={queuePos}
+              total={sessionTotal}
+              flipped={flipped}
+              sessionStarted={sessionStarted}
+              onFlip={() => setFlipped((v) => !v)}
+              onPrev={prevCard}
+              onNext={nextCard}
+              onReset={resetSession}
+              onRate={(q) => void rateCurrentCard(q)}
+              onEnd={endSession}
+            />
+          </div>
+
+          {/* Sidebar */}
+          <div className="space-y-4">
+            <SessionConfigCard
+              mode={mode}
+              order={order}
+              cardsPerSession={cardsPerSession}
+              onModeChange={setMode}
+              onOrderChange={setOrder}
+              onCardsChange={setCardsPerSession}
+              onStart={() => startSession()}
+              onReviewDue={() => startSession({ onlyDue: true })}
+              onShuffle={() => startSession({ shuffle: true })}
+              pending={activeDeckPending}
+              hasActiveDeck={!!activeDeck}
+              activeDeckTitle={activeDeck?.lectureTitle ?? null}
+            />
+            <DueTodayCard
+              total={stats.duePending}
+              onClick={() => {
+                if (!activeDeck) {
+                  toast.info(
+                    "Selecione um deck primeiro pra revisar os cards devidos.",
+                  );
+                  return;
+                }
+                startSession({ onlyDue: true });
+              }}
+            />
+          </div>
+        </div>
+
+        {/* Seus decks */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+              Seus decks
+            </h2>
+            <Link
+              href="/dashboard"
+              className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+            >
+              Ver todos os decks <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+
+          <DeckTable
+            decks={filteredDecks}
+            cardStates={cardStates}
+            activeDeckId={activeDeck?.assetId ?? null}
+            onSelect={(d) => {
+              pickDeckForStudy(d);
+              if (typeof window !== "undefined") {
+                window.scrollTo({ top: 0, behavior: "smooth" });
+              }
+            }}
+            onOpen={(d) => router.push(`/deck/${d.assetId}`)}
+          />
         </div>
       </div>
 
-      {/* Filter row */}
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between mb-6">
-        <div className="flex flex-wrap gap-2">
-          <FilterSelect
-            value={deckFilter}
-            onChange={setDeckFilter}
-            options={[
-              { value: "all", label: "Todos os decks" },
-              ...decks.map((d) => ({ value: d.assetId, label: d.lectureTitle })),
-            ]}
-          />
-          <FilterSelect
-            value={subjectFilter}
-            onChange={setSubjectFilter}
-            options={[
-              { value: "all", label: "Todas as matérias" },
-              ...subjectOptions.map((s) => ({ value: s.id, label: s.name })),
-            ]}
-          />
-          <FilterSelect
-            value={levelFilter}
-            onChange={setLevelFilter}
-            options={[
-              { value: "all", label: "Todos os níveis" },
-              { value: "Iniciante", label: "Iniciante" },
-              { value: "Intermediário", label: "Intermediário" },
-              { value: "Avançado", label: "Avançado" },
-            ]}
-          />
-        </div>
-        <div className="relative md:w-72 w-full">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <Input
-            placeholder="Buscar decks…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-      </div>
-
-      {/* 4 stat cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-7">
-        <ProgressDonutCard
-          value={stats.mastery}
-          totalDecks={stats.totalDecks}
-          hasData={stats.totalDecks > 0}
-        />
-        <StudiedTodayCard total={stats.totalCards} />
-        <ActiveDecksCard
-          active={stats.decksWithCards}
-          total={stats.totalDecks}
-        />
-        <PendingReviewsCard total={stats.totalCards} />
-      </div>
-
-      {/* Main 2-col area: sessão (left) + sidebar (right) */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-8">
-        {/* Sessão de estudo (col-span-2) */}
-        <div className="lg:col-span-2">
-          <StudySessionCard
-            deck={activeDeck}
-            card={currentCard}
-            idx={cardIdx}
-            total={sessionTotal}
-            flipped={flipped}
-            onFlip={() => setFlipped((v) => !v)}
-            onPrev={prevCard}
-            onNext={nextCard}
-            onReset={resetSession}
-          />
-        </div>
-
-        {/* Sidebar */}
-        <div className="space-y-4">
-          <SessionConfigCard
-            mode={mode}
-            order={order}
-            cardsPerSession={cardsPerSession}
-            onModeChange={setMode}
-            onOrderChange={setOrder}
-            onCardsChange={setCardsPerSession}
-            onStart={startSession}
-            pending={0}
-          />
-          <DueTodayCard total={0} />
-        </div>
-      </div>
-
-      {/* Seus decks */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-            Seus decks
-          </h2>
-          <Link
-            href="/dashboard"
-            className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
-          >
-            Ver todos os decks <ArrowRight className="h-3 w-3" />
-          </Link>
-        </div>
-
-        <DeckTable
-          decks={filteredDecks}
-          activeDeckId={activeDeck?.assetId ?? null}
-          onSelect={(d) => {
-            pickDeckForStudy(d);
-            // scroll into the study card
-            if (typeof window !== "undefined") {
-              window.scrollTo({ top: 0, behavior: "smooth" });
-            }
-          }}
-          onOpen={(d) => router.push(`/lecture/${d.lectureId}/products`)}
-        />
-      </div>
-    </div>
+      <ContentWizard
+        open={newDeckOpen}
+        onOpenChange={setNewDeckOpen}
+        mode="flashcards"
+        userId={user.id}
+        onCreated={({ lectureId }) => {
+          router.push(`/lecture/${lectureId}/products`);
+        }}
+      />
+      <ImportDeckDialog open={importOpen} onOpenChange={setImportOpen} />
+    </>
   );
 }
 
 // =====================================================================
-// Filter select (native <select> wrapped pra ficar consistente)
+// Filter select
 // =====================================================================
 function FilterSelect({
   value,
@@ -603,16 +890,25 @@ function FilterSelect({
 // =====================================================================
 function ProgressDonutCard({
   value,
-  totalDecks,
   hasData,
 }: {
   value: number;
-  totalDecks: number;
   hasData: boolean;
 }) {
   const radius = 28;
   const circumference = 2 * Math.PI * radius;
   const offset = circumference - (value / 100) * circumference;
+
+  const msg =
+    !hasData
+      ? "Inicie sessões pra ver progresso"
+      : value >= 80
+        ? "Excelente! Continue revisando pra manter."
+        : value >= 50
+          ? "Continue assim! Você está indo muito bem."
+          : value >= 20
+            ? "Bom começo — consistência é tudo."
+            : "Comece com uma sessão SRS hoje.";
 
   return (
     <div className="rounded-2xl border border-border/60 bg-card p-4">
@@ -626,6 +922,12 @@ function ProgressDonutCard({
             className="-rotate-90 h-full w-full"
             aria-hidden
           >
+            <defs>
+              <linearGradient id="donut-grad" x1="0" x2="1" y1="0" y2="1">
+                <stop offset="0%" stopColor="oklch(0.6 0.25 290)" />
+                <stop offset="100%" stopColor="oklch(0.65 0.25 330)" />
+              </linearGradient>
+            </defs>
             <circle
               cx="35"
               cy="35"
@@ -640,7 +942,7 @@ function ProgressDonutCard({
               cy="35"
               r={radius}
               fill="none"
-              stroke="oklch(0.6 0.25 290)"
+              stroke="url(#donut-grad)"
               strokeWidth="7"
               strokeDasharray={circumference}
               strokeDashoffset={hasData ? offset : circumference}
@@ -659,9 +961,7 @@ function ProgressDonutCard({
             {hasData ? "Domínio médio" : "Sem dados"}
           </div>
           <div className="text-[11px] text-muted-foreground mt-0.5 leading-tight">
-            {hasData
-              ? `${totalDecks} deck${totalDecks === 1 ? "" : "s"} ativo${totalDecks === 1 ? "" : "s"}`
-              : "Inicie sessões pra ver progresso"}
+            {msg}
           </div>
         </div>
       </div>
@@ -672,11 +972,16 @@ function ProgressDonutCard({
 // =====================================================================
 // Stat card 2: cards estudados hoje
 // =====================================================================
-function StudiedTodayCard({ total }: { total: number }) {
-  const studied = 0; // sem tracking diário ainda
-  const goal = 120;
+function StudiedTodayCard({
+  studied,
+  total,
+  goal,
+}: {
+  studied: number;
+  total: number;
+  goal: number;
+}) {
   const pct = goal > 0 ? Math.min(100, (studied / goal) * 100) : 0;
-
   return (
     <div className="rounded-2xl border border-border/60 bg-card p-4">
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
@@ -693,7 +998,7 @@ function StudiedTodayCard({ total }: { total: number }) {
         />
       </div>
       <div className="mt-2 text-[11px] text-muted-foreground">
-        Meta diária: {goal} cards
+        Meta diária: {goal} cards — {Math.round(pct)}%
       </div>
     </div>
   );
@@ -735,8 +1040,13 @@ function ActiveDecksCard({
 // =====================================================================
 // Stat card 4: revisões de hoje
 // =====================================================================
-function PendingReviewsCard({ total }: { total: number }) {
-  const pending = 0; // sem SRS ainda
+function PendingReviewsCard({
+  pending,
+  total,
+}: {
+  pending: number;
+  total: number;
+}) {
   return (
     <div className="rounded-2xl border border-border/60 bg-card p-4 flex flex-col">
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
@@ -749,8 +1059,8 @@ function PendingReviewsCard({ total }: { total: number }) {
         </span>
       </div>
       <div className="mt-auto pt-3">
-        <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-          Em breve <ArrowRight className="h-3 w-3" />
+        <span className="text-xs text-primary font-medium inline-flex items-center gap-1">
+          Ver revisões <ArrowRight className="h-3 w-3" />
         </span>
       </div>
     </div>
@@ -758,7 +1068,7 @@ function PendingReviewsCard({ total }: { total: number }) {
 }
 
 // =====================================================================
-// Study session card (big center card)
+// Study session card
 // =====================================================================
 function StudySessionCard({
   deck,
@@ -766,22 +1076,28 @@ function StudySessionCard({
   idx,
   total,
   flipped,
+  sessionStarted,
   onFlip,
   onPrev,
   onNext,
   onReset,
+  onRate,
+  onEnd,
 }: {
   deck: Deck | null;
   card: Flashcard | null;
   idx: number;
   total: number;
   flipped: boolean;
+  sessionStarted: boolean;
   onFlip: () => void;
   onPrev: () => void;
   onNext: () => void;
   onReset: () => void;
+  onRate: (q: Quality) => void;
+  onEnd: () => void;
 }) {
-  const hasSession = !!deck && total > 0;
+  const hasSession = sessionStarted && !!deck && total > 0 && !!card;
   const progress = hasSession ? ((idx + 1) / total) * 100 : 0;
 
   return (
@@ -797,19 +1113,33 @@ function StudySessionCard({
               {deck ? deck.lectureTitle : "Sessão de estudo"}
             </div>
             <div className="text-[11px] text-muted-foreground truncate">
-              {deck ? deck.subjectName : "Nenhum deck selecionado"}
+              {deck
+                ? sessionStarted
+                  ? `${deck.subjectName} · sessão ativa`
+                  : `${deck.subjectName} · pronto pra começar`
+                : "Nenhum deck selecionado"}
             </div>
           </div>
         </div>
         {hasSession && (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onReset}
-            className="text-xs shrink-0"
-          >
-            <RotateCw className="h-3.5 w-3.5" /> Recomeçar
-          </Button>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onReset}
+              className="text-xs"
+            >
+              <RotateCw className="h-3.5 w-3.5" /> Recomeçar
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onEnd}
+              className="text-xs"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Finalizar
+            </Button>
+          </div>
         )}
       </div>
 
@@ -830,7 +1160,7 @@ function StudySessionCard({
       <div className="relative">
         <div
           className={cn(
-            "relative rounded-2xl border-2 transition-all min-h-[280px] flex flex-col",
+            "relative rounded-2xl border-2 transition-all min-h-[300px] flex flex-col",
             flipped
               ? "border-primary/50 bg-gradient-to-br from-primary/5 via-card to-fuchsia-500/5"
               : "border-border/70 bg-card",
@@ -856,7 +1186,7 @@ function StudySessionCard({
             onClick={hasSession ? onFlip : undefined}
             disabled={!hasSession}
             className={cn(
-              "flex-1 flex flex-col items-center justify-center px-8 py-6 text-center w-full",
+              "flex-1 flex flex-col items-center justify-center px-12 py-6 text-center w-full",
               hasSession
                 ? "cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-2xl"
                 : "cursor-default",
@@ -871,6 +1201,11 @@ function StudySessionCard({
                   <p className="text-xl md:text-2xl font-semibold leading-snug max-w-2xl">
                     {card.question}
                   </p>
+                  {card.hint && (
+                    <p className="mt-4 text-xs text-muted-foreground italic max-w-md">
+                      Dica: {card.hint}
+                    </p>
+                  )}
                 </>
               ) : (
                 <>
@@ -884,12 +1219,14 @@ function StudySessionCard({
               )
             ) : (
               <p className="text-sm text-muted-foreground max-w-sm">
-                Selecione um deck na tabela abaixo pra começar a estudar.
+                {deck
+                  ? `Configure sua sessão à direita e clique em "Iniciar sessão" pra estudar ${deck.lectureTitle}.`
+                  : "Selecione um deck na tabela abaixo pra começar a estudar."}
               </p>
             )}
           </button>
 
-          {/* Side chevrons (absolute) */}
+          {/* Side chevrons */}
           {hasSession && (
             <>
               <button
@@ -921,55 +1258,68 @@ function StudySessionCard({
               className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors disabled:cursor-not-allowed"
             >
               <RotateCw className="h-3 w-3" />
-              {hasSession ? "Clique para virar o card" : "Sem card ativo"}
+              {hasSession
+                ? flipped
+                  ? "Clique para ver a frente"
+                  : "Clique para virar o card (ou Espaço)"
+                : "Sem card ativo"}
             </button>
           </div>
         </div>
       </div>
 
-      {/* Difficulty buttons */}
-      <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-2">
+      {/* Difficulty buttons — só aparecem após virar pra resposta */}
+      <div
+        className={cn(
+          "mt-4 grid grid-cols-2 md:grid-cols-4 gap-2 transition-opacity",
+          hasSession && flipped
+            ? "opacity-100"
+            : "opacity-40 pointer-events-none",
+        )}
+      >
         <DifficultyButton
+          emoji="😟"
           label="Não lembro"
           range="0–10%"
           color="rose"
-          disabled={!hasSession}
-          onClick={() => {
-            toast.info("Repetição espaçada em breve.");
-            onNext();
-          }}
+          hotkey="1"
+          disabled={!hasSession || !flipped}
+          onClick={() => onRate(0)}
         />
         <DifficultyButton
+          emoji="😕"
           label="Lembrei pouco"
           range="10–40%"
           color="orange"
-          disabled={!hasSession}
-          onClick={() => {
-            toast.info("Repetição espaçada em breve.");
-            onNext();
-          }}
+          hotkey="2"
+          disabled={!hasSession || !flipped}
+          onClick={() => onRate(1)}
         />
         <DifficultyButton
+          emoji="😐"
           label="Lembrei bem"
           range="40–70%"
           color="amber"
-          disabled={!hasSession}
-          onClick={() => {
-            toast.info("Repetição espaçada em breve.");
-            onNext();
-          }}
+          hotkey="3"
+          disabled={!hasSession || !flipped}
+          onClick={() => onRate(2)}
         />
         <DifficultyButton
+          emoji="😊"
           label="Lembrei muito bem"
           range="70–100%"
           color="emerald"
-          disabled={!hasSession}
-          onClick={() => {
-            toast.info("Repetição espaçada em breve.");
-            onNext();
-          }}
+          hotkey="4"
+          disabled={!hasSession || !flipped}
+          onClick={() => onRate(3)}
         />
       </div>
+
+      {hasSession && !flipped && (
+        <p className="mt-2 text-[11px] text-center text-muted-foreground">
+          Vire o card pra avaliar sua memória
+        </p>
+      )}
     </div>
   );
 }
@@ -978,26 +1328,30 @@ function StudySessionCard({
 // Difficulty button
 // =====================================================================
 function DifficultyButton({
+  emoji,
   label,
   range,
   color,
+  hotkey,
   disabled,
   onClick,
 }: {
+  emoji: string;
   label: string;
   range: string;
   color: "rose" | "orange" | "amber" | "emerald";
+  hotkey: string;
   disabled?: boolean;
   onClick: () => void;
 }) {
   const colorClasses: Record<typeof color, string> = {
-    rose: "border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/10 text-rose-700 dark:text-rose-300",
+    rose: "border-rose-500/30 bg-rose-500/5 hover:bg-rose-500/15 text-rose-700 dark:text-rose-300",
     orange:
-      "border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/10 text-orange-700 dark:text-orange-300",
+      "border-orange-500/30 bg-orange-500/5 hover:bg-orange-500/15 text-orange-700 dark:text-orange-300",
     amber:
-      "border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/10 text-amber-700 dark:text-amber-300",
+      "border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/15 text-amber-700 dark:text-amber-300",
     emerald:
-      "border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+      "border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300",
   };
   return (
     <button
@@ -1005,12 +1359,19 @@ function DifficultyButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "flex flex-col items-center justify-center rounded-xl border px-3 py-2.5 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent",
+        "relative flex flex-col items-center justify-center rounded-xl border px-3 py-3 text-xs font-medium transition-all disabled:opacity-40 disabled:cursor-not-allowed",
+        "hover:-translate-y-0.5 active:translate-y-0",
         colorClasses[color],
       )}
     >
+      <span className="text-base mb-1" aria-hidden>
+        {emoji}
+      </span>
       <span className="font-semibold leading-tight">{label}</span>
       <span className="text-[10px] font-mono opacity-70 mt-0.5">{range}</span>
+      <kbd className="absolute top-1.5 right-1.5 text-[9px] font-mono opacity-50 px-1 rounded bg-background/50 border border-current/20">
+        {hotkey}
+      </kbd>
     </button>
   );
 }
@@ -1026,32 +1387,51 @@ function SessionConfigCard({
   onOrderChange,
   onCardsChange,
   onStart,
+  onReviewDue,
+  onShuffle,
   pending,
+  hasActiveDeck,
+  activeDeckTitle,
 }: {
-  mode: "srs" | "random" | "sequential";
-  order: "default" | "hard-first";
+  mode: SessionMode;
+  order: SessionOrder;
   cardsPerSession: number;
-  onModeChange: (v: "srs" | "random" | "sequential") => void;
-  onOrderChange: (v: "default" | "hard-first") => void;
+  onModeChange: (v: SessionMode) => void;
+  onOrderChange: (v: SessionOrder) => void;
   onCardsChange: (v: number) => void;
   onStart: () => void;
+  onReviewDue: () => void;
+  onShuffle: () => void;
   pending: number;
+  hasActiveDeck: boolean;
+  activeDeckTitle: string | null;
 }) {
   return (
     <div className="rounded-2xl border border-border/60 bg-card p-4">
-      <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
-        Sessão de estudo
+      <div className="flex items-center gap-2 mb-3">
+        <Play className="h-3.5 w-3.5 text-primary" />
+        <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+          Sessão de estudo
+        </span>
       </div>
+
+      {hasActiveDeck && activeDeckTitle && (
+        <div className="mb-3 rounded-lg bg-primary/5 border border-primary/15 px-2.5 py-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-primary/80 mb-0.5">
+            Deck ativo
+          </div>
+          <div className="text-xs font-medium truncate">{activeDeckTitle}</div>
+        </div>
+      )}
+
       <div className="space-y-3">
         <div>
           <label className="text-[11px] font-medium text-muted-foreground block mb-1">
-            Modo
+            Modo de estudo
           </label>
           <select
             value={mode}
-            onChange={(e) =>
-              onModeChange(e.target.value as "srs" | "random" | "sequential")
-            }
+            onChange={(e) => onModeChange(e.target.value as SessionMode)}
             className="w-full h-9 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="srs">Repetição espaçada</option>
@@ -1061,39 +1441,43 @@ function SessionConfigCard({
         </div>
         <div>
           <label className="text-[11px] font-medium text-muted-foreground block mb-1">
-            Ordem
+            Ordem dos cards
           </label>
           <select
             value={order}
-            onChange={(e) =>
-              onOrderChange(e.target.value as "default" | "hard-first")
-            }
+            onChange={(e) => onOrderChange(e.target.value as SessionOrder)}
             className="w-full h-9 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
           >
             <option value="default">Padrão</option>
-            <option value="hard-first">Difíceis primeiro</option>
+            <option value="random">Aleatório</option>
+            <option value="hard-first">Mais difíceis primeiro</option>
           </select>
         </div>
         <div>
           <label className="text-[11px] font-medium text-muted-foreground block mb-1">
-            Cards por sessão
+            Cards desta sessão
           </label>
-          <Input
-            type="number"
-            min={1}
-            max={500}
+          <select
             value={cardsPerSession}
             onChange={(e) =>
-              onCardsChange(Math.max(1, parseInt(e.target.value, 10) || 1))
+              onCardsChange(parseInt(e.target.value, 10) || 20)
             }
-          />
+            className="w-full h-9 rounded-md border border-border bg-background px-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+          >
+            <option value={10}>10 cards</option>
+            <option value={20}>20 cards</option>
+            <option value={50}>50 cards</option>
+            <option value={100}>100 cards</option>
+          </select>
         </div>
       </div>
 
       <Button
         variant="gradient"
         className="w-full mt-4"
+        size="lg"
         onClick={onStart}
+        disabled={!hasActiveDeck}
       >
         <Play className="h-4 w-4" /> Iniciar sessão
       </Button>
@@ -1102,18 +1486,26 @@ function SessionConfigCard({
         <Button
           variant="outline"
           className="w-full"
-          onClick={() => toast.info("Repetição espaçada em breve.")}
+          onClick={onReviewDue}
+          disabled={!hasActiveDeck || pending === 0}
         >
           Revisar pendentes ({pending})
         </Button>
         <Button
           variant="outline"
           className="w-full"
-          onClick={() => toast.info("Em breve.")}
+          onClick={onShuffle}
+          disabled={!hasActiveDeck}
         >
           <Shuffle className="h-4 w-4" /> Embaralhar deck
         </Button>
       </div>
+
+      {!hasActiveDeck && (
+        <p className="mt-3 text-[11px] text-center text-muted-foreground">
+          Selecione um deck na tabela abaixo
+        </p>
+      )}
     </div>
   );
 }
@@ -1121,15 +1513,18 @@ function SessionConfigCard({
 // =====================================================================
 // Due today card
 // =====================================================================
-function DueTodayCard({ total }: { total: number }) {
+function DueTodayCard({
+  total,
+  onClick,
+}: {
+  total: number;
+  onClick: () => void;
+}) {
   return (
-    <Link
-      href="#"
-      onClick={(e) => {
-        e.preventDefault();
-        toast.info("Repetição espaçada em breve.");
-      }}
-      className="block rounded-2xl border border-border/60 bg-card p-4 hover:border-primary/40 transition-colors group"
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left block rounded-2xl border border-border/60 bg-card p-4 hover:border-primary/40 hover:bg-primary/5 transition-colors group"
     >
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
         Devido hoje
@@ -1140,12 +1535,12 @@ function DueTodayCard({ total }: { total: number }) {
             {total}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">
-            cards para revisar
+            {total === 1 ? "card para revisar" : "cards para revisar"}
           </div>
         </div>
-        <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+        <ChevronRight className="h-5 w-5 text-muted-foreground group-hover:text-primary group-hover:translate-x-0.5 transition-all" />
       </div>
-    </Link>
+    </button>
   );
 }
 
@@ -1154,11 +1549,13 @@ function DueTodayCard({ total }: { total: number }) {
 // =====================================================================
 function DeckTable({
   decks,
+  cardStates,
   activeDeckId,
   onSelect,
   onOpen,
 }: {
   decks: Deck[];
+  cardStates: CardState[];
   activeDeckId: string | null;
   onSelect: (d: Deck) => void;
   onOpen: (d: Deck) => void;
@@ -1190,6 +1587,7 @@ function DeckTable({
           <DeckRow
             key={d.assetId}
             deck={d}
+            cardStates={cardStates}
             active={d.assetId === activeDeckId}
             onSelect={() => onSelect(d)}
             onOpen={() => onOpen(d)}
@@ -1202,19 +1600,27 @@ function DeckTable({
 
 function DeckRow({
   deck,
+  cardStates,
   active,
   onSelect,
   onOpen,
 }: {
   deck: Deck;
+  cardStates: CardState[];
   active: boolean;
   onSelect: () => void;
   onOpen: () => void;
 }) {
   const Icon = getSubjectIcon(deck.subjectName);
   const level = levelOfDeck(deck.cards.length);
-  // Domínio: placeholder estável por deck (sem SRS data ainda). Usa hash do id pra ficar consistente.
-  const masteryPct = 0;
+
+  const { masteryPct, dueToday } = useMemo(() => {
+    const ids = deck.cards.map((_, i) => makeCardId(deck.assetId, i));
+    return {
+      masteryPct: Math.round(getDomainForDeck(cardStates, ids) * 100),
+      dueToday: countDueForDeck(cardStates, ids),
+    };
+  }, [deck.assetId, deck.cards, cardStates]);
 
   const levelDot: Record<Level, string> = {
     Iniciante: "bg-sky-500",
@@ -1258,7 +1664,7 @@ function DeckRow({
       <div className="hidden md:flex items-center gap-2">
         <div className="flex-1 h-1.5 rounded-full bg-secondary overflow-hidden">
           <div
-            className="h-full bg-gradient-to-r from-primary to-fuchsia-500"
+            className="h-full bg-gradient-to-r from-primary to-fuchsia-500 transition-all"
             style={{ width: `${masteryPct}%` }}
           />
         </div>
@@ -1267,8 +1673,13 @@ function DeckRow({
         </span>
       </div>
 
-      <div className="hidden md:block text-right text-sm font-mono tabular-nums text-muted-foreground">
-        0
+      <div
+        className={cn(
+          "hidden md:block text-right text-sm font-mono tabular-nums",
+          dueToday > 0 ? "text-foreground font-medium" : "text-muted-foreground",
+        )}
+      >
+        {dueToday}
       </div>
 
       <div className="hidden md:flex items-center gap-2">
@@ -1295,14 +1706,55 @@ function DeckRow({
             <DropdownMenuItem onClick={onOpen}>
               <Sparkles className="h-4 w-4" /> Abrir na aula
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => toast.info("Em breve.")}
-            >
+            <DropdownMenuItem onClick={() => toast.info("Em breve.")}>
               <Clock className="h-4 w-4" /> Histórico de revisões
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
     </div>
+  );
+}
+
+// =====================================================================
+// Dialog: Importar deck (coming soon)
+// =====================================================================
+function ImportDeckDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Importar deck</DialogTitle>
+          <DialogDescription>
+            Em breve você poderá importar decks do Anki e arquivos CSV.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="text-sm text-muted-foreground space-y-2">
+          <p>
+            Estamos finalizando o suporte para importação de:
+          </p>
+          <ul className="list-disc pl-5 space-y-1">
+            <li>Arquivos <span className="font-mono text-xs">.apkg</span> do Anki</li>
+            <li>Planilhas CSV (pergunta, resposta, dica)</li>
+            <li>Decks compartilhados por outros usuários</li>
+          </ul>
+          <p>
+            Por enquanto, gere decks automaticamente a partir das transcrições
+            das suas aulas.
+          </p>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Fechar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -14,9 +14,15 @@ const PLAN_PRICE_TO_NAME: Record<string, PlanName> = (() => {
   const map: Record<string, PlanName> = {};
   if (process.env.STRIPE_PRICE_ID_STARTER)
     map[process.env.STRIPE_PRICE_ID_STARTER] = "starter";
+  if (process.env.STRIPE_PRICE_ID_STARTER_ANNUAL)
+    map[process.env.STRIPE_PRICE_ID_STARTER_ANNUAL] = "starter";
   if (process.env.STRIPE_PRICE_ID_PRO) map[process.env.STRIPE_PRICE_ID_PRO] = "pro";
+  if (process.env.STRIPE_PRICE_ID_PRO_ANNUAL)
+    map[process.env.STRIPE_PRICE_ID_PRO_ANNUAL] = "pro";
   if (process.env.STRIPE_PRICE_ID_POWER)
     map[process.env.STRIPE_PRICE_ID_POWER] = "power";
+  if (process.env.STRIPE_PRICE_ID_POWER_ANNUAL)
+    map[process.env.STRIPE_PRICE_ID_POWER_ANNUAL] = "power";
   if (process.env.STRIPE_PRICE_ID_ANNUAL)
     map[process.env.STRIPE_PRICE_ID_ANNUAL] = "annual";
   return map;
