@@ -11,13 +11,27 @@ import {
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowUp,
+  AtSign,
+  Calendar,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
   Coins,
-  Info,
+  Flame,
+  Gift,
+  HelpCircle,
+  Layers,
+  Lightbulb,
   Loader2,
-  Paperclip,
-  PanelRightOpen,
-  Send,
+  FileText,
+  MessageSquare,
+  Mic,
+  Network,
+  Plus,
+  SlidersHorizontal,
   Sparkles,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/app/app-shell";
@@ -28,12 +42,17 @@ import {
 } from "@/components/lumi/lumi-context-picker";
 import { LumiMessageBubble } from "@/components/lumi/lumi-message-bubble";
 import {
-  LumiQuickActions,
   QUICK_ACTIONS,
   type QuickAction,
 } from "@/components/lumi/lumi-quick-actions";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   LumiGenerateDialog,
   type LumiGenerateKind,
@@ -53,16 +72,27 @@ import {
   type LumiChatCategory,
   type LumiChatMessage,
 } from "@/lib/lumi-chats";
+import { calculateStreak } from "@/lib/streak";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Lecture, Subject, User } from "@/lib/types";
-import { cn } from "@/lib/utils";
 
-const NEXT_STEPS: { id: QuickAction["id"]; label: string; cost: number }[] = [
-  { id: "summary", label: "Gerar resumo", cost: 8 },
-  { id: "flashcards", label: "Criar flashcards", cost: 12 },
-  { id: "quiz", label: "Quiz sobre o tema", cost: 10 },
-  { id: "english", label: "Explicar em inglês médico", cost: 6 },
+type SuggestionChip = {
+  id: QuickAction["id"];
+  label: string;
+  hint: string;
+  cost: number;
+  Icon: typeof FileText;
+};
+
+const SUGGESTION_CHIPS: SuggestionChip[] = [
+  { id: "summary", label: "Resumo", hint: "Resumir aula", cost: 8, Icon: FileText },
+  { id: "flashcards", label: "Flashcards", hint: "Criar deck", cost: 12, Icon: Layers },
+  { id: "quiz", label: "Quiz", hint: "Gerar questões", cost: 10, Icon: HelpCircle },
+  { id: "mindmap" as QuickAction["id"], label: "Mapa mental", hint: "Visualizar tópicos", cost: 6, Icon: Network },
+  { id: "explain", label: "Explicar", hint: "Tire dúvida", cost: 4, Icon: Lightbulb },
 ];
+
+const EMBASSADOR_KEY = "lumio.lumi.embassador-dismissed";
 
 export default function LumiPage() {
   return (
@@ -88,16 +118,18 @@ function LumiAssistant({ user }: { user: User }) {
   const [chat, setChat] = useState<LumiChat | null>(null);
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
-  const [showRightPanel, setShowRightPanel] = useState(true);
   const [coinBalance, setCoinBalance] = useState<number | null>(null);
   const [genDialogKind, setGenDialogKind] = useState<LumiGenerateKind | null>(
     null,
   );
   const [generating, setGenerating] = useState(false);
+  const [embassadorDismissed, setEmbassadorDismissed] = useState(false);
   const englishMode = useRef(false);
 
   const messages = chat?.messages ?? [];
   const scrollRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const bottomTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     let active = true;
@@ -112,6 +144,13 @@ function LumiAssistant({ user }: { user: User }) {
       active = false;
     };
   }, [user.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setEmbassadorDismissed(
+      window.localStorage.getItem(EMBASSADOR_KEY) === "1",
+    );
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -152,6 +191,8 @@ function LumiAssistant({ user }: { user: User }) {
     if (!box) return;
     box.scrollTop = box.scrollHeight;
   }, [messages.length, sending]);
+
+  const streak = useMemo(() => calculateStreak(lectures), [lectures]);
 
   const refreshBalance = useCallback(() => {
     fetch("/api/coins", { cache: "no-store" })
@@ -583,6 +624,27 @@ function LumiAssistant({ user }: { user: User }) {
     [context.lectureTitle, context.subjectName, sendMessage],
   );
 
+  const handleSuggestionChip = useCallback(
+    (chip: SuggestionChip) => {
+      if (chip.id === ("mindmap" as QuickAction["id"])) {
+        setGenDialogKind("mindmap");
+        return;
+      }
+      const action = QUICK_ACTIONS.find((a) => a.id === chip.id);
+      if (action) {
+        void handleQuickAction(action);
+      }
+    },
+    [handleQuickAction],
+  );
+
+  const handleGenerateMenu = useCallback(
+    (kind: LumiGenerateKind) => {
+      setGenDialogKind(kind);
+    },
+    [],
+  );
+
   function handleKey(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -590,110 +652,124 @@ function LumiAssistant({ user }: { user: User }) {
     }
   }
 
+  const handleVoiceClick = useCallback(() => {
+    toast.info("Modo de voz · Em breve", {
+      description:
+        "Estamos trabalhando pra você falar com o Lumi por áudio.",
+    });
+  }, []);
+
+  const dismissEmbassador = useCallback(() => {
+    setEmbassadorDismissed(true);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(EMBASSADOR_KEY, "1");
+    }
+  }, []);
+
   const hasMessages = messages.length > 0;
+  const streakCount = streak.current;
 
   return (
-    <div className="relative mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-6 lg:px-8">
-      {/* Header */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-        <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
-            Assistente <span className="text-primary">Lumi</span>
-          </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Seu assistente de estudos com IA
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <LumiContextPicker
-            subjects={subjects}
-            lectures={lectures}
-            value={context}
-            onChange={setContext}
-          />
-          <button
-            type="button"
-            onClick={() => setShowRightPanel((v) => !v)}
-            className="hidden lg:inline-flex h-9 w-9 items-center justify-center rounded-md border border-border/60 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-            title={showRightPanel ? "Ocultar painel" : "Mostrar painel"}
-          >
-            <PanelRightOpen
-              className={cn(
-                "h-4 w-4 transition-transform",
-                !showRightPanel && "rotate-180",
-              )}
+    <div className="relative mx-auto flex w-full max-w-[1200px] flex-col px-4 py-4 lg:px-8">
+      {/* Sticky header (toggle + actions) */}
+      <div className="sticky top-[60px] z-20 -mx-4 lg:-mx-8 mb-4 border-b border-border/40 bg-background/85 px-4 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <div className="flex items-center justify-between gap-3">
+          {/* Left: context picker (kept) */}
+          <div className="hidden md:flex">
+            <LumiContextPicker
+              subjects={subjects}
+              lectures={lectures}
+              value={context}
+              onChange={setContext}
             />
-          </button>
+          </div>
+
+          {/* Center: Chat / Voice toggle */}
+          <div className="flex flex-1 justify-center md:flex-none">
+            <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/60 p-1 backdrop-blur">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-full bg-card px-4 py-1.5 text-xs font-medium text-foreground shadow-sm"
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={handleVoiceClick}
+                className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <Mic className="h-3.5 w-3.5" />
+                Modo de Voz
+              </button>
+            </div>
+          </div>
+
+          {/* Right cluster */}
+          <div className="flex items-center gap-1.5">
+            <Link
+              href="/lumi/chats"
+              title="Histórico de chats"
+              aria-label="Histórico de chats"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+            >
+              <Clock className="h-4 w-4" />
+            </Link>
+            <button
+              type="button"
+              title="Tarefas"
+              aria-label="Tarefas"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+            >
+              <CheckCircle2 className="h-4 w-4" />
+            </button>
+            <Link
+              href="/schedule"
+              title="Planejador"
+              aria-label="Planejador"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+            >
+              <Calendar className="h-4 w-4" />
+            </Link>
+            <div className="hidden sm:inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/40 px-2.5 py-1 text-[11px] font-medium text-foreground">
+              <Flame className="h-3 w-3 text-primary" />
+              <span className="tabular-nums">{streakCount}</span>
+            </div>
+            <Link
+              href="/account/billing"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary/60"
+            >
+              <Gift className="h-3.5 w-3.5 text-primary" />
+              Lumi Pro
+            </Link>
+          </div>
         </div>
       </div>
 
-      {/* Quick actions */}
-      {!hasMessages && (
-        <LumiQuickActions onPick={handleQuickAction} disabled={sending} />
-      )}
-
-      <div
-        className={cn(
-          "grid gap-6",
-          showRightPanel ? "lg:grid-cols-[1fr_280px]" : "lg:grid-cols-1",
-        )}
-      >
-        {/* Chat column */}
-        <div className="flex min-h-[680px] flex-col rounded-2xl border border-border/60 bg-card">
+      {hasMessages ? (
+        /* Chat view */
+        <div className="flex min-h-[600px] flex-col rounded-2xl border border-border/60 bg-card">
           <div
             ref={scrollRef}
             className="flex-1 overflow-y-auto px-4 py-6 md:px-10"
-            style={{ maxHeight: "calc(100vh - 240px)" }}
+            style={{ maxHeight: "calc(100vh - 280px)" }}
           >
-            <div className="mx-auto flex max-w-5xl flex-col gap-6">
-              {!hasMessages && (
-                <div className="rounded-2xl border border-dashed border-primary/30 bg-primary/5 p-6 text-center">
-                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-primary to-fuchsia-500 shadow-md">
-                    <Sparkles className="h-5 w-5 text-white" />
-                  </div>
-                  <h3 className="mt-3 text-base font-semibold text-foreground">
-                    Como o Lumi pode te ajudar hoje?
-                  </h3>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Escolha uma ação rápida acima ou faça uma pergunta abaixo.
-                  </p>
+            <div className="mx-auto flex max-w-3xl flex-col gap-6">
+              {messages.map((m) => (
+                <div key={m.id} className="flex flex-col gap-3">
+                  <LumiMessageBubble message={m} />
                 </div>
-              )}
-
-              {messages.map((m, idx) => {
-                const isLastAssistant =
-                  m.role === "assistant" && idx === messages.length - 1;
-                return (
-                  <div key={m.id} className="flex flex-col gap-3">
-                    <LumiMessageBubble message={m} />
-                    {isLastAssistant && !sending && (
-                      <div className="ml-12 flex flex-wrap gap-2">
-                        {NEXT_STEPS.map((s) => {
-                          const action = QUICK_ACTIONS.find((a) => a.id === s.id);
-                          if (!action) return null;
-                          return (
-                            <button
-                              key={s.id}
-                              type="button"
-                              onClick={() => handleQuickAction(action)}
-                              className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background px-3 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground"
-                            >
-                              <action.Icon className="h-3 w-3" />
-                              {s.label}
-                              <span className="text-amber-600">· {s.cost}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              ))}
 
               {sending && (
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-fuchsia-500 shadow-sm">
-                    <Sparkles className="h-4 w-4 text-white" />
+                  <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-primary/5">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src="/illustrations/lumi-thinking.png"
+                      alt="Lumi pensando"
+                      className="h-10 w-10 animate-pulse object-contain"
+                    />
                   </div>
                   <span className="inline-flex items-center gap-2">
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -704,41 +780,53 @@ function LumiAssistant({ user }: { user: User }) {
             </div>
           </div>
 
-          {/* Input */}
+          {/* Bottom input */}
           <div className="border-t border-border/60 bg-card/80 p-3 md:p-4">
-            <div className="mx-auto flex max-w-5xl flex-col gap-2">
-              <div className="flex items-end gap-2">
-                <button
-                  type="button"
-                  className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border/60 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                  title="Anexar contexto"
-                  aria-label="Anexar contexto"
-                >
-                  <Paperclip className="h-4 w-4" />
-                </button>
+            <div className="mx-auto flex max-w-3xl flex-col gap-2">
+              <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-sm">
                 <Textarea
+                  ref={bottomTextareaRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKey}
                   placeholder="Pergunte algo ao Lumi…"
                   rows={1}
                   disabled={sending}
-                  className="min-h-[44px] max-h-[160px] resize-none text-sm"
+                  className="min-h-[44px] max-h-[140px] resize-none border-0 bg-transparent p-1 text-sm shadow-none focus-visible:ring-0"
                 />
-                <Button
-                  type="button"
-                  size="icon"
-                  onClick={() => void sendMessage(input)}
-                  disabled={sending || !input.trim()}
-                  className="h-10 w-10 shrink-0 rounded-full"
-                  aria-label="Enviar"
-                >
-                  {sending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4" />
-                  )}
-                </Button>
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1">
+                    <IconGhostButton title="Anexar" Icon={Plus} />
+                    <IconGhostButton title="Mencionar contexto" Icon={AtSign} />
+                    <IconGhostButton
+                      title="Configurar"
+                      Icon={SlidersHorizontal}
+                    />
+                    <GenerateMenu onPick={handleGenerateMenu} />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <ModelPill />
+                    <IconGhostButton
+                      title="Modo de voz"
+                      Icon={Mic}
+                      onClick={handleVoiceClick}
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      onClick={() => void sendMessage(input)}
+                      disabled={sending || !input.trim()}
+                      className="h-9 w-9 shrink-0 rounded-full"
+                      aria-label="Enviar"
+                    >
+                      {sending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <ArrowUp className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
+                </div>
               </div>
               <p className="text-center text-[10px] text-muted-foreground">
                 Lumi pode cometer erros. Sempre revise as informações.
@@ -746,70 +834,167 @@ function LumiAssistant({ user }: { user: User }) {
             </div>
           </div>
         </div>
+      ) : (
+        /* Empty state — ArchiMeds-style */
+        <div className="flex min-h-[calc(100vh-220px)] flex-col items-center justify-center">
+          <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-6">
+            {/* Heading row */}
+            <div className="flex items-center gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
+                <Sparkles className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+                  Como o Lumi pode te ajudar?
+                </h1>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Pergunte sobre qualquer aula, peça um resumo, gere flashcards
+                  ou treine com quizzes.
+                </p>
+              </div>
+            </div>
 
-        {/* Right panel */}
-        {showRightPanel && (
-          <aside className="hidden lg:flex flex-col gap-4">
-            <div className="rounded-2xl border border-border/60 bg-card p-4">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Recursos do Lumi
+            {/* Input card */}
+            <div className="w-full rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+              <Textarea
+                ref={textareaRef}
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKey}
+                placeholder="Pergunte algo ao Lumi…"
+                rows={3}
+                disabled={sending}
+                className="min-h-[80px] max-h-[180px] resize-none border-0 bg-transparent p-1 text-base placeholder:text-muted-foreground/70 shadow-none focus-visible:ring-0"
+              />
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1">
+                  <IconGhostButton title="Anexar" Icon={Plus} />
+                  <IconGhostButton title="Mencionar contexto" Icon={AtSign} />
+                  <IconGhostButton
+                    title="Configurar"
+                    Icon={SlidersHorizontal}
+                  />
+                  <GenerateMenu onPick={handleGenerateMenu} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <ModelPill />
+                  <IconGhostButton
+                    title="Modo de voz"
+                    Icon={Mic}
+                    onClick={handleVoiceClick}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    onClick={() => void sendMessage(input)}
+                    disabled={sending || !input.trim()}
+                    className="h-9 w-9 shrink-0 rounded-full"
+                    aria-label="Enviar"
+                  >
+                    {sending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <ArrowUp className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
               </div>
-              <div className="mt-3 flex items-center justify-between">
-                <div>
-                  <div className="text-[11px] text-muted-foreground">
-                    Coins disponíveis
-                  </div>
-                  <div className="text-2xl font-semibold tabular-nums text-foreground">
+            </div>
+
+            {/* Balance row */}
+            <div className="flex w-full items-center justify-between px-1 text-[11px] text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <Coins className="h-3.5 w-3.5 text-amber-500" />
+                <span>
+                  Você tem{" "}
+                  <span className="font-semibold tabular-nums text-foreground">
                     {coinBalance ?? "—"}
-                  </div>
-                </div>
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
-                  <Coins className="h-5 w-5" />
-                </div>
-              </div>
+                  </span>{" "}
+                  {coinBalance === 1 ? "coin" : "coins"}
+                </span>
+              </span>
               <Link
                 href="/account/coins"
-                className="mt-3 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                className="font-medium text-primary hover:underline"
               >
-                <Info className="h-3 w-3" />
-                Como funcionam os coins?
+                Ver carteira →
               </Link>
             </div>
 
-            <div className="rounded-2xl border border-border/60 bg-card p-4">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Atalhos rápidos
-              </div>
-              <div className="mt-3 flex flex-col gap-1.5 text-sm">
-                <Link
-                  href="/lumi/chats"
-                  className="rounded-md px-2 py-1.5 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+            {/* Suggestion chips */}
+            <div className="-mx-1 flex w-full gap-2 overflow-x-auto px-1 pb-2">
+              {SUGGESTION_CHIPS.map((chip) => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={() => handleSuggestionChip(chip)}
+                  title={chip.hint}
+                  aria-label={`${chip.label} — ${chip.hint} · ${chip.cost} coins`}
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/40 hover:border-primary/30"
                 >
-                  Meus chats
-                </Link>
-                <Link
-                  href="/resumos"
-                  className="rounded-md px-2 py-1.5 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                >
-                  Biblioteca de resumos
-                </Link>
-                <Link
-                  href="/flashcards"
-                  className="rounded-md px-2 py-1.5 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                >
-                  Decks de flashcards
-                </Link>
-                <Link
-                  href="/quiz"
-                  className="rounded-md px-2 py-1.5 text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                >
-                  Quizzes
-                </Link>
-              </div>
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                    <chip.Icon className="h-4 w-4 text-primary" />
+                  </div>
+                  <span className="text-sm font-medium text-foreground">
+                    {chip.label}
+                  </span>
+                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 tabular-nums">
+                    <Coins className="h-3 w-3" />
+                    {chip.cost}
+                  </span>
+                </button>
+              ))}
             </div>
-          </aside>
-        )}
-      </div>
+
+            {/* Footer row */}
+            <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                <Flame className="h-3.5 w-3.5 text-primary" />
+                <span className="tabular-nums">{streakCount}</span> dias
+              </span>
+              <span aria-hidden>·</span>
+              <Link
+                href="/flashcards"
+                className="rounded-md px-1 py-0.5 hover:text-foreground hover:underline"
+              >
+                Crie seus flashcards
+              </Link>
+              <Link
+                href="/schedule"
+                className="rounded-md px-1 py-0.5 hover:text-foreground hover:underline"
+              >
+                Configure seu planejador
+              </Link>
+            </div>
+
+            {/* Embassador banner */}
+            {!embassadorDismissed && (
+              <div className="relative flex w-full items-center justify-between gap-3 rounded-xl border border-border/60 bg-secondary/40 px-4 py-3 text-xs">
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Gift className="h-3.5 w-3.5 text-primary" />
+                  Quer acesso ao plano Pro? Vire embaixador
+                </div>
+                <div className="flex items-center gap-2">
+                  <Link
+                    href="/account/billing"
+                    className="font-medium text-primary hover:underline"
+                  >
+                    Saiba mais →
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={dismissEmbassador}
+                    aria-label="Fechar"
+                    className="inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       <LumiGenerateDialog
         open={!!genDialogKind}
@@ -825,5 +1010,86 @@ function LumiAssistant({ user }: { user: User }) {
         onClose={() => setGenDialogKind(null)}
       />
     </div>
+  );
+}
+
+function IconGhostButton({
+  title,
+  Icon,
+  onClick,
+}: {
+  title: string;
+  Icon: typeof Plus;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+    >
+      <Icon className="h-4 w-4" />
+    </button>
+  );
+}
+
+function GenerateMenu({
+  onPick,
+}: {
+  onPick: (kind: LumiGenerateKind) => void;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-secondary/70"
+        >
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          Gerar
+          <ChevronDown className="h-3 w-3 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-52">
+        <DropdownMenuItem onClick={() => onPick("summary")}>
+          <FileText className="mr-2 h-4 w-4 text-primary" />
+          Gerar resumo
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onPick("flashcards")}>
+          <Layers className="mr-2 h-4 w-4 text-primary" />
+          Criar flashcards
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onPick("quiz")}>
+          <HelpCircle className="mr-2 h-4 w-4 text-primary" />
+          Gerar quiz
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onPick("mindmap")}>
+          <Network className="mr-2 h-4 w-4 text-primary" />
+          Mapa mental
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function ModelPill() {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="hidden md:inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+        >
+          Claude Sonnet 4.5 · Flash
+          <ChevronDown className="h-3 w-3 opacity-60" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-48">
+        <DropdownMenuItem disabled>Claude Sonnet 4.5 · Flash</DropdownMenuItem>
+        <DropdownMenuItem disabled>Claude Opus 4.7 · Pro</DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

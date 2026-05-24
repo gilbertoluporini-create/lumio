@@ -86,7 +86,7 @@ export function LumiContextPicker({
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-30 mt-2 w-[320px] overflow-hidden rounded-xl border border-border/60 bg-card shadow-lg">
+        <div className="absolute left-0 top-full z-50 mt-2 w-[320px] overflow-hidden rounded-xl border border-border/60 bg-card shadow-lg">
           <div className="border-b border-border/60 px-3 py-2">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
               Escolher contexto

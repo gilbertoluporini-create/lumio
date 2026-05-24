@@ -221,6 +221,7 @@ export function AppShell({
   }
 
   const navItems: SidebarNavItem[] = [
+    { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
     {
       href: "/lumi",
       label: "Assistente Lumi",
@@ -229,7 +230,6 @@ export function AppShell({
       badgeTone: "violet",
     },
     { href: "/lumi/chats", label: "Meus chats", Icon: MessageSquare },
-    { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
     { href: "/schedule", label: "Calendário", Icon: Calendar },
     { href: "/resumos", label: "Resumos", Icon: FileText },
     { href: "/flashcards", label: "Flashcards", Icon: Layers },

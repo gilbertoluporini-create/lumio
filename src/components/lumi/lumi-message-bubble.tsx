@@ -116,8 +116,13 @@ export function LumiMessageBubble({ message }: Props) {
 
   return (
     <div className="flex items-start gap-3">
-      <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-fuchsia-500 shadow-sm">
-        <Sparkles className="h-4 w-4 text-white" />
+      <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-primary/5">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/illustrations/lumi-default.png"
+          alt="Lumi"
+          className="h-10 w-10 object-contain"
+        />
       </div>
       <div className="min-w-0 flex-1">
         <div className="text-[11px] font-semibold text-muted-foreground">
