@@ -2,7 +2,7 @@
 
 import { createElement, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   Activity,
@@ -215,6 +215,14 @@ function ResumosView({ user }: { user: User }) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [newSummaryOpen, setNewSummaryOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const searchParams = useSearchParams();
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setNewSummaryOpen(true);
+      router.replace("/resumos");
+    }
+  }, [searchParams, router]);
 
   useEffect(() => {
     let active = true;

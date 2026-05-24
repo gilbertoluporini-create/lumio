@@ -45,11 +45,42 @@ type Options = {
   complexity?: "simple" | "medium" | "deep";
 };
 
+type AttachmentPayload = {
+  name: string;
+  content: string;
+};
+
 type Body = {
   mode: AIMode;
   sources?: Sources;
   options?: Options;
+  attachments?: AttachmentPayload[];
 };
+
+const MAX_ATTACHMENTS = 5;
+
+function mergeAttachmentsIntoSources(
+  sources: Sources,
+  attachments: AttachmentPayload[] | undefined,
+): Sources {
+  if (!Array.isArray(attachments) || attachments.length === 0) return sources;
+  const extra: string[] = [];
+  for (const a of attachments.slice(0, MAX_ATTACHMENTS)) {
+    if (
+      a &&
+      typeof a.content === "string" &&
+      a.content.trim().length > 0
+    ) {
+      const name = typeof a.name === "string" ? a.name.slice(0, 160) : "Anexo";
+      extra.push(`=== ${name} ===\n${a.content}`);
+    }
+  }
+  if (extra.length === 0) return sources;
+  return {
+    transcripts: sources.transcripts,
+    pdfTexts: [...(sources.pdfTexts ?? []), ...extra],
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /*  Prompts por mode                                                   */
@@ -221,8 +252,8 @@ function buildOptionsLine(mode: AIMode, opts: Options): string {
   return lines.join("\n");
 }
 
-function buildUserMessage(mode: AIMode, body: Body): string {
-  const sources = body.sources ?? {};
+function buildUserMessage(mode: AIMode, body: Body, sourcesOverride?: Sources): string {
+  const sources = sourcesOverride ?? body.sources ?? {};
   const opts = body.options ?? {};
   const sourcesBlock = buildSourcesBlock(sources);
   const optsLine = buildOptionsLine(mode, opts);
@@ -418,7 +449,11 @@ export async function POST(req: Request) {
     return Response.json({ error: "Modo inválido." }, { status: 400 });
   }
 
-  const sources = sanitizeSources(body.sources ?? {});
+  const sourcesWithAttachments = mergeAttachmentsIntoSources(
+    body.sources ?? {},
+    body.attachments,
+  );
+  const sources = sanitizeSources(sourcesWithAttachments);
   const totalChars = totalSourceChars(sources);
   if (totalChars === 0) {
     return Response.json(
@@ -520,7 +555,7 @@ export async function POST(req: Request) {
   try {
     const client = new Anthropic({ apiKey });
     const systemPrompt = getSystemPrompt(mode);
-    const userMessage = buildUserMessage(mode, body);
+    const userMessage = buildUserMessage(mode, body, sources);
 
     const maxTokens =
       mode === "summary"

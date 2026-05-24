@@ -6,31 +6,35 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type KeyboardEvent,
 } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowUp,
-  AtSign,
   Calendar,
   CheckCircle2,
   ChevronDown,
   Clock,
   Coins,
+  File as FileIcon,
+  FileText,
   Flame,
+  FolderOpen,
   Gift,
   HelpCircle,
+  Image as ImageIcon,
   Layers,
   Lightbulb,
   Loader2,
-  FileText,
   MessageSquare,
   Mic,
+  MicOff,
   Network,
   Plus,
-  SlidersHorizontal,
   Sparkles,
+  Upload,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -45,6 +49,8 @@ import {
   QUICK_ACTIONS,
   type QuickAction,
 } from "@/components/lumi/lumi-quick-actions";
+import { LumiAttachmentPicker } from "@/components/lumi/lumi-attachment-picker";
+import { LumiVoiceMode } from "@/components/lumi/lumi-voice-mode";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import {
@@ -55,8 +61,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   LumiGenerateDialog,
+  type LumiGenerateChoice,
   type LumiGenerateKind,
 } from "@/components/lumi/lumi-generate-dialog";
+import { useSpeechRecognition } from "@/hooks/use-speech-recognition";
 import {
   createLectureAsync,
   getLectureAsync,
@@ -68,6 +76,7 @@ import {
   appendMessage,
   createChat,
   getChat,
+  type ChatAttachment,
   type LumiChat,
   type LumiChatCategory,
   type LumiChatMessage,
@@ -93,6 +102,22 @@ const SUGGESTION_CHIPS: SuggestionChip[] = [
 ];
 
 const EMBASSADOR_KEY = "lumio.lumi.embassador-dismissed";
+const MAX_ATTACHMENTS = 5;
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+
+const KIND_ROUTE: Record<LumiGenerateKind, string> = {
+  summary: "/resumos?new=1",
+  flashcards: "/flashcards?new=1",
+  quiz: "/quiz?new=1",
+  mindmap: "/documentos?new=mapa",
+};
+
+function newAttachmentId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `att_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+}
 
 export default function LumiPage() {
   return (
@@ -124,12 +149,43 @@ function LumiAssistant({ user }: { user: User }) {
   );
   const [generating, setGenerating] = useState(false);
   const [embassadorDismissed, setEmbassadorDismissed] = useState(false);
+  const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
+  const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const englishMode = useRef(false);
+  const interimRef = useRef("");
 
   const messages = chat?.messages ?? [];
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomTextareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const {
+    supported: speechSupported,
+    state: speechState,
+    start: startSpeech,
+    stop: stopSpeech,
+    error: speechError,
+  } = useSpeechRecognition({
+    lang: "pt-BR",
+    onInterim: (t) => {
+      interimRef.current = t;
+    },
+    onFinal: (t) => {
+      const final = t.trim();
+      if (!final) return;
+      setInput((prev) => {
+        const joined = prev ? `${prev.trim()} ${final}` : final;
+        return joined;
+      });
+      interimRef.current = "";
+    },
+  });
+
+  useEffect(() => {
+    if (speechError) toast.error(speechError);
+  }, [speechError]);
 
   useEffect(() => {
     let active = true;
@@ -211,6 +267,11 @@ function LumiAssistant({ user }: { user: User }) {
     return null;
   }, [context]);
 
+  const attachmentsPayload = useMemo(
+    () => attachments.map((a) => ({ name: a.name, content: a.content })),
+    [attachments],
+  );
+
   const sendMessage = useCallback(
     async (text: string, opts?: { mode?: "english_medical" | "default" }) => {
       const trimmed = text.trim();
@@ -253,6 +314,7 @@ function LumiAssistant({ user }: { user: User }) {
               role: m.role,
               content: m.content,
             })),
+            attachments: attachmentsPayload,
           }),
         });
         if (!res.ok) {
@@ -294,6 +356,7 @@ function LumiAssistant({ user }: { user: User }) {
       }
     },
     [
+      attachmentsPayload,
       chat,
       context.lectureId,
       context.subjectId,
@@ -311,7 +374,7 @@ function LumiAssistant({ user }: { user: User }) {
       if (generating) return;
 
       const hasLecture = !!context.lectureId;
-      const transcript = await (async () => {
+      const baseTranscript = await (async () => {
         if (hasLecture && context.lectureId) {
           const lec = await getLectureAsync(user.id, context.lectureId);
           const t = (lec?.transcript ?? "").trim();
@@ -328,9 +391,12 @@ function LumiAssistant({ user }: { user: User }) {
         return convo;
       })();
 
-      if (!transcript || transcript.length < 30) {
+      const hasUsableConvo = baseTranscript.length >= 30;
+      const hasAttachments = attachments.length > 0;
+
+      if (!hasUsableConvo && !hasAttachments) {
         toast.error(
-          "Sem contexto suficiente. Selecione uma aula ou converse antes de gerar.",
+          "Sem contexto suficiente. Anexe um arquivo, selecione uma aula ou converse antes de gerar.",
         );
         return;
       }
@@ -362,13 +428,17 @@ function LumiAssistant({ user }: { user: User }) {
       );
       if (optimisticChat) setChat(optimisticChat);
 
+      const transcripts: string[] = [];
+      if (hasUsableConvo) transcripts.push(baseTranscript);
+
       try {
         const resp = await fetch("/api/ai/generate", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             mode: kind,
-            sources: { transcripts: [transcript] },
+            sources: { transcripts },
+            attachments: attachmentsPayload,
             options: {},
           }),
         });
@@ -578,6 +648,8 @@ function LumiAssistant({ user }: { user: User }) {
       }
     },
     [
+      attachments.length,
+      attachmentsPayload,
       chat,
       context.lectureId,
       context.lectureTitle,
@@ -589,6 +661,20 @@ function LumiAssistant({ user }: { user: User }) {
       subjects,
       user.id,
     ],
+  );
+
+  const handleGenerateConfirm = useCallback(
+    (choice: LumiGenerateChoice) => {
+      if (!genDialogKind) return;
+      if (choice === "wizard") {
+        const route = KIND_ROUTE[genDialogKind];
+        setGenDialogKind(null);
+        router.push(route);
+        return;
+      }
+      void runGenerate(genDialogKind);
+    },
+    [genDialogKind, router, runGenerate],
   );
 
   const handleQuickAction = useCallback(
@@ -652,11 +738,152 @@ function LumiAssistant({ user }: { user: User }) {
     }
   }
 
-  const handleVoiceClick = useCallback(() => {
-    toast.info("Modo de voz · Em breve", {
-      description:
-        "Estamos trabalhando pra você falar com o Lumi por áudio.",
-    });
+  const handleAttachClick = useCallback(() => {
+    if (attachments.length >= MAX_ATTACHMENTS) {
+      toast.error(`Máximo ${MAX_ATTACHMENTS} anexos.`);
+      return;
+    }
+    fileInputRef.current?.click();
+  }, [attachments.length]);
+
+  const handleAttachDocuments = useCallback(() => {
+    if (attachments.length >= MAX_ATTACHMENTS) {
+      toast.error(`Máximo ${MAX_ATTACHMENTS} anexos.`);
+      return;
+    }
+    setAttachmentPickerOpen(true);
+  }, [attachments.length]);
+
+  const handleAddAttachment = useCallback(
+    (att: ChatAttachment) => {
+      setAttachments((prev) => {
+        if (prev.length >= MAX_ATTACHMENTS) return prev;
+        return [...prev, att];
+      });
+    },
+    [],
+  );
+
+  const handleRemoveAttachment = useCallback((id: string) => {
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
+  const handleFileChange = useCallback(
+    async (e: ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      e.target.value = "";
+
+      if (file.size > MAX_FILE_BYTES) {
+        toast.error(`"${file.name}" passa de 10 MB.`);
+        return;
+      }
+
+      const lower = file.name.toLowerCase();
+      const sizeKb = Math.max(1, Math.round(file.size / 1024));
+
+      try {
+        if (lower.endsWith(".pdf")) {
+          toast.info("Lendo PDF...", { duration: 1500 });
+          const pdfjs = await import("pdfjs-dist");
+          if (typeof window !== "undefined") {
+            pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+          }
+          const buf = await file.arrayBuffer();
+          const task = pdfjs.getDocument({ data: new Uint8Array(buf) });
+          const doc = await task.promise;
+          const parts: string[] = [];
+          for (let i = 1; i <= doc.numPages; i++) {
+            const page = await doc.getPage(i);
+            const content = await page.getTextContent();
+            const pageText = content.items
+              .map((it) => ("str" in it ? it.str : ""))
+              .filter((s) => s.length > 0)
+              .join(" ");
+            if (pageText.trim()) parts.push(`--- Página ${i} ---\n${pageText}`);
+            page.cleanup();
+          }
+          await doc.destroy();
+          const text = parts.join("\n\n").trim();
+          if (!text) {
+            toast.error("PDF sem texto extraível.");
+            return;
+          }
+          handleAddAttachment({
+            id: newAttachmentId(),
+            kind: "file",
+            name: file.name,
+            sizeKb,
+            content: text,
+            contentType: "application/pdf",
+          });
+          toast.success(`"${file.name}" anexado.`);
+          return;
+        }
+
+        if (lower.endsWith(".txt")) {
+          const text = await file.text();
+          if (!text.trim()) {
+            toast.error("Arquivo TXT vazio.");
+            return;
+          }
+          handleAddAttachment({
+            id: newAttachmentId(),
+            kind: "file",
+            name: file.name,
+            sizeKb,
+            content: text,
+            contentType: "text/plain",
+          });
+          toast.success(`"${file.name}" anexado.`);
+          return;
+        }
+
+        if (/\.(png|jpe?g)$/.test(lower)) {
+          handleAddAttachment({
+            id: newAttachmentId(),
+            kind: "file",
+            name: file.name,
+            sizeKb,
+            content: `[Imagem anexada: ${file.name} — análise visual ainda não suportada pela IA. Descreva o conteúdo na mensagem.]`,
+            contentType: file.type || "image/png",
+          });
+          toast.info("Imagem anexada (sem leitura visual ainda).");
+          return;
+        }
+
+        toast.error("Tipo não suportado. Use PDF, TXT, PNG ou JPG.");
+      } catch (err) {
+        toast.error(`Falha ao processar "${file.name}": ${(err as Error).message}`);
+      }
+    },
+    [handleAddAttachment],
+  );
+
+  const handleSpeechToggle = useCallback(() => {
+    if (!speechSupported) {
+      toast.error("Seu navegador não suporta speech-to-text.");
+      return;
+    }
+    if (speechState === "listening") {
+      stopSpeech();
+      const interim = interimRef.current.trim();
+      if (interim) {
+        setInput((prev) => (prev ? `${prev.trim()} ${interim}` : interim));
+        interimRef.current = "";
+      }
+      return;
+    }
+    startSpeech();
+  }, [speechState, speechSupported, startSpeech, stopSpeech]);
+
+  const handleVoiceModeToggle = useCallback(() => {
+    if (speechState === "listening") stopSpeech();
+    setVoiceMode(true);
+  }, [speechState, stopSpeech]);
+
+  const handleChatModeToggle = useCallback(() => {
+    setVoiceMode(false);
   }, []);
 
   const dismissEmbassador = useCallback(() => {
@@ -668,9 +895,18 @@ function LumiAssistant({ user }: { user: User }) {
 
   const hasMessages = messages.length > 0;
   const streakCount = streak.current;
+  const isListening = speechState === "listening";
 
   return (
     <div className="relative mx-auto flex w-full max-w-[1200px] flex-col px-4 py-4 lg:px-8">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".pdf,.txt,.png,.jpg,.jpeg"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
       {/* Sticky header (toggle + actions) */}
       <div className="sticky top-[60px] z-20 -mx-4 lg:-mx-8 mb-4 border-b border-border/40 bg-background/85 px-4 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
         <div className="flex items-center justify-between gap-3">
@@ -689,15 +925,24 @@ function LumiAssistant({ user }: { user: User }) {
             <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/60 p-1 backdrop-blur">
               <button
                 type="button"
-                className="inline-flex items-center gap-1.5 rounded-full bg-card px-4 py-1.5 text-xs font-medium text-foreground shadow-sm"
+                onClick={handleChatModeToggle}
+                className={
+                  !voiceMode
+                    ? "inline-flex items-center gap-1.5 rounded-full bg-card px-4 py-1.5 text-xs font-medium text-foreground shadow-sm"
+                    : "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                }
               >
                 <MessageSquare className="h-3.5 w-3.5" />
                 Chat
               </button>
               <button
                 type="button"
-                onClick={handleVoiceClick}
-                className="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                onClick={handleVoiceModeToggle}
+                className={
+                  voiceMode
+                    ? "inline-flex items-center gap-1.5 rounded-full bg-card px-4 py-1.5 text-xs font-medium text-foreground shadow-sm"
+                    : "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                }
               >
                 <Mic className="h-3.5 w-3.5" />
                 Modo de Voz
@@ -746,7 +991,19 @@ function LumiAssistant({ user }: { user: User }) {
         </div>
       </div>
 
-      {hasMessages ? (
+      {voiceMode ? (
+        <LumiVoiceMode
+          userId={user.id}
+          chat={chat}
+          setChat={(next) => setChat(next)}
+          contextLabel={contextLabel}
+          contextSubjectId={context.subjectId}
+          contextSubjectName={context.subjectName}
+          contextLectureId={context.lectureId}
+          attachments={attachments}
+          onExit={handleChatModeToggle}
+        />
+      ) : hasMessages ? (
         /* Chat view */
         <div className="flex min-h-[600px] flex-col rounded-2xl border border-border/60 bg-card">
           <div
@@ -783,6 +1040,12 @@ function LumiAssistant({ user }: { user: User }) {
           {/* Bottom input */}
           <div className="border-t border-border/60 bg-card/80 p-3 md:p-4">
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
+              {attachments.length > 0 && (
+                <AttachmentChips
+                  attachments={attachments}
+                  onRemove={handleRemoveAttachment}
+                />
+              )}
               <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-sm">
                 <Textarea
                   ref={bottomTextareaRef}
@@ -796,20 +1059,19 @@ function LumiAssistant({ user }: { user: User }) {
                 />
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
-                    <IconGhostButton title="Anexar" Icon={Plus} />
-                    <IconGhostButton title="Mencionar contexto" Icon={AtSign} />
-                    <IconGhostButton
-                      title="Configurar"
-                      Icon={SlidersHorizontal}
+                    <AttachMenu
+                      onUploadComputer={handleAttachClick}
+                      onPickDocument={handleAttachDocuments}
+                      disabled={attachments.length >= MAX_ATTACHMENTS}
                     />
                     <GenerateMenu onPick={handleGenerateMenu} />
                   </div>
                   <div className="flex items-center gap-2">
                     <ModelPill />
-                    <IconGhostButton
-                      title="Modo de voz"
-                      Icon={Mic}
-                      onClick={handleVoiceClick}
+                    <MicButton
+                      listening={isListening}
+                      supported={speechSupported}
+                      onClick={handleSpeechToggle}
                     />
                     <Button
                       type="button"
@@ -856,6 +1118,14 @@ function LumiAssistant({ user }: { user: User }) {
 
             {/* Input card */}
             <div className="w-full rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+              {attachments.length > 0 && (
+                <div className="mb-3">
+                  <AttachmentChips
+                    attachments={attachments}
+                    onRemove={handleRemoveAttachment}
+                  />
+                </div>
+              )}
               <Textarea
                 ref={textareaRef}
                 value={input}
@@ -868,20 +1138,19 @@ function LumiAssistant({ user }: { user: User }) {
               />
               <div className="mt-3 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1">
-                  <IconGhostButton title="Anexar" Icon={Plus} />
-                  <IconGhostButton title="Mencionar contexto" Icon={AtSign} />
-                  <IconGhostButton
-                    title="Configurar"
-                    Icon={SlidersHorizontal}
+                  <AttachMenu
+                    onUploadComputer={handleAttachClick}
+                    onPickDocument={handleAttachDocuments}
+                    disabled={attachments.length >= MAX_ATTACHMENTS}
                   />
                   <GenerateMenu onPick={handleGenerateMenu} />
                 </div>
                 <div className="flex items-center gap-2">
                   <ModelPill />
-                  <IconGhostButton
-                    title="Modo de voz"
-                    Icon={Mic}
-                    onClick={handleVoiceClick}
+                  <MicButton
+                    listening={isListening}
+                    supported={speechSupported}
+                    onClick={handleSpeechToggle}
                   />
                   <Button
                     type="button"
@@ -1002,33 +1271,134 @@ function LumiAssistant({ user }: { user: User }) {
         contextLabel={contextLabel}
         hasLecture={!!context.lectureId}
         hasMessages={messages.length > 0}
+        attachmentCount={attachments.length}
         coinBalance={coinBalance}
         loading={generating}
-        onConfirm={() => {
-          if (genDialogKind) void runGenerate(genDialogKind);
-        }}
+        onConfirm={handleGenerateConfirm}
         onClose={() => setGenDialogKind(null)}
+      />
+
+      <LumiAttachmentPicker
+        open={attachmentPickerOpen}
+        userId={user.id}
+        onClose={() => setAttachmentPickerOpen(false)}
+        onPick={handleAddAttachment}
       />
     </div>
   );
 }
 
-function IconGhostButton({
-  title,
-  Icon,
+function AttachmentChips({
+  attachments,
+  onRemove,
+}: {
+  attachments: ChatAttachment[];
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      {attachments.map((a) => {
+        const Icon =
+          a.contentType === "application/pdf"
+            ? FileText
+            : a.contentType?.startsWith("image/")
+              ? ImageIcon
+              : a.kind === "document"
+                ? FolderOpen
+                : FileIcon;
+        return (
+          <div
+            key={a.id}
+            className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/60 bg-secondary/40 py-1 pl-2 pr-1 text-xs"
+          >
+            <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
+            <span className="max-w-[180px] truncate font-medium text-foreground">
+              {a.name}
+            </span>
+            {a.sizeKb !== undefined && (
+              <span className="text-[10px] text-muted-foreground">
+                · {a.sizeKb} KB
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={() => onRemove(a.id)}
+              className="inline-flex h-5 w-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-background hover:text-foreground"
+              aria-label={`Remover ${a.name}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function AttachMenu({
+  onUploadComputer,
+  onPickDocument,
+  disabled,
+}: {
+  onUploadComputer: () => void;
+  onPickDocument: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          title="Anexar"
+          aria-label="Anexar arquivo ou documento"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:opacity-40"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem onClick={onUploadComputer}>
+          <Upload className="mr-2 h-4 w-4 text-primary" />
+          Carregar do computador
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onPickDocument}>
+          <FolderOpen className="mr-2 h-4 w-4 text-primary" />
+          Dos meus documentos
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+function MicButton({
+  listening,
+  supported,
   onClick,
 }: {
-  title: string;
-  Icon: typeof Plus;
-  onClick?: () => void;
+  listening: boolean;
+  supported: boolean;
+  onClick: () => void;
 }) {
+  const Icon = listening ? MicOff : Mic;
   return (
     <button
       type="button"
-      title={title}
-      aria-label={title}
       onClick={onClick}
-      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+      disabled={!supported}
+      title={
+        !supported
+          ? "Speech-to-text indisponível"
+          : listening
+            ? "Parar gravação"
+            : "Falar pra digitar"
+      }
+      aria-label={listening ? "Parar gravação" : "Falar pra digitar"}
+      className={
+        listening
+          ? "inline-flex h-8 w-8 items-center justify-center rounded-md bg-rose-500/15 text-rose-500 transition-colors animate-pulse"
+          : "inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground disabled:opacity-40"
+      }
     >
       <Icon className="h-4 w-4" />
     </button>

@@ -19,6 +19,17 @@ export type LumiChatMessage = {
   };
 };
 
+export type ChatAttachmentKind = "file" | "document";
+
+export type ChatAttachment = {
+  id: string;
+  kind: ChatAttachmentKind;
+  name: string;
+  sizeKb?: number;
+  content: string;
+  contentType?: string;
+};
+
 export type LumiChat = {
   id: string;
   title: string;

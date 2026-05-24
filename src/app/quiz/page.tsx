@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   Activity,
@@ -395,12 +395,20 @@ function comingSoon(label: string) {
 // ============================================================================
 function QuizView({ user }: { user: User }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [quizzes, setQuizzes] = useState<QuizAssetRow[]>([]);
   const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
   const [loading, setLoading] = useState(true);
   const [wizardOpen, setWizardOpen] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setWizardOpen(true);
+      router.replace("/quiz");
+    }
+  }, [searchParams, router]);
 
   // Filtros
   const [activeSubjectId, setActiveSubjectId] = useState<string | null>(null);

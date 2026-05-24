@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   ArrowRight,
@@ -83,6 +83,7 @@ export default function DocumentosPage() {
 
 function DocumentosView({ user }: { user: User }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { documents, subjects, loading, refresh } = useAllDocuments(user.id);
 
   const [tab, setTab] = useState<TabId>("by-subject");
@@ -92,6 +93,14 @@ function DocumentosView({ user }: { user: User }) {
 
   const [wizardOpen, setWizardOpen] = useState(false);
   const [newLectureOpen, setNewLectureOpen] = useState(false);
+
+  useEffect(() => {
+    const newParam = searchParams.get("new");
+    if (newParam === "mapa" || newParam === "1") {
+      setWizardOpen(true);
+      router.replace("/documentos");
+    }
+  }, [searchParams, router]);
   const [assignTarget, setAssignTarget] = useState<DocumentItem | null>(null);
   const [assignSuggested, setAssignSuggested] = useState<string | null>(null);
 

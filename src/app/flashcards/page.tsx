@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Activity,
   ArrowRight,
@@ -270,6 +270,7 @@ function shuffle<T>(arr: T[]): T[] {
 // =====================================================================
 function FlashcardsHubView({ user }: { user: User }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const greeting = useGreeting();
   const firstName = user.name.split(" ")[0] || "estudante";
 
@@ -300,6 +301,13 @@ function FlashcardsHubView({ user }: { user: User }) {
   // Dialogs
   const [newDeckOpen, setNewDeckOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get("new") === "1") {
+      setNewDeckOpen(true);
+      router.replace("/flashcards");
+    }
+  }, [searchParams, router]);
 
   // =====================================================================
   // Carga inicial: subjects + lectures + flashcards + SRS states

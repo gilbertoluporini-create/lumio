@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRight,
   Coins,
   FileText,
   Layers,
@@ -23,17 +24,26 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export type LumiGenerateKind = "summary" | "flashcards" | "quiz" | "mindmap";
+export type LumiGenerateChoice = "context" | "wizard";
 
 const KIND_META: Record<
   LumiGenerateKind,
-  { label: string; description: string; Icon: typeof FileText; tone: string; cost: number }
+  {
+    label: string;
+    description: string;
+    Icon: typeof FileText;
+    tone: string;
+    cost: number;
+    wizardCta: string;
+  }
 > = {
   summary: {
     label: "Gerar resumo",
     description: "Resumo estruturado em markdown com pontos-chave de revisão.",
     Icon: FileText,
     tone: "from-violet-500/20 to-violet-500/5 text-violet-600",
-    cost: 10,
+    cost: 8,
+    wizardCta: "Abrir wizard de resumo",
   },
   flashcards: {
     label: "Criar flashcards",
@@ -41,6 +51,7 @@ const KIND_META: Record<
     Icon: Layers,
     tone: "from-fuchsia-500/20 to-fuchsia-500/5 text-fuchsia-600",
     cost: 12,
+    wizardCta: "Abrir wizard de flashcards",
   },
   quiz: {
     label: "Gerar quiz",
@@ -48,6 +59,7 @@ const KIND_META: Record<
     Icon: Sparkles,
     tone: "from-emerald-500/20 to-emerald-500/5 text-emerald-600",
     cost: 15,
+    wizardCta: "Abrir wizard de quiz",
   },
   mindmap: {
     label: "Mapa mental",
@@ -55,6 +67,7 @@ const KIND_META: Record<
     Icon: Network,
     tone: "from-sky-500/20 to-sky-500/5 text-sky-600",
     cost: 20,
+    wizardCta: "Abrir wizard de mapa mental",
   },
 };
 
@@ -64,9 +77,10 @@ type Props = {
   contextLabel?: string | null;
   hasLecture: boolean;
   hasMessages: boolean;
+  attachmentCount: number;
   coinBalance: number | null;
   loading: boolean;
-  onConfirm: () => void;
+  onConfirm: (choice: LumiGenerateChoice) => void;
   onClose: () => void;
 };
 
@@ -76,22 +90,38 @@ export function LumiGenerateDialog({
   contextLabel,
   hasLecture,
   hasMessages,
+  attachmentCount,
   coinBalance,
   loading,
   onConfirm,
   onClose,
 }: Props) {
   const meta = kind ? KIND_META[kind] : null;
+  const [choice, setChoice] = useState<LumiGenerateChoice>("context");
+
+  useEffect(() => {
+    if (open) setChoice("context");
+  }, [open, kind]);
 
   const sourceLabel = useMemo(() => {
-    if (hasLecture && contextLabel) return contextLabel;
-    if (hasMessages) return "Conversa atual com o Lumi";
-    return null;
-  }, [hasLecture, hasMessages, contextLabel]);
+    const parts: string[] = [];
+    if (hasLecture && contextLabel) parts.push(contextLabel);
+    if (hasMessages) parts.push("Conversa atual");
+    if (attachmentCount > 0) {
+      parts.push(
+        `${attachmentCount} anexo${attachmentCount === 1 ? "" : "s"}`,
+      );
+    }
+    if (parts.length === 0) return null;
+    return parts.join(" · ");
+  }, [hasLecture, hasMessages, contextLabel, attachmentCount]);
 
-  const blocked = !hasLecture && !hasMessages;
+  const blocked = !hasLecture && !hasMessages && attachmentCount === 0;
   const insufficient =
-    !!meta && coinBalance !== null && coinBalance < meta.cost;
+    choice === "context" &&
+    !!meta &&
+    coinBalance !== null &&
+    coinBalance < meta.cost;
 
   if (!meta) return null;
   const { Icon } = meta;
@@ -124,35 +154,102 @@ export function LumiGenerateDialog({
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="rounded-xl border border-border/60 bg-secondary/30 p-3">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Fonte do conteúdo
-            </div>
-            <div className="mt-1 text-sm font-medium text-foreground">
-              {sourceLabel ?? "(Nenhuma fonte disponível)"}
-            </div>
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={() => setChoice("context")}
+              disabled={loading || blocked}
+              className={cn(
+                "w-full rounded-xl border p-3 text-left transition-all",
+                choice === "context"
+                  ? "border-primary bg-primary/5"
+                  : "border-border/60 hover:border-primary/30",
+                (loading || blocked) && "opacity-60",
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
+                    choice === "context"
+                      ? "border-primary"
+                      : "border-muted-foreground/40",
+                  )}
+                >
+                  {choice === "context" && (
+                    <div className="h-2 w-2 rounded-full bg-primary" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-foreground">
+                      Usar contexto da conversa atual
+                    </div>
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-600 tabular-nums">
+                      <Coins className="h-3 w-3" />
+                      {meta.cost}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Inclui as mensagens trocadas e qualquer arquivo anexado.
+                  </div>
+                  {sourceLabel && (
+                    <div className="mt-2 inline-flex max-w-full items-center gap-1.5 truncate rounded-md bg-background/70 px-2 py-1 text-[11px] text-muted-foreground">
+                      Fonte: {sourceLabel}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setChoice("wizard")}
+              disabled={loading}
+              className={cn(
+                "w-full rounded-xl border p-3 text-left transition-all",
+                choice === "wizard"
+                  ? "border-primary bg-primary/5"
+                  : "border-border/60 hover:border-primary/30",
+                loading && "opacity-60",
+              )}
+            >
+              <div className="flex items-start gap-3">
+                <div
+                  className={cn(
+                    "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
+                    choice === "wizard"
+                      ? "border-primary"
+                      : "border-muted-foreground/40",
+                  )}
+                >
+                  {choice === "wizard" && (
+                    <div className="h-2 w-2 rounded-full bg-primary" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-foreground">
+                      Modo wizard completo
+                    </div>
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      Custo variável
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Te leva pra tela dedicada pra escolher transcrição, slides
+                    e arquivos múltiplos.
+                  </div>
+                </div>
+              </div>
+            </button>
           </div>
 
-          <div className="flex items-center justify-between rounded-xl border border-border/60 bg-secondary/30 p-3">
-            <div>
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Custo da geração
-              </div>
-              <div className="mt-0.5 text-base font-semibold text-foreground">
-                {meta.cost} coins
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Coins className="h-3.5 w-3.5 text-amber-500" />
-              Saldo: {coinBalance ?? "—"}
-            </div>
-          </div>
-
-          {blocked && (
+          {blocked && choice === "context" && (
             <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                Selecione uma aula no contexto ou converse com o Lumi antes de gerar.
+                Selecione uma aula, anexe um arquivo ou converse antes de gerar.
               </div>
             </div>
           )}
@@ -161,7 +258,8 @@ export function LumiGenerateDialog({
             <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                Saldo insuficiente. Você precisa de {meta.cost} coins.
+                Saldo insuficiente. Você precisa de {meta.cost} coins. Saldo
+                atual: {coinBalance ?? "—"}.
               </div>
             </div>
           )}
@@ -174,25 +272,30 @@ export function LumiGenerateDialog({
           <Button
             variant="gradient"
             onClick={() => {
-              if (blocked) {
+              if (choice === "context" && blocked) {
                 toast.error(
-                  "Selecione uma aula no contexto ou converse antes de gerar.",
+                  "Anexe um arquivo, selecione uma aula ou converse antes.",
                 );
                 return;
               }
-              onConfirm();
+              onConfirm(choice);
             }}
-            disabled={loading || blocked || insufficient}
+            disabled={loading || (choice === "context" && (blocked || insufficient))}
           >
             {loading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Gerando...
               </>
+            ) : choice === "wizard" ? (
+              <>
+                {meta.wizardCta}
+                <ArrowRight className="h-4 w-4" />
+              </>
             ) : (
               <>
                 <Sparkles className="h-4 w-4" />
-                Gerar agora
+                Gerar com contexto
               </>
             )}
           </Button>
