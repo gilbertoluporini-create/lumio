@@ -94,9 +94,9 @@ export function AppShell({
     Icon?: typeof Calendar;
     isCoin?: boolean;
   }> = [
-    { href: "/dashboard", label: "Aulas", lumi: "book" },
+    { href: "/dashboard", label: "Dashboard", lumi: "book" },
+    { href: "/gravacoes", label: "Gravações", lumi: "document" },
     { href: "/schedule", label: "Cronograma", lumi: "calendar" },
-    { href: "/documents", label: "Documentos", lumi: "document" },
     { href: "/account/coins", label: "Lumio Coins", isCoin: true },
   ];
 

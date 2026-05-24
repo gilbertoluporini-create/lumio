@@ -30,26 +30,30 @@ export function LumioCoinSpinning({
     const v = videoRef.current;
     if (!v) return;
 
-    function onTimeUpdate() {
-      if (!v || !v.duration) return;
-      // Reinicia antes do fim absoluto pra não pegar o último frame estático
-      if (v.duration - v.currentTime < 0.08) {
-        v.currentTime = 0;
-        void v.play().catch(() => {});
+    let raf = 0;
+
+    function tick() {
+      if (!v || !v.duration || Number.isNaN(v.duration)) {
+        raf = requestAnimationFrame(tick);
+        return;
       }
+      // Reinicia ANTES do último frame pra não pegar o congelamento.
+      // requestAnimationFrame roda a ~60fps então captura no frame certo.
+      const margin = 0.15; // segundos
+      if (v.currentTime >= v.duration - margin) {
+        v.currentTime = 0;
+        // garante que continua tocando (alguns browsers pausam ao reset)
+        if (v.paused) void v.play().catch(() => {});
+      }
+      raf = requestAnimationFrame(tick);
     }
 
-    function onEnded() {
-      if (!v) return;
-      v.currentTime = 0;
-      void v.play().catch(() => {});
-    }
+    // dispara play e começa o monitor
+    void v.play().catch(() => {});
+    raf = requestAnimationFrame(tick);
 
-    v.addEventListener("timeupdate", onTimeUpdate);
-    v.addEventListener("ended", onEnded);
     return () => {
-      v.removeEventListener("timeupdate", onTimeUpdate);
-      v.removeEventListener("ended", onEnded);
+      cancelAnimationFrame(raf);
     };
   }, []);
 

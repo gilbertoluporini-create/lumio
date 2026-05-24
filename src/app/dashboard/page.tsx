@@ -32,6 +32,7 @@ import {
   Music,
   Palette,
   Pill,
+  Play,
   Plus,
   Scale,
   Sigma,
@@ -720,7 +721,7 @@ function Dashboard({ user }: { user: User }) {
         )}
       </div>
 
-      {/* Aulas recentes */}
+      {/* Aulas recentes — lista linear */}
       {recentLectures.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-4">
@@ -728,15 +729,18 @@ function Dashboard({ user }: { user: User }) {
               Aulas recentes
             </h2>
             {lectures.length > 6 && (
-              <span className="text-xs text-muted-foreground">
-                Mostrando 6 de {lectures.length}
-              </span>
+              <Link
+                href="/gravacoes"
+                className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
+              >
+                Ver todas <ArrowRight className="h-3 w-3" />
+              </Link>
             )}
           </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="rounded-xl border border-border/60 bg-card overflow-hidden divide-y divide-border/50">
             {recentLectures.map((l) => {
               const subject = subjects.find((s) => s.id === l.subjectId);
-              return <LectureCard key={l.id} lecture={l} subject={subject} />;
+              return <LectureRow key={l.id} lecture={l} subject={subject} />;
             })}
           </div>
         </div>
@@ -883,7 +887,7 @@ function SubjectFolder({
               {lectureCount}
             </span>
             <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-              {lectureCount === 1 ? "aula" : "aulas"}
+              {lectureCount === 1 ? "material" : "materiais"}
             </span>
           </div>
         </div>
@@ -916,6 +920,63 @@ function SubjectFolder({
   );
 }
 
+function LectureRow({
+  lecture,
+  subject,
+}: {
+  lecture: Lecture;
+  subject: Subject | undefined;
+}) {
+  const hasSummary = !!lecture.summary;
+  const isLive = lecture.status === "live";
+
+  return (
+    <Link
+      href={`/lecture/${lecture.id}`}
+      className="group flex items-center gap-3 px-4 py-3 hover:bg-secondary/30 transition-colors"
+    >
+      <div className="h-9 w-9 shrink-0 rounded-full bg-primary/10 dark:bg-primary/15 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
+        <Play className="h-4 w-4 text-primary fill-primary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
+          {lecture.title}
+        </div>
+        {subject && (
+          <div className="text-xs text-muted-foreground truncate">
+            {subject.name}
+          </div>
+        )}
+      </div>
+      <div className="hidden sm:flex items-center gap-1 text-xs text-muted-foreground shrink-0">
+        <Clock className="h-3 w-3" />
+        {formatRelativeTime(lecture.createdAt)}
+      </div>
+      <div className="hidden md:flex items-center gap-1 text-xs text-muted-foreground font-mono shrink-0 min-w-[60px]">
+        {lecture.durationSec > 0 ? formatDuration(lecture.durationSec) : "—"}
+      </div>
+      <div className="shrink-0">
+        {isLive ? (
+          <Badge variant="live" className="gap-1">
+            <span className="h-1.5 w-1.5 rounded-full bg-red-500 pulse-dot" />
+            AO VIVO
+          </Badge>
+        ) : hasSummary ? (
+          <Badge variant="secondary" className="gap-1 text-[10px] text-emerald-700 dark:text-emerald-300 bg-emerald-500/15">
+            <Sparkles className="h-2.5 w-2.5" />
+            Assistida
+          </Badge>
+        ) : (
+          <Badge variant="outline" className="text-[10px]">
+            Em andamento
+          </Badge>
+        )}
+      </div>
+    </Link>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function LectureCard({
   lecture,
   subject,
