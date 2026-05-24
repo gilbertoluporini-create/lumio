@@ -32,13 +32,13 @@ const PLANS: Plan[] = [
     price: "R$ 0",
     cadence: "pra sempre",
     description: "Pra conhecer o Lumio.",
-    coinsTagline: "30 coins de boas-vindas",
+    coinsTagline: "50 coins de boas-vindas",
     cta: "Começar grátis",
     href: "/signup?plan=free",
     features: [
       "3 aulas por mês",
       "Chat IA, slides e transcrição ilimitados",
-      "30 coins pra gerar 3 resumos",
+      "50 coins pra gerar 5 resumos",
       "Sem cartão de crédito",
     ],
   },
@@ -199,20 +199,26 @@ export function PricingSection() {
         ))}
       </div>
 
-      <Reveal className="mt-16">
-        <div className="rounded-xl border border-border/60 bg-card/60 backdrop-blur p-6 md:p-8">
-          <h3 className="text-sm uppercase tracking-wider text-muted-foreground font-medium mb-5">
-            Perguntas rápidas
-          </h3>
-          <div className="grid md:grid-cols-3 gap-x-8 gap-y-6">
-            {FAQS.map((faq) => (
-              <div key={faq.q}>
-                <p className="font-medium text-sm mb-1.5">{faq.q}</p>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  {faq.a}
-                </p>
-              </div>
-            ))}
+      <Reveal className="mt-12">
+        <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-amber-500/5 via-card to-fuchsia-500/5 p-6 md:p-7 flex flex-col md:flex-row items-start md:items-center gap-4 md:gap-6">
+          <div className="shrink-0 flex items-center gap-3">
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 border border-primary/20">
+              <LumioCoin size={28} />
+            </div>
+            <div>
+              <p className="text-sm font-semibold tracking-tight">
+                Como funcionam os Lumio Coins
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                A moeda que troca por material de estudo
+              </p>
+            </div>
+          </div>
+          <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <CoinLine label="Resumo" cost={10} />
+            <CoinLine label="Flash cards" cost={12} />
+            <CoinLine label="Quiz" cost={15} />
+            <CoinLine label="Mapa mental" cost={20} />
           </div>
         </div>
       </Reveal>
@@ -220,29 +226,14 @@ export function PricingSection() {
   );
 }
 
-const FAQS = [
-  {
-    q: "O que são Lumio Coins?",
-    a: "São a moeda pra gerar produtos da aula: resumo estruturado (10), flash cards (12), quiz (15) ou mapa mental (20). Chat, slides e transcrição já estão inclusos no plano.",
-  },
-  {
-    q: "Por que tem limite de aulas no mês?",
-    a: "Pra manter chat IA, Vision e transcrição inclusos no preço. O Pro tem 100/mês (na prática, ilimitado pra qualquer estudante). Power é ilimitado de verdade.",
-  },
-  {
-    q: "Coins não usados expiram?",
-    a: "Acumulam por até 90 dias. Depois resetam pro saldo do plano. Plano grátis recebe 30 coins uma vez.",
-  },
-  {
-    q: "Posso cancelar quando?",
-    a: "Sim, no app. Sem fidelidade. Continua com acesso até o fim do período pago.",
-  },
-  {
-    q: "Acabaram meus coins, e agora?",
-    a: "Chat, slides e transcrição continuam funcionando. Pra gerar mais resumos ou flash cards, espera a renovação ou sobe de plano.",
-  },
-  {
-    q: "Onde meus áudios ficam salvos?",
-    a: "Os áudios não saem do navegador — só o texto da transcrição. Tudo armazenado com criptografia em repouso.",
-  },
-];
+function CoinLine({ label, cost }: { label: string; cost: number }) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-lg border border-border/40 bg-background/60 backdrop-blur px-3 py-2">
+      <span className="text-foreground/80">{label}</span>
+      <span className="inline-flex items-center gap-1 font-mono font-medium text-primary">
+        <LumioCoin size={11} />
+        {cost}
+      </span>
+    </div>
+  );
+}

@@ -7,10 +7,15 @@ import {
   Calendar,
   ChevronLeft,
   CreditCard,
+  FileText,
+  HelpCircle,
+  Layers,
   LayoutDashboard,
   LogOut,
+  Mic,
   PanelLeft,
   Settings,
+  Sparkles,
   UserIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -33,6 +38,71 @@ import { signOutAsync } from "@/lib/auth";
 import type { User } from "@/lib/types";
 
 const SIDEBAR_STORAGE_KEY = "lumio.sidebar.collapsed";
+
+type SidebarNavItem = {
+  href: string;
+  label: string;
+  lumi?: "book" | "calendar" | "document";
+  Icon?: typeof Calendar;
+  isCoin?: boolean;
+};
+
+function SidebarLink({
+  item,
+  pathname,
+  collapsed,
+  coinBalance,
+}: {
+  item: SidebarNavItem;
+  pathname: string | null;
+  collapsed: boolean;
+  coinBalance: number | null;
+}) {
+  const { href, label, lumi, Icon, isCoin } = item;
+  const active = pathname === href || pathname?.startsWith(href + "/");
+  const lowBalance = isCoin && coinBalance !== null && coinBalance < 50;
+
+  return (
+    <Link
+      href={href}
+      title={collapsed ? label : undefined}
+      className={cn(
+        "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors group",
+        collapsed && "justify-center px-2",
+        active
+          ? "bg-primary/10 text-primary"
+          : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
+      )}
+    >
+      {isCoin ? (
+        <LumioCoin size={22} className="shrink-0" />
+      ) : lumi ? (
+        <LumiIcon name={lumi} size={22} className="shrink-0" />
+      ) : Icon ? (
+        <Icon className="h-5 w-5 shrink-0" />
+      ) : null}
+      {!collapsed && <span className="flex-1 truncate">{label}</span>}
+      {isCoin && coinBalance !== null && (
+        <span
+          className={cn(
+            "rounded-full text-[10px] font-mono tabular-nums px-1.5 py-0.5",
+            collapsed
+              ? "absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center"
+              : "",
+            lowBalance
+              ? "bg-amber-500 text-white"
+              : "bg-primary/15 text-primary",
+          )}
+        >
+          {coinBalance}
+        </span>
+      )}
+      {active && !collapsed && (
+        <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 bg-primary rounded-r-full" />
+      )}
+    </Link>
+  );
+}
 
 export function AppShell({
   user,
@@ -87,17 +157,27 @@ export function AppShell({
     router.replace("/login");
   }
 
-  const navItems: Array<{
+  type NavItem = {
     href: string;
     label: string;
     lumi?: "book" | "calendar" | "document";
     Icon?: typeof Calendar;
     isCoin?: boolean;
-  }> = [
-    { href: "/dashboard", label: "Dashboard", lumi: "book" },
-    { href: "/gravacoes", label: "Gravações", lumi: "document" },
-    { href: "/schedule", label: "Cronograma", lumi: "calendar" },
+  };
+
+  const navItems: NavItem[] = [
+    { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
+    { href: "/schedule", label: "Calendário", Icon: Calendar },
+    { href: "/resumos", label: "Resumos", Icon: FileText },
+    { href: "/flashcards", label: "Flashcards", Icon: Layers },
+    { href: "/quiz", label: "Quiz", Icon: Sparkles },
+    { href: "/gravacoes", label: "Gravações", Icon: Mic },
     { href: "/account/coins", label: "Lumio Coins", isCoin: true },
+  ];
+
+  const secondaryNavItems: NavItem[] = [
+    { href: "/account/settings", label: "Configurações", Icon: Settings },
+    { href: "/help", label: "Ajuda", Icon: HelpCircle },
   ];
 
   const initials = user.name
@@ -156,55 +236,28 @@ export function AppShell({
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-2 py-4 space-y-1">
-          {navItems.map(({ href, label, lumi, Icon, isCoin }) => {
-            const active = pathname === href || pathname?.startsWith(href + "/");
-            const lowBalance =
-              isCoin && coinBalance !== null && coinBalance < 50;
-            return (
-              <Link
-                key={href}
-                href={href}
-                title={collapsed ? label : undefined}
-                className={cn(
-                  "relative flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors group",
-                  collapsed && "justify-center px-2",
-                  active
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:text-foreground hover:bg-secondary/60",
-                )}
-              >
-                {isCoin ? (
-                  <LumioCoin size={22} className="shrink-0" />
-                ) : lumi ? (
-                  <LumiIcon name={lumi} size={22} className="shrink-0" />
-                ) : Icon ? (
-                  <Icon className="h-5 w-5 shrink-0" />
-                ) : null}
-                {!collapsed && (
-                  <span className="flex-1 truncate">{label}</span>
-                )}
-                {isCoin && coinBalance !== null && (
-                  <span
-                    className={cn(
-                      "rounded-full text-[10px] font-mono tabular-nums px-1.5 py-0.5",
-                      collapsed
-                        ? "absolute -top-1 -right-1 min-w-[18px] h-[18px] flex items-center justify-center"
-                        : "",
-                      lowBalance
-                        ? "bg-amber-500 text-white"
-                        : "bg-primary/15 text-primary",
-                    )}
-                  >
-                    {coinBalance}
-                  </span>
-                )}
-                {active && !collapsed && (
-                  <span className="absolute left-0 top-1/2 -translate-y-1/2 h-5 w-0.5 bg-primary rounded-r-full" />
-                )}
-              </Link>
-            );
-          })}
+        <nav className="flex-1 px-2 py-4 flex flex-col gap-1 overflow-y-auto">
+          {navItems.map((item) => (
+            <SidebarLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              collapsed={collapsed}
+              coinBalance={coinBalance}
+            />
+          ))}
+
+          <div className="my-3 border-t border-border/40" />
+
+          {secondaryNavItems.map((item) => (
+            <SidebarLink
+              key={item.href}
+              item={item}
+              pathname={pathname}
+              collapsed={collapsed}
+              coinBalance={coinBalance}
+            />
+          ))}
         </nav>
 
         {/* User footer */}

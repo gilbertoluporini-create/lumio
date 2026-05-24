@@ -3,20 +3,19 @@
 import Link from "next/link";
 import {
   ArrowRight,
-  ArrowUpRight,
   CheckCircle2,
   ChevronRight,
   Coffee,
+  Mail,
   Quote,
-  Stethoscope,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { LumioWordmark } from "@/components/brand/logo";
-import { LumiCharacter, LumiScene } from "@/components/brand/lumi";
+import { LumiCharacter, LumiScene, LumiSticker } from "@/components/brand/lumi";
 import { LumiIcon, type LumiIconName } from "@/components/brand/lumi-icon";
 import { LumioCoin } from "@/components/brand/lumio-coin";
+import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
   CountUp,
@@ -30,6 +29,10 @@ import { Highlighter, PencilUnderline } from "@/components/landing/highlighter";
 import { Magnetic } from "@/components/landing/magnetic";
 import { LogosRow } from "@/components/landing/logos-row";
 import { PricingSection } from "@/components/landing/pricing-section";
+import { Testimonials } from "@/components/landing/testimonials";
+import { HowItWorks } from "@/components/landing/how-it-works";
+import { Personas } from "@/components/landing/personas";
+import { FaqSection } from "@/components/landing/faq-section";
 
 export default function LandingPage() {
   return (
@@ -66,8 +69,9 @@ export default function LandingPage() {
           <div className="hidden items-center gap-7 md:flex">
             <NavLink href="#how">Como funciona</NavLink>
             <NavLink href="#products">Produtos</NavLink>
-            <NavLink href="#pricing">Planos</NavLink>
             <NavLink href="#for-who">Pra quem é</NavLink>
+            <NavLink href="#pricing">Planos</NavLink>
+            <NavLink href="#faq">FAQ</NavLink>
           </div>
           <div className="flex items-center gap-1.5">
             <ThemeToggle />
@@ -86,18 +90,29 @@ export default function LandingPage() {
       </motion.header>
 
       {/* HERO */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 pt-16 pb-20 md:pt-24 lg:pt-28">
-        <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-12 lg:gap-20 items-center">
-          <div className="text-left">
+      <section className="relative z-10 mx-auto max-w-6xl px-6 pt-14 pb-20 md:pt-20 lg:pt-24">
+        {/* decorative stickers - desktop only */}
+        <div className="hidden lg:block absolute top-10 left-2 z-0 opacity-80">
+          <LumiSticker sticker="stars-1" size={48} rotate={-12} />
+        </div>
+        <div className="hidden lg:block absolute bottom-16 right-4 z-0 opacity-80">
+          <LumiSticker sticker="pencils" size={60} rotate={18} />
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-[1.05fr_1fr] gap-12 lg:gap-16 items-center">
+          <div className="text-left relative">
             <motion.div
               initial={{ opacity: 0, x: -10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ duration: 0.5 }}
-              className="mb-6 inline-flex items-center gap-2"
+              className="mb-6 inline-flex items-center gap-2.5 rounded-full border border-border/60 bg-card/60 backdrop-blur px-3 py-1"
             >
-              <span className="h-px w-8 bg-foreground/30" />
-              <span className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium">
-                Transcrição + IA pra aulas universitárias
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-500/60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              </span>
+              <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-medium">
+                Beta privado · vagas abertas
               </span>
             </motion.div>
 
@@ -105,7 +120,7 @@ export default function LandingPage() {
               initial={{ opacity: 0, y: 24 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.1, duration: 0.7, ease: [0.21, 0.47, 0.32, 0.98] }}
-              className="text-[44px] leading-[1.05] sm:text-5xl md:text-6xl font-semibold tracking-tight"
+              className="text-[42px] leading-[1.02] sm:text-5xl md:text-6xl lg:text-[64px] font-semibold tracking-tight"
             >
               Volte a olhar pro{" "}
               <span className="font-serif italic font-normal">professor.</span>
@@ -125,11 +140,9 @@ export default function LandingPage() {
               transition={{ delay: 0.35, duration: 0.6 }}
               className="mt-7 max-w-xl text-lg text-muted-foreground leading-relaxed"
             >
-              Lumio escuta sua aula,{" "}
-              <Highlighter delay={1.6}>transcreve em português</Highlighter>,
-              responde dúvidas sobre o que{" "}
-              <em className="font-serif">acabou</em> de ser dito, e te entrega
-              resumos, flash cards e quizzes organizados por matéria.
+              Você fala 250 palavras por minuto durante a aula —{" "}
+              <Highlighter delay={1.6}>o Lumi acompanha</Highlighter>. Transcreve em português, responde dúvidas sobre o que{" "}
+              <em className="font-serif">acabou</em> de ser dito, e te entrega resumos, flash cards e quizzes organizados por matéria.
             </motion.p>
 
             <motion.div
@@ -143,7 +156,7 @@ export default function LandingPage() {
                   asChild
                   variant="gradient"
                   size="xl"
-                  className="min-w-[200px]"
+                  className="min-w-[220px]"
                 >
                   <Link href="/signup">
                     Começar grátis <ArrowRight className="h-4 w-4" />
@@ -151,10 +164,10 @@ export default function LandingPage() {
                 </Button>
               </Magnetic>
               <Link
-                href="#pricing"
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1.5 group"
+                href="#how"
+                className="text-sm text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1.5 group px-2"
               >
-                Ver planos
+                Como funciona
                 <ChevronRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-1" />
               </Link>
             </motion.div>
@@ -162,26 +175,37 @@ export default function LandingPage() {
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.8, duration: 0.6 }}
-              className="mt-8 flex items-center gap-4 text-xs text-muted-foreground"
+              transition={{ delay: 0.7, duration: 0.6 }}
+              className="mt-7 flex flex-col sm:flex-row items-start sm:items-center gap-4 text-xs"
             >
-              <div className="flex -space-x-2">
-                {[
-                  "from-rose-400 to-pink-400",
-                  "from-amber-400 to-orange-400",
-                  "from-emerald-400 to-teal-400",
-                  "from-sky-400 to-indigo-400",
-                ].map((g, i) => (
-                  <div
-                    key={i}
-                    className={`h-7 w-7 rounded-full border-2 border-background bg-gradient-to-br ${g}`}
-                  />
-                ))}
+              <div className="flex items-center gap-3">
+                <div className="flex -space-x-2">
+                  {[
+                    { g: "from-rose-400 to-pink-500", l: "BC" },
+                    { g: "from-amber-400 to-orange-500", l: "FP" },
+                    { g: "from-emerald-400 to-teal-500", l: "VT" },
+                    { g: "from-indigo-400 to-violet-500", l: "HM" },
+                  ].map((a, i) => (
+                    <div
+                      key={i}
+                      className={`h-7 w-7 rounded-full border-2 border-background bg-gradient-to-br ${a.g} flex items-center justify-center text-[9px] font-semibold text-white tracking-wider`}
+                    >
+                      {a.l}
+                    </div>
+                  ))}
+                </div>
+                <span className="text-muted-foreground">
+                  <span className="text-foreground font-medium">+200 estudantes</span>{" "}
+                  no beta privado
+                </span>
               </div>
-              <span>
-                <span className="text-foreground font-medium">Estudantes</span>{" "}
-                de medicina, direito e engenharia no beta privado
-              </span>
+              <div className="hidden sm:block h-4 w-px bg-border" />
+              <div className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <LumioCoin size={14} />
+                <span>
+                  <span className="text-foreground font-medium">50 coins</span> de boas-vindas
+                </span>
+              </div>
             </motion.div>
           </div>
 
@@ -191,8 +215,8 @@ export default function LandingPage() {
             transition={{ delay: 0.4, duration: 0.8 }}
             className="relative"
           >
-            <div className="pointer-events-none absolute -top-24 right-6 z-20 hidden md:block">
-              <LumiCharacter mood="default" size="md" priority float />
+            <div className="pointer-events-none absolute -top-28 -right-2 md:-right-6 z-20 hidden md:block">
+              <LumiCharacter mood="recording" size="lg" priority float />
             </div>
             <LiveDemo />
           </motion.div>
@@ -221,7 +245,7 @@ export default function LandingPage() {
       </section>
 
       {/* STATS */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 py-12">
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-10">
         <Stagger className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border/40 border-y border-border/40">
           {STATS.map((s) => (
             <StaggerItem key={s.label} className="py-8 px-6 text-center">
@@ -244,6 +268,12 @@ export default function LandingPage() {
           ))}
         </Stagger>
       </section>
+
+      {/* TESTIMONIALS */}
+      <Testimonials />
+
+      {/* HOW (4 steps with illustrations) */}
+      <HowItWorks />
 
       {/* MEET LUMI */}
       <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
@@ -295,63 +325,6 @@ export default function LandingPage() {
             />
           </div>
         </div>
-      </section>
-
-      {/* HOW */}
-      <section
-        id="how"
-        className="relative z-10 mx-auto max-w-6xl px-6 py-20"
-      >
-        <Reveal className="text-center mb-16 max-w-2xl mx-auto">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
-            — Como funciona —
-          </p>
-          <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">
-            Três passos.{" "}
-            <span className="font-serif italic font-normal text-foreground/70">
-              Zero fricção.
-            </span>
-          </h2>
-        </Reveal>
-
-        <Stagger
-          className="grid gap-px bg-border/40 border border-border/40 rounded-2xl overflow-hidden"
-          gap={0.15}
-        >
-          <div className="grid md:grid-cols-3 gap-px bg-border/40">
-            {STEPS.map((s, i) => (
-              <StaggerItem
-                key={s.title}
-                className="bg-card relative group p-8 md:p-10"
-              >
-                <div
-                  className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
-                  style={{
-                    background:
-                      "radial-gradient(circle at top, oklch(0.6 0.22 290 / 0.06), transparent 60%)",
-                  }}
-                />
-                <div className="relative">
-                  <div className="flex items-baseline justify-between gap-4 mb-6">
-                    <span className="editorial-num text-6xl text-foreground/15 select-none leading-none">
-                      0{i + 1}
-                    </span>
-                    <LumiIcon name={s.icon} size={42} className="opacity-90" />
-                  </div>
-                  <h3 className="text-lg font-semibold mb-2 tracking-tight">
-                    {s.title}
-                  </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
-                    {s.desc}
-                  </p>
-                  <div className="mt-6 inline-flex items-center gap-1 text-xs text-muted-foreground/70 font-mono">
-                    <span className="h-px w-6 bg-foreground/20" /> {s.meta}
-                  </div>
-                </div>
-              </StaggerItem>
-            ))}
-          </div>
-        </Stagger>
       </section>
 
       {/* PRODUTOS GERADOS */}
@@ -437,12 +410,12 @@ export default function LandingPage() {
         </Reveal>
       </section>
 
-      {/* QUOTE */}
-      <section className="relative z-10 mx-auto max-w-4xl px-6 py-20">
+      {/* QUOTE — featured testimonial */}
+      <section className="relative z-10 mx-auto max-w-4xl px-6 py-16">
         <Reveal>
-          <div className="relative">
-            <Quote className="absolute -top-4 -left-4 h-12 w-12 text-foreground/10" />
-            <p className="text-2xl md:text-3xl leading-relaxed font-serif italic text-foreground/90 pl-6">
+          <div className="relative rounded-3xl border border-border/60 bg-card/60 backdrop-blur p-8 md:p-12">
+            <Quote className="absolute top-6 left-6 h-10 w-10 text-foreground/8" />
+            <p className="text-2xl md:text-3xl leading-relaxed font-serif italic text-foreground/90 pl-2 md:pl-6">
               &ldquo;Eu chegava em casa exausto, com o caderno cheio mas a
               cabeça vazia. O Lumio resolveu isso — agora eu{" "}
               <span className="not-italic font-sans font-medium">
@@ -450,12 +423,14 @@ export default function LandingPage() {
               </span>{" "}
               e revisão fica pro fim do dia.&rdquo;
             </p>
-            <div className="mt-8 flex items-center gap-3 pl-6">
-              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-rose-400 to-orange-400 ring-2 ring-background" />
+            <div className="mt-8 flex items-center gap-3 pl-2 md:pl-6">
+              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-rose-400 to-orange-400 ring-2 ring-background flex items-center justify-center text-xs font-semibold text-white">
+                FP
+              </div>
               <div>
-                <p className="text-sm font-medium">Estudante T11 — Medicina</p>
+                <p className="text-sm font-medium">Felipe P. · Medicina T11</p>
                 <p className="text-xs text-muted-foreground">
-                  Beta privado · maio de 2026
+                  Mandic · Beta privado, maio de 2026
                 </p>
               </div>
             </div>
@@ -463,59 +438,27 @@ export default function LandingPage() {
         </Reveal>
       </section>
 
-      {/* FOR WHO */}
-      <section
-        id="for-who"
-        className="relative z-10 mx-auto max-w-6xl px-6 py-20"
-      >
-        <Reveal className="mb-14 max-w-2xl">
-          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
-            — Pra quem é —
-          </p>
-          <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">
-            Feito pra quem tem{" "}
-            <span className="font-serif italic font-normal">aula densa</span>.
-          </h2>
-        </Reveal>
-
-        <Stagger className="grid gap-5 md:grid-cols-3">
-          {PERSONAS.map((p, i) => (
-            <StaggerItem key={p.title}>
-              <div
-                className={`group relative overflow-hidden rounded-xl border border-border/70 p-7 transition-all hover:-translate-y-1 hover:shadow-xl h-full ${p.bg}`}
-              >
-                <div className="flex items-start justify-between mb-6">
-                  <LumiIcon name={p.icon} size={36} />
-                  <span className="editorial-num text-3xl text-foreground/15 leading-none">
-                    0{i + 1}
-                  </span>
-                </div>
-                <h3 className="font-semibold mb-2 tracking-tight">{p.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
-                  {p.desc}
-                </p>
-                <ArrowUpRight className="absolute bottom-5 right-5 h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-            </StaggerItem>
-          ))}
-        </Stagger>
-      </section>
+      {/* PERSONAS */}
+      <Personas />
 
       {/* PRICING */}
       <PricingSection />
 
+      {/* FAQ */}
+      <FaqSection />
+
       {/* CTA */}
       <Reveal className="relative z-10 mx-auto max-w-6xl px-6 py-20">
-        <div className="relative rounded-2xl border border-border/80 bg-gradient-to-br from-amber-500/5 via-card to-fuchsia-500/5 p-10 md:p-16 text-center overflow-hidden">
+        <div className="relative rounded-3xl border border-border/80 bg-gradient-to-br from-primary/10 via-card to-fuchsia-500/10 p-10 md:p-16 text-center overflow-hidden">
           <div
-            className="absolute -top-32 -right-32 h-[400px] w-[400px] rounded-full opacity-25 blur-2xl"
+            className="absolute -top-32 -right-32 h-[400px] w-[400px] rounded-full opacity-30 blur-2xl"
             style={{
               background:
                 "radial-gradient(closest-side, oklch(0.85 0.18 90 / 0.6), transparent 70%)",
             }}
           />
           <div
-            className="absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full opacity-25 blur-2xl"
+            className="absolute -bottom-32 -left-32 h-[400px] w-[400px] rounded-full opacity-30 blur-2xl"
             style={{
               background:
                 "radial-gradient(closest-side, oklch(0.7 0.2 330 / 0.5), transparent 70%)",
@@ -523,27 +466,49 @@ export default function LandingPage() {
           />
           <div className="absolute inset-0 grid-bg opacity-20" />
 
+          {/* floating stickers */}
+          <div className="hidden md:block absolute top-8 right-12 opacity-90">
+            <LumiSticker sticker="stars-2" size={56} rotate={12} />
+          </div>
+          <div className="hidden md:block absolute bottom-10 left-10 opacity-90">
+            <LumiSticker sticker="bulbs" size={48} rotate={-10} />
+          </div>
+
           <div className="relative">
-            <h2 className="text-3xl md:text-5xl font-semibold tracking-tight">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-background/60 backdrop-blur px-3 py-1">
+              <LumioCoin size={14} />
+              <span className="text-[11px] uppercase tracking-wider text-primary font-medium">
+                50 coins de boas-vindas
+              </span>
+            </div>
+            <h2 className="text-3xl md:text-5xl lg:text-6xl font-semibold tracking-tight max-w-3xl mx-auto">
               Sua próxima aula já podia estar{" "}
               <span className="font-serif italic font-normal">resumida</span>.
             </h2>
-            <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-              30 segundos pra criar conta. Sem cartão. Sem download.
+            <p className="mx-auto mt-5 max-w-xl text-muted-foreground text-base md:text-lg">
+              30 segundos pra criar conta. Sem cartão. Sem download. Sem letra miúda.
             </p>
-            <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+            <div className="mt-9 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
               <Magnetic strength={0.18}>
                 <Button
                   asChild
                   variant="gradient"
                   size="xl"
-                  className="min-w-[240px]"
+                  className="min-w-[260px]"
                 >
                   <Link href="/signup">
-                    Criar conta grátis <ArrowRight className="h-4 w-4" />
+                    Começar grátis <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
               </Magnetic>
+              <Button
+                asChild
+                variant="ghost"
+                size="xl"
+                className="min-w-[180px]"
+              >
+                <Link href="/pricing">Ver planos pagos</Link>
+              </Button>
             </div>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-muted-foreground">
               {BULLETS.map((b) => (
@@ -557,24 +522,64 @@ export default function LandingPage() {
       </Reveal>
 
       <footer className="relative z-10 border-t border-border/40 bg-card/30 mt-8">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-4 px-6 py-8 sm:flex-row">
-          <LumioWordmark className="opacity-80" />
-          <nav className="flex items-center gap-5 text-xs text-muted-foreground">
-            <Link href="/terms" className="hover:text-foreground transition-colors">
-              Termos
-            </Link>
-            <Link href="/privacy" className="hover:text-foreground transition-colors">
-              Privacidade
-            </Link>
-            <Link href="/login" className="hover:text-foreground transition-colors">
-              Entrar
-            </Link>
-          </nav>
-          <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-            © {new Date().getFullYear()} Lumio · Feito com
-            <Coffee className="h-3 w-3 text-amber-700" />
-            pra quem estuda.
-          </p>
+        <div className="mx-auto max-w-6xl px-6 py-12">
+          <div className="grid gap-8 md:grid-cols-[1.2fr_1fr_1fr_1fr]">
+            <div>
+              <LumioWordmark className="mb-4" />
+              <p className="text-sm text-muted-foreground max-w-xs leading-relaxed">
+                Transcrição e IA pra aulas universitárias. Feito por estudantes,
+                pra estudantes.
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-4">
+                Produto
+              </p>
+              <ul className="space-y-2.5 text-sm">
+                <FooterLink href="#how">Como funciona</FooterLink>
+                <FooterLink href="#products">Produtos gerados</FooterLink>
+                <FooterLink href="#pricing">Planos</FooterLink>
+                <FooterLink href="/signup">Criar conta</FooterLink>
+              </ul>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-4">
+                Empresa
+              </p>
+              <ul className="space-y-2.5 text-sm">
+                <FooterLink href="#faq">FAQ</FooterLink>
+                <FooterLink href="/terms">Termos de uso</FooterLink>
+                <FooterLink href="/privacy">Privacidade</FooterLink>
+              </ul>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-4">
+                Contato
+              </p>
+              <ul className="space-y-2.5 text-sm">
+                <li>
+                  <a
+                    href="mailto:contato@lumioapp.net"
+                    className="text-muted-foreground hover:text-foreground transition-colors inline-flex items-center gap-1.5"
+                  >
+                    <Mail className="h-3.5 w-3.5" />
+                    contato@lumioapp.net
+                  </a>
+                </li>
+                <FooterLink href="/login">Entrar</FooterLink>
+              </ul>
+            </div>
+          </div>
+          <div className="mt-10 pt-6 border-t border-border/40 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+              © {new Date().getFullYear()} Lumio · Feito com
+              <Coffee className="h-3 w-3 text-amber-700" />
+              em São Paulo, pra quem estuda.
+            </p>
+            <p className="text-[11px] text-muted-foreground/70 font-mono">
+              v0.beta · maio 2026
+            </p>
+          </div>
         </div>
       </footer>
     </div>
@@ -599,6 +604,19 @@ function NavLink({
   );
 }
 
+function FooterLink({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <li>
+      <Link
+        href={href}
+        className="text-muted-foreground hover:text-foreground transition-colors"
+      >
+        {children}
+      </Link>
+    </li>
+  );
+}
+
 const STATS: Array<{
   value: number | string;
   suffix?: string;
@@ -609,32 +627,6 @@ const STATS: Array<{
   { value: "∞", label: "Histórico", sub: "sem expirar" },
   { value: 4, suffix: "h/dia", label: "Tempo médio salvo", sub: "por estudante" },
   { value: 30, suffix: "s", label: "Pra criar conta", sub: "sem cartão" },
-];
-
-const STEPS: Array<{
-  icon: LumiIconName;
-  title: string;
-  desc: string;
-  meta: string;
-}> = [
-  {
-    icon: "book",
-    title: "Crie suas matérias",
-    desc: "No primeiro acesso, defina suas pastas — ou jogue uma foto da grade horária e a gente extrai pra você.",
-    meta: "30 segundos",
-  },
-  {
-    icon: "mic",
-    title: "Aperte gravar na sala",
-    desc: "A transcrição aparece em tempo real. Você só precisa prestar atenção na aula.",
-    meta: "Tempo real",
-  },
-  {
-    icon: "sparkle",
-    title: "Gere produtos da aula",
-    desc: "Resumos, flash cards, quizzes e mapas mentais ficam na subpasta da aula. Cada um custa coins.",
-    meta: "Quando quiser",
-  },
 ];
 
 const PRODUCTS: Array<{
@@ -670,38 +662,9 @@ const PRODUCTS: Array<{
   },
 ];
 
-const PERSONAS: Array<{
-  icon: LumiIconName;
-  title: string;
-  desc: string;
-  bg: string;
-}> = [
-  {
-    icon: "heart",
-    title: "Medicina, Odonto, Farma",
-    desc: "Aulas longas e densas. Lumio cobre as horas de teoria e te devolve o tempo de descansar.",
-    bg: "bg-gradient-to-br from-rose-500/5 via-card to-pink-500/5",
-  },
-  {
-    icon: "book",
-    title: "Direito, Engenharias, Humanas",
-    desc: "Conceitos que voltam o tempo todo. O histórico organizado por matéria vira sua segunda memória.",
-    bg: "bg-gradient-to-br from-indigo-500/5 via-card to-violet-500/5",
-  },
-  {
-    icon: "trophy",
-    title: "Pós, MBA, concursos",
-    desc: "Você não tem tempo de assistir aula gravada duas vezes. Quiz e flash cards entregam o essencial.",
-    bg: "bg-gradient-to-br from-emerald-500/5 via-card to-teal-500/5",
-  },
-];
-
 const BULLETS = [
   "Sem cartão de crédito",
   "Beta aberto",
   "Chat IA incluído",
   "Funciona no celular",
 ];
-
-// Stethoscope import kept to avoid breaking — could remove
-void Stethoscope;
