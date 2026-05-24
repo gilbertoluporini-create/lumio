@@ -9,14 +9,14 @@ const csp = [
   "default-src 'self'",
   // 'unsafe-inline' é necessário pro Next dev + framer-motion inline styles
   // 'unsafe-eval' só em dev (Turbopack / source maps); remover em prod-only build
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://js.stripe.com`,
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://js.stripe.com https://www.googletagmanager.com https://www.google-analytics.com https://connect.facebook.net https://us-assets.i.posthog.com https://us.i.posthog.com`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "img-src 'self' data: blob: https:",
   // media-src precisa whitelistar o bucket Supabase (tts-audio) pra que o
   // <audio> do voice mode toque. Sem isso, browser bloqueia com MEDIA_ERR_SRC_NOT_SUPPORTED.
   "media-src 'self' blob: https://*.supabase.co",
   "font-src 'self' data: https://fonts.gstatic.com",
-  "connect-src 'self' https://api.anthropic.com https://*.supabase.co wss://*.supabase.co https://api.stripe.com",
+  "connect-src 'self' https://api.anthropic.com https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://www.google-analytics.com https://*.google-analytics.com https://www.facebook.com https://connect.facebook.net https://us.i.posthog.com https://us-assets.i.posthog.com",
   "frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
   "worker-src 'self' blob:",
   "object-src 'none'",

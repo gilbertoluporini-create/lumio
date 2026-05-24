@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LumiCharacter } from "@/components/brand/lumi";
+import { Analytics } from "@/lib/analytics";
 import { signIn } from "@/lib/storage";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -57,6 +58,8 @@ function LoginInner() {
         options: { redirectTo },
       });
       if (error) throw error;
+      // Fire-and-forget — user já vai pro Google nesse momento
+      Analytics.logIn("google");
     } catch (err) {
       toast.error((err as Error).message || "Não foi possível entrar com Google.");
       setGoogleLoading(false);
@@ -115,6 +118,7 @@ function LoginInner() {
       if (!res.ok) throw new Error(data?.error || "Email ou senha incorretos.");
 
       toast.success("Bem-vindo de volta!");
+      Analytics.logIn("password");
       router.push(nextPath);
       router.refresh();
     } catch (err) {

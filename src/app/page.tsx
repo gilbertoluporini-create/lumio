@@ -182,8 +182,11 @@ export default function LandingPage() {
             transition={{ delay: 0.4, duration: 0.8 }}
             className="relative"
           >
-            <div className="pointer-events-none absolute -top-28 -right-2 md:-right-6 z-20 hidden md:block">
-              <LumiCharacter mood="recording" size="lg" priority float />
+            {/* LumiCharacter posicionado pra ficar dentro do bounding-box
+                do card (não invade a coluna esquerda em viewports md/lg).
+                Esconde em <xl pra não brigar com o sticky note do LiveDemo. */}
+            <div className="pointer-events-none absolute -top-10 right-2 md:right-4 lg:right-6 z-20 hidden xl:block">
+              <LumiCharacter mood="recording" size="md" priority float />
             </div>
             <LiveDemo />
           </motion.div>

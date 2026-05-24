@@ -2,14 +2,28 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { LumioWordmark } from "@/components/brand/logo";
 import { LumiCharacter } from "@/components/brand/lumi";
+import { PurchaseTracker } from "./purchase-tracker";
 
 export const metadata = {
   title: "Lumio — Pagamento confirmado",
 };
 
-export default function SuccessPage() {
+type SearchParams = Promise<{
+  session_id?: string;
+  plan?: string;
+  value?: string;
+}>;
+
+export default async function SuccessPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = await searchParams;
+  const value = sp.value ? Number(sp.value) : undefined;
   return (
     <div className="relative min-h-screen flex flex-col">
+      <PurchaseTracker sessionId={sp.session_id} plan={sp.plan} valueBrl={value} />
       <div className="pointer-events-none fixed inset-0 grid-bg opacity-40" />
       <header className="relative z-10">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">

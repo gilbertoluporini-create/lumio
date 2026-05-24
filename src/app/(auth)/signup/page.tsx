@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { LumiCharacter } from "@/components/brand/lumi";
+import { Analytics } from "@/lib/analytics";
 import { signUp } from "@/lib/storage";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
@@ -52,6 +53,7 @@ function SignUpInner() {
         options: { redirectTo },
       });
       if (error) throw error;
+      Analytics.signUp("google");
     } catch (err) {
       toast.error((err as Error).message || "Não foi possível entrar com Google.");
       setGoogleLoading(false);
@@ -97,8 +99,10 @@ function SignUpInner() {
       if (data.needsConfirmation) {
         setSent("confirm");
         toast.success("Cheque seu email pra confirmar a conta.");
+        Analytics.signUp("magic_link");
       } else {
         toast.success("Conta criada!");
+        Analytics.signUp("password");
         router.push(nextPath);
         router.refresh();
       }

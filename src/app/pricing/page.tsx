@@ -10,6 +10,7 @@ import { LumioWordmark } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { PricingSection } from "@/components/landing/pricing-section";
 import type { BillingInterval } from "@/lib/stripe";
+import { Analytics } from "@/lib/analytics";
 
 type PaidPlan = "starter" | "pro" | "power" | "annual";
 
@@ -41,6 +42,16 @@ function PricingContent() {
   async function checkout(plan: PaidPlan, chosenInterval: BillingInterval) {
     setLoading(plan);
     try {
+      // Tracking BEFORE fetch (intent registrado mesmo se a chamada falhar)
+      const priceMap: Record<PaidPlan, { monthly: number; annual: number }> = {
+        starter: { monthly: 39, annual: 390 },
+        pro: { monthly: 69, annual: 690 },
+        power: { monthly: 119, annual: 1190 },
+        annual: { monthly: 690, annual: 690 },
+      };
+      const value = priceMap[plan]?.[chosenInterval] ?? 0;
+      Analytics.beginCheckout(`${plan}_${chosenInterval}`, value, "BRL");
+
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "content-type": "application/json" },

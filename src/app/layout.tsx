@@ -8,6 +8,7 @@ import "./globals.css";
 import { Toaster } from "sonner";
 import { ThemeScript } from "@/components/theme-script";
 import { SmoothScroll } from "@/components/landing/smooth-scroll";
+import { AnalyticsScripts } from "@/components/analytics/analytics-scripts";
 
 // Bricolage Grotesque — variable display+body font, editorial + amigável,
 // substitui Geist Sans pra fugir do template de IA.
@@ -85,6 +86,7 @@ export default function RootLayout({
           richColors
           closeButton
         />
+        <AnalyticsScripts />
       </body>
     </html>
   );
