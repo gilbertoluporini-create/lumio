@@ -19,6 +19,21 @@ import { requireAdmin } from "@/lib/admin";
 import { createAdminClient } from "@/lib/supabase/server";
 import { getAllFeatureFlags } from "@/lib/feature-flags";
 
+type HealthSnapshot = {
+  fetched_at?: string;
+  threshold_usd?: number;
+  total_usd_24h?: number;
+  elevenlabs?: {
+    remaining_chars?: number;
+    remaining_usd?: number;
+    used_chars?: number;
+    total_chars?: number;
+    tier?: string;
+  } | null;
+};
+
+type LastAlert = { iso?: string; usd?: number; threshold?: number };
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -123,6 +138,22 @@ export async function GET() {
 
   const flags = await getAllFeatureFlags();
 
+  // Snapshot do último cron (saldo ElevenLabs)
+  const { data: snapRow } = await admin
+    .from("app_config")
+    .select("value, updated_at")
+    .eq("key", "health.snapshot")
+    .maybeSingle();
+  const snapshot = (snapRow as { value?: HealthSnapshot; updated_at?: string } | null) ?? null;
+
+  // Último alerta enviado
+  const { data: alertRow } = await admin
+    .from("app_config")
+    .select("value")
+    .eq("key", "health.last_alert_sent_at")
+    .maybeSingle();
+  const lastAlert = (alertRow as { value?: LastAlert } | null)?.value ?? null;
+
   return NextResponse.json({
     capUsd: CAP_USD,
     totalUsd24h: Number(totalUsd24h.toFixed(4)),
@@ -133,6 +164,10 @@ export async function GET() {
     topSpenders,
     byEndpoint,
     flags,
+    elevenlabs: snapshot?.value?.elevenlabs ?? null,
+    snapshotFetchedAt: snapshot?.value?.fetched_at ?? null,
+    alertThresholdUsd: snapshot?.value?.threshold_usd ?? Number(process.env.DAILY_ALERT_THRESHOLD_USD ?? 20),
+    lastAlert,
     fetchedAt: new Date().toISOString(),
   });
 }

@@ -20,11 +20,13 @@ import {
   PanelLeft,
   Search,
   Settings,
+  ShieldCheck,
   Sparkles,
   Star,
   UserIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isAdminEmail } from "@/lib/admin";
 import { LumioMark } from "@/components/brand/logo";
 import { LumiIcon } from "@/components/brand/lumi-icon";
 import { CommandPalette } from "@/components/app/command-palette";
@@ -436,6 +438,22 @@ export function AppShell({
                     <CreditCard /> Assinatura
                   </Link>
                 </DropdownMenuItem>
+                {isAdminEmail(user.email) && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link
+                        href={pathname.startsWith("/admin") ? "/dashboard" : "/admin"}
+                        className="text-primary focus:text-primary"
+                      >
+                        <ShieldCheck />
+                        {pathname.startsWith("/admin")
+                          ? "Conta de estudos"
+                          : "Painel admin"}
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={handleLogout}

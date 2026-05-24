@@ -5,7 +5,10 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowLeft,
+  Bell,
   Brain,
+  CheckCircle2,
+  CircleDollarSign,
   DollarSign,
   Image as ImageIcon,
   Loader2,
@@ -16,6 +19,7 @@ import {
   ShieldCheck,
   TrendingUp,
   Users,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,7 +43,42 @@ type HealthStats = {
   }>;
   byEndpoint: Array<{ endpoint: string; usd: number; calls: number }>;
   flags: Record<FeatureKey, boolean>;
+  elevenlabs: {
+    remaining_chars?: number;
+    remaining_usd?: number;
+    used_chars?: number;
+    total_chars?: number;
+    tier?: string;
+  } | null;
+  snapshotFetchedAt: string | null;
+  alertThresholdUsd: number;
+  lastAlert: {
+    iso?: string;
+    usd?: number;
+    threshold?: number;
+  } | null;
   fetchedAt: string;
+};
+
+type PricingSuggestion = {
+  endpoint: string;
+  coinKey?: string;
+  calls: number;
+  avgCostUsd: number;
+  avgCostBrl: number;
+  currentCoins: number | "dynamic";
+  currentRevenueBrl: number;
+  marginPct: number;
+  status: "ok" | "warning" | "critical";
+  suggestedCoins?: number;
+  note: string;
+};
+
+type PricingResponse = {
+  windowDays: number;
+  coinBrlValue: number;
+  targetMargin: number;
+  suggestions: PricingSuggestion[];
 };
 
 const FEATURES: Array<{ key: FeatureKey; label: string; icon: typeof Mic; description: string }> = [
@@ -65,25 +104,34 @@ const FEATURES: Array<{ key: FeatureKey; label: string; icon: typeof Mic; descri
 
 export function HealthDashboard() {
   const [stats, setStats] = useState<HealthStats | null>(null);
+  const [pricing, setPricing] = useState<PricingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [toggling, setToggling] = useState<FeatureKey | null>(null);
+  const [runningCron, setRunningCron] = useState(false);
 
   const fetchStats = useCallback(async (background = false) => {
     if (background) setRefreshing(true);
     else setLoading(true);
     try {
-      const resp = await fetch("/api/admin/health-stats", { cache: "no-store" });
-      if (!resp.ok) {
-        if (resp.status === 401 || resp.status === 403) {
+      const [statsResp, pricingResp] = await Promise.all([
+        fetch("/api/admin/health-stats", { cache: "no-store" }),
+        fetch("/api/admin/pricing-suggestions", { cache: "no-store" }),
+      ]);
+      if (!statsResp.ok) {
+        if (statsResp.status === 401 || statsResp.status === 403) {
           toast.error("Apenas admin.");
         } else {
           toast.error("Erro ao carregar estatísticas.");
         }
         return;
       }
-      const data = (await resp.json()) as HealthStats;
+      const data = (await statsResp.json()) as HealthStats;
       setStats(data);
+      if (pricingResp.ok) {
+        const pData = (await pricingResp.json()) as PricingResponse;
+        setPricing(pData);
+      }
     } catch (err) {
       toast.error(`Falha: ${(err as Error).message}`);
     } finally {
@@ -91,6 +139,23 @@ export function HealthDashboard() {
       setRefreshing(false);
     }
   }, []);
+
+  const runCronNow = useCallback(async () => {
+    setRunningCron(true);
+    try {
+      const resp = await fetch("/api/cron/health-check", { cache: "no-store" });
+      if (!resp.ok) {
+        toast.error("Falha ao rodar health check.");
+        return;
+      }
+      toast.success("Health check rodado. Snapshot atualizado.");
+      await fetchStats(true);
+    } catch (err) {
+      toast.error(`Falha: ${(err as Error).message}`);
+    } finally {
+      setRunningCron(false);
+    }
+  }, [fetchStats]);
 
   useEffect(() => {
     fetchStats(false);
@@ -203,6 +268,112 @@ export function HealthDashboard() {
           sub={`Cap individual: $${stats.capUsd.toFixed(2)}/dia`}
           alert={stats.capHits24h > 0}
         />
+      </div>
+
+      {/* Saldos das APIs + Alerta config */}
+      <div className="grid grid-cols-1 md:grid-cols-[1.4fr_1fr] gap-3">
+        <div className="rounded-2xl border border-border/60 bg-card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <CircleDollarSign className="h-4 w-4 text-emerald-500" />
+              <h2 className="text-sm font-semibold">Saldos das APIs</h2>
+            </div>
+            <button
+              type="button"
+              onClick={runCronNow}
+              disabled={runningCron}
+              className="inline-flex h-7 items-center gap-1 rounded-md border border-border/60 px-2 text-[11px] hover:bg-secondary/60 disabled:opacity-50"
+            >
+              {runningCron ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <RefreshCw className="h-3 w-3" />
+              )}
+              Atualizar saldos
+            </button>
+          </div>
+          {stats.elevenlabs ? (
+            <div className="space-y-3">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <div className="text-xs">
+                    <span className="font-semibold">ElevenLabs</span>
+                    {stats.elevenlabs.tier && (
+                      <span className="text-muted-foreground ml-1.5 font-mono">
+                        {stats.elevenlabs.tier}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm font-semibold tabular-nums">
+                    ${(stats.elevenlabs.remaining_usd ?? 0).toFixed(2)}
+                  </div>
+                </div>
+                <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-500"
+                    style={{
+                      width: `${Math.max(2, Math.round((((stats.elevenlabs.total_chars ?? 0) - (stats.elevenlabs.used_chars ?? 0)) / Math.max(1, stats.elevenlabs.total_chars ?? 1)) * 100))}%`,
+                    }}
+                  />
+                </div>
+                <div className="mt-1 flex justify-between text-[10px] text-muted-foreground tabular-nums">
+                  <span>{(stats.elevenlabs.used_chars ?? 0).toLocaleString("pt-BR")} usados</span>
+                  <span>{(stats.elevenlabs.total_chars ?? 0).toLocaleString("pt-BR")} total</span>
+                </div>
+              </div>
+              {stats.snapshotFetchedAt && (
+                <div className="text-[10px] text-muted-foreground">
+                  Última atualização:{" "}
+                  {new Date(stats.snapshotFetchedAt).toLocaleString("pt-BR", {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs text-muted-foreground">
+              Saldos ainda não foram carregados. Clica em &quot;Atualizar saldos&quot;.
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-2xl border border-border/60 bg-card p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <Bell className="h-4 w-4 text-amber-500" />
+            <h2 className="text-sm font-semibold">Alerta diário</h2>
+          </div>
+          <div className="space-y-2 text-xs">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Threshold</span>
+              <span className="font-mono tabular-nums">${stats.alertThresholdUsd.toFixed(2)}/dia</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Email destino</span>
+              <span className="font-mono text-[10px] truncate max-w-[150px]">
+                gilbertoluporini@gmail.com
+              </span>
+            </div>
+            {stats.lastAlert?.iso ? (
+              <div className="mt-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-2 text-[11px]">
+                <div className="flex items-center gap-1 mb-0.5 font-semibold text-amber-700 dark:text-amber-300">
+                  <AlertTriangle className="h-3 w-3" /> Último alerta
+                </div>
+                <div className="text-muted-foreground">
+                  ${stats.lastAlert.usd?.toFixed(2)} em{" "}
+                  {new Date(stats.lastAlert.iso).toLocaleString("pt-BR", {
+                    dateStyle: "short",
+                    timeStyle: "short",
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="mt-2 text-[11px] text-muted-foreground">
+                Nenhum alerta enviado ainda.
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Gasto agregado bar */}
@@ -352,6 +523,7 @@ export function HealthDashboard() {
             <TrendingUp className="h-4 w-4 text-fuchsia-500" />
             <h2 className="text-sm font-semibold">Custo por endpoint (24h)</h2>
           </div>
+          {/* placeholder anchor */}
           {stats.byEndpoint.length === 0 ? (
             <p className="text-xs text-muted-foreground">Sem chamadas AI nas últimas 24h.</p>
           ) : (
@@ -378,6 +550,74 @@ export function HealthDashboard() {
           )}
         </div>
       </div>
+
+      {/* Sugestões de pricing baseadas em uso real 30d */}
+      {pricing && pricing.suggestions.length > 0 && (
+        <div className="rounded-2xl border border-border/60 bg-card p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <Zap className="h-4 w-4 text-amber-500" />
+            <h2 className="text-sm font-semibold">Sugestões de preço (30d)</h2>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">
+            Custo médio real por chamada, comparado ao preço em coins. Margem alvo: {Math.round(pricing.targetMargin * 100)}% · 1 coin = R$
+            {pricing.coinBrlValue.toFixed(3)} (referência Power).
+          </p>
+          <div className="space-y-2">
+            {pricing.suggestions.map((s) => {
+              const statusColor =
+                s.status === "ok"
+                  ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300"
+                  : s.status === "warning"
+                    ? "border-amber-500/30 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+                    : "border-rose-500/30 bg-rose-500/5 text-rose-700 dark:text-rose-300";
+              const Icon =
+                s.status === "ok"
+                  ? CheckCircle2
+                  : s.status === "warning"
+                    ? AlertTriangle
+                    : AlertTriangle;
+              return (
+                <div
+                  key={s.endpoint}
+                  className={`rounded-xl border p-3 ${statusColor}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Icon className="h-3.5 w-3.5 shrink-0" />
+                        <span className="font-mono text-xs truncate">
+                          {s.endpoint}
+                        </span>
+                        <span className="text-[10px] opacity-70">
+                          {s.calls} calls
+                        </span>
+                      </div>
+                      <div className="text-[11px] opacity-90">{s.note}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-xs">
+                        custo:{" "}
+                        <span className="font-mono tabular-nums">
+                          R${s.avgCostBrl.toFixed(3)}
+                        </span>
+                      </div>
+                      <div className="text-xs">
+                        receita:{" "}
+                        <span className="font-mono tabular-nums">
+                          R${s.currentRevenueBrl.toFixed(3)}
+                        </span>
+                      </div>
+                      <div className="text-sm font-semibold mt-0.5 tabular-nums">
+                        {s.marginPct.toFixed(0)}%
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

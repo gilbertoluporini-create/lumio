@@ -4,14 +4,21 @@ type PricingEntry = {
   inputPerMtok?: number;
   outputPerMtok?: number;
   perImage?: number;
+  /** USD por caractere (ElevenLabs cobra por chars no texto sintetizado). */
+  perChar?: number;
 };
 
 const PRICING: Record<string, PricingEntry> = {
   "claude-sonnet-4-5-20250929": { inputPerMtok: 3, outputPerMtok: 15 },
   "claude-sonnet-4-5": { inputPerMtok: 3, outputPerMtok: 15 },
   "claude-haiku-4-5": { inputPerMtok: 1, outputPerMtok: 5 },
+  "claude-haiku-4-5-20251001": { inputPerMtok: 1, outputPerMtok: 5 },
   "imagen-3.0-generate-002": { perImage: 0.04 },
   "imagen-3.0": { perImage: 0.04 },
+  "imagen-4.0-generate-001": { perImage: 0.04 },
+  "imagen-4.0": { perImage: 0.04 },
+  // ElevenLabs Multilingual v2 — $0.30 por 1k chars (Pay-as-you-go)
+  "elevenlabs-multilingual-v2": { perChar: 0.0003 },
 };
 
 function computeCostUsd(opts: {
@@ -19,6 +26,7 @@ function computeCostUsd(opts: {
   inputTokens: number;
   outputTokens: number;
   imagesCount: number;
+  chars: number;
 }): number {
   const entry = PRICING[opts.model];
   if (!entry) return 0;
@@ -32,6 +40,9 @@ function computeCostUsd(opts: {
   if (entry.perImage) {
     cost += opts.imagesCount * entry.perImage;
   }
+  if (entry.perChar) {
+    cost += opts.chars * entry.perChar;
+  }
   return Number(cost.toFixed(6));
 }
 
@@ -42,11 +53,13 @@ export async function logAiUsage(params: {
   inputTokens?: number;
   outputTokens?: number;
   imagesCount?: number;
+  chars?: number;
   coinsCharged?: number;
 }): Promise<void> {
   const inputTokens = params.inputTokens ?? 0;
   const outputTokens = params.outputTokens ?? 0;
   const imagesCount = params.imagesCount ?? 0;
+  const chars = params.chars ?? 0;
   const coinsCharged = params.coinsCharged ?? 0;
 
   const costUsd = computeCostUsd({
@@ -54,6 +67,7 @@ export async function logAiUsage(params: {
     inputTokens,
     outputTokens,
     imagesCount,
+    chars,
   });
 
   try {

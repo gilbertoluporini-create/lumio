@@ -23,6 +23,7 @@ import { chargeCoins, getBalance } from "@/lib/coins";
 import { COIN_COSTS } from "@/lib/coins-pricing";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import { isFeatureEnabled, featureDisabledResponse } from "@/lib/feature-flags";
+import { logAiUsage } from "@/lib/ai-usage";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -219,6 +220,17 @@ export async function POST(req: Request) {
       { status: 402 },
     );
   }
+
+  /* ---------------- 5b) Log gasto USD em ai_usage_log ----------------
+   * ElevenLabs cobra $0.30/1k chars. logAiUsage calcula chars × $0.0003
+   * e insere a row pra alimentar /admin/health + cap diário USD. */
+  void logAiUsage({
+    userId: user.id,
+    endpoint: "/api/tts",
+    model: "elevenlabs-multilingual-v2",
+    chars: text.length,
+    coinsCharged: coinCost,
+  });
 
   /* ---------------- 6) Grava cache ---------------- */
   await admin.from("tts_cache").insert({
