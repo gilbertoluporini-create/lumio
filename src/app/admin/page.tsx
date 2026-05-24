@@ -107,6 +107,13 @@ export default async function AdminPage() {
             <ArrowRight className="h-3 w-3" />
           </Link>
           <Link
+            href="/admin/marketing"
+            className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/30 bg-fuchsia-500/5 px-3 py-1.5 text-xs font-medium text-fuchsia-700 dark:text-fuchsia-300 hover:bg-fuchsia-500/10 transition-colors"
+          >
+            Vendas &amp; Funil
+            <ArrowRight className="h-3 w-3" />
+          </Link>
+          <Link
             href="/admin/usage"
             className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-1.5 text-xs font-medium hover:bg-secondary/60 transition-colors"
           >
