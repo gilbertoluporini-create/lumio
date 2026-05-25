@@ -1,7 +1,27 @@
 # Playbook de Ativação · Programa Embaixadores Lumio
 
-> Como sair de **0 → 20 embaixadores ativos** em 2 semanas com 1-2h/dia de operação manual do founder.
+> Como sair de **0 → 20 embaixadores ativos** em 2 semanas com 1-2h/dia de operação manual.
 > Sprint 1 do plano de marketing. Custo: ~R$0-200 (UGC opcional pontual).
+
+---
+
+## ⚠️ Regra de ouro · Anonimato do criador
+
+Em **nenhum** canal externo o criador do Lumio é identificado. Tudo se comunica
+em voz da marca ("time Lumio", "a gente", "o Lumio"). Isso afeta:
+
+- **Quem manda DM?** Não é o criador em pessoa. Duas opções:
+  - **A. Persona neutra da equipe** — perfil novo (IG/X) com bio "Time Lumio
+    · lumioapp.net", foto do logo, mandar DM como "Oi! Sou do time do Lumio…"
+  - **B. BDR/operador contratado** — alguém real (universitário freelance, ~R$15/h)
+    que mande DMs em nome da marca. Mais credível mas custa.
+- **Assinatura de email**: "Equipe Lumio" sempre.
+- **Posts em redes da marca**: sem rosto, sem nome próprio.
+- **Suporte / atendimento**: "a gente", "o time", nunca "eu".
+- **Footer / sobre nós**: descrever produto, não pessoa.
+
+Default recomendado: começa com opção **A** (persona neutra) na primeira semana.
+Se DM acceptance < 25% após 30 DMs, migra pra **B** (BDR universitário real).
 
 ---
 
@@ -75,42 +95,47 @@ Plataformas terciárias (vale checar):
 
 ## 4. Script de DM (3 variações testáveis)
 
+> ⚠️ Todas as variações assinam em voz da marca ("time Lumio", "a gente"),
+> nunca em primeira pessoa que sugira criador único. Ver seção "Regra de ouro".
+
 ### Variação A — Direto + benefício
 ```
-Oi [nome]! Tô vendo seus stories sobre [matéria específica que ele postou]
-e queria te apresentar uma ferramenta que pode ajudar muito.
+Oi [nome]! A gente do time Lumio viu seus stories sobre [matéria específica
+que ele postou] e queria te chamar pra uma ideia.
 
-Sou do Lumio (lumioapp.net) — a gente transcreve aula gravada, gera resumo
-+ flashcards + quiz automaticamente. Em pt-BR.
+O Lumio (lumioapp.net) transcreve aula gravada e gera resumo + flashcards
++ quiz automaticamente. Em pt-BR.
 
-Tô montando um time pequeno de embaixadores e gostaria muito de ter você.
+A gente tá montando um time pequeno de embaixadores e gostaria muito de
+ter você nele.
 
 Como funciona: você ganha Pro grátis por 6 meses + R$50 a cada amigo que
 virar pagante via seu link único.
 
-Te interessa? Posso te mandar acesso pra testar ainda hoje.
+Te interessa? Mando acesso pra testar ainda hoje.
 ```
 
 ### Variação B — Curiosidade + sem pitch
 ```
-Oi [nome], reparei que você posta bastante sobre rotina de estudos.
-Posso te perguntar uma coisa? Como você revisa aula gravada pra prova?
+Oi [nome], a gente do time Lumio reparou que você posta bastante sobre
+rotina de estudos. Posso te perguntar uma coisa? Como você revisa aula
+gravada pra prova?
 
-(juro que não é spam, tô fazendo pesquisa pra um app que tô construindo
-e queria entender o método de quem realmente estuda)
+(juro que não é spam, tô fazendo pesquisa de UX pra um app que a gente
+acabou de lançar e queria entender o método de quem realmente estuda)
 ```
 > Use essa quando você quer começar conversa antes de pitchar. Funciona melhor com 5k+ followers.
 
 ### Variação C — Demo direta (audiência menor)
 ```
-Oi [nome]! Cara, vi que você comentou sobre [assunto específico — ex:
-"esquecer farmacologia"]. Esse problema é gigante.
+Oi [nome]! Vi que você comentou sobre [assunto específico — ex: "esquecer
+farmacologia"]. Esse problema é enorme.
 
-Construí com um amigo um app que resolve isso: lumioapp.net — você grava
-a aula uma vez, e ele te entrega resumo, flashcards e quiz prontos.
+O Lumio (lumioapp.net) resolve isso: você grava a aula uma vez, ele te
+entrega resumo, flashcards e quiz prontos. A gente tá abrindo 20 vagas
+no programa de embaixadores.
 
-Tô fechando 20 vagas pra programa de embaixadores. Você ganha Pro grátis
-por 6 meses + R$50 por amigo que assinar. Aceita testar?
+Você ganha Pro grátis por 6 meses + R$50 por amigo que assinar. Topa testar?
 ```
 
 ### Personalização obrigatória:
@@ -150,7 +175,7 @@ Email/WhatsApp com:
 4. **Copy de carrossel pronto** (5-7 slides)
 5. **Hashtags sugeridas** (5-7 do nicho dele)
 6. **Régua de uso** (frequência mínima): "1 post por semana + 2-3 stories. Não precisa ser todo dia."
-7. **Canal direto comigo** (WhatsApp do founder pra dúvidas)
+7. **Canal de suporte do time Lumio** (responder em ≤24h via DM/email — sempre voz de equipe, nunca pessoa específica)
 
 ---
 
