@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { LumioWordmark } from "@/components/brand/logo";
 import { LumiCharacter } from "@/components/brand/lumi";
+import { getStripe, isStripeConfigured } from "@/lib/stripe";
 import { PurchaseTracker } from "./purchase-tracker";
 
 export const metadata = {
@@ -14,16 +15,63 @@ type SearchParams = Promise<{
   value?: string;
 }>;
 
+/**
+ * Fallback server-side: se o success_url veio sem plan/value (ex. redirect
+ * manual, link antigo, share), resolve via Stripe API com session_id. Garante
+ * que PurchaseTracker sempre dispara Analytics.purchase com dados reais.
+ */
+async function resolveCheckoutDetails(
+  sessionId: string | undefined,
+  plan: string | undefined,
+  value: number | undefined,
+): Promise<{ plan: string; value: number }> {
+  if (plan && typeof value === "number" && value > 0) {
+    return { plan, value };
+  }
+  if (!sessionId || !isStripeConfigured()) {
+    return { plan: plan ?? "unknown", value: value ?? 0 };
+  }
+  try {
+    const stripe = getStripe();
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    const resolvedPlan =
+      plan ??
+      session.metadata?.plan ??
+      (typeof session.subscription === "object" && session.subscription
+        ? session.subscription.metadata?.plan
+        : undefined) ??
+      "unknown";
+    const resolvedValue =
+      typeof value === "number" && value > 0
+        ? value
+        : typeof session.amount_total === "number"
+          ? session.amount_total / 100
+          : 0;
+    return { plan: resolvedPlan, value: resolvedValue };
+  } catch {
+    return { plan: plan ?? "unknown", value: value ?? 0 };
+  }
+}
+
 export default async function SuccessPage({
   searchParams,
 }: {
   searchParams: SearchParams;
 }) {
   const sp = await searchParams;
-  const value = sp.value ? Number(sp.value) : undefined;
+  const valueParam = sp.value ? Number(sp.value) : undefined;
+  const resolved = await resolveCheckoutDetails(
+    sp.session_id,
+    sp.plan,
+    valueParam,
+  );
   return (
     <div className="relative min-h-screen flex flex-col">
-      <PurchaseTracker sessionId={sp.session_id} plan={sp.plan} valueBrl={value} />
+      <PurchaseTracker
+        sessionId={sp.session_id}
+        plan={resolved.plan}
+        valueBrl={resolved.value}
+      />
       <div className="pointer-events-none fixed inset-0 grid-bg opacity-40" />
       <header className="relative z-10">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">

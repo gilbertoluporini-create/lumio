@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { getAppUrl, getPriceId, getStripe, isStripeConfigured } from "@/lib/stripe";
+import {
+  getAppUrl,
+  getPriceId,
+  getStripe,
+  isStripeConfigured,
+  PLAN_PRICES_BRL,
+} from "@/lib/stripe";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -40,6 +46,16 @@ export async function POST(req: Request) {
     parsed.interval ?? (parsed.plan === "annual" ? "annual" : "monthly");
   const priceId = getPriceId(parsed.plan, interval);
 
+  // Pre-resolve do valor (BRL) pra propagar pro success_url. Permite que o
+  // PurchaseTracker em /success dispare Analytics.purchase com valor real
+  // sem precisar bater na Stripe API depois.
+  const valueBrl =
+    parsed.plan === "annual"
+      ? PLAN_PRICES_BRL.pro.annual
+      : (PLAN_PRICES_BRL[parsed.plan as "starter" | "pro" | "power"]?.[
+          interval as "monthly" | "annual"
+        ] ?? 0);
+
   // Verifica se já há um customer ID associado ao user
   const { data: subData } = await supabase
     .from("subscriptions")
@@ -69,7 +85,10 @@ export async function POST(req: Request) {
     payment_method_types: ["card"],
     locale: "pt-BR",
     allow_promotion_codes: true,
-    success_url: `${appUrl}/success?session_id={CHECKOUT_SESSION_ID}`,
+    success_url:
+      `${appUrl}/success?session_id={CHECKOUT_SESSION_ID}` +
+      `&plan=${parsed.plan}` +
+      `&value=${valueBrl}`,
     cancel_url: `${appUrl}/pricing?canceled=1`,
     billing_address_collection: "auto",
   });
