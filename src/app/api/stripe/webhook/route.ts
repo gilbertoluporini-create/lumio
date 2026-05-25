@@ -4,6 +4,7 @@ import { createAdminClient } from "@/lib/supabase/server";
 import { PLAN_COINS_PER_MONTH, getAppUrl, getStripe } from "@/lib/stripe";
 import { sendReceiptEmail, sendWelcomeEmail } from "@/lib/email";
 import { setBalanceForRenewal } from "@/lib/coins";
+import { trackPurchaseServer } from "@/lib/server-analytics";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -182,6 +183,29 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
         magicLink,
       });
     }
+
+    // Conversion server-side (Meta CAPI + GA4 MP). Usa session.id como event_id
+    // pra deduplicar com o Pixel client no /success.
+    const amountTotal = typeof session.amount_total === "number" ? session.amount_total : 0;
+    await trackPurchaseServer({
+      userId,
+      email: profile?.email ?? session.customer_details?.email ?? undefined,
+      plan,
+      value: amountTotal / 100,
+      currency: (session.currency ?? "brl").toUpperCase(),
+      sessionId: session.id,
+    });
+
+    // Programa embaixadores: se esse user foi indicado, marca redemption como paid.
+    try {
+      await markReferralPaid({
+        referredUserId: userId,
+        plan,
+        amountBrl: amountTotal / 100,
+      });
+    } catch (err) {
+      console.error("[webhook] markReferralPaid failed", err);
+    }
   } else {
     // Pagamento único (não há subscription) — ainda assim marca como ativo
     await admin
@@ -315,6 +339,53 @@ async function upsertSubscriptionFromStripe(
     },
     { onConflict: "user_id" },
   );
+}
+
+/**
+ * Marca redemption como paid + calcula reward_brl.
+ * Reward MVP: 1 mês do plano que o referido pagou (Starter=R$39, Pro=R$69, Power=R$119, Annual=R$69).
+ * Lógica de APLICAR o crédito fica manual no início (admin vê fila e aciona).
+ */
+async function markReferralPaid({
+  referredUserId,
+  plan,
+  amountBrl,
+}: {
+  referredUserId: string;
+  plan: PlanName;
+  amountBrl: number;
+}) {
+  const admin = createAdminClient();
+
+  // Procura redemption pendente
+  const { data: redemption } = await admin
+    .from("referral_redemptions")
+    .select("id, status, referral_code_id, referrer_user_id")
+    .eq("referred_user_id", referredUserId)
+    .maybeSingle();
+
+  if (!redemption) return;
+  if (redemption.status === "paid") return; // idempotente
+
+  // Reward fixo por plano (1 mês do plano do referido, capeado em R$69)
+  const rewardByPlan: Record<PlanName, number> = {
+    starter: 39,
+    pro: 69,
+    power: 69, // cap em 1 mês Pro mesmo se ele pagou Power (ajustável depois)
+    annual: 69,
+  };
+  const rewardBrl = rewardByPlan[plan] ?? 39;
+
+  await admin
+    .from("referral_redemptions")
+    .update({
+      status: "paid",
+      paid_at: new Date().toISOString(),
+      plan,
+      reward_brl: rewardBrl,
+      metadata: { paid_amount_brl: amountBrl },
+    })
+    .eq("id", redemption.id);
 }
 
 /**

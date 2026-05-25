@@ -100,10 +100,22 @@ function decideAdminHostAction(pathname: string): AdminHostDecision {
   return { kind: "redirect_to_apex" };
 }
 
+const REF_COOKIE = "lumio_ref";
+const REF_COOKIE_MAX_AGE = 60 * 60 * 24 * 60; // 60 dias
+const REF_CODE_RE = /^LUMI-[A-Z0-9]{4}$/;
+
 export async function proxy(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const onAdminHost = isAdminSubdomain(host);
   const originalPathname = request.nextUrl.pathname;
+
+  // Captura ?ref=LUMI-XXXX em QUALQUER rota: seta cookie httpOnly 60d.
+  // Não validamos o code aqui (DB-call no proxy é caro); validação acontece
+  // no signup-password ao consumir o cookie e criar redemption.
+  // O click logging pode ser feito separadamente via hit explícito em
+  // /api/referral/track (analytics-only, não-blocking).
+  const refParam = request.nextUrl.searchParams.get("ref");
+  const refToSet = refParam && REF_CODE_RE.test(refParam) ? refParam : null;
 
   // No admin subdomain decide cedo: passthrough (auth/api/assets/admin),
   // rewrite (root /), ou redirect pro apex (qualquer outro app path).
@@ -125,9 +137,24 @@ export async function proxy(request: NextRequest) {
   // Pathname "efetivo" usado nas checagens (auth, rate limit etc).
   const pathname = adminRewritePath ?? originalPathname;
 
+  // Helper: aplica cookie ref nos response (idempotente).
+  const applyRefCookie = (res: NextResponse): NextResponse => {
+    if (!refToSet) return res;
+    const existing = request.cookies.get(REF_COOKIE)?.value;
+    if (existing === refToSet) return res; // não rewrite cookie igual
+    res.cookies.set(REF_COOKIE, refToSet, {
+      maxAge: REF_COOKIE_MAX_AGE,
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    });
+    return res;
+  };
+
   // Pular tudo que é público
   if (isPublic(pathname)) {
-    return NextResponse.next();
+    return applyRefCookie(NextResponse.next());
   }
 
   // Atualizar sessão Supabase
@@ -139,7 +166,7 @@ export async function proxy(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
   );
   if (!supabaseConfigured) {
-    return response;
+    return applyRefCookie(response);
   }
 
   // Rotas API protegidas: exigem usuário autenticado + rate limit
@@ -164,7 +191,7 @@ export async function proxy(request: NextRequest) {
         },
       );
     }
-    return response;
+    return applyRefCookie(response);
   }
 
   // Rotas /app protegidas (dashboard, lecture, onboarding, admin)
@@ -180,7 +207,7 @@ export async function proxy(request: NextRequest) {
     const loginUrl = request.nextUrl.clone();
     loginUrl.pathname = "/login";
     loginUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(loginUrl);
+    return applyRefCookie(NextResponse.redirect(loginUrl));
   }
 
   // Se estamos no admin subdomain E o path original precisa ser reescrito,
@@ -201,10 +228,10 @@ export async function proxy(request: NextRequest) {
         rewriteResp.headers.set(key, value);
       }
     });
-    return rewriteResp;
+    return applyRefCookie(rewriteResp);
   }
 
-  return response;
+  return applyRefCookie(response);
 }
 
 export const config = {

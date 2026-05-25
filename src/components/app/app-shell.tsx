@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Users,
   UserIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -244,6 +245,7 @@ export function AppShell({
   ];
 
   const secondaryNavItems: SidebarNavItem[] = [
+    { href: "/account/embaixador", label: "Embaixadores", Icon: Users },
     { href: "/account/settings", label: "Configurações", Icon: Settings },
     { href: "/help", label: "Ajuda", Icon: HelpCircle },
   ];
