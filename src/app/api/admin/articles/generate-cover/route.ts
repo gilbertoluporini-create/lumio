@@ -34,9 +34,17 @@ type Body = {
 };
 
 /**
- * Heurística pra montar prompt fotográfico ao invés de "ilustração de IA".
- * Inputs: título do artigo + categoria. Resultado: prompt em inglês com
- * âncoras de estilo documental.
+ * Prompt das capas dos artigos — **padrão Lumi**.
+ *
+ * Decisão: todas as capas mostram o mascote Lumi (lâmpada antropomórfica
+ * estilo Pixar — corpo de lâmpada bege, olhos grandes amigáveis, braços
+ * articulados de metal, cabeça redonda com globo de vidro) em uma cena
+ * relacionada ao tópico do artigo. Sem fotos realistas, sem estudantes
+ * humanos genéricos — o personagem Lumi conduz a identidade visual.
+ *
+ * Anti-noise: gpt-image-1 tem grain perceptível. Pedimos "smooth, clean,
+ * flat-vector look" pra suavizar; o CSS aplica filter:contrast leve por
+ * cima na renderização.
  */
 function buildCoverPrompt({
   title,
@@ -47,33 +55,36 @@ function buildCoverPrompt({
   excerpt: string;
   categorySlug: string;
 }): string {
-  // Ânoras visuais por categoria — temas concretos do mundo real
-  const CATEGORY_ANCHORS: Record<string, string> = {
+  // Cena específica por categoria — sempre com o Lumi como protagonista
+  const CATEGORY_SCENE: Record<string, string> = {
     "primeiros-passos":
-      "young Brazilian university student opening a laptop at a clean wooden desk, golden hour daylight from a window, focused expression, books and coffee mug nearby",
+      "Lumi the friendly lamp mascot sitting on a clean wooden desk, holding a small open book, looking at the viewer with a welcoming smile, soft purple ambient glow",
     gravacoes:
-      "modern smartphone on a notebook with handwritten notes, neutral lecture-hall background slightly out of focus, soft daylight",
+      "Lumi the friendly lamp mascot in front of a tiny floating microphone, sound waves drawn as soft curves around it, sitting on a notebook",
     resumos:
-      "neatly arranged printed pages and highlighters on a minimalist desk, top-down editorial flatlay, natural daylight",
+      "Lumi the friendly lamp mascot at a small desk, organizing floating paper sheets that funnel into a single neat stack — the funnel-of-summary metaphor",
     "flashcards-quiz":
-      "small index cards laid out on a marble surface with a pen, top-down composition, editorial flatlay",
+      "Lumi the friendly lamp mascot holding two oversized flashcards, with question-mark icons floating around, playful and curious expression",
     contas:
-      "abstract clean minimal desk with a smartphone showing a generic dashboard mockup, soft daylight, no readable UI",
+      "Lumi the friendly lamp mascot next to a stylized coin (gold purple gradient) and a small dashboard panel, neutral background",
   };
 
-  const anchor =
-    CATEGORY_ANCHORS[categorySlug] ??
-    "young university student studying in a clean modern workspace, natural daylight";
+  const scene =
+    CATEGORY_SCENE[categorySlug] ??
+    "Lumi the friendly lamp mascot studying at a clean desk, surrounded by floating books and notes, warm welcoming pose";
 
   return [
-    `Editorial documentary photograph for an article titled "${title}".`,
+    `Illustrated cover image for an article titled "${title}".`,
     `Brief context: ${excerpt}`,
     "",
-    `Subject: ${anchor}`,
+    "MAIN CHARACTER (must be the visual anchor): Lumi — a friendly anthropomorphic desk lamp mascot in Pixar/3D style. Body is a beige rounded lamp base, articulated metallic arm, round head with a glass bulb, large expressive friendly eyes, no mouth or a subtle smile. Lumi is the brand mascot of an app for students — feels approachable, curious, warm.",
     "",
-    "Style: shot on a 50mm lens at f/2.8, shallow depth of field, soft natural window light, muted earth-tone palette, photorealistic, single clean focal subject.",
-    "Avoid: text overlays, captions, watermarks, logos, multiple subjects, oversaturation, neon colors, 3D render look, AI-style hyperreal skin, fantasy elements, anything visibly synthetic.",
-    "Mood: calm, professional, aspirational — feels like a real lifestyle photograph from a magazine like Monocle or The New Yorker.",
+    `Scene: ${scene}.`,
+    "",
+    "Visual style: clean modern 3D illustration with soft shading, pastel palette with subtle violet/purple accent (Lumi's brand color #7c3aed), smooth gradient background going from soft lavender to off-white, NO photographic grain, NO noise texture, NO film grain, flat clean surfaces, single focal subject (Lumi) centered, generous negative space around the character.",
+    "",
+    "Avoid strictly: photorealism, real human faces, text overlays, captions, watermarks, logos, multiple competing subjects, oversaturated neon, busy/cluttered backgrounds, dark moody lighting, AI-style hyperreal textures, visible grain or noise, fantasy creatures other than Lumi.",
+    "Mood: warm, welcoming, educational, optimistic — feels like a friendly cover from a children's educational app or a Duolingo-style learning product.",
   ].join("\n");
 }
 

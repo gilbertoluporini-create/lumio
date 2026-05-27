@@ -40,6 +40,7 @@ import {
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -115,7 +116,39 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
     flashcardsId: string | null;
     mindmapId: string | null;
   }>({ summary: false, flashcardsId: null, mindmapId: null });
+  const [wizardMode, setWizardMode] = useState<
+    "flashcards" | "mindmap" | null
+  >(null);
+  const [completed, setCompleted] = useState(false);
   const questionStartRef = useRef<number>(Date.now());
+
+  // Recarrega só os siblings (chamado quando user gera flashcards/mindmap novo).
+  const reloadSiblings = useCallback(async () => {
+    if (!lecture) return;
+    try {
+      const supabase = createClient();
+      const { data: sib } = await supabase
+        .from("lecture_assets")
+        .select("id, kind")
+        .eq("user_id", user.id)
+        .eq("lecture_id", lecture.id);
+      const rows = (sib ?? []) as Array<{ id: string; kind: string }>;
+      let flashcardsId: string | null = null;
+      let mindmapId: string | null = null;
+      for (const r of rows) {
+        if (r.kind === "flashcards") flashcardsId = r.id;
+        if (r.kind === "mindmap") mindmapId = r.id;
+      }
+      const summaryRow = await getSummaryByLectureIdAsync(user.id, lecture.id);
+      setSiblings({
+        summary: !!summaryRow,
+        flashcardsId,
+        mindmapId,
+      });
+    } catch (err) {
+      console.warn("[quiz-banco] reloadSiblings failed", err);
+    }
+  }, [lecture, user.id]);
 
   // Load bank + lecture + subject + attempts
   useEffect(() => {
@@ -269,8 +302,12 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
   const submitAnswer = useCallback(async () => {
     if (!bank || !currentQuestion || selected === null) return;
     if (revealed) {
-      // Next question
-      const nextIdx = (currentIdx + 1) % bank.questions.length;
+      // Última questão? Vai pra tela de conclusão em vez de wraparound.
+      if (currentIdx >= bank.questions.length - 1) {
+        setCompleted(true);
+        return;
+      }
+      const nextIdx = currentIdx + 1;
       pickQuestion(nextIdx);
       return;
     }
@@ -299,16 +336,10 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
     setShowExplanation(true);
   }, [bank, currentQuestion, selected, revealed, currentIdx, user.id, pickQuestion]);
 
-  const openWizard = useCallback((mode: "summary" | "flashcards" | "mindmap") => {
-    toast.message("Wizard em breve", {
-      description: `Vamos abrir o gerador de ${
-        mode === "summary"
-          ? "resumo"
-          : mode === "flashcards"
-            ? "flashcards"
-            : "mapa mental"
-      }.`,
-    });
+  // Abre o ContentWizard pré-configurado com a matéria e a aula desse quiz —
+  // assim flashcards/mindmap saem ancorados no mesmo contexto.
+  const openWizard = useCallback((mode: "flashcards" | "mindmap") => {
+    setWizardMode(mode);
   }, []);
 
   if (loading) {
@@ -321,6 +352,9 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
   if (!bank || !lecture) return null;
 
   const SubjectIcon = subject ? getSubjectIcon(subject.name) : Sparkles;
+  // Quiz pode ter sido gerado só a partir de PDFs (sem aula transcrita).
+  // Nesse caso "Revisar gravação" não faz sentido e troca por um aviso.
+  const hasTranscript = (lecture.transcript ?? "").trim().length > 0;
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 md:px-6 py-6 md:py-8">
@@ -453,23 +487,43 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
 
         {/* CENTER */}
         <main className="min-w-0 space-y-6">
-          {currentQuestion && (
-            <QuestionArea
-              question={currentQuestion}
-              idx={currentIdx}
-              total={bank.questions.length}
-              selected={selected}
-              revealed={revealed}
-              showExplanation={showExplanation}
-              isCorrect={isCorrect}
-              onSelect={(i) => !revealed && setSelected(i)}
-              onSubmit={() => void submitAnswer()}
-              onToggleExplanation={() => setShowExplanation((v) => !v)}
+          {completed ? (
+            <QuizCompletionScreen
+              stats={stats}
+              bankSize={bank.questions.length}
+              onRetry={() => {
+                setCompleted(false);
+                pickQuestion(0);
+              }}
+              onBack={() => router.push("/quiz")}
             />
+          ) : (
+            currentQuestion && (
+              <QuestionArea
+                question={currentQuestion}
+                idx={currentIdx}
+                total={bank.questions.length}
+                selected={selected}
+                revealed={revealed}
+                showExplanation={showExplanation}
+                isCorrect={isCorrect}
+                onSelect={(i) => !revealed && setSelected(i)}
+                onSubmit={() => void submitAnswer()}
+                onToggleExplanation={() => setShowExplanation((v) => !v)}
+              />
+            )
           )}
 
-          {/* 4 CTAs */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* CTAs — Revisar gravação só aparece se a aula tem transcrição.
+              Quizzes gerados só a partir de PDFs ganham um card de aviso. */}
+          <div
+            className={cn(
+              "grid gap-3",
+              hasTranscript
+                ? "grid-cols-2 lg:grid-cols-4"
+                : "grid-cols-2 lg:grid-cols-3",
+            )}
+          >
             <ActionCard
               icon={<FileText className="h-5 w-5" />}
               title="Abrir resumo"
@@ -516,13 +570,26 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
                 }
               }}
             />
-            <ActionCard
-              icon={<Sparkles className="h-5 w-5" />}
-              title="Revisar gravação"
-              description="Veja a aula completa."
-              href={`/lecture/${lecture.id}`}
-            />
+            {hasTranscript ? (
+              <ActionCard
+                icon={<Sparkles className="h-5 w-5" />}
+                title="Revisar gravação"
+                description="Veja a aula completa."
+                href={`/lecture/${lecture.id}`}
+              />
+            ) : null}
           </div>
+
+          {!hasTranscript && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 px-4 py-3 text-xs text-amber-700 dark:text-amber-300 flex items-start gap-2">
+              <Sparkles className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+              <span>
+                Esse quiz não foi gerado a partir de uma aula transcrita —
+                então não há gravação pra revisar. Os recursos acima continuam
+                disponíveis a partir do PDF/material usado.
+              </span>
+            </div>
+          )}
         </main>
 
         {/* RIGHT */}
@@ -626,6 +693,24 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
           </div>
         </div>
       </div>
+
+      <ContentWizard
+        open={!!wizardMode}
+        onOpenChange={(o) => {
+          if (!o) setWizardMode(null);
+        }}
+        mode={wizardMode ?? "flashcards"}
+        userId={user.id}
+        initialSubjectId={lecture.subjectId}
+        initialSourceLectureId={hasTranscript ? lecture.id : undefined}
+        onCreated={({ mode }) => {
+          setWizardMode(null);
+          void reloadSiblings();
+          toast.success(
+            mode === "flashcards" ? "Flashcards prontos!" : "Mapa mental pronto!",
+          );
+        }}
+      />
     </div>
   );
 }
@@ -1086,4 +1171,87 @@ function StepItem({
     </div>
   );
   return <li>{href ? <Link href={href}>{body}</Link> : body}</li>;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Quiz Completion — tela exibida ao responder a última questão              */
+/* -------------------------------------------------------------------------- */
+
+function QuizCompletionScreen({
+  stats,
+  bankSize,
+  onRetry,
+  onBack,
+}: {
+  stats: {
+    total: number;
+    correct: number;
+    accuracy: number;
+    totalTimeMs: number;
+    avgTimeMs: number;
+  };
+  bankSize: number;
+  onRetry: () => void;
+  onBack: () => void;
+}) {
+  // Acerto considerando só a última passada — stats.total pode ser maior se
+  // o user já tinha respondido antes. Mas pra UX simples, mostramos os totais.
+  const pct = stats.accuracy;
+  const headline =
+    pct >= 90
+      ? "Sensacional!"
+      : pct >= 70
+        ? "Mandou bem!"
+        : pct >= 50
+          ? "Bom começo."
+          : "Hora de revisar.";
+  return (
+    <div className="rounded-2xl border border-border/60 bg-card p-8 md:p-10 text-center">
+      <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-primary/15 to-fuchsia-500/15 mb-4">
+        <Sparkles className="h-7 w-7 text-primary" />
+      </div>
+      <h2 className="text-2xl md:text-3xl heading-display mb-1">
+        {headline}
+      </h2>
+      <p className="text-sm text-muted-foreground mb-6">
+        Você concluiu o quiz de {bankSize} {bankSize === 1 ? "questão" : "questões"}.
+      </p>
+
+      <div className="grid grid-cols-3 gap-3 max-w-md mx-auto mb-7">
+        <div className="rounded-xl border border-border/60 bg-background p-4">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+            Acerto
+          </div>
+          <div className="text-2xl font-semibold font-mono tabular-nums">
+            {pct}%
+          </div>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-background p-4">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+            Corretas
+          </div>
+          <div className="text-2xl font-semibold font-mono tabular-nums">
+            {stats.correct}/{stats.total}
+          </div>
+        </div>
+        <div className="rounded-xl border border-border/60 bg-background p-4">
+          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
+            Tempo total
+          </div>
+          <div className="text-2xl font-semibold tabular-nums">
+            {formatPracticeTime(stats.totalTimeMs)}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Button variant="gradient" onClick={onBack}>
+          Voltar pra Quiz <ArrowRight className="h-4 w-4" />
+        </Button>
+        <Button variant="outline" onClick={onRetry}>
+          <RefreshCw className="h-4 w-4" /> Refazer quiz
+        </Button>
+      </div>
+    </div>
+  );
 }

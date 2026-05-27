@@ -847,9 +847,9 @@ function LumiAssistant({ user }: { user: User }) {
       try {
         if (lower.endsWith(".pdf")) {
           toast.info("Lendo PDF...", { duration: 1500 });
-          const pdfjs = await import("pdfjs-dist");
+          const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
           if (typeof window !== "undefined") {
-            pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+            pdfjs.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.legacy.mjs";
           }
           const buf = await file.arrayBuffer();
           const task = pdfjs.getDocument({ data: new Uint8Array(buf) });

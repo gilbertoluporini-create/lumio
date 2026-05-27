@@ -67,9 +67,9 @@ export type ExamPdfUploadProps = {
 
 let pdfjsWorkerConfigured = false;
 async function getPdfJs() {
-  const pdfjs = await import("pdfjs-dist");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   if (!pdfjsWorkerConfigured && typeof window !== "undefined") {
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+    pdfjs.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.legacy.mjs";
     pdfjsWorkerConfigured = true;
   }
   return pdfjs;

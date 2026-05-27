@@ -14,9 +14,9 @@ const JPEG_QUALITY = 0.72;
 let workerConfigured = false;
 
 async function getPdfJs() {
-  const pdfjs = await import("pdfjs-dist");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
   if (!workerConfigured && typeof window !== "undefined") {
-    pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+    pdfjs.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.legacy.mjs";
     workerConfigured = true;
   }
   return pdfjs;

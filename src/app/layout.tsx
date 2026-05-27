@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import {
   Geist_Mono,
   Instrument_Serif,
@@ -105,6 +105,28 @@ export const metadata: Metadata = {
       "Transcrição ao vivo + chat IA com contexto. Resumo, flashcards e quiz por matéria.",
     images: [ROOT_OG_IMAGE],
   },
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    title: "Lumio",
+    statusBarStyle: "default",
+  },
+};
+
+/**
+ * Viewport + theme — separados do Metadata em Next 15+.
+ * `viewportFit: "cover"` é essencial pra notch do iPhone e display de iPad
+ * funcionarem sem barras brancas no modo standalone (PWA instalada).
+ */
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0a" },
+  ],
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 5,
+  viewportFit: "cover",
 };
 
 /**

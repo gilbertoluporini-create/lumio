@@ -47,7 +47,6 @@ import {
   Sparkles,
   Stethoscope,
   Syringe,
-  Upload,
   Users,
   Wind,
   Wrench,
@@ -60,14 +59,6 @@ import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -300,7 +291,6 @@ function FlashcardsHubView({ user }: { user: User }) {
 
   // Dialogs
   const [newDeckOpen, setNewDeckOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("new") === "1") {
@@ -310,82 +300,76 @@ function FlashcardsHubView({ user }: { user: User }) {
   }, [searchParams, router]);
 
   // =====================================================================
-  // Carga inicial: subjects + lectures + flashcards + SRS states
+  // Carga: subjects + lectures + flashcards + SRS states
   // =====================================================================
+  const reload = useCallback(async () => {
+    const [subjectsRes, lecturesRes, statesRes] = await Promise.all([
+      listSubjectsAsync(user.id),
+      listLecturesAsync(user.id),
+      listCardStatesAsync(user.id),
+    ]);
+
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("lecture_assets")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("kind", "flashcards")
+      .order("updated_at", { ascending: false });
+
+    if (error) {
+      console.error("Erro buscando flashcards:", error);
+      toast.error("Não consegui carregar seus decks.");
+      return;
+    }
+
+    const rows = (data ?? []) as FlashcardAssetRow[];
+    const subjectMap = new Map<string, Subject>(
+      subjectsRes.map((s) => [s.id, s]),
+    );
+    const lectureMap = new Map<string, Lecture>(
+      lecturesRes.map((l) => [l.id, l]),
+    );
+
+    const built: Deck[] = rows
+      .map((row) => {
+        const lecture = lectureMap.get(row.lecture_id);
+        if (!lecture) return null;
+        const subject = subjectMap.get(lecture.subjectId);
+        const cards = Array.isArray(row.payload?.cards)
+          ? row.payload.cards
+          : [];
+        return {
+          assetId: row.id,
+          lectureId: row.lecture_id,
+          lectureTitle: lecture.title,
+          subjectId: lecture.subjectId,
+          subjectName: subject?.name ?? "Sem matéria",
+          cards,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        } as Deck;
+      })
+      .filter((d): d is Deck => d !== null && d.cards.length > 0);
+
+    setDecks(built);
+    setCardStates(statesRes);
+  }, [user.id]);
+
   useEffect(() => {
     let mounted = true;
-    async function load() {
-      try {
-        const [subjectsRes, lecturesRes, statesRes] = await Promise.all([
-          listSubjectsAsync(user.id),
-          listLecturesAsync(user.id),
-          listCardStatesAsync(user.id),
-        ]);
-
-        const supabase = createClient();
-        const { data, error } = await supabase
-          .from("lecture_assets")
-          .select("*")
-          .eq("user_id", user.id)
-          .eq("kind", "flashcards")
-          .order("updated_at", { ascending: false });
-
-        if (error) {
-          console.error("Erro buscando flashcards:", error);
-          if (mounted) {
-            toast.error("Não consegui carregar seus decks.");
-            setLoading(false);
-          }
-          return;
-        }
-
-        const rows = (data ?? []) as FlashcardAssetRow[];
-        const subjectMap = new Map<string, Subject>(
-          subjectsRes.map((s) => [s.id, s]),
-        );
-        const lectureMap = new Map<string, Lecture>(
-          lecturesRes.map((l) => [l.id, l]),
-        );
-
-        const built: Deck[] = rows
-          .map((row) => {
-            const lecture = lectureMap.get(row.lecture_id);
-            if (!lecture) return null;
-            const subject = subjectMap.get(lecture.subjectId);
-            const cards = Array.isArray(row.payload?.cards)
-              ? row.payload.cards
-              : [];
-            return {
-              assetId: row.id,
-              lectureId: row.lecture_id,
-              lectureTitle: lecture.title,
-              subjectId: lecture.subjectId,
-              subjectName: subject?.name ?? "Sem matéria",
-              cards,
-              createdAt: row.created_at,
-              updatedAt: row.updated_at,
-            } as Deck;
-          })
-          .filter((d): d is Deck => d !== null && d.cards.length > 0);
-
-        if (mounted) {
-          setDecks(built);
-          setCardStates(statesRes);
-          setLoading(false);
-        }
-      } catch (err) {
+    reload()
+      .catch((err) => {
         console.error(err);
-        if (mounted) {
-          toast.error(`Erro: ${(err as Error).message}`);
-          setLoading(false);
-        }
-      }
-    }
-    load();
+        if (mounted) toast.error(`Erro: ${(err as Error).message}`);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
     return () => {
       mounted = false;
     };
-  }, [user.id]);
+  }, [reload]);
 
   // =====================================================================
   // Lista de matérias únicas
@@ -655,13 +639,6 @@ function FlashcardsHubView({ user }: { user: User }) {
             >
               <Plus className="h-4 w-4" /> Criar primeiro deck
             </Button>
-            <Button
-              variant="outline"
-              size="lg"
-              onClick={() => setImportOpen(true)}
-            >
-              <Upload className="h-4 w-4" /> Importar deck
-            </Button>
           </div>
         </div>
         <ContentWizard
@@ -670,12 +647,11 @@ function FlashcardsHubView({ user }: { user: User }) {
           mode="flashcards"
           userId={user.id}
           onCreated={({ summaryId }) => {
-            // Deck recém-criado aparece no topo da lista; recarrega via router refresh.
+            // Deck recém-criado aparece no topo da lista; recarrega via reload().
             if (summaryId) router.push(`/resumo/doc/${summaryId}`);
-            else router.refresh();
+            else void reload();
           }}
         />
-        <ImportDeckDialog open={importOpen} onOpenChange={setImportOpen} />
       </>
     );
   }
@@ -701,11 +677,8 @@ function FlashcardsHubView({ user }: { user: User }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2 shrink-0">
-            <Button variant="outline" onClick={() => setNewDeckOpen(true)}>
+            <Button variant="gradient" onClick={() => setNewDeckOpen(true)}>
               <Plus className="h-4 w-4" /> Novo deck
-            </Button>
-            <Button variant="gradient" onClick={() => setImportOpen(true)}>
-              <Upload className="h-4 w-4" /> Importar deck
             </Button>
           </div>
         </div>
@@ -862,10 +835,9 @@ function FlashcardsHubView({ user }: { user: User }) {
         userId={user.id}
         onCreated={() => {
           // Recarrega a lista pra mostrar o novo deck.
-          router.refresh();
+          void reload();
         }}
       />
-      <ImportDeckDialog open={importOpen} onOpenChange={setImportOpen} />
     </>
   );
 }
@@ -1737,45 +1709,3 @@ function DeckRow({
   );
 }
 
-// =====================================================================
-// Dialog: Importar deck (coming soon)
-// =====================================================================
-function ImportDeckDialog({
-  open,
-  onOpenChange,
-}: {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-}) {
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Importar deck</DialogTitle>
-          <DialogDescription>
-            Em breve você poderá importar decks do Anki e arquivos CSV.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="text-sm text-muted-foreground space-y-2">
-          <p>
-            Estamos finalizando o suporte para importação de:
-          </p>
-          <ul className="list-disc pl-5 space-y-1">
-            <li>Arquivos <span className="font-mono text-xs">.apkg</span> do Anki</li>
-            <li>Planilhas CSV (pergunta, resposta, dica)</li>
-            <li>Decks compartilhados por outros usuários</li>
-          </ul>
-          <p>
-            Por enquanto, gere decks automaticamente a partir das transcrições
-            das suas aulas.
-          </p>
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Fechar
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}

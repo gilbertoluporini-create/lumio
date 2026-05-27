@@ -97,32 +97,8 @@ function DocumentView({
     }
     setExtracting(true);
     try {
-      const pdfjs = await import("pdfjs-dist");
-      if (typeof window !== "undefined") {
-        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-      }
-      const buf = await file.arrayBuffer();
-      const task = pdfjs.getDocument({ data: new Uint8Array(buf) });
-      const pdfDoc = await task.promise;
-      const parts: string[] = [];
-      for (let i = 1; i <= pdfDoc.numPages; i++) {
-        const page = await pdfDoc.getPage(i);
-        const content = await page.getTextContent();
-        const pageText = content.items
-          .map((it) => ("str" in it ? it.str : ""))
-          .filter((s) => s.length > 0)
-          .join(" ");
-        if (pageText.trim().length > 0) {
-          parts.push(`--- Página ${i} ---\n${pageText}`);
-        }
-        page.cleanup();
-      }
-      await pdfDoc.destroy();
-      const text = parts.join("\n\n");
-      if (!text.trim()) {
-        toast.error("Este PDF não tem texto extraível.");
-        return;
-      }
+      const { extractPdfText } = await import("@/lib/pdf-extract");
+      const { text, pages } = await extractPdfText(file);
 
       // Sobe o PDF binário pro Storage pra renderização inline depois.
       const supabase = (await import("@/lib/supabase/client")).createClient();
@@ -147,7 +123,7 @@ function DocumentView({
         .from("documents")
         .update({
           source_text: text,
-          page_count: pdfDoc.numPages,
+          page_count: pages,
           ...(publicUrl ? { source_url: publicUrl } : {}),
         })
         .eq("id", doc.id);
@@ -155,7 +131,7 @@ function DocumentView({
       setDoc({
         ...doc,
         sourceText: text,
-        pageCount: pdfDoc.numPages,
+        pageCount: pages,
         ...(publicUrl ? { sourceUrl: publicUrl } : {}),
       });
       toast.success("PDF salvo. Já pode visualizar e gerar resumo.");
@@ -169,9 +145,10 @@ function DocumentView({
         sourceId: doc.id,
         subjectId: doc.subjectId,
         text,
-        metadata: { page_count: pdfDoc.numPages, title: doc.title },
+        metadata: { page_count: pages, title: doc.title },
       });
     } catch (err) {
+      console.error("[document] pdf extract failed", err);
       toast.error(`Falha ao processar PDF: ${(err as Error).message}`);
     } finally {
       setExtracting(false);
@@ -372,6 +349,7 @@ function DocumentView({
         onOpenChange={setWizardOpen}
         mode="summary"
         userId={user.id}
+        initialSubjectId={doc.subjectId}
         onCreated={({ summaryId }) => {
           if (summaryId) router.push(`/resumo/doc/${summaryId}`);
         }}

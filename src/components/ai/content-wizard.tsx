@@ -125,6 +125,13 @@ export type ContentWizardProps = {
   userId: string;
   /** Pré-seleciona uma aula como fonte (ex: usuário entrou pelo botão da própria aula) */
   initialSourceLectureId?: string;
+  /**
+   * Quando o wizard é aberto a partir de uma matéria específica
+   * (ex: tela /subject/[id]), ancora a geração nessa matéria:
+   *  - usa essa matéria como subjectId no save (sem cair em subjects[0])
+   *  - pré-seleciona PDFs e aulas que pertencem a essa matéria
+   */
+  initialSubjectId?: string;
   /** Callback opcional após salvar com sucesso */
   onCreated?: (result: {
     lectureId?: string;
@@ -144,6 +151,7 @@ export function ContentWizard({
   mode,
   userId,
   initialSourceLectureId,
+  initialSubjectId,
   onCreated,
 }: ContentWizardProps) {
   const [step, setStep] = useState<Step>(1);
@@ -183,7 +191,6 @@ export function ContentWizard({
 
   // Geração (rodando em background, wizard fecha imediatamente — toast persiste)
   const [generating, setGenerating] = useState(false);
-  const [, setGenStage] = useState<string>("Preparando...");
 
   /* --------------------------------------- carga inicial --------- */
 
@@ -208,6 +215,33 @@ export function ContentWizard({
         ) {
           setSelectedLectureIds(new Set([initialSourceLectureId]));
         }
+        // Se o wizard foi aberto a partir de uma matéria, ancora pré-selecionando
+        // todos os PDFs salvos dessa matéria + aulas com transcrição da mesma.
+        if (initialSubjectId) {
+          const docsOfSubject = d
+            .filter(
+              (x) =>
+                x.subjectId === initialSubjectId &&
+                (x.sourceText ?? "").trim().length > 0,
+            )
+            .map((x) => x.id);
+          if (docsOfSubject.length > 0) {
+            setSelectedDocumentIds(new Set(docsOfSubject));
+          }
+          // Só pré-seleciona aulas se não tiver vindo initialSourceLectureId
+          if (!initialSourceLectureId) {
+            const lecturesOfSubject = l
+              .filter(
+                (x) =>
+                  x.subjectId === initialSubjectId &&
+                  (x.transcript ?? "").trim().length > 0,
+              )
+              .map((x) => x.id);
+            if (lecturesOfSubject.length > 0) {
+              setSelectedLectureIds(new Set(lecturesOfSubject));
+            }
+          }
+        }
       })
       .finally(() => {
         if (!cancel) setLoadingLectures(false);
@@ -215,7 +249,7 @@ export function ContentWizard({
     return () => {
       cancel = true;
     };
-  }, [open, userId, initialSourceLectureId]);
+  }, [open, userId, initialSourceLectureId, initialSubjectId]);
 
   // Reset quando fecha
   useEffect(() => {
@@ -287,7 +321,10 @@ export function ContentWizard({
 
   /* --------------------------------------- pricing --------------- */
 
-  const cost = computeCost(mode, withImages);
+  // Total de fontes que vão pra geração — cada uma acima da 1ª adiciona coins.
+  const totalSources =
+    selectedLectureIds.size + selectedDocumentIds.size + uploadedPdfs.length;
+  const cost = computeCost(mode, withImages, totalSources);
   const imagesAvailable = mode !== "mindmap";
   const insufficient = balance !== null && balance < cost;
 
@@ -309,11 +346,9 @@ export function ContentWizard({
     if (!files || files.length === 0) return;
     setPdfProcessing(true);
     try {
-      const pdfjs = await import("pdfjs-dist");
-      if (typeof window !== "undefined") {
-        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-      }
-
+      const { extractPdfText, PdfExtractException } = await import(
+        "@/lib/pdf-extract"
+      );
       const newOnes: UploadedPdf[] = [];
       for (const file of Array.from(files)) {
         if (file.size > LIMITS.PDF_BYTES) {
@@ -321,38 +356,40 @@ export function ContentWizard({
           continue;
         }
         try {
-          const buf = await file.arrayBuffer();
-          const task = pdfjs.getDocument({ data: new Uint8Array(buf) });
-          const doc = await task.promise;
-          const parts: string[] = [];
-          for (let i = 1; i <= doc.numPages; i++) {
-            const page = await doc.getPage(i);
-            const content = await page.getTextContent();
-            const pageText = content.items
-              .map((it) => ("str" in it ? it.str : ""))
-              .filter((s) => s.length > 0)
-              .join(" ");
-            if (pageText.trim().length > 0) {
-              parts.push(`--- Página ${i} ---\n${pageText}`);
-            }
-            page.cleanup();
-          }
-          await doc.destroy();
-          const text = parts.join("\n\n");
-          if (!text.trim()) {
-            toast.error(`"${file.name}" não tem texto extraível.`);
-            continue;
-          }
+          const { text, pages } = await extractPdfText(file);
           newOnes.push({
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             name: file.name,
             text,
-            pages: doc.numPages,
+            pages,
             file,
           });
         } catch (err) {
-          console.error(err);
-          toast.error(`Falha ao processar "${file.name}".`);
+          console.error("[wizard] pdf extract failed", file.name, err);
+          const e = err as Error & { kind?: string };
+          // Telemetria — só assim conseguimos debugar falhas que só
+          // acontecem em iPad Safari / mobile (não inspecionáveis pra nós).
+          void fetch("/api/telemetry/pdf-error", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              fileName: file.name,
+              fileSize: file.size,
+              errorKind: e.kind ?? "unknown",
+              errorMessage: e.message ?? String(err),
+              userAgent:
+                typeof navigator !== "undefined" ? navigator.userAgent : "",
+              context: "wizard.upload",
+            }),
+            keepalive: true,
+          }).catch(() => {});
+          if (err instanceof PdfExtractException) {
+            toast.error(`"${file.name}": ${err.message}`);
+          } else {
+            toast.error(
+              `Falha ao processar "${file.name}": ${(err as Error).message}`,
+            );
+          }
         }
       }
       if (newOnes.length > 0) {
@@ -384,43 +421,17 @@ export function ContentWizard({
       }
       const t = toast.loading(`Extraindo texto de "${file.name}"...`);
       try {
-        const pdfjs = await import("pdfjs-dist");
-        if (typeof window !== "undefined") {
-          pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-        }
-        const buf = await file.arrayBuffer();
-        const task = pdfjs.getDocument({ data: new Uint8Array(buf) });
-        const doc = await task.promise;
-        const parts: string[] = [];
-        for (let i = 1; i <= doc.numPages; i++) {
-          const page = await doc.getPage(i);
-          const content = await page.getTextContent();
-          const pageText = content.items
-            .map((it) => ("str" in it ? it.str : ""))
-            .filter((s) => s.length > 0)
-            .join(" ");
-          if (pageText.trim().length > 0) {
-            parts.push(`--- Página ${i} ---\n${pageText}`);
-          }
-          page.cleanup();
-        }
-        await doc.destroy();
-        const text = parts.join("\n\n");
-        if (!text.trim()) {
-          toast.error("Este PDF não tem texto extraível.", { id: t });
-          return;
-        }
+        const { extractPdfText } = await import("@/lib/pdf-extract");
+        const { text, pages } = await extractPdfText(file);
         await updateDocumentAsync(userId, docId, {
           sourceText: text,
-          pageCount: doc.numPages,
+          pageCount: pages,
         });
         // Captura subjectId pra passar pra indexação
         const docForIndex = documents.find((d) => d.id === docId);
         setDocuments((prev) =>
           prev.map((d) =>
-            d.id === docId
-              ? { ...d, sourceText: text, pageCount: doc.numPages }
-              : d,
+            d.id === docId ? { ...d, sourceText: text, pageCount: pages } : d,
           ),
         );
         setSelectedDocumentIds((prev) => {
@@ -440,11 +451,12 @@ export function ContentWizard({
           subjectId: docForIndex?.subjectId,
           text,
           metadata: {
-            page_count: doc.numPages,
+            page_count: pages,
             title: docForIndex?.title,
           },
         });
       } catch (err) {
+        console.error("[wizard] repair pdf extract failed", err);
         toast.error(`Falha ao processar PDF: ${(err as Error).message}`, {
           id: t,
         });
@@ -475,16 +487,76 @@ export function ContentWizard({
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
-    setGenStage("Lendo fontes...");
-    // Toast persistente substitui a tela de preview — o user pode navegar e
-    // será redirecionado quando salvar finalizar.
-    toast.loading(`Gerando ${modeLabel(mode).toLowerCase()}...`, {
-      id: "wizard-generation",
-      description: "Você pode continuar usando o app.",
-    });
     // Fecha o wizard imediatamente — não precisa mais ficar travando o user
     // numa tela de preview. O resultado vai pro /resumo/[id] direto.
     onOpenChange(false);
+
+    // -----------------------------------------------------------------
+    // Toast com barra de progresso 0–100. Sonner aceita JSX como label,
+    // então atualizamos o mesmo toast a cada ~400ms enquanto o fetch roda.
+    // A barra cresce baseada em uma estimativa de tempo por modo, satura
+    // em 95% (não chega a 100% até a resposta voltar) e fecha em 100%
+    // quando termina. Substitui o antigo spinner + setGenStage().
+    // -----------------------------------------------------------------
+    const estMs =
+      mode === "summary"
+        ? withImages && imagesAvailable
+          ? 90_000
+          : 45_000
+        : mode === "mindmap"
+          ? 25_000
+          : 35_000;
+    const startTs = Date.now();
+    let currentPct = 0;
+    let currentStage = "Lendo fontes...";
+
+    const renderProgress = (pct: number, stage: string) => (
+      <div className="flex flex-col gap-1.5 w-full min-w-[220px]">
+        <div className="text-sm font-medium">
+          Gerando {modeLabel(mode).toLowerCase()}
+        </div>
+        <div className="text-[11px] text-muted-foreground">{stage}</div>
+        <div className="h-1.5 w-full bg-secondary/60 rounded-full overflow-hidden">
+          <div
+            className="h-full bg-gradient-to-r from-primary to-fuchsia-500 transition-[width] duration-300 ease-out"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <div className="text-[10px] text-muted-foreground font-mono tabular-nums text-right">
+          {Math.round(pct)}%
+        </div>
+      </div>
+    );
+
+    toast(renderProgress(0, currentStage), {
+      id: "wizard-generation",
+      duration: Infinity,
+    });
+
+    const progressTimer = setInterval(() => {
+      const elapsed = Date.now() - startTs;
+      // Curva quase-linear que satura em 95%. Nunca passa de 95 antes do resp.
+      currentPct = Math.min(95, (elapsed / estMs) * 92);
+      if (currentPct > 75) currentStage = "Finalizando...";
+      else if (currentPct > 40)
+        currentStage =
+          withImages && imagesAvailable
+            ? "Gerando imagens..."
+            : "Estruturando...";
+      else if (currentPct > 12) currentStage = "Pensando...";
+      toast(renderProgress(currentPct, currentStage), {
+        id: "wizard-generation",
+        duration: Infinity,
+      });
+    }, 400);
+
+    const finishProgress = (label: string) => {
+      clearInterval(progressTimer);
+      toast(renderProgress(100, label), {
+        id: "wizard-generation",
+        duration: 600,
+      });
+    };
 
     // Monta sources
     const transcripts: string[] = [];
@@ -526,16 +598,10 @@ export function ContentWizard({
     }
     if (mode === "mindmap") options.complexity = complexity;
 
-    // Stage progressivo (cosmético)
-    const stageTimer = setTimeout(() => setGenStage("Pensando..."), 1500);
-    const stageTimer2 = setTimeout(
-      () =>
-        setGenStage(
-          withImages && imagesAvailable ? "Gerando imagens..." : "Estruturando...",
-        ),
-      6000,
-    );
-    const stageTimer3 = setTimeout(() => setGenStage("Finalizando..."), 14000);
+    const cancelProgress = () => {
+      clearInterval(progressTimer);
+      toast.dismiss("wizard-generation");
+    };
 
     try {
       const resp = await fetch("/api/ai/generate", {
@@ -553,16 +619,27 @@ export function ContentWizard({
         required?: number;
       };
       if (!resp.ok) {
-        toast.dismiss("wizard-generation");
+        cancelProgress();
         toast.error(json.error ?? "Falha na geração.");
         return;
       }
 
       // Auto-save: pula a tela de preview e leva direto pro /resumo[id]
+      // Prioridade pra resolver a matéria:
+      //  1) initialSubjectId (wizard aberto a partir de /subject/[id])
+      //  2) subjectId da primeira aula selecionada
+      //  3) subjectId do primeiro doc selecionado
+      //  4) primeira matéria do user (fallback frágil)
       const firstLecture = selectedLectures[0];
-      const subjectId = firstLecture?.subjectId ?? subjects[0]?.id ?? "";
+      const firstDoc = selectedDocuments[0];
+      const subjectId =
+        initialSubjectId ??
+        firstLecture?.subjectId ??
+        firstDoc?.subjectId ??
+        subjects[0]?.id ??
+        "";
       if (!subjectId) {
-        toast.dismiss("wizard-generation");
+        cancelProgress();
         toast.error("Crie ao menos uma matéria antes — vá no dashboard.");
         return;
       }
@@ -590,7 +667,7 @@ export function ContentWizard({
             console.error("[wizard] summaries write failed", err);
             return null;
           });
-          toast.dismiss("wizard-generation");
+          finishProgress("Pronto!");
           toast.success("Resumo pronto!");
           onCreated?.({
             lectureId: baseLecture.id,
@@ -622,7 +699,7 @@ export function ContentWizard({
             pageCount: pageCount > 0 ? pageCount : undefined,
           });
           if (!doc) {
-            toast.dismiss("wizard-generation");
+            cancelProgress();
             toast.error("Falha ao salvar documento.");
             return;
           }
@@ -678,7 +755,7 @@ export function ContentWizard({
             title,
             content: summaryContent,
           });
-          toast.dismiss("wizard-generation");
+          finishProgress("Pronto!");
           toast.success("Resumo pronto!");
           onCreated?.({
             documentId: doc.id,
@@ -687,31 +764,118 @@ export function ContentWizard({
           });
         }
       } else {
+        // Quando o user gera flashcards/quiz/mindmap só com PDFs (sem aula
+        // gravada selecionada), os PDFs precisam virar Documents da matéria.
+        // Senão somem da pasta — viram apenas ingredientes da geração e o
+        // user não vê de onde o asset veio nem consegue reusar o PDF.
+        if (selectedLectures.length === 0 && uploadedPdfs.length > 0) {
+          try {
+            const supabase = (
+              await import("@/lib/supabase/client")
+            ).createClient();
+            const { indexContentInBackground } = await import(
+              "@/lib/embeddings-client"
+            );
+            for (const p of uploadedPdfs) {
+              try {
+                const docTitle = p.name.replace(/\.pdf$/i, "");
+                const docCreated = await createDocumentAsync({
+                  userId,
+                  subjectId,
+                  title: docTitle,
+                  sourceKind: "pdf",
+                  sourceText: p.text,
+                  pageCount: p.pages,
+                });
+                if (!docCreated) continue;
+                // Sobe o PDF binário pro Storage pra visualização inline
+                const storageKey = `${userId}/${docCreated.id}.pdf`;
+                const { error: upErr } = await supabase.storage
+                  .from("user-documents")
+                  .upload(storageKey, p.file, {
+                    contentType: "application/pdf",
+                    upsert: true,
+                  });
+                if (!upErr) {
+                  const { data: pub } = supabase.storage
+                    .from("user-documents")
+                    .getPublicUrl(storageKey);
+                  if (pub?.publicUrl) {
+                    await supabase
+                      .from("documents")
+                      .update({ source_url: pub.publicUrl })
+                      .eq("id", docCreated.id);
+                  }
+                }
+                void indexContentInBackground({
+                  sourceKind: "document",
+                  sourceId: docCreated.id,
+                  subjectId,
+                  text: p.text,
+                  metadata: { title: docTitle, page_count: p.pages },
+                });
+              } catch (err) {
+                console.warn(
+                  "[wizard] failed to save uploaded pdf as document",
+                  p.name,
+                  err,
+                );
+              }
+            }
+          } catch (err) {
+            console.warn("[wizard] document persistence batch failed", err);
+          }
+        }
+
         const lecture = await createLectureAsync(userId, { subjectId, title });
         if (isSupabaseConfigured()) {
           const supabase = createClient();
           const kind = mode;
           let payload: Record<string, unknown> = {};
+          // Imagens geradas pelo backend quando withImages=true. Antes só o
+          // mindmap salvava — pra flashcards/quiz as URLs eram descartadas, e o
+          // toggle "Incluir imagens educacionais" virava no-op (user pagava
+          // pelas imagens mas nunca via). Agora salvamos no payload pra
+          // /deck e /quiz-banco poderem renderizar.
+          const imageUrls =
+            Array.isArray(json.imageUrls) && json.imageUrls.length > 0
+              ? json.imageUrls.filter(
+                  (u): u is string => typeof u === "string" && u.length > 0,
+                )
+              : [];
+
           if (mode === "flashcards") {
             const cards = ((json.content as { cards?: unknown[] }).cards ??
               []) as Flashcard[];
-            payload = { generatedAt: new Date().toISOString(), cards };
+            payload = {
+              generatedAt: new Date().toISOString(),
+              cards,
+              ...(imageUrls.length > 0 ? { imageUrls } : {}),
+            };
           } else if (mode === "quiz") {
             const questions = ((json.content as { questions?: unknown[] })
               .questions ?? []) as QuizQuestion[];
             payload = {
               generatedAt: new Date().toISOString(),
               questions,
+              ...(imageUrls.length > 0 ? { imageUrls } : {}),
             };
           } else if (mode === "mindmap") {
             const c = json.content as {
               centralTopic?: string;
               branches?: MindmapNode[];
             };
+            // Mindmap: backend retorna 1 imagem ilustrativa do tópico central
+            // em json.imageUrls. Salvamos no payload pra renderizar no /mapa.
+            const heroImage =
+              Array.isArray(json.imageUrls) && json.imageUrls.length > 0
+                ? json.imageUrls[0]
+                : undefined;
             payload = {
               generatedAt: new Date().toISOString(),
               centralTopic: c.centralTopic ?? title,
               branches: c.branches ?? [],
+              ...(heroImage ? { heroImageUrl: heroImage } : {}),
             };
           }
           await supabase.from("lecture_assets").insert({
@@ -722,12 +886,12 @@ export function ContentWizard({
             coins_spent: json.coinsCharged,
           });
         }
-        toast.dismiss("wizard-generation");
+        finishProgress("Pronto!");
         toast.success(`${modeLabel(mode)} pronto!`);
         onCreated?.({ lectureId: lecture.id, mode });
       }
     } catch (err) {
-      toast.dismiss("wizard-generation");
+      cancelProgress();
       const e = err as Error & { upgrade?: string; usage?: unknown };
       // Limite mensal atingido → paywall + persiste o resultado pra retomar
       // o save após upgrade. Não perde o trabalho gerado.
@@ -763,16 +927,17 @@ export function ContentWizard({
         toast.error(`Erro: ${e.message}`);
       }
     } finally {
-      clearTimeout(stageTimer);
-      clearTimeout(stageTimer2);
-      clearTimeout(stageTimer3);
+      // Defensivo: garante que o interval para mesmo em caminhos inesperados
+      clearInterval(progressTimer);
       setGenerating(false);
     }
   }, [
     mode,
     selectedLectures,
+    selectedDocuments,
     subjects,
     userId,
+    initialSubjectId,
     onCreated,
     uploadedPdfs,
     includeSlides,
@@ -1158,9 +1323,18 @@ function Step1Sources({
             <FileUp className="h-4 w-4 text-primary" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium">Upload novo PDF</div>
+            <div className="text-sm font-medium inline-flex items-center gap-2">
+              Upload de PDFs
+              <Badge
+                variant="outline"
+                className="text-[9px] py-0 px-1.5 h-4 font-mono"
+              >
+                vários ok
+              </Badge>
+            </div>
             <div className="text-[11px] text-muted-foreground">
-              Processado no seu navegador — não fica salvo.
+              Pode selecionar vários de uma vez · cada PDF extra adiciona{" "}
+              {COIN_COSTS.perExtraSource} coins.
             </div>
           </div>
           <Button

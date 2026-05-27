@@ -74,6 +74,8 @@ type MindmapAsset = {
   generatedAt: string;
   centralTopic: string;
   branches: MindmapNode[];
+  /** URL de imagem ilustrativa gerada por gpt-image-1 (opcional, decks antigos não têm) */
+  heroImageUrl?: string;
 };
 
 type MindmapBank = {
@@ -305,6 +307,21 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
             </span>
           </div>
         </div>
+        {bank.mindmap.heroImageUrl && (
+          /* Imagem ilustrativa gerada via gpt-image-1 a partir do centralTopic.
+             Decks antigos (gerados antes do feature) não têm — header continua válido. */
+          <div className="shrink-0 md:max-w-[280px]">
+            <div className="relative rounded-xl overflow-hidden border border-border/60 aspect-[4/3] bg-secondary/30">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={bank.mindmap.heroImageUrl}
+                alt={bank.mindmap.centralTopic}
+                className="w-full h-full object-cover"
+                loading="lazy"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Actions */}

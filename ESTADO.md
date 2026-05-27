@@ -616,3 +616,128 @@ src/lib/openai-image.ts                   — wrapPromptForMedicalDiagram (Nette
 4. Cobrar 1 coin/msg no chat OU cap diário (fechar buraco margem)
 
 Última atualização: 2026-05-26 (sessão 2) — UX hardening + reorg /documentos + tipografia Outfit + PDF viewer + RAG chat-summary
+
+---
+
+## SESSÃO 2026-05-27 — fixes em produção + PWA prep + bug PDF Isabella
+
+Sessão longa, várias rajadas de bugs e pedidos. Em ordem cronológica:
+
+### 1. ContentWizard com `initialSubjectId` (RESOLVIDO)
+- Wizard aceita `initialSubjectId` — pré-seleciona PDFs/aulas da matéria + ancora subjectId no save (em vez de cair em `subjects[0]`)
+- Aplicado em `/subject/[id]` e `/document/[id]`
+- Files: [content-wizard.tsx](src/components/ai/content-wizard.tsx), [subject/[id]/page.tsx](src/app/subject/[id]/page.tsx), [document/[id]/page.tsx](src/app/document/[id]/page.tsx)
+
+### 2. Remoção do botão "Importar deck" em /flashcards (RESOLVIDO)
+- Botões "Importar deck" tirados (empty state + header) + ImportDeckDialog stub deletado
+- Wizard de criar já aceita multi-upload — bastava deixar claro
+
+### 3. Bug refresh quiz/flashcards após geração (RESOLVIDO)
+- Problema: `router.refresh()` no `onCreated` re-renderiza Server Components, mas listas são fetched client-side em `useEffect([user.id])` — não dispara
+- Fix: extraído `reload = useCallback(...)` em ambas páginas, chamado no `onCreated` em vez de `router.refresh()`
+- Files: [quiz/page.tsx](src/app/quiz/page.tsx), [flashcards/page.tsx](src/app/flashcards/page.tsx)
+
+### 4. Barra de progresso 0–100 no toast do wizard (RESOLVIDO)
+- Trocado `toast.loading` (spinner) + 3 stageTimers cosméticos por toast custom com JSX progress bar
+- Interval 400ms, satura em 95% antes da resposta, finish em 100% antes do dismiss
+- Estimativas: summary+imagens 90s, summary 45s, flashcards/quiz 35s, mindmap 25s
+- File: [content-wizard.tsx:521-590](src/components/ai/content-wizard.tsx#L521)
+
+### 5. Fix PDF upload Isabella (PARCIALMENTE — em monitoramento)
+- Erro reportado: `"undefined is not a function (near '...t of e...')"` em iPad Safari
+- Tentativa 1 (FALHOU): cMaps + standard_fonts em `public/pdfjs/` + criar `src/lib/pdf-extract.ts`
+- Tentativa 2 (FALHOU): trocar pdfjs por legacy build (ES2017) — `pdfjs-dist/legacy/build/pdf.mjs`
+- Tentativa 3 (FALHOU): mover worker pra `/pdfjs/pdf.worker.legacy.mjs` (path novo pra cache bust)
+- **Tentativa 4 (DEPLOYADA — AGUARDANDO TESTE)**: eliminar pdfjs do client TOTAL. Toda extração agora vai pelo server via `POST /api/pdf-extract` (pdf-parse no Node)
+- File principal: [pdf-extract.ts](src/lib/pdf-extract.ts) — `extractPdfText()` agora chama só `extractPdfTextViaServer()`
+- Endpoint: [api/pdf-extract/route.ts](src/app/api/pdf-extract/route.ts) — recebe multipart, retorna `{text, pages}`
+- Telemetria: [api/telemetry/pdf-error](src/app/api/telemetry/pdf-error/route.ts) loga erros do client
+- Dep nova: `pdf-parse@^2.4.5`
+- **Próximo**: pedir Isabella pra limpar cache do Safari (Ajustes → Safari → Avançado → Dados de sites → lumioapp.net → Apagar) e tentar de novo
+
+### 6. Fix quiz com correctIndex sempre 0 (RESOLVIDO)
+- Bug: exemplo no prompt mostrava `"correctIndex": 0`, modelo copiava
+- Fix duplo:
+  - Prompt: regra explícita "DISTRIBUA EQUILIBRADAMENTE entre 0/1/2/3" + exemplo com índices variados
+  - Server-side shuffle: Fisher-Yates nas options mantendo `correctIndex` apontando pra resposta certa. Garantia matemática.
+- File: [api/ai/generate/route.ts:163-200](src/app/api/ai/generate/route.ts#L163) + [route.ts:740-770](src/app/api/ai/generate/route.ts#L740)
+
+### 7. Quiz-banco — 4 fixes em sequência (RESOLVIDO)
+- **"Criar flashcards" não funcionava**: `openWizard` era placeholder. Trocado por state `wizardMode` que abre ContentWizard com `initialSubjectId` + `initialSourceLectureId`
+- **CTAs reparametrizados**: "Revisar gravação" só aparece se `lecture.transcript` tem conteúdo. Sem transcript → grid de 4 → 3 cols + banner âmbar "esse quiz não foi gerado a partir de aula transcrita"
+- **Tela final do quiz**: novo `QuizCompletionScreen` quando responde última questão (sem wraparound). Headline adaptativa, 3 KPIs (acerto/corretas/tempo), CTAs "Voltar pra Quiz" + "Refazer"
+- **Mapa mental com gpt-image**: agora SEMPRE gera 1 imagem ilustrativa do centralTopic. Custo subiu de 6 → 20 coins ([coins-pricing.ts:17](src/lib/coins-pricing.ts#L17)). Renderizada no header do `/mapa/[assetId]`
+- Files: [quiz-banco/[assetId]/page.tsx](src/app/quiz-banco/[assetId]/page.tsx), [api/ai/generate/route.ts:800-815](src/app/api/ai/generate/route.ts#L800), [mapa/[assetId]/page.tsx:295](src/app/mapa/[assetId]/page.tsx#L295)
+
+### 8. "Os documentos criados na pasta tão errados" (RESOLVIDO)
+- Quando user gera quiz/flashcards/mindmap só com PDFs (sem aula gravada), os PDFs sumiam após geração e era criada uma "aula gravada" fake com transcrição vazia
+- Fix em [content-wizard.tsx:746-810](src/components/ai/content-wizard.tsx#L746): PDFs subidos agora viram Documents da matéria (igual ao path do summary)
+- Fix em [subject/[id]/page.tsx](src/app/subject/[id]/page.tsx): nova seção "Materiais gerados · N" com cards clicáveis pra `/quiz-banco`, `/deck`, `/mapa`
+- Lectures "fake" (sem transcript/slides/messages) filtradas da lista "Aulas gravadas"
+
+### 9. Pricing escalado por nº de fontes (RESOLVIDO)
+- `+3 coins por PDF/aula extra` ([coins-pricing.ts:33](src/lib/coins-pricing.ts#L33))
+- Aplicado em wizard ([content-wizard.tsx:324](src/components/ai/content-wizard.tsx#L324)) e backend ([route.ts:594](src/app/api/ai/generate/route.ts#L594))
+- UI: "vários ok · cada PDF extra adiciona 3 coins"
+
+### 10. Soft-delete summaries (PARCIAL — migration aplicada, código TS pendente)
+- Migration aplicada via Supabase Management API: [017_soft_delete_assets.sql](supabase/migrations/017_soft_delete_assets.sql) — colunas `deleted_at` em `summaries` e `lecture_assets` + índices
+- Em [summaries.ts](src/lib/summaries.ts): `deleteSummaryAsync` agora faz UPDATE `deleted_at = NOW()` em vez de DELETE. `restoreSummaryAsync` adicionada (UPDATE deleted_at = NULL)
+- **PENDENTE**: filtrar `deleted_at IS NULL` nas listagens (várias páginas) + tool no Lumi `verificar_assets_deletados` + UI no chat com 3 opções (Regenerar / Recuperar / Não)
+
+### 11. Card vazado/granulado nos artigos de help (RESOLVIDO)
+- Capa do artigo (gerada via gpt-image) com noise/grain visível
+- Fix em [help/[category]/[article]/page.tsx:147](src/app/help/[category]/[article]/page.tsx#L147): trocado `bg-card` por gradient + `filter: contrast(1.04) saturate(1.05)`
+
+### 12. Imagens dos help articles seguirem padrão Lumi (RESOLVIDO)
+- Reescrito o prompt em [api/admin/articles/generate-cover/route.ts:41](src/app/api/admin/articles/generate-cover/route.ts#L41)
+- Antes: "Editorial documentary photograph" com estudantes humanos
+- Agora: "Lumi the friendly lamp mascot" como personagem central em todas as categorias, com cena específica + "NO grain/noise/photographic" no prompt
+- **PENDENTE**: regenerar todas as capas antigas via loop no endpoint admin
+
+### 13. PWA — preparação AppStore/PlayStore (RESOLVIDO base)
+- Novo [src/app/manifest.ts](src/app/manifest.ts) — gera `/manifest.webmanifest` via Next, com nome, ícones, shortcuts (Nova aula, Lumi)
+- [layout.tsx](src/app/layout.tsx) — `viewport: { viewportFit: "cover" }` (notch iPhone), `themeColor` adaptativo light/dark, `appleWebApp: { capable, statusBarStyle }`, `manifest: "/manifest.webmanifest"`
+- **Caminho pra publicar**:
+  - PlayStore: PWABuilder gera `.aab` → submit (30min de trabalho)
+  - AppStore: precisa wrapper Capacitor → ~2 dias + Apple Review (1-2 semanas)
+
+### 14. Parametrizar suporte (mailto → dialog) (RESOLVIDO)
+- `/help` trocou os 2 `<a href="mailto:">` por `<button onClick>` que abre o SupportDialog interno
+- Subject pré-preenchido com `Dúvida sobre "{query}"` quando vem da empty state da busca
+- Removida constante `SUPPORT_EMAIL` (encapsulada no SupportDialog agora)
+
+### 15. Toggle "Incluir imagens educacionais" (RESOLVIDO)
+- Bug: backend gerava imagens, cobrava coins, mas o wizard descartava as URLs no save de flashcards/quiz
+- Fix em [content-wizard.tsx:835-865](src/components/ai/content-wizard.tsx#L835): `imageUrls` agora vão pro `payload` de flashcards/quiz
+- **PENDENTE**: renderizar essas imagens em `/deck/[assetId]` e `/quiz-banco/[assetId]`
+
+### 16. Stub admin/marketing/crescimento (RESOLVIDO — temporário)
+- `src/app/admin/marketing/crescimento/page.tsx` órfão de sessão anterior referenciava `./client` inexistente, quebrando builds
+- Criei stub mínimo em [admin/marketing/crescimento/client.tsx](src/app/admin/marketing/crescimento/client.tsx) — "página em construção"
+- User posteriormente escreveu o client REAL (sistema completo de outbound + inbox + embaixadores). Não tocar a menos que peça.
+
+### Pendências críticas pra próxima sessão
+
+1. **Bug PDF Isabella** — confirmar se server-first funcionou. Se sim, considerar resolvido. Se não, investigar via Vercel logs do `/api/pdf-extract`.
+2. **Lumi avisar sobre asset deletado** — tool `verificar_assets_deletados` + UI no chat com 3 opções (Regenerar/Recuperar/Não). Soft-delete code parcialmente feito.
+3. **Renderizar imageUrls em /deck e /quiz-banco** — payload já está sendo salvo
+4. **Regenerar capas antigas dos artigos** — loop no `POST /api/admin/articles/generate-cover`
+5. **Mapa mental no quiz-banco**: modal simples com textarea (não wizard completo) — backlog
+6. **Filtrar deleted_at IS NULL** nas listagens de summaries/lecture_assets
+
+### Arquivos novos criados nesta sessão
+- `src/lib/pdf-extract.ts`
+- `src/app/api/pdf-extract/route.ts`
+- `src/app/api/telemetry/pdf-error/route.ts`
+- `src/app/manifest.ts`
+- `supabase/migrations/017_soft_delete_assets.sql` (aplicada)
+- `supabase/migrations/018_marketing_outbound.sql` (do user, não tocar)
+- `public/pdfjs/cmaps/` (2.4MB de cmaps)
+- `public/pdfjs/standard_fonts/`
+- `public/pdfjs/pdf.worker.legacy.mjs`
+
+### Deps novas
+- `pdf-parse@^2.4.5`
+
+Última atualização: 2026-05-27 (sessão 3) — fixes massivos UX + PWA prep + bug PDF Isabella (server-first)

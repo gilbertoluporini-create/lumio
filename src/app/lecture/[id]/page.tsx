@@ -433,9 +433,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           `PDF > ${PDF_VISION_LIMIT_MB}MB — extraindo texto direto no navegador...`,
           { id: t },
         );
-        const pdfjs = await import("pdfjs-dist");
+        const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
         if (typeof window !== "undefined") {
-          pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+          pdfjs.GlobalWorkerOptions.workerSrc = "/pdfjs/pdf.worker.legacy.mjs";
         }
         const buf = await file.arrayBuffer();
         const pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;

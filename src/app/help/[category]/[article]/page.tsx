@@ -143,9 +143,11 @@ function HelpArticleView({
         </div>
       </header>
 
-      {/* Capa (se houver) */}
+      {/* Capa (se houver) — fundo gradient suave esconde o noise característico
+          do gpt-image-1 e dá moldura "padrão Lumi". O contrast/saturate suaviza
+          ainda mais o granulado do PNG sem prejudicar a leitura. */}
       {coverUrl && (
-        <div className="mt-6 overflow-hidden rounded-2xl border border-border/60 bg-card">
+        <div className="mt-6 overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/10 via-fuchsia-500/5 to-transparent">
           <div className="relative aspect-[3/2] w-full">
             <Image
               src={coverUrl}
@@ -154,6 +156,9 @@ function HelpArticleView({
               priority
               sizes="(max-width: 768px) 100vw, 768px"
               className="object-cover"
+              style={{
+                filter: "contrast(1.04) saturate(1.05) brightness(1.01)",
+              }}
             />
           </div>
         </div>

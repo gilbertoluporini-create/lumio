@@ -169,19 +169,34 @@ REGRAS:
 - Crie EXATAMENTE o número solicitado de questões.
 - Cada questão: 4 alternativas, apenas UMA correta.
 - correctIndex: 0|1|2|3.
+- DISTRIBUA correctIndex de forma EQUILIBRADA entre 0, 1, 2 e 3 ao longo do quiz.
+  Em um quiz de N questões, cada índice deve aparecer aproximadamente N/4 vezes.
+  Não enviese pra 0 — varie a posição da resposta correta a cada questão.
 - explanation: 1-2 frases explicando a resposta correta.
 - Variedade: fatos, conceitos, aplicações, raciocínio.
 - NÃO invente fora das fontes.
 
-FORMATO:
+FORMATO (correctIndex varia, NÃO é sempre 0):
 {
   "title": "<título curto do quiz>",
   "questions": [
     {
-      "question": "<enunciado>",
-      "options": ["A", "B", "C", "D"],
-      "correctIndex": 0,
+      "question": "<enunciado q1>",
+      "options": ["...", "...", "...", "..."],
+      "correctIndex": 2,
       "explanation": "<por que está correta>"
+    },
+    {
+      "question": "<enunciado q2>",
+      "options": ["...", "...", "...", "..."],
+      "correctIndex": 0,
+      "explanation": "..."
+    },
+    {
+      "question": "<enunciado q3>",
+      "options": ["...", "...", "...", "..."],
+      "correctIndex": 3,
+      "explanation": "..."
     }
   ]
 }`;
@@ -576,8 +591,12 @@ export async function POST(req: Request) {
   const cap = await checkDailyCostCap(userId);
   if (!cap.ok) return dailyCapResponse(cap);
 
-  // Pricing
-  const cost = computeCost(mode, withImages);
+  // Pricing — cada fonte (transcript/PDF) acima da 1ª adiciona coins extras
+  // (perExtraSource). Reflete o custo real de input tokens quando o user
+  // junta vários PDFs num só asset.
+  const totalSources =
+    (sources.transcripts?.length ?? 0) + (sources.pdfTexts?.length ?? 0);
+  const cost = computeCost(mode, withImages, totalSources);
   const balance = await getBalance(userId);
   if (balance < cost) {
     return Response.json(
@@ -722,6 +741,43 @@ export async function POST(req: Request) {
       }
       content = parsed;
 
+      // -----------------------------------------------------------------
+      // Guard contra viés do modelo: alguns geram correctIndex=0 quase
+      // sempre (copiando o exemplo do prompt). Embaralhamos options
+      // mantendo correctIndex apontando pra resposta certa.
+      // -----------------------------------------------------------------
+      if (mode === "quiz") {
+        const questions = (parsed as Record<string, unknown>).questions;
+        if (Array.isArray(questions)) {
+          for (const q of questions) {
+            if (!q || typeof q !== "object") continue;
+            const qq = q as Record<string, unknown>;
+            const opts = qq.options;
+            const ci = qq.correctIndex;
+            if (
+              Array.isArray(opts) &&
+              opts.length >= 2 &&
+              typeof ci === "number" &&
+              ci >= 0 &&
+              ci < opts.length
+            ) {
+              const correctOption = opts[ci];
+              // Fisher-Yates
+              const shuffled = [...opts];
+              for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+              }
+              const newCorrectIndex = shuffled.findIndex(
+                (o) => o === correctOption,
+              );
+              qq.options = shuffled;
+              qq.correctIndex = newCorrectIndex >= 0 ? newCorrectIndex : ci;
+            }
+          }
+        }
+      }
+
       if (withImages && (mode === "flashcards" || mode === "quiz")) {
         // Pega 3 conceitos das primeiras perguntas
         const items = (parsed as Record<string, unknown>)[
@@ -742,6 +798,21 @@ export async function POST(req: Request) {
           const origin = new URL(req.url).origin;
           const cookie = req.headers.get("cookie") ?? "";
           imageUrls = await callImageEndpoint(concepts, origin, cookie);
+        }
+      }
+
+      // Mindmap sempre vem com uma imagem ilustrativa do tópico central
+      // (gpt-image-1). O custo já está embutido no preço de 20 coins.
+      if (mode === "mindmap") {
+        const central = (parsed as { centralTopic?: unknown }).centralTopic;
+        if (typeof central === "string" && central.trim().length > 0) {
+          const origin = new URL(req.url).origin;
+          const cookie = req.headers.get("cookie") ?? "";
+          imageUrls = await callImageEndpoint(
+            [central.trim().slice(0, 160)],
+            origin,
+            cookie,
+          );
         }
       }
     }

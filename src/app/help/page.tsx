@@ -35,7 +35,6 @@ import {
   type SearchResult,
 } from "@/lib/help-articles";
 
-const SUPPORT_EMAIL = "contato@lumioapp.net";
 
 const CATEGORY_ICON_MAP: Record<HelpCategoryIcon, typeof Rocket> = {
   rocket: Rocket,
@@ -269,14 +268,20 @@ function HelpView({ user }: { user: User }) {
               Nenhum resultado para{" "}
               <span className="font-medium text-foreground">“{query}”</span>.
               Tente outra palavra-chave ou{" "}
-              <a
-                href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
-                  `Dúvida sobre ${query}`,
-                )}`}
+              <button
+                type="button"
+                onClick={() => {
+                  // Abre o dialog interno (não sai do app) com assunto
+                  // pré-preenchido com o termo buscado. Antes era mailto:
+                  // que abria o cliente de email externo — UX ruim,
+                  // principalmente em mobile/PWA.
+                  setSupportSubject(`Dúvida sobre "${query}"`);
+                  setSupportOpen(true);
+                }}
                 className="text-primary hover:underline"
               >
                 fale com o suporte
-              </a>
+              </button>
               .
             </p>
           </div>
@@ -398,15 +403,17 @@ function HelpView({ user }: { user: User }) {
                   <MessageSquare className="h-4 w-4" />
                   Falar com o suporte
                 </Button>
-                <a
-                  href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(
-                    "Suporte Lumio",
-                  )}`}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSupportSubject(undefined);
+                    setSupportOpen(true);
+                  }}
                   className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                 >
                   <Mail className="h-3 w-3" />
-                  ou envie email direto
-                </a>
+                  ou envie email pelo formulário
+                </button>
                 <span className="text-xs text-muted-foreground">
                   · Resposta em até 24h
                 </span>

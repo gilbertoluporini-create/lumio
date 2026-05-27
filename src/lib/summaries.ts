@@ -193,6 +193,30 @@ export async function deleteSummaryAsync(
 ): Promise<void> {
   if (!isSupabaseConfigured()) return;
   const supabase = createClient();
-  const { error } = await supabase.from("summaries").delete().eq("id", id);
+  // Soft-delete — marca como deletado mas preserva a linha pra:
+  //  (a) o Lumi avisar "você apagou esse resumo, quer regerar/recuperar?"
+  //  (b) recuperação rápida sem regerar (custo zero)
+  // Listagens normais filtram por deleted_at IS NULL.
+  const { error } = await supabase
+    .from("summaries")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) throw error;
+}
+
+/** Restaura um resumo soft-deleted (UPDATE deleted_at = NULL). */
+export async function restoreSummaryAsync(
+  userId: string,
+  id: string,
+): Promise<Summary | null> {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("summaries")
+    .update({ deleted_at: null })
+    .eq("id", id)
+    .select(SUMMARY_COLS)
+    .single();
+  if (error) throw error;
+  return data ? rowToSummary(data as SummaryRow) : null;
 }

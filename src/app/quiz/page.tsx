@@ -428,51 +428,48 @@ function QuizView({ user }: { user: User }) {
   const greeting = useGreeting();
   const firstName = user.name.split(" ")[0] || "estudante";
 
-  // Carrega subjects, lectures, quizzes (Supabase) e attempts (local)
+  // Recarrega tudo (usado tanto na montagem quanto após gerar um quiz novo)
+  const reload = useCallback(async () => {
+    const [subs, lecs, atts] = await Promise.all([
+      listSubjectsAsync(user.id),
+      listLecturesAsync(user.id),
+      listAttemptsAsync(user.id),
+    ]);
+    setSubjects(subs);
+    setLectures(lecs);
+    setAttempts(atts);
+    if (isSupabaseConfigured()) {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("lecture_assets")
+        .select(
+          "id, lecture_id, user_id, kind, payload, created_at, updated_at",
+        )
+        .eq("user_id", user.id)
+        .eq("kind", "quiz")
+        .order("created_at", { ascending: false });
+      if (error) {
+        console.error("[quiz] erro listando quizzes", error);
+        setQuizzes([]);
+      } else {
+        setQuizzes((data ?? []) as QuizAssetRow[]);
+      }
+    } else {
+      setQuizzes([]);
+    }
+  }, [user.id]);
+
+  // Carga inicial — depois disso, reload() é chamada explicitamente nos pontos
+  // que mudam o estado (ex: onCreated do wizard).
   useEffect(() => {
     let cancel = false;
-    async function load() {
-      try {
-        const [subs, lecs, atts] = await Promise.all([
-          listSubjectsAsync(user.id),
-          listLecturesAsync(user.id),
-          listAttemptsAsync(user.id),
-        ]);
-        if (cancel) return;
-        setSubjects(subs);
-        setLectures(lecs);
-        setAttempts(atts);
-
-        if (isSupabaseConfigured()) {
-          const supabase = createClient();
-          const { data, error } = await supabase
-            .from("lecture_assets")
-            .select(
-              "id, lecture_id, user_id, kind, payload, created_at, updated_at",
-            )
-            .eq("user_id", user.id)
-            .eq("kind", "quiz")
-            .order("created_at", { ascending: false });
-          if (!cancel) {
-            if (error) {
-              console.error("[quiz] erro listando quizzes", error);
-              setQuizzes([]);
-            } else {
-              setQuizzes((data ?? []) as QuizAssetRow[]);
-            }
-          }
-        } else {
-          setQuizzes([]);
-        }
-      } finally {
-        if (!cancel) setLoading(false);
-      }
-    }
-    load();
+    reload().finally(() => {
+      if (!cancel) setLoading(false);
+    });
     return () => {
       cancel = true;
     };
-  }, [user.id]);
+  }, [reload]);
 
   // Reagir a mudanças em attempts (outras abas)
   useEffect(() => {
@@ -721,7 +718,7 @@ function QuizView({ user }: { user: User }) {
           mode="quiz"
           userId={user.id}
           onCreated={() => {
-            router.refresh();
+            void reload();
           }}
         />
       </div>

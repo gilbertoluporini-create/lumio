@@ -10,8 +10,11 @@ import {
   ChevronRight,
   Clock,
   FileText,
+  HelpCircle,
+  Layers,
   MapPin,
   Mic,
+  Network,
   Plus,
   Sparkles,
   Trash2,
@@ -35,6 +38,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ContentWizard } from "@/components/ai/content-wizard";
 import {
   createLectureAsync,
   deleteLectureAsync,
@@ -53,6 +57,20 @@ import {
   type User,
 } from "@/lib/types";
 import { cn, formatDuration, formatRelativeTime } from "@/lib/utils";
+
+type SubjectAsset = {
+  id: string;
+  lecture_id: string;
+  kind: "flashcards" | "quiz" | "mindmap";
+  payload: {
+    cards?: unknown[];
+    questions?: unknown[];
+    centralTopic?: string;
+    branches?: unknown[];
+  };
+  created_at: string;
+  updated_at: string;
+};
 
 export default function SubjectPage({
   params,
@@ -83,9 +101,13 @@ function SubjectView({
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [documents, setDocuments] = useState<LumioDocument[]>([]);
+  const [assets, setAssets] = useState<SubjectAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [newOpen, setNewOpen] = useState(false);
   const [lectureTitle, setLectureTitle] = useState("");
+  const [wizardMode, setWizardMode] = useState<
+    "summary" | "flashcards" | "quiz" | "mindmap" | null
+  >(null);
 
   async function refresh() {
     const [s, l, sm, d] = await Promise.all([
@@ -98,6 +120,30 @@ function SubjectView({
     setLectures(l);
     setSummaries(sm);
     setDocuments(d);
+
+    // Busca todos os assets (flashcards/quiz/mindmap) das aulas dessa matéria
+    // pra que apareçam na pasta — antes o user gerava um quiz e ele "sumia"
+    // (estava no DB mas a pasta da matéria não listava).
+    try {
+      const lectureIds = l.map((x) => x.id);
+      if (lectureIds.length > 0) {
+        const { createClient } = await import("@/lib/supabase/client");
+        const supabase = createClient();
+        const { data: rows, error } = await supabase
+          .from("lecture_assets")
+          .select("id, lecture_id, kind, payload, created_at, updated_at")
+          .eq("user_id", user.id)
+          .in("lecture_id", lectureIds)
+          .order("updated_at", { ascending: false });
+        if (!error && rows) {
+          setAssets(rows as SubjectAsset[]);
+        }
+      } else {
+        setAssets([]);
+      }
+    } catch (err) {
+      console.warn("[subject] assets fetch failed", err);
+    }
   }
 
   useEffect(() => {
@@ -167,6 +213,21 @@ function SubjectView({
     }
     return set;
   }, [summaries]);
+
+  // Quando o user gera flashcards/quiz/mindmap só com PDFs (sem gravar aula),
+  // o wizard cria uma lecture "fake" como container do asset. Essa lecture
+  // não tem transcript/slides/messages — não faz sentido mostrar na lista
+  // de "Aulas gravadas". Os assets aparecem na seção "Materiais gerados".
+  const realLectures = useMemo(
+    () =>
+      lectures.filter((l) => {
+        const hasTranscript = (l.transcript ?? "").trim().length > 0;
+        const hasSlides = (l.slides?.length ?? 0) > 0;
+        const hasMessages = (l.messages?.length ?? 0) > 0;
+        return hasTranscript || hasSlides || hasMessages;
+      }),
+    [lectures],
+  );
 
   if (loading) {
     return (
@@ -246,6 +307,39 @@ function SubjectView({
         </div>
       </div>
 
+      {/* Quick actions: gerar assets diretamente dessa matéria. O wizard usa
+          os PDFs/aulas dessa matéria como contexto principal. */}
+      <div className="mb-8 grid grid-cols-2 sm:grid-cols-4 gap-2">
+        <QuickActionTile
+          Icon={Sparkles}
+          label="Resumo + PDF"
+          hint="Subir PDF e gerar"
+          color="violet"
+          onClick={() => setWizardMode("summary")}
+        />
+        <QuickActionTile
+          Icon={Layers}
+          label="Flashcards"
+          hint="Criar deck"
+          color="emerald"
+          onClick={() => setWizardMode("flashcards")}
+        />
+        <QuickActionTile
+          Icon={HelpCircle}
+          label="Quiz"
+          hint="Gerar questões"
+          color="amber"
+          onClick={() => setWizardMode("quiz")}
+        />
+        <QuickActionTile
+          Icon={Network}
+          label="Mapa mental"
+          hint="Visualizar tópicos"
+          color="rose"
+          onClick={() => setWizardMode("mindmap")}
+        />
+      </div>
+
       {/* Schedule da matéria (se tiver) */}
       {(subject.schedule?.length ?? 0) > 0 && (
         <div className="mb-8 rounded-xl border border-border/60 bg-card p-4">
@@ -277,17 +371,19 @@ function SubjectView({
       )}
 
       {/* Lista de aulas como subpastas */}
-      {lectures.length === 0 && documents.length === 0 ? (
+      {realLectures.length === 0 &&
+      documents.length === 0 &&
+      assets.length === 0 ? (
         <EmptyState onCreate={() => setNewOpen(true)} />
       ) : (
         <>
-          {lectures.length > 0 && (
+          {realLectures.length > 0 && (
             <div className="mb-6">
               <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
-                Aulas gravadas · {lectures.length}
+                Aulas gravadas · {realLectures.length}
               </h2>
               <div className="space-y-3">
-                {lectures.map((l) => (
+                {realLectures.map((l) => (
                   <LectureFolder
                     key={l.id}
                     lecture={l}
@@ -295,6 +391,19 @@ function SubjectView({
                     hasSummary={lectureIdsWithSummary.has(l.id)}
                     onDelete={() => handleDeleteLecture(l)}
                   />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {assets.length > 0 && (
+            <div className="mb-6">
+              <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
+                Materiais gerados · {assets.length}
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {assets.map((a) => (
+                  <AssetCard key={a.id} asset={a} />
                 ))}
               </div>
             </div>
@@ -352,7 +461,81 @@ function SubjectView({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Wizard de geração de assets — abre via QuickActionTile da toolbar.
+          initialSubjectId ancora o save nessa matéria + pré-seleciona PDFs/aulas
+          daqui (em vez de cair em subjects[0]). */}
+      <ContentWizard
+        open={!!wizardMode}
+        onOpenChange={(open) => {
+          if (!open) setWizardMode(null);
+        }}
+        mode={wizardMode ?? "summary"}
+        userId={user.id}
+        initialSubjectId={subjectId}
+        onCreated={({ lectureId, summaryId, mode }) => {
+          setWizardMode(null);
+          if (mode === "summary") {
+            if (lectureId) router.push(`/resumo/${lectureId}`);
+            else if (summaryId) router.push(`/resumo/doc/${summaryId}`);
+            else refresh();
+          } else {
+            // flashcards/quiz/mindmap: recarrega a tela pra mostrar o asset novo
+            refresh();
+          }
+        }}
+      />
     </div>
+  );
+}
+
+function QuickActionTile({
+  Icon,
+  label,
+  hint,
+  color,
+  onClick,
+}: {
+  Icon: typeof Sparkles;
+  label: string;
+  hint: string;
+  color: "violet" | "emerald" | "amber" | "rose";
+  onClick: () => void;
+}) {
+  const palette: Record<
+    "violet" | "emerald" | "amber" | "rose",
+    { bg: string; text: string }
+  > = {
+    violet: { bg: "bg-violet-500/10", text: "text-violet-600 dark:text-violet-400" },
+    emerald: {
+      bg: "bg-emerald-500/10",
+      text: "text-emerald-600 dark:text-emerald-400",
+    },
+    amber: { bg: "bg-amber-500/10", text: "text-amber-600 dark:text-amber-400" },
+    rose: { bg: "bg-rose-500/10", text: "text-rose-600 dark:text-rose-400" },
+  };
+  const p = palette[color];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-sm transition-all px-3 py-2.5 text-left"
+    >
+      <div
+        className={cn(
+          "h-9 w-9 shrink-0 rounded-lg flex items-center justify-center",
+          p.bg,
+        )}
+      >
+        <Icon className={cn("h-4 w-4", p.text)} strokeWidth={2.2} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold leading-tight truncate group-hover:text-primary transition-colors">
+          {label}
+        </div>
+        <div className="text-[10px] text-muted-foreground truncate">{hint}</div>
+      </div>
+    </button>
   );
 }
 
@@ -542,6 +725,70 @@ function DocumentRow({
         </div>
       </div>
       <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
+    </Link>
+  );
+}
+
+function AssetCard({ asset }: { asset: SubjectAsset }) {
+  // Mapeia kind → rota + ícone + descrição visível
+  const meta = (() => {
+    if (asset.kind === "flashcards") {
+      const count = Array.isArray(asset.payload.cards)
+        ? asset.payload.cards.length
+        : 0;
+      return {
+        href: `/deck/${asset.id}`,
+        Icon: Layers,
+        label: "Flashcards",
+        detail: `${count} card${count === 1 ? "" : "s"}`,
+        tone: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+      };
+    }
+    if (asset.kind === "quiz") {
+      const count = Array.isArray(asset.payload.questions)
+        ? asset.payload.questions.length
+        : 0;
+      return {
+        href: `/quiz-banco/${asset.id}`,
+        Icon: HelpCircle,
+        label: "Quiz",
+        detail: `${count} ${count === 1 ? "questão" : "questões"}`,
+        tone: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
+      };
+    }
+    return {
+      href: `/mapa/${asset.id}`,
+      Icon: Network,
+      label: "Mapa mental",
+      detail: asset.payload.centralTopic
+        ? String(asset.payload.centralTopic).slice(0, 60)
+        : "Mapa",
+      tone: "bg-rose-500/10 text-rose-600 dark:text-rose-400",
+    };
+  })();
+
+  return (
+    <Link
+      href={meta.href}
+      className="group rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-sm transition-all p-4 flex items-start gap-3"
+    >
+      <div
+        className={cn(
+          "h-10 w-10 shrink-0 rounded-lg flex items-center justify-center",
+          meta.tone,
+        )}
+      >
+        <meta.Icon className="h-5 w-5" strokeWidth={2.2} />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground mb-0.5">
+          {meta.label}
+        </div>
+        <div className="text-sm font-semibold leading-tight line-clamp-2 group-hover:text-primary transition-colors">
+          {meta.detail}
+        </div>
+      </div>
+      <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0 mt-1" />
     </Link>
   );
 }
