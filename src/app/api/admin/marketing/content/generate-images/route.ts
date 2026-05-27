@@ -34,23 +34,33 @@ const BUCKET = "marketing-images";
 /**
  * Imagens de referência canônicas do Lumi — usadas via gpt-image-1 /edits.
  *
- * Atualização 2026-05-27: substituídas pelas 4 imagens "guia oficial" geradas
- * via ChatGPT que mostram o Lumi com a anatomia exata correta:
- *  - Olhos roxo-escuros arredondados com brilho branco PEQUENO
- *  - Cúpula bell-shaped cream com top lilás
- *  - Pescoço bronze segmentado
- *  - Bochechas sutis (NÃO Disney baby exagerado)
+ * Estratégia 2026-05-27: usar TODAS as 13 imagens disponíveis em lumi-posts
+ * pra maximizar fidelidade do mascote. gpt-image-1 aceita até 16 refs por
+ * geração — quanto mais ângulos/poses do MESMO personagem, mais o modelo
+ * "trava" na identidade visual em vez de derivar pro estilo genérico.
  *
- * Mantemos 1 das warmup antigas pra variedade de pose.
+ * Mix:
+ *  - 4 refs "guia oficial" ChatGPT (anatomia mais precisa)
+ *  - 9 warmup posts originais (poses variadas em cenários reais)
  *
- * Trocar essas imagens só se a marca visual mudar.
+ * Total: 13 refs × ~280KB cada = ~3.6MB de upload por geração. OK pro Vercel.
  */
 const REFERENCE_FILENAMES = [
+  // Refs oficiais ChatGPT (anatomia precisa)
   "ref-lumi-01.jpg",       // "Transcreva sem anotar" — Lumi à direita em mesa
   "ref-lumi-02.jpg",       // "Resumo + flashcards" — Lumi inclinado segurando card
   "ref-lumi-03.jpg",       // "Quiz pré-prova" — Lumi com card de pergunta (fundo roxo)
-  "ref-lumi-04.jpg",       // "4 horas de aula em 40 min" — Lumi em cena multi-objetos
-  "01-lancamento.jpg",     // Warmup original — Lumi frontal nos livros (variação pose)
+  "ref-lumi-04.jpg",       // "4 horas em 40 min" — Lumi em cena multi-objetos
+  // Warmup posts originais (poses variadas)
+  "01-lancamento.jpg",     // Lumi frontal nos livros
+  "02-dica-estudo.jpg",    // Lumi com técnicas de estudo
+  "03-recurso.jpg",        // Lumi com áudio/microfone
+  "04-motivacao.jpg",      // Lumi lendo livro
+  "05-planner.jpg",        // Lumi com calendário/planner
+  "06-transcricao.jpg",    // Lumi lateral com braço articulado
+  "07-tudo-num-lugar.jpg", // Lumi em cena rica de mesa
+  "09-coins.jpg",          // Lumi com coins/baú
+  "10-anexe-pdf.jpg",      // Lumi com apostila/PDF
 ];
 
 async function loadReferences(): Promise<
