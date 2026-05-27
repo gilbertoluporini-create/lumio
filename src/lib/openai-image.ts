@@ -52,30 +52,30 @@ export function wrapPromptForRealism(rawPrompt: string): string {
  * sutis, paleta azul-marinho/verde-água/lilás, ilustração biomédica 3D
  * limpa + infografia vetorial elegante, formato 16:9 horizontal.
  *
- * Objetivo: que toda imagem gerada (resumo, mapa mental, chat com Lumi,
- * capa de artigo educacional) pareça parte da MESMA coleção — um material
- * de medicina/bioquímica de alto nível, não slide genérico.
+ * HISTÓRICO DE PROBLEMAS:
+ * - v1 (Netter flat): faltava sofisticação editorial
+ * - v2 (briefing com seções em CAPS): o gpt-image-1 RENDERIZAVA as labels
+ *   das seções dentro da imagem ("aspect_ratio 3:4", "Type 5", "max_words",
+ *   "sunsif" etc apareciam como texto da figura). Causa: o modelo lê
+ *   labels em maiúsculas como instruções a desenhar.
+ * - v3 (atual): prosa contínua em inglês, sem labels enumeradas, com
+ *   restrições FORTES sobre texto na imagem (max 6 labels, max 2 palavras
+ *   cada, sem instruções/metadados vazando).
  *
- * O prompt anterior (Netter/NEJM, vector flat) ficou raso pra contexto de
- * estudo brasileiro: faltava sofisticação editorial e a sensação de
- * coleção padronizada que o user (founder) pediu explicitamente.
+ * LIMITAÇÃO CONHECIDA: gpt-image-1 erra ortografia pt-BR (acentos,
+ * "transaminação" vira "trransaminação"). Mitigação: labels curtíssimas,
+ * apenas termos técnicos universais (ATP, NH3, CO2, alanina). Texto longo
+ * em pt-BR deve vir em overlay externo, NÃO na imagem gerada.
  */
 export function wrapPromptForMedicalDiagram(rawPrompt: string): string {
   return [
     rawPrompt.trim(),
     "",
-    "VISUAL IDENTITY (mandatory, consistent across the collection):",
-    "Premium editorial medical infographic, sophisticated, clean, modern. Looks like high-end academic material from a medical / biochemistry textbook of the highest tier. White or off-white background with very subtle gradients and soft decorative waves/curves. Core palette: navy blue, light blue, water green, soft purple, with sparing gold or lilac accents. Elegant readable typography. Large navy-blue titles with strong visual presence. Subtitles and highlights in green, purple or blue. Organized layout in well-distributed cards/blocks with rounded corners, light shadow, clean separation. Clear visual hierarchy. Little text per block but enough to be didactic. Beautiful, refined, medical and professional. Never cluttered.",
+    "Render this as a premium medical-academic infographic in the visual style of high-end biochemistry textbooks. Light off-white background with very subtle gradients. Color palette restricted to navy blue, light blue, soft teal, muted lilac, with rare warm accents. Smooth modern 3D-rendered anatomical structures (organs, molecules, cells, mitochondria, enzymes, neurons when relevant) blended with elegant flat vector infographic elements. Clean rounded-corner cards with light drop shadow. Generous negative space. Thin elegant arrows. Single clean focal scene, 16:9 landscape composition.",
     "",
-    "ILLUSTRATION STYLE: blend premium biomedical illustration with realistic 3D appearance and elegant vector infographics. When relevant include: 3D molecules, liver, kidneys, muscle, mitochondria, blood, neurons, enzymes, hepatocytes, flow arrows, medical icons. Arrows must be clear, elegant and easy to follow. Organs must look anatomical and visually beautiful. Molecules must look clean, didactic and visually attractive.",
+    "Strict text constraints: the image must contain AT MOST 6 labels total. Each label is 1 to 3 words maximum. Allowed words: short technical terms only (organ names, molecule abbreviations like ATP, NH3, urea, CO2, glutamate, alanine, ALT, AST, mitochondria). No sentences. No paragraphs. No captions. No titles describing the scene. No style metadata, no parameter names, no debug strings, no aspect ratio tags, no color codes, no markdown, no code-like text inside the image. If unsure whether to add a label, do not add it.",
     "",
-    "STRUCTURE: always 16:9 horizontal format, high resolution. Blocks must feel like part of the same visual line. Rounded-corner cards, light shadow, clean separation. Collection-grade standardization. The image must look like it belongs in a premium summary/study guide.",
-    "",
-    "TEXT RULES: write in Brazilian Portuguese (pt-BR). Use correct technical terms. Short, didactic sentences — no long paragraphs. Highlight keywords. No misspellings. Do not crop words at edges. Do not overlap text on important elements.",
-    "",
-    "SCIENTIFIC RULES: be faithful to the source content. Do not invent information, reactions or nomenclature. Don't oversimplify to the point of being shallow. Don't overcomplicate to the point of being confusing.",
-    "",
-    "AVOID: childish style, simple cartoon look, heavy dark backgrounds, information overload, random color noise, confusing diagrams, misaligned elements, logos, watermarks, branding, common-slide appearance, generic AI look without refinement.",
+    "Avoid: childish cartoon look, dark heavy backgrounds, neon saturation, photographic realism, fantasy stylization, watermarks, logos, brand marks, signatures, busy cluttered composition, decorative ornaments unrelated to the subject, multiple competing focal points.",
   ].join("\n");
 }
 
