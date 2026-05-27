@@ -203,7 +203,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "gerar_imagem",
     description:
-      "Gera UMA imagem educacional médico-acadêmica premium (estilo coleção: editorial, navy/verde-água/lilás, 16:9, 3D + infográfico). Use quando o user pedir 'me mostra em diagrama', 'desenha a via X', 'preciso de uma imagem da Y', 'visualiza isso pra mim'. Custa 20 coins (gpt-image-1). Avise o custo ANTES de chamar. NÃO use pra fotos fotográficas — é só pra diagramas/infográficos científicos. Devolve URL da imagem (markdown ![](url) já formatada no campo `markdown`).",
+      "Gera UMA imagem educacional médico-acadêmica premium (estilo coleção: editorial, navy/verde-água/lilás, 16:9, 3D + infográfico). Use quando o user pedir 'me mostra em diagrama', 'desenha a via X', 'preciso de uma imagem da Y', 'visualiza isso pra mim'. Custa 30 coins (gpt-image-1 high quality + enhancement automático do prompt via Claude). Avise o custo ANTES de chamar. NÃO use pra fotos fotográficas — é só pra diagramas/infográficos científicos. IMPORTANTE: a imagem NÃO terá texto/labels (limitação técnica do modelo em pt-BR) — você deve descrever o conteúdo em texto separado na sua resposta, e usar a imagem como ilustração pura. Devolve URL da imagem (markdown ![](url) já formatada no campo `markdown`).",
     input_schema: {
       type: "object",
       properties: {

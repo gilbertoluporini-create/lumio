@@ -1,20 +1,26 @@
 /**
  * POST /api/ai/illustrate
  *
- * Gera UMA imagem educacional médico-acadêmica via gpt-image-1 a partir de
- * um prompt simples em pt-BR. Cobra 20 coins (mesmo preço do mindmap c/ imagem).
+ * Gera UMA imagem educacional médico-acadêmica via gpt-image-1.
  *
- * Body: { prompt: string }
- * Response: { url: string, coinsCharged: number, balanceAfter: number }
+ * Pipeline (mimetiza o que o ChatGPT/DALL-E web fazem internamente):
+ *   1. Usuário manda prompt curto em pt-BR (ex: "ciclo da ureia")
+ *   2. Haiku ENRIQUECE em inglês com âncoras visuais específicas
+ *      (anatomia, posições, cores, composição)
+ *   3. wrapPromptForMedicalDiagram adiciona style anchors + ban de texto
+ *   4. gpt-image-1 quality HIGH 1536x1024
+ *   5. Upload pro Storage, devolve URL pública
  *
- * Uso primário: tool `gerar_imagem` do Lumi chat (user pede "me mostra a
- * via glicolítica em diagrama" e Lumi chama isso). Pode ser reusado em
- * outros lugares — endpoint genérico de single-shot illustration.
+ * Por que o pipeline é mais elaborado que a versão anterior: tentamos
+ * gerar com prompt curto + quality medium e os resultados ficavam fracos
+ * (texto pt-BR corrompido, cenas genéricas, URLs falsos inventados).
+ * O ChatGPT web faz EXATAMENTE isso — reescreve o prompt antes de mandar
+ * pro modelo de imagem. Replicamos esse passo aqui.
  *
- * Não persiste em lecture_assets — quem chama decide se salva o link.
- * O Lumi guarda o link na mensagem do chat (markdown).
+ * Custo: 30 coins (gpt-image-1 high ~ $0.17). Refund automático em falha.
  */
 
+import Anthropic from "@anthropic-ai/sdk";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { limitOrThrow } from "@/lib/rate-limit";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
@@ -25,13 +31,59 @@ import {
   isOpenAIImageConfigured,
   wrapPromptForMedicalDiagram,
 } from "@/lib/openai-image";
+import { escapeForPrompt } from "@/lib/api-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 const STORAGE_BUCKET = "ai-images";
-const COIN_COST = 20;
+const COIN_COST = 30;
+
+const HAIKU_MODEL = "claude-haiku-4-5-20251001";
+
+/**
+ * Expande o prompt curto do user numa descrição visual rica em inglês.
+ * Devolve apenas a descrição (texto puro), pronta pra concatenar com o
+ * wrapper. Se Haiku falhar por qualquer motivo, devolve o prompt original
+ * — pipeline degrade gracefully em vez de quebrar.
+ */
+async function enhancePromptViaClaude(
+  rawPrompt: string,
+  apiKey: string,
+): Promise<string> {
+  try {
+    const client = new Anthropic({ apiKey });
+    const resp = await client.messages.create({
+      model: HAIKU_MODEL,
+      max_tokens: 600,
+      system: `Você é um diretor de arte especializado em ilustração biomédica/acadêmica de alto nível. Recebe um conceito biomédico curto em pt-BR e o reescreve como descrição visual rica em INGLÊS pra alimentar um modelo de geração de imagem (gpt-image-1).
+
+REGRAS:
+- Output é apenas a descrição em inglês. Sem preâmbulo, sem markdown, sem aspas.
+- Foque em ELEMENTOS VISUAIS: estruturas anatômicas/celulares envolvidas, organelas-chave, posições espaciais, fluxos (setas), proporções, paleta sugerida (navy blue, soft teal, lilac on off-white).
+- Especifique a composição: o que vai no centro, o que orbita, qual a perspectiva.
+- Use cientificamente preciso: nomes corretos de organelas, compartimentos, vias.
+- NUNCA peça pra desenhar texto/labels/legendas — a imagem é puramente visual; legendas virão depois em overlay HTML.
+- Limite: 6 frases curtas, no máximo.
+- Estilo de referência: ilustração biomédica 3D limpa estilo livro-texto premium, infografia editorial.`,
+      messages: [
+        {
+          role: "user",
+          content: `Conceito biomédico (em pt-BR):\n"${escapeForPrompt(rawPrompt).slice(0, 1200)}"\n\nReescreva como descrição visual rica em inglês pro gpt-image-1.`,
+        },
+      ],
+    });
+    const block = resp.content.find((b) => b.type === "text");
+    if (!block || block.type !== "text") return rawPrompt;
+    const enhanced = block.text.trim();
+    if (enhanced.length < 30) return rawPrompt;
+    return enhanced;
+  } catch (err) {
+    console.warn("[illustrate] prompt enhancement failed, using raw", err);
+    return rawPrompt;
+  }
+}
 
 export async function POST(req: Request) {
   try {
@@ -91,11 +143,21 @@ export async function POST(req: Request) {
 
     let url: string;
     try {
+      // 1. Enhance via Haiku (prompt curto pt-BR → descrição visual rica em inglês)
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      const enhancedPrompt = anthropicKey
+        ? await enhancePromptViaClaude(rawPrompt, anthropicKey)
+        : rawPrompt;
+
+      // 2. Aplica wrapper (style anchors + ban total de texto na imagem)
+      const finalPrompt = wrapPromptForMedicalDiagram(enhancedPrompt);
+
+      // 3. Gera via gpt-image-1 quality HIGH (mais caro mas qualidade
+      //    visual sobe bastante — justifica a subida de coin cost 20→30)
       const { b64 } = await generateImageOpenAI({
-        prompt: wrapPromptForMedicalDiagram(rawPrompt),
-        // 16:9 landscape — pedido explícito no prompt (estilo coleção)
+        prompt: finalPrompt,
         size: "1536x1024",
-        quality: "medium",
+        quality: "high",
         apiKey: process.env.OPENAI_API_KEY!,
       });
 
