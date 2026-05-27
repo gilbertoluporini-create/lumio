@@ -32,20 +32,25 @@ export const maxDuration = 120; // gpt-image-1 high quality demora 30-60s
 const BUCKET = "marketing-images";
 
 /**
- * Imagens warmup usadas como referência permanente pra gpt-image-1 edits.
- * São 3 poses distintas do mascote Lumi pra OpenAI capturar identidade visual:
- *  - 01-lancamento.jpg: Lumi frontal, em pilha de livros (pose central)
- *  - 06-transcricao.jpg: Lumi de lado, com braço articulado (pose lateral)
- *  - 07-tudo-num-lugar.jpg: Lumi em cena rica, com mesa e objetos (composição)
+ * Imagens de referência canônicas do Lumi — usadas via gpt-image-1 /edits.
+ *
+ * Atualização 2026-05-27: substituídas pelas 4 imagens "guia oficial" geradas
+ * via ChatGPT que mostram o Lumi com a anatomia exata correta:
+ *  - Olhos roxo-escuros arredondados com brilho branco PEQUENO
+ *  - Cúpula bell-shaped cream com top lilás
+ *  - Pescoço bronze segmentado
+ *  - Bochechas sutis (NÃO Disney baby exagerado)
+ *
+ * Mantemos 1 das warmup antigas pra variedade de pose.
  *
  * Trocar essas imagens só se a marca visual mudar.
  */
 const REFERENCE_FILENAMES = [
-  "01-lancamento.jpg",     // Lumi frontal, sobre livros (pose canônica)
-  "04-motivacao.jpg",      // Lumi lendo livro (mostra olhos pequenos meia-lua corretos)
-  "06-transcricao.jpg",    // Lumi lateral com braço (variação pose)
-  "07-tudo-num-lugar.jpg", // Lumi em cena rica multi-objetos
-  "10-anexe-pdf.jpg",      // Lumi expressão neutra serena
+  "ref-lumi-01.jpg",       // "Transcreva sem anotar" — Lumi à direita em mesa
+  "ref-lumi-02.jpg",       // "Resumo + flashcards" — Lumi inclinado segurando card
+  "ref-lumi-03.jpg",       // "Quiz pré-prova" — Lumi com card de pergunta (fundo roxo)
+  "ref-lumi-04.jpg",       // "4 horas de aula em 40 min" — Lumi em cena multi-objetos
+  "01-lancamento.jpg",     // Warmup original — Lumi frontal nos livros (variação pose)
 ];
 
 async function loadReferences(): Promise<
