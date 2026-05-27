@@ -71,61 +71,108 @@ async function loadReferences(): Promise<
  * + descreve a CENA específica do post. NÃO descreve o Lumi (referências fazem isso).
  */
 /**
- * Brand anchor incorporado do doc oficial Lumio/Lumi do founder
- * (lumio_modelo_imagens_api_posts.md). Source of truth visual.
+ * Brand anchor incorporando o DOC OFICIAL v2 do founder
+ * (lumio_doc_oficial_api_posts.md). Source of truth visual.
+ *
+ * Diferenças do v1:
+ *  - Paleta expandida com hexes exatos (#21113f, #f3ecff, #f5c542, etc)
+ *  - Negative prompt expandido (feminine eyelashes, claymation, etc)
+ *  - Composição padrão: safe margin 64px, título 35-55%, URL no rodapé
+ *  - Mantém ANTI-TEXT por default (pra refs serem visualmente isentas de erro);
+ *    quando user quiser texto exato na imagem, ele descreve na cena específica
  */
 const BRAND_ANCHOR = `
-========== LUMIO BRAND OFFICIAL STYLE (source of truth) ==========
+========== LUMIO OFFICIAL BRAND v2 (source of truth) ==========
 
-Premium 3D editorial render for an education tech brand called Lumio. Match the exact character design shown in the 5 REFERENCE IMAGES provided.
+Premium 3D editorial render for an education tech brand called Lumio. Match the exact character design shown in the REFERENCE IMAGES provided. Style: clean, technological, educational, welcoming. Mix of landing page + edtech app + 3D mascot branding + editorial minimalism. Sophisticated design with plenty of breathing space, never crowded.
 
-LUMI (the mascot) — consistent character design:
-- Small cute friendly desk lamp character
-- Rounded dome / bell-shaped lamp shade head in warm cream color (#FAF8F5)
-- Softly glowing warm bulb interior with purple inner glow (#7C3AED area)
+================ LUMI MASCOT (exact appearance) ================
+
+- Small cute friendly 3D desk lamp character
+- Rounded dome/bell-shaped lamp head in warm CREAM color (#fff8e7 / #f7edd8)
+- Soft purple/lilac glow INSIDE the bulb (interior radiance)
 - Face sits inside the illuminated shade opening
-- Two big, rounded, symmetrical dark-purple eyes (#24123D / #4c1d95 tone) with small white highlights / reflections
-- Tiny calm friendly smile (single thin curved line)
-- Articulated bronze-metal neck with rounded segments (champagne/bronze/dark-gray tone)
-- Circular cream-colored base with a small purple button on top
-- NO extra arms, NO human hands, NO unnecessary limbs
-- Lumi can tilt head/neck to express curiosity, attention, focus, or quiet joy
-- NEVER place text, logo, or signature on Lumi's body or base
+- TWO big, rounded, symmetric purple eyes — well-aligned, friendly, NOT distorted
+- Tiny discreet smile (single thin curved line)
+- Articulated metallic neck (brown/copper/gray with rounded circular joints)
+- Rounded cream base with a small purple button on top
+- NO logo or text on the lamp base unless specifically requested
+- Chibi proportions but PREMIUM and CLEAN — never childish, never overly feminine
+- NO exaggerated/feminine eyelashes
+- NO human arms (only the articulated lamp arm)
+- NO weird/asymmetric eyes
+- NO scary or uncanny expressions
 
-VISUAL STYLE:
-- Premium 3D render, soft, editorial, Apple/Disney/Pixar-like polish but cleaner and educational
-- Soft plastic-metal material (NOT clay-like "massinha" texture)
-- Soft studio lighting
-- Realistic soft shadows
-- Clean background with lots of negative space for typography overlay
+================ VISUAL STYLE ================
+
+- Premium 3D render with soft premium plastic/paper material texture
+- NOT clay/plasticine ("massinha") texture
+- Soft studio lighting, realistic gentle shadows
 - Modern, welcoming, trustworthy atmosphere
-- Educational minimalist props: notebook, sketchbook, pencil, books, post-its, headphones, coffee, calendar, microphone, audio waves, cards, PDF, flashcards
+- Big rounded typography mood (even when no text — composition implies text-ready space)
+- LOTS of breathing room — never crowded
+- Strong hierarchy when scene has multiple elements
 
-PALETTE (use these hex codes specifically):
-- Primary purple: #7C3AED
-- Fuchsia accent: #C026D3
-- Warm cream: #FAF8F5
-- Light lilac: #C4B5FD
-- Dark graphite (for shadow / dark text shape): #24123D
-- Support gold/beige: #E9C46A
-Avoid colors outside this palette. Red ONLY for "recording/live" tiny dots.
+================ OFFICIAL PALETTE (use these exact hex) ================
 
-COMPOSITION RULES:
-- Leave generous empty negative space for text overlay to be added later
-- Lumi typically positioned on right or center, with empty area on opposite side
-- Clean, uncluttered layout
-- ONE Lumi per image (never multiples)
+Primary purples:
+- Deep purple: #21113f / #25114a (backgrounds, contrast)
+- Lumio purple: #7c3aed (brand main)
+- Fuchsia/magenta: #c026d3 (accent)
+
+Soft tones:
+- Light lavender background: #f3ecff / #efe7ff
+- Cream: #fff8e7 / #f7edd8
+- White card: #ffffff
+
+Accents (sparingly):
+- Yellow detail/star: #f5c542
+- Discrete success green: #22c55e (rare, only for "completed")
+- Red ONLY for "recording/live" tiny dots
+
+Allowed gradients:
+- Purple → fuchsia: #7c3aed → #c026d3
+- Light bg: #fffaf0 → #f3ecff
+- Dark bg: #170b33 → #33126b
+
+================ 3D AUXILIARY ELEMENTS ================
+
+All with same premium 3D finish:
+- Purple/magenta/cream books
+- Open notebook with cream pages
+- Purple/cream microphone
+- Summary cards with rounded corners
+- Flashcards with lamp/brain/star icons
+- Weekly calendar
+- Purple coins with simple star symbol (no readable numbers)
+- Purple/gold treasure chest
+- Audio/transcript/quiz/PDF/flashcard/calendar icons
+- 4-point stars, few and well-distributed
+- Soft arrows connecting steps
+- White rounded cards with light shadow
+
+================ COMPOSITION RULES ================
+
+- Square 1:1 mood (works for any output ratio)
+- Safe margin: minimum 64px equivalent
+- Title area would occupy 35-55% if text were present
+- Lumi position: right, lower-right, or center-bottom (never crowding center)
+- "lumioapp.net" URL at bottom-right ONLY if user explicitly requests it
+- ONE Lumi per image (never duplicate the mascot)
+
+================ TEXT POLICY ================
+
+By default, generate the image WITH NO TEXT — leave empty negative space for text overlay later (added in Figma/Canva). This avoids misspelling in pt-BR.
+
+IGNORE all text/typography visible in the REFERENCE IMAGES — that was added later in design tools, NOT part of the mascot/style.
+
+Only generate text inside the image if the user's scene description explicitly says "include exact text: X" — and in that case use ONLY pt-BR and the exact provided text, no inventions.
 
 ================ STRICT FORBIDS (negative prompt) ================
 
-AVOID at all cost: wrong eyes, crossed eyes, asymmetric eyes, distorted face, scary expression, extra limbs, extra arms, human hands, deformed lamp, broken neck, melted plastic, low quality, blurry, noisy, messy background, too childish, too feminine, excessive sparkles, excessive confetti, text on character, text on lamp base, logo on lamp base, unreadable text, misspelled words, watermark, signature, duplicated character, cropped face, cropped eyes, harsh shadow, overexposed, cluttered layout, generic cartoon, flat 2D, clay-like massinha texture.
+AVOID at all cost: bad typography, misspelled text, gibberish text, fake words, distorted letters, unreadable text, incorrect Portuguese, extra logos, watermark, random brand names, duplicated mascot, extra eyes, crossed eyes, weird eyes, asymmetric eyes, feminine eyelashes, overly girly style, childish baby-toy style, claymation, rough plasticine, messy composition, crowded layout, low resolution, pixelated, blurry, dark muddy colors, harsh shadows, uncanny face, human body, human arms, extra limbs, scary expression, generic robot, unrelated character, random UI, wrong website, fake app screenshots, text on mascot base unless requested, no humans, no faces other than Lumi.
 
-NO TEXT anywhere in the image — no captions, no labels, no logos, no watermarks, no URLs, no readable handwriting on papers (abstract squiggle marks only).
-IGNORE all text/typography visible in the reference images — that was added later in design tools, NOT part of the brand.
-
-NO human characters, NO students, NO faces other than Lumi.
-
-Generate a NEW scene featuring the EXACT same Lumi character from references.
+Generate a NEW scene with the EXACT same Lumi character from references.
 `.trim();
 
 async function ensureBucket(supabase: ReturnType<typeof createAdminClient>) {
