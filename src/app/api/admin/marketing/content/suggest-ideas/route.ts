@@ -96,9 +96,9 @@ export async function POST(req: NextRequest) {
     .order("created_at", { ascending: false })
     .limit(30);
 
-  const recentTitles = (recent || [])
+  const recentTitles = ((recent ?? []) as { idea_title: string | null }[])
     .map((r) => r.idea_title)
-    .filter(Boolean)
+    .filter((t): t is string => Boolean(t))
     .map((t) => `- ${t}`)
     .join("\n");
 

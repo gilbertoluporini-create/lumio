@@ -820,15 +820,18 @@ function DraftEditor({
 
         <div>
           <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
-            Prompt visual (descreva o que quer ver — sem texto)
+            Cena do Lumi (descreva o que Lumi está fazendo / cercado por quê)
           </label>
           <textarea
             value={imagePrompt}
             onChange={(e) => setImagePrompt(e.target.value)}
-            placeholder="Ex: ilustração abstrata de uma curva descendente representando esquecimento, em paleta lavender, estilo editorial limpo"
-            rows={2}
+            placeholder='Ex: Lumi em cima de uma pilha de livros, com uma ampulheta de areia que está virando (representando o esquecimento que avança com o tempo). Caderno aberto ao lado com setinhas curvas desenhadas.'
+            rows={3}
             className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500 resize-none"
           />
+          <p className="text-[10px] text-muted-foreground italic mt-1">
+            ✨ A IA já sabe que Lumi é um lampião 3D cute estilo Pixar, com olhos lavender, fundo gradient lavender, livros roxo/magenta/amarelo. Você só descreve a CENA específica desse post.
+          </p>
         </div>
 
         <button

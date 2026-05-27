@@ -31,10 +31,53 @@ const BUCKET = "marketing-images";
 
 /**
  * Brand anchor obrigatório no fim do prompt — mantém visual coerente
- * com a identidade Lumio (lavender + Lumi mascot vibe + tipografia).
+ * com a identidade Lumio. O mascote Lumi DEVE aparecer em todo post.
+ *
+ * Estilo: 3D render estilizado tipo Pixar/Cinema 4D, NÃO vetor flat.
+ * Descrição do mascote vem das imagens originais em /public/instagram/lumi-posts/.
  */
 const BRAND_ANCHOR = `
-Style anchors: Lumio brand visual identity. Soft lavender purple palette (#a78bfa, #c4b5fd, #ddd6fe) with warm cream off-white background. Friendly modern editorial illustration — clean vector-style with gentle gradients, not photo. Educational and warm tone, not corporate. NO TEXT, no captions, no watermarks, no UI mockups, no website screenshots. Single clean focal concept. Studio Ghibli-meets-Notion style. High aesthetic clarity for social media feed.
+========== LUMIO BRAND VISUAL IDENTITY — STRICT RULES ==========
+
+THE LUMI MASCOT (MUST appear in every image, centered or prominent):
+A cute 3D-rendered cartoon desk lamp character named Lumi. Style: stylized 3D render in the visual language of Pixar / modern Cinema 4D animation. Soft global illumination, gentle subsurface scattering on the cream surfaces, subtle ambient occlusion. NOT flat vector, NOT 2D illustration — fully volumetric 3D render with depth.
+
+Lumi's anatomy:
+- A small friendly desk lamp with a personified face
+- Bell-shaped lampshade head in warm cream / pale ivory color (#f5ebd6 to #fff8e7) with a soft lilac purple top ring
+- Lumi's "face" sits inside the shade opening: two big rounded soft-lavender eyes (#c4b5fd) shaped like upside-down half-circles, a small subtle blush, and a gentle closed-mouth smile — childlike, kawaii, never creepy, never sad
+- Articulated bronze/champagne-gold metallic arm in 2-3 jointed segments, slightly weathered, soft metallic shading
+- Round cream base with a tiny lilac purple button on top
+- Lumi is always cheerful, calm, helpful — a study companion vibe, not a salesperson
+
+SCENE COMPOSITION RULES:
+- Lumi is ALWAYS present and is the focal element
+- NO human characters, NO students, NO people, NO hands. Only Lumi + objects.
+- Lumi can be paired with educational props: stacked books (purple, magenta, amber covers), an open notebook, a coffee mug, a tablet/laptop with blank screen, sticky notes, paper sheets with abstract writing scribbles (never readable text), a tiny plant, headphones, a microphone
+- Books, when stacked, follow Lumio palette: deep purple #6d28d9, magenta #db2777, warm amber #d97706
+- Floating decorative elements OK: small stars (✦), sparkles, lightbulb icons — all in lavender tones
+
+BACKGROUND & PALETTE:
+- Background: smooth lavender-to-cream vertical gradient (#e9d5ff at top, #faf5ff/#fdf4e8 at bottom). Soft, no texture noise.
+- Optional subtle window-light cast from the side
+- Strict palette: lavender purples (#a78bfa, #c4b5fd, #ddd6fe, #ede9fe), cream (#fdf4e8, #fff8e7), magenta/pink accents (#db2777, #f472b6) ONLY where books/objects justify it
+- NO black, NO neon, NO oversaturation, NO photorealistic textures
+
+ABSOLUTELY FORBIDDEN:
+- NO TEXT of any kind (no captions, no labels, no logos, no watermarks, no website URLs, no LumioApp.net stamp — text is added later in design tool)
+- NO website screenshots, NO UI mockups, NO phone/computer screens with visible content
+- NO faces of real humans, NO Disney characters, NO copyrighted mascots
+- NO multiple Lumi mascots (only ONE Lumi per image)
+- NO scary, dark, melancholic moods — always warm, friendly, hopeful
+- NO photography/photorealism — must remain stylized 3D render
+
+LIGHTING & RENDER:
+- Soft 3-point lighting with key from upper-left, lavender ambient
+- Mild bloom on Lumi's eyes for a glowy "alive" feel
+- Shallow depth of field, gentle background blur if scene allows
+- Clean focused composition with breathing room
+
+This is the EXACT brand. Generate accordingly.
 `.trim();
 
 async function ensureBucket(supabase: ReturnType<typeof createAdminClient>) {
