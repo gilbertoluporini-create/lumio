@@ -58,12 +58,16 @@ export async function POST(req: Request) {
     const ab = await file.arrayBuffer();
     const buf = Buffer.from(ab);
 
-    // pdf-parse é CJS — import dinâmico devolve o módulo todo, e a função
-    // pode estar em .default ou na raiz dependendo do interop ESM.
+    // BUG conhecido do pdf-parse@1.1.1: o index.js executa código de debug
+    // quando importado sem module.parent (ESM/serverless). Tenta ler um
+    // arquivo de teste ./test/data/05-versions-space.pdf que NÃO existe
+    // no bundle do Vercel → ENOENT. Workaround universal: importar direto
+    // o lib/pdf-parse.js que é a função pura, sem o wrapper de debug.
     type PdfParseFn = (
       b: Buffer,
     ) => Promise<{ text?: string; numpages?: number }>;
-    const mod = await import("pdf-parse");
+    // @ts-expect-error — lib interno sem types, mas a função tem assinatura idêntica ao módulo top-level
+    const mod = await import("pdf-parse/lib/pdf-parse.js");
     const pdfParse: PdfParseFn =
       typeof mod === "function"
         ? (mod as unknown as PdfParseFn)
