@@ -1,21 +1,58 @@
 # Lumio — ESTADO
 
-## 🔴 SESSÃO 2026-05-26 noite — PRÓXIMA AÇÃO: DEPLOY (BLOQUEADOR)
+## 🟢 SESSÃO 2026-05-26 noite (pós-compact prep) — INFRA META PRONTA
 
-**Estado git**: 141 arquivos modificados/novos NÃO COMMITADOS. Bloqueia tudo:
-- Não pode anunciar (lumioapp.net/links e /api/og em produção)
-- Não pode aquecer IG (precisa OG cards + /links page funcionando)
-- Não pode construir /admin/marketing v1
+**3 deploys live em produção**:
+- `3326d99` — Sprint 1 marketing (177 files): /links, /api/og, UTM tracking, attribution
+- `a8882cc` — 9 posts IG + captions (`public/instagram/lumi-posts/`, `docs/marketing/CAPTIONS_LAUNCH.md`)
+- `4541sad6z` — Redeploy com vars Meta atualizadas (token novo `lumio-cli`, 242 chars)
 
-**Comando único pra fazer deploy** (user roda no terminal):
+**Endpoints validados via curl**:
+- ✅ https://lumioapp.net/links → 200 (38KB HTML)
+- ✅ https://lumioapp.net/api/og?title=Teste → PNG 1200x630 (117KB)
+- ✅ https://lumioapp.net/ig → redirect → instagram.com/lumioapp.br/
+
+## 🔑 Meta infra (Business "Lumio App" id=4173408029656117)
+
+| Ativo | Status | ID |
+|-------|--------|----|
+| System User `lumio-cli` | ✅ Token gerado | app-scoped `122094825009349877` / business-scoped `61590496316080` |
+| Pixel `Lumio` | ✅ Controle total | `867791183024108` |
+| Conjuntos de dados | ✅ Controle total | (mesma Lumio) |
+| Página FB `Lumio App` | ✅ Controle total + admin Gilberto | `1083170968220797` |
+| IG `@lumioapp.br` | ⚠️ Vinculado ao Business mas **NÃO conectado à Página FB** | (precisa connectar) |
+| Ad Account | ✅ Manage campaigns, BRL, status active | `act_1448905953408223` |
+| App Meta | ✅ `lumio-cli` como dev/admin | `1496795342023931` (nome interno: **CoreMedic**, ver [[reference-lumio-meta-app-naming]]) |
+
+**Token testado e funcionando** pra: `me`, `pages`, `ad_account`, `pixel`. ❌ Falta IG (conexão Page↔IG incompleta).
+
+**ENV VARS atualizadas no Vercel** (production only):
+- `META_ACCESS_TOKEN` = 242 chars, novo token lumio-cli
+- `META_SYSTEM_USER_ID` = `122094825009349877` (app-scoped, NÃO o 61590496316080 que é business-scoped)
+
+## ⚠️ AÇÃO MANUAL PENDENTE — conectar IG @lumioapp.br à Página FB Lumio App
+
+A Graph API exige conexão *direta* IG↔Page, não só vinculação ao Business. Caminho:
+
+1. Vai na Página FB "Lumio App" via https://www.facebook.com/profile.php?id=1083170968220797
+2. **Configurações da Página** → **Vinculadas** → **Instagram** → **Conectar conta**
+3. Login no IG `@lumioapp.br`
+4. Autoriza permissões
+5. Confirma conexão
+
+Depois disso, este endpoint deve retornar `instagram_business_account`:
 ```bash
-cd /Users/gilbertoluporini/lumio && \
-  git add -A && \
-  git commit -m "feat(marketing): sprint 1 — /links page, OG dinâmico, UTM tracking, attribution, embeddings, lumi tools, layouts noindex, anonimato founder" && \
-  git push origin main
+TOKEN=$(grep "^META_ACCESS_TOKEN=" .env.local | cut -d'=' -f2-)
+curl "https://graph.facebook.com/v21.0/1083170968220797?fields=instagram_business_account&access_token=$TOKEN"
 ```
 
-Vercel auto-deploya via webhook em ~3min. Verificar em https://lumioapp.net depois.
+## 📄 Página FB — perfil pra completar
+
+Documento mestre: `docs/marketing/FB_PAGE_PROFILE.md`
+- Bio curta + descrição completa + história 3 parágrafos
+- Contato: hello@lumioapp.net
+- CTA: "Saiba mais" → lumioapp.net
+- Imagens: reusar avatar Lumi + capa lavender do IG
 
 ## Sprint 1 Marketing — STATUS
 
@@ -479,3 +516,103 @@ scripts/
 | `/api/ai/summary-images` | conforme wizard | gpt-image-1 $0.042/img |
 
 Última atualização: 2026-05-26 — pós-implementação Lumi Agent (Sprints 0+1+2) + bug-fix stream global
+
+---
+
+## SESSÃO 2026-05-26 (continuação) — UX hardening + reorg + tipografia
+
+Sessão focada em corrigir frições reportadas pelo founder navegando em prod. Tudo deployado.
+
+### Bug-fixes operacionais (deployados em prod)
+
+| Bug | Diagnóstico | Fix |
+|---|---|---|
+| Sidebar não-colapsável nas páginas de resumo | `/resumo/[lectureId]` e `/resumo/doc/[summaryId]` sem botão pra dar mais espaço pro conteúdo | Botão "Recolher" no topo da sidebar + botão flutuante "Painel" à direita quando colapsada. Preferência em `localStorage` (`lumio:summary-sidebar-collapsed`). |
+| Lumi alucinou resumo "AVISO IMPORTANTE: fontes não continham material processado" | Doc PDF `9b146356-...` criado com `source_text` vazio. Botão "Gerar resumo" no chat chamou `/api/ai/generate` com transcripts=[convo do chat] + sem anexos. Claude alucinou. | **Guarda anti-alucinação** nos 4 system prompts (summary/flashcards/quiz/mindmap): Claude tem que responder literalmente `INSUFFICIENT_SOURCE` se as fontes não tiverem ≥600 chars técnicos sobre o tema. Server detecta marker → HTTP 422 com `code: "INSUFFICIENT_SOURCE"` + refund automático. Toast amigável no client. |
+| Stream do Lumi parava ao navegar fora do chat | `runStream` rodava no escopo do componente, morria com unmount | Singleton `lumi-stream-store.ts` — stream vive no módulo, componente subscreve via `useSyncExternalStore`. Persiste assistant msg no fim mesmo se componente desmontou. |
+| Article covers Imagen 4 dando "AI look" | Pipeline antiga, prompts genéricos | Migrado pra OpenAI gpt-image-1 + `wrapPromptForRealism` editorial Hasselblad style. 15/15 capas geradas por $0.94. |
+| Imagens dos resumos médicos meio-foto-meio-diagrama | `wrapPromptForRealism` (Hasselblad H6D, photorealistic) injetava em prompts que pediam "diagrama anatômico" → estilos antagônicos | Criado `wrapPromptForMedicalDiagram` em `lib/openai-image.ts` ancorado em **Netter / NEJM** (vetor flat, paleta médica, labels PT-BR, sem 3D/foto). `/api/ai/summary-images` agora usa ele. System prompt do Haiku limpo pra não pedir "photorealistic". |
+| Imagens duplicadas no resumo (PCR + Reação em Cadeia = 2 imagens iguais) | `extractImageConcepts` pegava 4 sem dedup semântico | Dedup case-insensitive com overlap >60% de tokens. Max 2 imagens (qualidade > quantidade). |
+| Doc Diagnóstico Molecular travado em "Extraindo..." | `triggerRepair` setava `repairingDocId` antes do file picker; cancel não disparava `change`, state ficava travado | `addEventListener("cancel", ...)` nativo no input file pra resetar state ao cancelar. |
+| `/documents` não mostrava PDFs uploadados | Rota era listing flat de aulas/resumos, e `/documentos` (PT) era a tela real do sidebar | **Removida `/documents`** (virou redirect 308 pra `/documentos`). Reescrita `/documentos` (889 → 327 linhas): grid de cards de matéria com counters por tipo (aulas/PDFs/resumos/decks/quizzes/mapas). Click → `/subject/[id]` (tela rica). Seção "PDFs sem matéria" no rodapé com dialog de assign. |
+| Aula sem transcrição abria tela de transcrição ao vivo | Click numa "lecture shell" (criada só pra abrigar summary de PDF) caía em `/lecture/[id]` (live transcript) — vazio | `/lecture/[id]` redireciona pra `/resumo/[id]` se a lecture não tem transcript/slides mas tem summary. |
+| Tela "Produtos gerados" `/lecture/[id]/products` confusa | Hub legacy onde gerava asset → tinha que clicar de novo pra abrir | **Removida**. Rota agora é redirect 308 pra `/lecture/[id]`. Tab "Produtos" removida do header da lecture. FeatureTab "Produtos" removida do `/subject/[id]`. Botões dos card de aula agora abrem direto `/flashcards?new=1`, `/quiz?new=1`, `/documentos?new=mapa`. |
+| Quiz gerado caía na tela de "Produtos" | `/api/quiz` não retornava `assetId` | API retorna `assetId` + `/lecture/[id]/products` (antes da remoção) e demais geradores agora navegam direto pra `/quiz-banco/[assetId]`. Pós-removal: wizard de quiz faz `router.refresh()`. |
+| Chat lateral do quiz não puxava PDFs da matéria | `/api/ai/chat-summary` só carregava `lectures.transcript` + `summaries.content`, ignorava `documents` | **RAG integrado**: `searchRelevantChunks` (top 5, threshold 0.45, filtrado por `subjectId`) chamado antes de montar prompt. Chunks vão pro system prompt em `<untrusted_material_relacionado>`. Pré-requisito: PDF indexado em `content_embeddings`. |
+| Card "Próxima aula" no dashboard cortava nome longo da matéria | `line-clamp-1` + `leading-none` no value | Trocado pra `line-clamp-2` + `break-words` + `text-xl sm:text-2xl` + `leading-tight`. Subtítulo idem. |
+| Card mini de matéria cortava "Bases Biológicas da Ciência Médica" | Mesma raiz | `line-clamp-2` + `min-h-[2.5em]` + grid com `auto-rows-fr` pra altura uniforme + flex-col + `mt-auto` na progress bar. Mesmo fix no card "Continuar de onde parou". |
+| Favicon era globo do browser | `/favicon.ico` retornava 404; metadata apontava pra arquivo inexistente | Copiado `public/illustrations/lumi-default.png` (1254x1254) pra `src/app/icon.png` (512x512) e `src/app/apple-icon.png` (180x180) via `sips`. Atualizado `metadata.icons` no layout. HTML em prod agora tem `<link rel="icon" href="/icon.png">`. |
+| PDFs originais não eram visualizáveis no app | Wizard só extraía texto via pdfjs e descartava binário. `source_url` ficava `null`. | Criado bucket Supabase Storage **`user-documents`** público (50 MB cap, só `application/pdf`). `handleAttachPdf` em `/document/[id]` agora também sobe binário + popula `source_url`. ContentWizard idem. Tela `/document/[id]` renderiza PDF inline via `<iframe>` quando `source_url` existe, fallback pro texto extraído + banner "reanexe o PDF". |
+
+### Tipografia: Bricolage → Outfit
+
+- `next/font/google` carrega **Outfit** weights 300-900 (era Bricolage Grotesque 300-700)
+- `--font-sans` aponta pra Outfit, herda em todo o app
+- Criadas utilities `.heading-display` (peso 900, tracking -0.035em, line-height 1) e `.heading-display-sm` (peso 800, tracking -0.025em)
+- Aplicado `heading-display` em todos os h1 principais do app interno via sed batch nos arquivos `src/app/**/page.tsx` — substituindo `text-3xl ... font-semibold tracking-tight` por `text-3xl ... heading-display`
+- Resultado: títulos chunky igual à landing ("Sua semana, organizada pelo Lumi")
+
+### Reorganização de `/documentos` + `/subject/[id]`
+
+**`/documentos`** virou biblioteca limpa:
+- Header com contagem (X matérias · Y itens)
+- Grid responsivo de cards de matéria (1/2/3 colunas, `auto-rows-fr`)
+- Cada card: ícone temático + nome 2 linhas + counters por tipo (só os > 0)
+- Busca por matéria quando >4
+- Seção "PDFs sem matéria" no rodapé (clique → dialog de assign)
+- Click no card → `/subject/[id]`
+
+**`/subject/[id]`** ganhou quick action toolbar:
+- Toolbar com 4 botões coloridos abaixo do header: Resumo + PDF (violeta), Flashcards (esmeralda), Quiz (âmbar), Mapa mental (rosa)
+- Cada botão abre `ContentWizard` com `mode` pré-setado
+- Component `QuickActionTile` interno pra renderizar
+- Auto-refresh pós-geração
+
+### Arquivos modificados (resumo)
+
+```
+src/app/layout.tsx                        — Outfit font + metadata.icons → /icon.png
+src/app/globals.css                       — .heading-display, .heading-display-sm
+src/app/icon.png                          — NEW (favicon Lumi 512x512)
+src/app/apple-icon.png                    — NEW (180x180)
+src/app/documents/page.tsx                — virou redirect 308 → /documentos
+src/app/documentos/page.tsx               — reescrito 889→327 linhas, grid de matérias
+src/app/subject/[id]/page.tsx             — quick action toolbar, QuickActionTile, ContentWizard inline
+src/app/dashboard/page.tsx                — KPICard line-clamp-2, SubjectMiniCard flex-col + auto-rows-fr
+src/app/lecture/[id]/page.tsx             — redirect pra /resumo/[id] se shell sem transcript
+src/app/lecture/[id]/products/page.tsx    — virou redirect pra /lecture/[id]
+src/app/document/[id]/page.tsx            — upload binário pro Storage + iframe viewer
+src/app/resumo/[lectureId]/page.tsx       — sidebar collapsable
+src/app/resumo/doc/[summaryId]/page.tsx   — sidebar collapsable + progress bar
+src/app/resumos/page.tsx                  — onCreated lida com {lectureId} OU {summaryId}
+src/app/flashcards/page.tsx               — pós-geração faz router.refresh() (era /products)
+src/app/quiz/page.tsx                     — idem + dropdown "Abrir aula" em vez de "Abrir na aula"
+src/components/lecture/lecture-header.tsx — removido prop+link "Produtos"
+src/components/ai/content-wizard.tsx      — UploadedPdf.file + upload binário no submit
+src/app/api/ai/generate/route.ts          — INSUFFICIENT_GUARD nos system prompts + detector + dedup 2 imgs
+src/app/api/ai/chat-summary/route.ts      — RAG via searchRelevantChunks dos chunks da matéria
+src/app/api/ai/summary-images/route.ts    — wrapPromptForMedicalDiagram + system prompt limpo
+src/app/api/quiz/route.ts                 — retorna assetId pra navegação direta
+src/lib/openai-image.ts                   — wrapPromptForMedicalDiagram (Netter/NEJM style)
+```
+
+### Buckets Storage
+
+- `user-documents` (NEW): público, 50MB, só `application/pdf`. Path: `{userId}/{docId}.pdf`. Usado pra renderizar PDF inline em `/document/[id]`.
+
+### Pendências conhecidas
+
+- Doc legado `9b146356-...` (Diagnóstico Molecular) tem `source_text` cheio mas `source_url` null — user precisa abrir `/document/[id]` e clicar "Anexar PDF" pra reupar (banner amarelo na tela já avisa).
+- Lecture shell `27a60ca7-...` (do bug do resumo alucinado) já foi deletada do DB.
+- ContentWizard ainda não recebe `initialSubjectId` — quando aberto via QuickActionTile no `/subject/[id]`, o user ainda precisa selecionar a matéria manualmente na step 1. Melhoria pendente.
+- `/api/ai/chat-summary` precisa que o PDF esteja indexado em `content_embeddings` pra RAG funcionar. PDFs uploaded antes do auto-index não foram backfilled (script `backfill-embeddings.mjs` existe mas não foi rodado nesta sessão).
+- Voice mode + LumiChatPanel ainda não migrados pra `/api/lumi/agent` (continuam no chat-summary, que agora já tem RAG — então o gap diminuiu).
+
+### Próximos passos pra próxima sessão
+
+1. ContentWizard com `initialSubjectId` (pré-seleciona matéria no step 1)
+2. Backfill embeddings pra PDFs antigos
+3. Sprint 3 (Pomodoro guiado pelo chat)
+4. Cobrar 1 coin/msg no chat OU cap diário (fechar buraco margem)
+
+Última atualização: 2026-05-26 (sessão 2) — UX hardening + reorg /documentos + tipografia Outfit + PDF viewer + RAG chat-summary
