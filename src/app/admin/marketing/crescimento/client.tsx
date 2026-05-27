@@ -584,8 +584,32 @@ function DraftEditor({
   const [generatingText, setGeneratingText] = useState(false);
   const [generatingImages, setGeneratingImages] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [imagePrompt, setImagePrompt] = useState("");
-  const [editingNetwork, setEditingNetwork] = useState<string | null>(null);
+
+  const removeDraft = async () => {
+    const warning = draft.status === "published"
+      ? `Esse draft JÁ FOI PUBLICADO em ${Object.keys(draft.publish_results || {}).join(", ")}.\n\nExcluir aqui NÃO remove os posts das redes (só dá pra apagar pelos apps).\n\nContinuar?`
+      : `Excluir "${draft.idea_title}"? Texto e imagens geradas vão junto. Sem volta.`;
+    if (!confirm(warning)) return;
+
+    setDeleting(true);
+    try {
+      const r = await fetch(
+        `/api/admin/marketing/content/drafts?id=${draft.id}`,
+        { method: "DELETE" },
+      );
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "erro");
+      toast.success("Draft excluído");
+      onClose();
+      onChanged();
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const generateText = async () => {
     setGeneratingText(true);
@@ -719,7 +743,7 @@ function DraftEditor({
       <div className="flex items-start gap-2">
         <button
           onClick={onClose}
-          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-border/60 text-muted-foreground hover:text-foreground"
+          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-border/60 text-muted-foreground hover:text-foreground shrink-0"
         >
           ← Voltar
         </button>
@@ -738,6 +762,18 @@ function DraftEditor({
         >
           {draft.status}
         </span>
+        <button
+          onClick={removeDraft}
+          disabled={deleting}
+          title="Excluir draft"
+          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-red-500/40 text-red-300 hover:bg-red-500/15 disabled:opacity-50 shrink-0"
+        >
+          {deleting ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
+        </button>
       </div>
 
       {/* PASSO 1: TEXTO */}
