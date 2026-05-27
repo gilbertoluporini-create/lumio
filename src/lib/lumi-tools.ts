@@ -27,6 +27,7 @@ export type LumiToolName =
   | "criar_flashcards"
   | "criar_quiz"
   | "criar_mapa_mental"
+  | "gerar_imagem"
   | "iniciar_modo_prova"
   | "abrir_rota";
 
@@ -197,6 +198,22 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
         focoCustom: { type: "string" },
       },
       required: ["subjectId"],
+    },
+  },
+  {
+    name: "gerar_imagem",
+    description:
+      "Gera UMA imagem educacional médico-acadêmica premium (estilo coleção: editorial, navy/verde-água/lilás, 16:9, 3D + infográfico). Use quando o user pedir 'me mostra em diagrama', 'desenha a via X', 'preciso de uma imagem da Y', 'visualiza isso pra mim'. Custa 20 coins (gpt-image-1). Avise o custo ANTES de chamar. NÃO use pra fotos fotográficas — é só pra diagramas/infográficos científicos. Devolve URL da imagem (markdown ![](url) já formatada no campo `markdown`).",
+    input_schema: {
+      type: "object",
+      properties: {
+        prompt: {
+          type: "string",
+          description:
+            "Descrição em PT-BR do que ilustrar. Seja específico: estrutura/órgão/molécula a mostrar, relações/setas, labels. Ex: 'Diagrama do ciclo da ureia no hepatócito, mostrando as 5 enzimas (CPS-1, OTC, ASS, ASL, arginase), fluxo do amônio até a ureia, com compartimento mitocondrial e citoplasmático bem separados.' O wrapper médico do servidor adiciona automaticamente os style anchors da identidade visual (paleta, tipografia, layout).",
+        },
+      },
+      required: ["prompt"],
     },
   },
   {
@@ -389,6 +406,44 @@ const handlers: Record<LumiToolName, ToolHandler> = {
   },
   async criar_mapa_mental(input, ctx) {
     return callGenerateEndpoint("mindmap", input, ctx);
+  },
+
+  async gerar_imagem(input, ctx) {
+    const prompt = str(input.prompt).trim();
+    if (!prompt || prompt.length < 4) {
+      return { error: "prompt obrigatório (mín 4 chars)" };
+    }
+    const resp = await fetch(`${ctx.origin}/api/ai/illustrate`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: ctx.sessionCookie,
+      },
+      body: JSON.stringify({ prompt }),
+    });
+    const json = (await resp.json()) as {
+      url?: string;
+      coinsCharged?: number;
+      balanceAfter?: number;
+      error?: string;
+      required?: number;
+      balance?: number;
+    };
+    if (!resp.ok || !json.url) {
+      return {
+        error: json.error ?? "Falha ao gerar imagem.",
+        saldo_atual: json.balance,
+        custo_necessario: json.required,
+      };
+    }
+    return {
+      url: json.url,
+      // Markdown pronto pro Lumi colar na resposta — modelo costuma esquecer
+      // de formatar como imagem, então entregamos pronto.
+      markdown: `![Imagem gerada](${json.url})`,
+      coins_gastos: json.coinsCharged,
+      saldo_apos: json.balanceAfter,
+    };
   },
 
   async abrir_rota(input) {

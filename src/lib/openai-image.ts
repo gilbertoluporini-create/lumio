@@ -46,18 +46,36 @@ export function wrapPromptForRealism(rawPrompt: string): string {
 }
 
 /**
- * Wrapper específico pra diagramas/infográficos médico-científicos.
- * Empurra o modelo pra estética de figura de livro-texto (Netter / NEJM / Lancet)
- * em vez de fotografia. Mantém labels legíveis, paleta limitada, traço técnico.
+ * Wrapper específico pra infográficos médico-acadêmicos PREMIUM.
  *
- * Usar em qualquer contexto educacional onde o prompt descreve estrutura
- * anatômica, fluxo, ciclo, comparação ou tabela visual.
+ * Estética de coleção: editorial sofisticado, fundo claro com gradientes
+ * sutis, paleta azul-marinho/verde-água/lilás, ilustração biomédica 3D
+ * limpa + infografia vetorial elegante, formato 16:9 horizontal.
+ *
+ * Objetivo: que toda imagem gerada (resumo, mapa mental, chat com Lumi,
+ * capa de artigo educacional) pareça parte da MESMA coleção — um material
+ * de medicina/bioquímica de alto nível, não slide genérico.
+ *
+ * O prompt anterior (Netter/NEJM, vector flat) ficou raso pra contexto de
+ * estudo brasileiro: faltava sofisticação editorial e a sensação de
+ * coleção padronizada que o user (founder) pediu explicitamente.
  */
 export function wrapPromptForMedicalDiagram(rawPrompt: string): string {
   return [
     rawPrompt.trim(),
     "",
-    "Style anchors: clean medical textbook illustration in the visual style of Netter's Atlas of Human Anatomy and NEJM scientific figures. Flat vector-style rendering, precise linework, limited muted color palette (anatomical reds, blues, beiges, off-white background), clear hierarchy of shapes, plenty of negative space. Crisp legible Portuguese labels with thin leader lines pointing to specific structures. No photorealistic rendering, no 3D effects, no glossy or neon colors, no fantasy stylization, no decorative ornaments, no characters or people unless explicitly part of the prompt. Single uncluttered focal subject centered in frame. Watermark-free, signature-free.",
+    "VISUAL IDENTITY (mandatory, consistent across the collection):",
+    "Premium editorial medical infographic, sophisticated, clean, modern. Looks like high-end academic material from a medical / biochemistry textbook of the highest tier. White or off-white background with very subtle gradients and soft decorative waves/curves. Core palette: navy blue, light blue, water green, soft purple, with sparing gold or lilac accents. Elegant readable typography. Large navy-blue titles with strong visual presence. Subtitles and highlights in green, purple or blue. Organized layout in well-distributed cards/blocks with rounded corners, light shadow, clean separation. Clear visual hierarchy. Little text per block but enough to be didactic. Beautiful, refined, medical and professional. Never cluttered.",
+    "",
+    "ILLUSTRATION STYLE: blend premium biomedical illustration with realistic 3D appearance and elegant vector infographics. When relevant include: 3D molecules, liver, kidneys, muscle, mitochondria, blood, neurons, enzymes, hepatocytes, flow arrows, medical icons. Arrows must be clear, elegant and easy to follow. Organs must look anatomical and visually beautiful. Molecules must look clean, didactic and visually attractive.",
+    "",
+    "STRUCTURE: always 16:9 horizontal format, high resolution. Blocks must feel like part of the same visual line. Rounded-corner cards, light shadow, clean separation. Collection-grade standardization. The image must look like it belongs in a premium summary/study guide.",
+    "",
+    "TEXT RULES: write in Brazilian Portuguese (pt-BR). Use correct technical terms. Short, didactic sentences — no long paragraphs. Highlight keywords. No misspellings. Do not crop words at edges. Do not overlap text on important elements.",
+    "",
+    "SCIENTIFIC RULES: be faithful to the source content. Do not invent information, reactions or nomenclature. Don't oversimplify to the point of being shallow. Don't overcomplicate to the point of being confusing.",
+    "",
+    "AVOID: childish style, simple cartoon look, heavy dark backgrounds, information overload, random color noise, confusing diagrams, misaligned elements, logos, watermarks, branding, common-slide appearance, generic AI look without refinement.",
   ].join("\n");
 }
 
