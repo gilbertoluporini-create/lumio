@@ -558,6 +558,9 @@ export function ContentWizard({
             style={{ width: `${pct}%` }}
           />
         </div>
+        <div className="text-[10px] text-amber-400/80 leading-tight pt-0.5">
+          Mantenha esta aba aberta até concluir.
+        </div>
       </div>
     );
 
@@ -586,23 +589,32 @@ export function ContentWizard({
       });
     }, 400);
 
-    // Safety net: se passar de 4x o tempo estimado sem terminar, força fechar
-    // o toast pra não deixar o user travado em 95%. Era o que acontecia quando
-    // alguma etapa pós-API (storage upload, insert) pendurava silenciosamente.
-    const safetyTimer = setTimeout(
-      () => {
-        clearInterval(progressTimer);
-        toast.dismiss("wizard-generation");
-        toast.error(
-          "A geração demorou demais. Verifica se o resultado apareceu — se não, tenta de novo.",
-        );
-      },
-      Math.max(estMs * 4, 120_000),
-    );
+    // Safety net mais agressivo: 3min absolutos (era 4x estMs = até 6min).
+    // Se passar disso sem terminar, fecha o toast e mostra erro — evita que
+    // o user fique olhando uma barra travada em 95% por minutos.
+    const safetyTimer = setTimeout(() => {
+      clearInterval(progressTimer);
+      toast.dismiss("wizard-generation");
+      toast.error(
+        "A geração demorou demais. Se o resultado não apareceu, tenta de novo — os coins são reembolsados em falha.",
+      );
+    }, 180_000);
+
+    // beforeunload: alerta nativo se o user tentar fechar/recarregar a aba
+    // durante a geração. Não cobre navegação interna do Next (Link/router),
+    // mas pelo menos pega close/reload/external nav. O Chrome ignora a
+    // string e mostra mensagem genérica — só o returnValue não-vazio importa.
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "Geração em andamento. Sair pode cancelar.";
+      return e.returnValue;
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
 
     const finishProgress = (label: string) => {
       clearInterval(progressTimer);
       clearTimeout(safetyTimer);
+      window.removeEventListener("beforeunload", onBeforeUnload);
       toast.custom(() => renderProgress(100, label), {
         id: "wizard-generation",
         duration: 600,
@@ -652,6 +664,7 @@ export function ContentWizard({
     const cancelProgress = () => {
       clearInterval(progressTimer);
       clearTimeout(safetyTimer);
+      window.removeEventListener("beforeunload", onBeforeUnload);
       toast.dismiss("wizard-generation");
     };
 
@@ -1009,9 +1022,11 @@ export function ContentWizard({
         toast.error(`Erro: ${e.message}`);
       }
     } finally {
-      // Defensivo: garante que ambos os timers param mesmo em caminhos inesperados
+      // Defensivo: garante que ambos os timers param + listener removido
+      // mesmo em caminhos inesperados (early return, throw silencioso etc).
       clearInterval(progressTimer);
       clearTimeout(safetyTimer);
+      window.removeEventListener("beforeunload", onBeforeUnload);
       setGenerating(false);
     }
   }, [
