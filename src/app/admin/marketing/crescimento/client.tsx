@@ -289,6 +289,8 @@ function EstudioPanel() {
   );
 }
 
+type SuggestedIdea = { title: string; summary: string; category: string };
+
 function NewIdeaForm({
   onClose,
   onCreated,
@@ -300,6 +302,44 @@ function NewIdeaForm({
   const [summary, setSummary] = useState("");
   const [category, setCategory] = useState("educacional");
   const [saving, setSaving] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestions, setSuggestions] = useState<SuggestedIdea[]>([]);
+
+  const suggest = async (focusCategory?: string) => {
+    setSuggesting(true);
+    setSuggestions([]);
+    try {
+      const r = await fetch(
+        "/api/admin/marketing/content/suggest-ideas",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            category: focusCategory,
+            count: 5,
+          }),
+        },
+      );
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "erro");
+      setSuggestions(j.ideas || []);
+      if (!j.ideas?.length) toast.error("IA não retornou ideias");
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  const useSuggestion = (s: SuggestedIdea) => {
+    setTitle(s.title);
+    setSummary(s.summary);
+    if (["educacional", "opiniao", "dados", "bts"].includes(s.category)) {
+      setCategory(s.category);
+    }
+    setSuggestions([]);
+    toast.success("Ideia carregada — ajuste se quiser e clica criar");
+  };
 
   const save = async () => {
     if (!title.trim()) {
@@ -338,6 +378,81 @@ function NewIdeaForm({
         >
           <X className="h-4 w-4" />
         </button>
+      </div>
+
+      <div className="rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 p-3 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-foreground">
+            <span className="font-semibold">Sem ideia?</span>{" "}
+            <span className="text-muted-foreground">
+              Pede pra IA sugerir 5 alinhadas com a voz Lumio.
+            </span>
+          </p>
+          <div className="flex gap-1.5 flex-wrap shrink-0">
+            <button
+              onClick={() => suggest()}
+              disabled={suggesting}
+              className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50"
+            >
+              {suggesting ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Sparkles className="h-3 w-3" />
+              )}
+              Mix
+            </button>
+            <button
+              onClick={() => suggest("educacional")}
+              disabled={suggesting}
+              className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/15 disabled:opacity-50"
+            >
+              Educacional
+            </button>
+            <button
+              onClick={() => suggest("opiniao")}
+              disabled={suggesting}
+              className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/15 disabled:opacity-50"
+            >
+              Opinião
+            </button>
+            <button
+              onClick={() => suggest("dados")}
+              disabled={suggesting}
+              className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/15 disabled:opacity-50"
+            >
+              Dados
+            </button>
+          </div>
+        </div>
+
+        {suggestions.length > 0 && (
+          <div className="space-y-1.5 pt-2 border-t border-fuchsia-500/20">
+            {suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => useSuggestion(s)}
+                className="text-left w-full p-2 rounded border border-border/40 hover:border-fuchsia-500/40 hover:bg-background transition-colors group"
+              >
+                <div className="flex items-start gap-2">
+                  <span className="text-[10px] font-mono text-muted-foreground shrink-0 mt-0.5">
+                    #{i + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-foreground group-hover:text-fuchsia-200">
+                      {s.title}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
+                      {s.summary}
+                    </p>
+                    <span className="text-[10px] uppercase tracking-wider font-mono text-fuchsia-300 mt-1 inline-block">
+                      {s.category}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <FormInput
