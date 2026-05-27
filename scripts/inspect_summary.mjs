@@ -1,0 +1,12 @@
+import { createClient } from "@supabase/supabase-js";
+const sb = createClient("https://pcatjumfdcxuthefixzf.supabase.co", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBjYXRqdW1mZGN4dXRoZWZpeHpmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3OTQ4NjU3MywiZXhwIjoyMDk1MDYyNTczfQ.IFhy4sp_LgzHTzlAnx-4ys5ncRdRkjNiPZyqrVCY0OM");
+const id = "7022fc62-6a40-4cb1-8733-9a7b5d80475a";
+const { data: sm } = await sb.from("summaries").select("id, title, document_id, lecture_id, content, images").eq("id", id).maybeSingle();
+const md = sm?.content?.generalSummary ?? "";
+console.log("md_len:", md.length);
+console.log("img_in_md_count:", (md.match(/!\[/g) || []).length);
+console.log("first_500:", md.slice(0, 1500));
+console.log("---");
+console.log("content.images:", JSON.stringify(sm?.content?.images, null, 2));
+console.log("---");
+console.log("row.images col:", JSON.stringify(sm?.images, null, 2));

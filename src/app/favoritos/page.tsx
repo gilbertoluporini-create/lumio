@@ -53,8 +53,9 @@ import {
   subscribeFavorites,
   type FavoriteEntry,
 } from "@/lib/favorites";
-import { cn } from "@/lib/utils";
-import type { User } from "@/lib/types";
+import { listSummariesAsync } from "@/lib/summaries";
+import { cn, stripMarkdownToPlainText } from "@/lib/utils";
+import type { Summary, User } from "@/lib/types";
 
 export default function FavoritosPage() {
   return (
@@ -165,7 +166,26 @@ const PAGE_SIZE = 8;
 function Favoritos({ user }: { user: User }) {
   const router = useRouter();
   const { documents, subjects, lectures, loading } = useAllDocuments(user.id);
+  const [summaries, setSummaries] = useState<Summary[]>([]);
   const [favorites, setFavorites] = useState<FavoriteEntry[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    listSummariesAsync(user.id).then((sm) => {
+      if (active) setSummaries(sm);
+    });
+    return () => {
+      active = false;
+    };
+  }, [user.id]);
+
+  const summaryByLectureId = useMemo(() => {
+    const map: Record<string, Summary> = {};
+    for (const sm of summaries) {
+      if (sm.source.kind === "lecture") map[sm.source.lectureId] = sm;
+    }
+    return map;
+  }, [summaries]);
   const [tab, setTab] = useState<TabId>("all");
   const [sort, setSort] = useState<SortMode>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -221,7 +241,11 @@ function Favoritos({ user }: { user: User }) {
         const subject = lecture.subjectId
           ? subjectById.get(lecture.subjectId)
           : null;
-        const summarySnippet = lecture.summary?.generalSummary?.trim();
+        const lectureSummary = summaryByLectureId[lecture.id];
+        const rawSnippet = lectureSummary?.content.generalSummary;
+        const summarySnippet = rawSnippet
+          ? stripMarkdownToPlainText(rawSnippet)
+          : null;
         out.push({
           key: `lecture:${entry.id}`,
           kind: "lecture",
@@ -235,7 +259,7 @@ function Favoritos({ user }: { user: User }) {
           description: summarySnippet
             ? summarySnippet.slice(0, 140)
             : "Transcrição e materiais gerados a partir dessa aula.",
-          tags: lecture.summary ? ["Com resumo"] : ["Aula gravada"],
+          tags: lectureSummary ? ["Com resumo"] : ["Aula gravada"],
         });
       } else if (entry.kind === "summary") {
         const doc = docByLectureKind.get(`summary:${entry.id}`);
@@ -246,7 +270,9 @@ function Favoritos({ user }: { user: User }) {
         const title =
           doc?.title ??
           (lecture ? `Resumo — ${lecture.title}` : "Resumo favoritado");
-        const desc = lecture?.summary?.generalSummary?.trim() ?? null;
+        const rawDesc =
+          lecture && summaryByLectureId[lecture.id]?.content.generalSummary;
+        const desc = rawDesc ? stripMarkdownToPlainText(rawDesc) : null;
         out.push({
           key: `summary:${entry.id}`,
           kind: "summary",
@@ -264,7 +290,7 @@ function Favoritos({ user }: { user: User }) {
     }
 
     return out;
-  }, [favorites, subjects, lectures, documents]);
+  }, [favorites, subjects, lectures, documents, summaryByLectureId]);
 
   const counts = useMemo(() => {
     const c = {
@@ -411,7 +437,7 @@ function Favoritos({ user }: { user: User }) {
           <div className="text-sm text-muted-foreground mb-2">
             {greeting}, {firstName}
           </div>
-          <h1 className="text-3xl font-semibold tracking-tight">Favoritos</h1>
+          <h1 className="text-3xl heading-display">Favoritos</h1>
           <p className="mt-1 text-sm text-muted-foreground max-w-xl">
             Seus conteúdos salvos para revisar quando quiser.
           </p>
@@ -533,8 +559,9 @@ function Favoritos({ user }: { user: User }) {
         onOpenChange={setWizardOpen}
         mode="summary"
         userId={user.id}
-        onCreated={({ lectureId }) => {
-          router.push(`/resumo/${lectureId}`);
+        onCreated={({ lectureId, summaryId }) => {
+          if (lectureId) router.push(`/resumo/${lectureId}`);
+          else if (summaryId) router.push(`/resumo/doc/${summaryId}`);
         }}
       />
 

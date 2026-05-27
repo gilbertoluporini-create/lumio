@@ -75,11 +75,22 @@ import {
   updateLectureAsync,
 } from "@/lib/db";
 import {
+  deleteSummaryAsync,
+  listSummariesAsync,
+} from "@/lib/summaries";
+import { listDocumentsAsync } from "@/lib/documents";
+import {
   subscribeFavorites,
   toggleFavorite as toggleFavoriteLib,
 } from "@/lib/favorites";
-import type { Lecture, Subject, User } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import type {
+  Document as LumioDocument,
+  Lecture,
+  Subject,
+  Summary,
+  User,
+} from "@/lib/types";
+import { cn, stripMarkdownToPlainText } from "@/lib/utils";
 
 /**
  * Mesma lógica de ícones temáticos do dashboard/gravacoes.
@@ -132,14 +143,28 @@ export default function ResumosPage() {
   );
 }
 
-type SummaryStatus = "completed" | "in_progress" | "not_started";
+type SummaryStatus = "completed";
 
-function getStatus(lecture: Lecture): SummaryStatus {
-  if (lecture.summary) return "completed";
-  if (lecture.transcript && lecture.transcript.trim().length > 0)
-    return "in_progress";
-  return "not_started";
-}
+/**
+ * Item unificado pra renderizar resumos de aula OU documento.
+ * O componente recebe esse tipo em vez de Lecture/Document separados.
+ */
+type ResumoItem = {
+  summary: Summary;
+  lecture?: Lecture;
+  document?: LumioDocument;
+  title: string;
+  subjectId: string;
+  updatedAt: string;
+  /** "lecture" = vem de aula gravada; "document" = vem de PDF/texto. */
+  origin: "lecture" | "document";
+  /** Rota pra abrir o resumo. */
+  href: string;
+  /** Pra "Abrir aula original" quando origin = lecture. */
+  lectureHref?: string;
+  /** Tempo (durationSec da aula) quando aplicável; senão null. */
+  durationSec: number;
+};
 
 function formatDateBR(d: Date): string {
   return d.toLocaleDateString("pt-BR", {
@@ -163,21 +188,26 @@ function formatDurationMin(seconds: number): string {
  * cai pra concatenar primeiros `highlights`, e por último o início do
  * primeiro `sections[].spokenContent`.
  */
-function getSummarySnippet(lecture: Lecture, maxLen = 360): string {
-  const s = lecture.summary;
+function getSummarySnippet(
+  summary: Summary | undefined,
+  maxLen = 360,
+): string {
+  const s = summary?.content;
   if (!s) return "";
+  const truncate = (raw: string) => {
+    const clean = stripMarkdownToPlainText(raw);
+    return clean.length > maxLen
+      ? `${clean.slice(0, maxLen).trim()}…`
+      : clean;
+  };
   if (s.generalSummary && s.generalSummary.trim().length > 0) {
-    return s.generalSummary.length > maxLen
-      ? `${s.generalSummary.slice(0, maxLen).trim()}…`
-      : s.generalSummary;
+    return truncate(s.generalSummary);
   }
   if (s.highlights && s.highlights.length > 0) {
-    const joined = s.highlights.slice(0, 4).join(" · ");
-    return joined.length > maxLen ? `${joined.slice(0, maxLen).trim()}…` : joined;
+    return truncate(s.highlights.slice(0, 4).join(" · "));
   }
   if (s.sections && s.sections.length > 0) {
-    const first = s.sections[0].spokenContent ?? "";
-    return first.length > maxLen ? `${first.slice(0, maxLen).trim()}…` : first;
+    return truncate(s.sections[0].spokenContent ?? "");
   }
   return "";
 }
@@ -186,8 +216,8 @@ function getSummarySnippet(lecture: Lecture, maxLen = 360): string {
  * Tags representativas pro resumo. Usa `highlights` (o que existe no
  * tipo atual). Trunca cada uma pra não estourar a linha.
  */
-function getSummaryTags(lecture: Lecture, max = 3): string[] {
-  const s = lecture.summary;
+function getSummaryTags(summary: Summary | undefined, max = 3): string[] {
+  const s = summary?.content;
   if (!s?.highlights) return [];
   return s.highlights.slice(0, max).map((h) => {
     const trimmed = h.trim();
@@ -206,10 +236,12 @@ function ResumosView({ user }: { user: User }) {
   const router = useRouter();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [summaries, setSummaries] = useState<Summary[]>([]);
+  const [documents, setDocuments] = useState<LumioDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterSubject, setFilterSubject] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<StatusFilter>("all");
-  const [filterType, setFilterType] = useState<string>("all");
+  const [filterOrigin, setFilterOrigin] = useState<"all" | "lecture" | "document">("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
   const [search, setSearch] = useState("");
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -226,11 +258,18 @@ function ResumosView({ user }: { user: User }) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([listSubjectsAsync(user.id), listLecturesAsync(user.id)])
-      .then(([s, l]) => {
+    Promise.all([
+      listSubjectsAsync(user.id),
+      listLecturesAsync(user.id),
+      listSummariesAsync(user.id),
+      listDocumentsAsync(user.id),
+    ])
+      .then(([s, l, sm, d]) => {
         if (!active) return;
         setSubjects(s);
         setLectures(l);
+        setSummaries(sm);
+        setDocuments(d);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -263,26 +302,19 @@ function ResumosView({ user }: { user: User }) {
   );
 
   const handleDeleteSummary = useCallback(
-    async (lecture: Lecture) => {
-      if (!lecture.summary) return;
+    async (item: ResumoItem) => {
       const confirmed =
         typeof window !== "undefined"
           ? window.confirm(
-              `Excluir o resumo de "${lecture.title}"?\n\nA aula e a transcrição serão mantidas; apenas o resumo será removido.`,
+              `Excluir o resumo "${item.title}"?\n\nA fonte original (${item.origin === "lecture" ? "aula" : "documento"}) será mantida.`,
             )
           : true;
       if (!confirmed) return;
-      setDeletingId(lecture.id);
+      setDeletingId(item.summary.id);
       try {
-        // Passamos `summary: null` cast pra Partial<Lecture> — o backend
-        // (Supabase) aceita null e o local storage faz spread normalmente.
-        await updateLectureAsync(user.id, lecture.id, {
-          summary: null as unknown as Lecture["summary"],
-        });
-        setLectures((prev) =>
-          prev.map((l) =>
-            l.id === lecture.id ? { ...l, summary: undefined } : l,
-          ),
+        await deleteSummaryAsync(user.id, item.summary.id);
+        setSummaries((prev) =>
+          prev.filter((x) => x.id !== item.summary.id),
         );
         toast.success("Resumo excluído.");
       } catch (err) {
@@ -300,6 +332,49 @@ function ResumosView({ user }: { user: User }) {
     return map;
   }, [subjects]);
 
+  const lectureById = useMemo(() => {
+    const map: Record<string, Lecture> = {};
+    for (const l of lectures) map[l.id] = l;
+    return map;
+  }, [lectures]);
+
+  const documentById = useMemo(() => {
+    const map: Record<string, LumioDocument> = {};
+    for (const d of documents) map[d.id] = d;
+    return map;
+  }, [documents]);
+
+  // Lista unificada de resumos (de aula OU de documento)
+  const resumoItems = useMemo<ResumoItem[]>(() => {
+    return summaries.map((sm) => {
+      if (sm.source.kind === "lecture") {
+        const lec = lectureById[sm.source.lectureId];
+        return {
+          summary: sm,
+          lecture: lec,
+          title: sm.title || lec?.title || "Resumo",
+          subjectId: sm.subjectId || lec?.subjectId || "",
+          updatedAt: sm.updatedAt || lec?.updatedAt || sm.createdAt,
+          origin: "lecture" as const,
+          href: `/resumo/${sm.source.lectureId}`,
+          lectureHref: `/lecture/${sm.source.lectureId}`,
+          durationSec: lec?.durationSec ?? 0,
+        };
+      }
+      const doc = documentById[sm.source.documentId];
+      return {
+        summary: sm,
+        document: doc,
+        title: sm.title || doc?.title || "Resumo",
+        subjectId: sm.subjectId || doc?.subjectId || "",
+        updatedAt: sm.updatedAt || doc?.updatedAt || sm.createdAt,
+        origin: "document" as const,
+        href: `/resumo/doc/${sm.id}`,
+        durationSec: 0,
+      };
+    });
+  }, [summaries, lectureById, documentById]);
+
   const firstName = user.name.split(" ")[0];
   const greeting = useMemo(() => {
     const h = new Date().getHours();
@@ -309,9 +384,9 @@ function ResumosView({ user }: { user: User }) {
     return "Boa noite";
   }, []);
 
-  // Ordenação base por mais recente (updatedAt)
-  const sortedLectures = useMemo(() => {
-    const arr = lectures.slice();
+  // Ordenação base
+  const sortedItems = useMemo(() => {
+    const arr = resumoItems.slice();
     arr.sort((a, b) => {
       if (sortOrder === "az") return a.title.localeCompare(b.title, "pt-BR");
       const ta = new Date(a.updatedAt).getTime();
@@ -319,28 +394,29 @@ function ResumosView({ user }: { user: User }) {
       return sortOrder === "oldest" ? ta - tb : tb - ta;
     });
     return arr;
-  }, [lectures, sortOrder]);
+  }, [resumoItems, sortOrder]);
 
-  const filteredLectures = useMemo(() => {
-    return sortedLectures.filter((l) => {
-      if (filterSubject !== "all" && l.subjectId !== filterSubject) return false;
-      if (filterStatus !== "all" && getStatus(l) !== filterStatus) return false;
-      // filterType: por enquanto só "resumo" — qualquer valor diferente de "all"
-      // ainda passa porque todas as aulas são tratadas como tipo resumo.
-      if (filterType !== "all" && filterType !== "resumo") return false;
+  const filteredItems = useMemo(() => {
+    return sortedItems.filter((item) => {
+      if (filterSubject !== "all" && item.subjectId !== filterSubject)
+        return false;
+      // filterStatus: hoje só "completed" existe — todo item já tem summary.
+      if (filterStatus !== "all" && filterStatus !== "completed") return false;
+      if (filterOrigin !== "all" && item.origin !== filterOrigin) return false;
       if (search.trim()) {
         const q = search.toLowerCase();
-        const subjName = subjectById[l.subjectId]?.name.toLowerCase() ?? "";
-        const summaryText = l.summary?.generalSummary?.toLowerCase() ?? "";
+        const subjName = subjectById[item.subjectId]?.name.toLowerCase() ?? "";
+        const content = item.summary.content;
+        const summaryText = content.generalSummary?.toLowerCase() ?? "";
         const highlights =
-          l.summary?.highlights?.join(" ").toLowerCase() ?? "";
+          content.highlights?.join(" ").toLowerCase() ?? "";
         const sectionTitles =
-          l.summary?.sections
+          content.sections
             ?.map((sec) => sec.slideTitle ?? "")
             .join(" ")
             .toLowerCase() ?? "";
         return (
-          l.title.toLowerCase().includes(q) ||
+          item.title.toLowerCase().includes(q) ||
           subjName.includes(q) ||
           summaryText.includes(q) ||
           highlights.includes(q) ||
@@ -349,36 +425,47 @@ function ResumosView({ user }: { user: User }) {
       }
       return true;
     });
-  }, [sortedLectures, filterSubject, filterStatus, filterType, search, subjectById]);
+  }, [
+    sortedItems,
+    filterSubject,
+    filterStatus,
+    filterOrigin,
+    search,
+    subjectById,
+  ]);
 
-  // Resumo em destaque = aula mais recente que JÁ tem summary
-  const featuredLecture = useMemo(
+  // Resumo em destaque = mais recente
+  const featuredItem = useMemo(
     () =>
-      lectures
+      resumoItems
         .slice()
-        .filter((l) => !!l.summary)
         .sort(
           (a, b) =>
             new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
         )[0],
-    [lectures],
+    [resumoItems],
   );
-  const featuredSubject = featuredLecture
-    ? subjectById[featuredLecture.subjectId]
+  const featuredSubject = featuredItem
+    ? subjectById[featuredItem.subjectId]
     : undefined;
 
-  // Limita a tabela "Resumos recentes" às 8 mais recentes
-  const tableLectures = useMemo(() => filteredLectures.slice(0, 8), [filteredLectures]);
+  // Limita a tabela às 8 mais recentes
+  const tableItems = useMemo(() => filteredItems.slice(0, 8), [filteredItems]);
 
   // Stats sidebar
   const stats = useMemo(() => {
-    let completed = 0;
+    const completed = resumoItems.length;
+    // Aulas com transcript mas SEM summary = "em andamento"
+    const summaryLectureIds = new Set(
+      summaries
+        .filter((s) => s.source.kind === "lecture")
+        .map((s) => (s.source.kind === "lecture" ? s.source.lectureId : "")),
+    );
     let inProgress = 0;
     let notStarted = 0;
     for (const l of lectures) {
-      const st = getStatus(l);
-      if (st === "completed") completed++;
-      else if (st === "in_progress") inProgress++;
+      if (summaryLectureIds.has(l.id)) continue;
+      if ((l.transcript ?? "").trim().length > 0) inProgress++;
       else notStarted++;
     }
     // Conta apenas favoritos que ainda existem como lectures
@@ -391,23 +478,21 @@ function ResumosView({ user }: { user: User }) {
       notStarted,
       favorites: favoritesCount,
     };
-  }, [lectures, favorites]);
+  }, [lectures, summaries, resumoItems.length, favorites]);
 
-  // Subjects com counts (só conta lectures com summary)
+  // Subjects com counts (resumos por matéria)
   const subjectCounts = useMemo(() => {
     const map: Record<string, number> = {};
-    for (const l of lectures) {
-      if (!l.summary) continue;
-      map[l.subjectId] = (map[l.subjectId] ?? 0) + 1;
+    for (const sm of summaries) {
+      if (!sm.subjectId) continue;
+      map[sm.subjectId] = (map[sm.subjectId] ?? 0) + 1;
     }
     return map;
-  }, [lectures]);
+  }, [summaries]);
 
   const statusFilterLabel: Record<StatusFilter, string> = {
     all: "Todos os status",
     completed: "Concluído",
-    in_progress: "Em andamento",
-    not_started: "Não iniciado",
   };
   const sortLabel: Record<SortOrder, string> = {
     recent: "Mais recentes",
@@ -431,7 +516,7 @@ function ResumosView({ user }: { user: User }) {
           <div className="text-sm text-muted-foreground mb-1">
             {greeting}, {firstName}
           </div>
-          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+          <h1 className="text-3xl md:text-4xl heading-display">
             Biblioteca de resumos
           </h1>
           <p className="mt-2 text-sm text-muted-foreground max-w-2xl">
@@ -493,29 +578,30 @@ function ResumosView({ user }: { user: User }) {
             <DropdownMenuItem onClick={() => setFilterStatus("completed")}>
               Concluído
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setFilterStatus("in_progress")}>
-              Em andamento
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setFilterStatus("not_started")}>
-              Não iniciado
-            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
-        {/* Tipos — placeholder, só "Resumo" disponível */}
+        {/* Origem do resumo */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-9 gap-1.5">
               <Tag className="h-3.5 w-3.5" />
-              {filterType === "all" ? "Todos os tipos" : "Resumo"}
+              {filterOrigin === "all"
+                ? "Toda origem"
+                : filterOrigin === "lecture"
+                  ? "De aulas"
+                  : "De documentos"}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
-            <DropdownMenuItem onClick={() => setFilterType("all")}>
-              Todos os tipos
+            <DropdownMenuItem onClick={() => setFilterOrigin("all")}>
+              Toda origem
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setFilterType("resumo")}>
-              Resumo
+            <DropdownMenuItem onClick={() => setFilterOrigin("lecture")}>
+              De aulas transcritas
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setFilterOrigin("document")}>
+              De documentos
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -583,9 +669,9 @@ function ResumosView({ user }: { user: User }) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         <div className="lg:col-span-9 space-y-6">
           {/* Featured */}
-          {featuredLecture ? (
+          {featuredItem ? (
             <FeaturedSummaryCard
-              lecture={featuredLecture}
+              item={featuredItem}
               subject={featuredSubject}
             />
           ) : (
@@ -614,21 +700,21 @@ function ResumosView({ user }: { user: User }) {
               <div className="text-right">Ações</div>
             </div>
 
-            {tableLectures.length === 0 ? (
+            {tableItems.length === 0 ? (
               <div className="px-5 py-12 text-center text-sm text-muted-foreground">
-                {lectures.length === 0
+                {resumoItems.length === 0
                   ? "Você ainda não tem resumos. Comece criando uma aula no dashboard."
                   : "Nenhum resumo encontrado com esses filtros."}
               </div>
             ) : (
               <div className="divide-y divide-border/40">
-                {tableLectures.map((l) => (
+                {tableItems.map((item) => (
                   <SummaryTableRow
-                    key={l.id}
-                    lecture={l}
-                    subject={subjectById[l.subjectId]}
-                    isFavorite={favorites.includes(l.id)}
-                    isDeleting={deletingId === l.id}
+                    key={item.summary.id}
+                    item={item}
+                    subject={subjectById[item.subjectId]}
+                    isFavorite={favorites.includes(item.summary.id)}
+                    isDeleting={deletingId === item.summary.id}
                     onToggleFavorite={toggleFavorite}
                     onDeleteSummary={handleDeleteSummary}
                   />
@@ -636,7 +722,7 @@ function ResumosView({ user }: { user: User }) {
               </div>
             )}
 
-            {filteredLectures.length > tableLectures.length && (
+            {filteredItems.length > tableItems.length && (
               <div className="px-5 py-3 border-t border-border/50 bg-secondary/10 flex items-center justify-end">
                 <Link
                   href="/gravacoes"
@@ -667,9 +753,16 @@ function ResumosView({ user }: { user: User }) {
         onOpenChange={setNewSummaryOpen}
         mode="summary"
         userId={user.id}
-        onCreated={({ lectureId }) => {
+        onCreated={({ lectureId, summaryId }) => {
           // Wizard mode="summary" cria o resumo — leva direto pra tela rica.
-          router.push(`/resumo/${lectureId}`);
+          // Origem aula: /resumo/[lectureId]. Origem PDF puro: /resumo/doc/[summaryId].
+          if (lectureId) {
+            router.push(`/resumo/${lectureId}`);
+          } else if (summaryId) {
+            router.push(`/resumo/doc/${summaryId}`);
+          } else {
+            router.push("/resumos");
+          }
         }}
       />
     </div>
@@ -681,36 +774,48 @@ function ResumosView({ user }: { user: User }) {
 /* -------------------------------------------------------------------------- */
 
 function FeaturedSummaryCard({
-  lecture,
+  item,
   subject,
 }: {
-  lecture: Lecture;
+  item: ResumoItem;
   subject: Subject | undefined;
 }) {
   const iconComp = subject ? getSubjectIcon(subject.name) : FileText;
-  const date = new Date(lecture.updatedAt);
+  const date = new Date(item.updatedAt);
   const dateLabel = formatDateBR(date);
-  const tags = getSummaryTags(lecture, 3);
-  const snippet = getSummarySnippet(lecture, 360);
-  // Featured card aponta pra tela rica de visualização do resumo.
-  const href = `/resumo/${lecture.id}`;
+  const tags = getSummaryTags(item.summary, 3);
+  const snippet = getSummarySnippet(item.summary, 360);
+  const fromLecture = item.origin === "lecture";
+  const href = item.href;
 
   return (
     <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/5 via-card to-fuchsia-500/5 overflow-hidden">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
         {/* Esquerda: detalhes */}
         <div className="p-6 md:border-r border-border/50">
-          <Badge
-            variant="secondary"
-            className="gap-1 bg-primary/15 text-primary border-primary/20"
-          >
-            <Star className="h-3 w-3 fill-primary" />
-            Resumo em destaque
-          </Badge>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Badge
+              variant="secondary"
+              className="gap-1 bg-primary/15 text-primary border-primary/20"
+            >
+              <Star className="h-3 w-3 fill-primary" />
+              Resumo em destaque
+            </Badge>
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider",
+                fromLecture
+                  ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                  : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+              )}
+            >
+              {fromLecture ? "De aula" : "De documento"}
+            </span>
+          </div>
 
           <Link href={href} className="block group mt-3">
             <h2 className="text-2xl font-semibold tracking-tight leading-tight group-hover:text-primary transition-colors line-clamp-2">
-              {lecture.title}
+              {item.title}
             </h2>
           </Link>
 
@@ -732,10 +837,12 @@ function FeaturedSummaryCard({
               <Clock className="h-3 w-3" />
               {dateLabel}
             </span>
-            <span className="inline-flex items-center gap-1 font-mono tabular-nums">
-              <Timer className="h-3 w-3" />
-              {formatDurationMin(lecture.durationSec)}
-            </span>
+            {fromLecture && item.durationSec > 0 && (
+              <span className="inline-flex items-center gap-1 font-mono tabular-nums">
+                <Timer className="h-3 w-3" />
+                {formatDurationMin(item.durationSec)}
+              </span>
+            )}
           </div>
 
           {tags.length > 0 && (
@@ -845,28 +952,27 @@ function StatusPill({ status }: { status: SummaryStatus }) {
 }
 
 function SummaryTableRow({
-  lecture,
+  item,
   subject,
   isFavorite,
   isDeleting,
   onToggleFavorite,
   onDeleteSummary,
 }: {
-  lecture: Lecture;
+  item: ResumoItem;
   subject: Subject | undefined;
   isFavorite: boolean;
   isDeleting: boolean;
   onToggleFavorite: (id: string) => void;
-  onDeleteSummary: (lecture: Lecture) => void;
+  onDeleteSummary: (item: ResumoItem) => void;
 }) {
-  const status = getStatus(lecture);
-  const date = new Date(lecture.updatedAt);
+  const status: SummaryStatus = "completed";
+  const date = new Date(item.updatedAt);
   const dateLabel = formatDateBR(date);
-  const tags = getSummaryTags(lecture, 2);
-  // Row da tabela leva pra tela rica do resumo (mantém /lecture só pra "Abrir aula original").
-  const href = `/resumo/${lecture.id}`;
+  const tags = getSummaryTags(item.summary, 2);
+  const fromLecture = item.origin === "lecture";
+  const href = item.href;
   const subjectIconComp = subject ? getSubjectIcon(subject.name) : FileText;
-  const hasSummary = !!lecture.summary;
 
   return (
     <Link
@@ -886,11 +992,23 @@ function SummaryTableRow({
         </div>
         <div className="min-w-0 flex-1">
           <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
-            {lecture.title}
+            {item.title}
           </div>
-          {/* Em mobile mostra matéria abaixo do título */}
-          <div className="md:hidden text-xs text-muted-foreground truncate">
-            {subject?.name ?? "—"} · {dateLabel}
+          <div className="flex items-center gap-1.5 mt-0.5">
+            <span
+              className={cn(
+                "inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider",
+                fromLecture
+                  ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                  : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+              )}
+            >
+              {fromLecture ? "De aula" : "De documento"}
+            </span>
+            {/* Em mobile mostra matéria + data inline */}
+            <span className="md:hidden text-xs text-muted-foreground truncate">
+              · {subject?.name ?? "—"} · {dateLabel}
+            </span>
           </div>
         </div>
         <button
@@ -898,7 +1016,7 @@ function SummaryTableRow({
           onClick={(e) => {
             e.preventDefault();
             e.stopPropagation();
-            onToggleFavorite(lecture.id);
+            onToggleFavorite(item.summary.id);
           }}
           className={cn(
             "shrink-0 h-7 w-7 inline-flex items-center justify-center rounded-md transition-colors",
@@ -930,7 +1048,9 @@ function SummaryTableRow({
 
       {/* Tempo */}
       <div className="hidden md:block text-xs font-mono tabular-nums text-muted-foreground">
-        {formatDurationMin(lecture.durationSec)}
+        {fromLecture && item.durationSec > 0
+          ? formatDurationMin(item.durationSec)
+          : "—"}
       </div>
 
       {/* Tags */}
@@ -981,10 +1101,21 @@ function SummaryTableRow({
                 Abrir resumo
               </Link>
             </DropdownMenuItem>
+            {fromLecture && item.lectureHref && (
+              <DropdownMenuItem asChild>
+                <Link
+                  href={item.lectureHref}
+                  className="gap-2 cursor-pointer"
+                >
+                  <Folder className="h-3.5 w-3.5" />
+                  Abrir aula original
+                </Link>
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem
               onSelect={(e) => {
                 e.preventDefault();
-                onToggleFavorite(lecture.id);
+                onToggleFavorite(item.summary.id);
               }}
               className="gap-2"
             >
@@ -1011,14 +1142,10 @@ function SummaryTableRow({
             <DropdownMenuItem
               onSelect={(e) => {
                 e.preventDefault();
-                if (!hasSummary) {
-                  toast.error("Esta aula ainda não tem resumo.");
-                  return;
-                }
-                onDeleteSummary(lecture);
+                onDeleteSummary(item);
               }}
               className="gap-2 text-red-600 focus:text-red-700"
-              disabled={!hasSummary || isDeleting}
+              disabled={isDeleting}
             >
               <Trash2 className="h-3.5 w-3.5" />
               Excluir resumo

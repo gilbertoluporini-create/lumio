@@ -325,7 +325,7 @@ async function upsertSubscriptionFromStripe(
   const itemLevel = sub.items.data[0] as unknown as { current_period_end?: number };
   const periodEnd = itemLevel?.current_period_end ?? subRoot.current_period_end;
 
-  await admin.from("subscriptions").upsert(
+  const { error: upsertErr } = await admin.from("subscriptions").upsert(
     {
       user_id: userId,
       stripe_customer_id: customerId ?? null,
@@ -339,6 +339,17 @@ async function upsertSubscriptionFromStripe(
     },
     { onConflict: "user_id" },
   );
+  if (upsertErr) {
+    // CRÍTICO: antes esse erro era engolido silenciosamente — coin_balance era
+    // creditado mas plan/status ficavam free/inactive. Loga e re-throw pro
+    // Stripe marcar como failed e re-tentar.
+    console.error(
+      "[webhook] upsertSubscription FAILED",
+      { userId, subId: sub.id, plan, status: sub.status },
+      upsertErr,
+    );
+    throw new Error(`subscriptions upsert failed: ${upsertErr.message}`);
+  }
 }
 
 /**

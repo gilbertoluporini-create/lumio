@@ -1,11 +1,15 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { LumioWordmark } from "@/components/brand/logo";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata = {
+export const metadata: Metadata = buildPageMetadata({
   title: "Termos de Uso · Lumio",
-  description: "Termos e condições de uso do Lumio.",
-};
+  description:
+    "Termos e condições de uso do Lumio: regras de assinatura, conteúdo gerado por IA e responsabilidades.",
+  path: "/terms",
+});
 
 export default function TermsPage() {
   return (
@@ -30,7 +34,7 @@ export default function TermsPage() {
         <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-3">
           — Termos de Uso —
         </p>
-        <h1 className="text-3xl md:text-4xl font-semibold tracking-tight mb-2">
+        <h1 className="text-3xl md:text-4xl heading-display mb-2">
           Termos de Uso do Lumio
         </h1>
         <p className="text-sm text-muted-foreground mb-10">

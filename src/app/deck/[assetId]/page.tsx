@@ -51,6 +51,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { getLectureAsync, getSubjectAsync } from "@/lib/db";
+import { getSummaryByLectureIdAsync } from "@/lib/summaries";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import {
   countDueForDeck,
@@ -63,7 +64,7 @@ import {
   type Quality,
 } from "@/lib/srs";
 import type { Lecture, Subject, User } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, stripMarkdownToPlainText } from "@/lib/utils";
 
 export default function DeckPage({
   params,
@@ -121,6 +122,9 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
     quizId: string | null;
     mindmapId: string | null;
   }>({ summary: false, quizId: null, mindmapId: null });
+  const [summarySnippet, setSummarySnippet] = useState<string | undefined>(
+    undefined,
+  );
 
   // ===== Load deck =====
   useEffect(() => {
@@ -184,11 +188,16 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
             if (r.kind === "quiz") quizId = r.id;
             if (r.kind === "mindmap") mindmapId = r.id;
           }
+          const summaryRow = lec
+            ? await getSummaryByLectureIdAsync(user.id, lec.id)
+            : null;
+          if (!active) return;
           setAssetSiblings({
-            summary: !!lec?.summary,
+            summary: !!summaryRow,
             quizId,
             mindmapId,
           });
+          setSummarySnippet(summaryRow?.content.generalSummary ?? undefined);
         } catch {
           /* ignore */
         }
@@ -368,7 +377,7 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight leading-tight">
+          <h1 className="text-2xl md:text-3xl heading-display">
             {lecture.title}
           </h1>
           <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
@@ -560,7 +569,11 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
         {/* RIGHT: Sidebar */}
         <aside className="hidden lg:block">
           <div className="sticky top-[80px] space-y-4 max-h-[calc(100vh-100px)] overflow-y-auto pr-1">
-            <DeckQuickCard lecture={lecture} cardCount={deck.cards.length} />
+            <DeckQuickCard
+              lecture={lecture}
+              cardCount={deck.cards.length}
+              summarySnippet={summarySnippet}
+            />
             <DeckStatsCard
               masteryPct={masteryPct}
               dueCount={dueCount}
@@ -653,7 +666,11 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
           </div>
           <div className="p-3">
             {mobileTab === "summary" && (
-              <DeckQuickCard lecture={lecture} cardCount={deck.cards.length} />
+              <DeckQuickCard
+              lecture={lecture}
+              cardCount={deck.cards.length}
+              summarySnippet={summarySnippet}
+            />
             )}
             {mobileTab === "stats" && (
               <DeckStatsCard
@@ -1081,14 +1098,19 @@ function ActionCard({
 function DeckQuickCard({
   lecture,
   cardCount,
+  summarySnippet,
 }: {
   lecture: Lecture;
   cardCount: number;
+  summarySnippet?: string;
 }) {
-  const snippet = lecture.summary?.generalSummary
-    ? lecture.summary.generalSummary.length > 180
-      ? lecture.summary.generalSummary.slice(0, 160) + "…"
-      : lecture.summary.generalSummary
+  const raw = summarySnippet
+    ? stripMarkdownToPlainText(summarySnippet)
+    : "";
+  const snippet = raw
+    ? raw.length > 180
+      ? raw.slice(0, 160) + "…"
+      : raw
     : "Este deck foi gerado a partir da aula original.";
   return (
     <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/8 via-card to-fuchsia-500/8 p-4">

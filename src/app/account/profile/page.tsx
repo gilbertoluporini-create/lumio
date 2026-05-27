@@ -92,7 +92,7 @@ function ProfileView({ user }: { user: User }) {
           <UserIcon className="h-3 w-3 text-primary" />
           Seu perfil
         </div>
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+        <h1 className="text-2xl md:text-3xl heading-display">
           Quem é você
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">

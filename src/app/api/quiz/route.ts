@@ -259,22 +259,28 @@ Gere ${count} questões de múltipla escolha no JSON especificado. APENAS JSON.`
       questions,
     };
 
+    let assetId: string | null = null;
     if (userId) {
       try {
         const admin = createAdminClient();
-        await admin.from("lecture_assets").insert({
-          lecture_id: body.lectureId,
-          user_id: userId,
-          kind: "quiz",
-          payload: asset,
-          coins_spent: COIN_COSTS.quiz,
-        });
+        const { data: inserted } = await admin
+          .from("lecture_assets")
+          .insert({
+            lecture_id: body.lectureId,
+            user_id: userId,
+            kind: "quiz",
+            payload: asset,
+            coins_spent: COIN_COSTS.quiz,
+          })
+          .select("id")
+          .single();
+        assetId = (inserted as { id?: string } | null)?.id ?? null;
       } catch (e) {
         console.error("[quiz] asset insert failed", e);
       }
     }
 
-    return Response.json({ quiz: asset });
+    return Response.json({ quiz: asset, assetId });
   } catch (err) {
     if (userId) {
       try {

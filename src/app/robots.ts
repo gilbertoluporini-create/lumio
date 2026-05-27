@@ -7,16 +7,29 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: "*",
-        allow: "/",
+        allow: [
+          "/",
+          // Garantir crawl explícito do OG generator (preview de share)
+          "/api/og",
+        ],
         disallow: [
           "/api/",
           "/admin",
           "/admin/",
           "/dashboard",
           "/dashboard/",
+          "/account",
+          "/account/",
           "/checkout",
           "/lumi",
           "/lumi/",
+          "/onboarding",
+          "/onboarding/",
+          "/links",
+          "/links/",
+          "/signup",
+          "/login",
+          "/auth/",
         ],
       },
     ],

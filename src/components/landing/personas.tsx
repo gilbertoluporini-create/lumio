@@ -16,11 +16,11 @@ type Persona = {
 const PERSONAS: Persona[] = [
   {
     icon: "heart",
-    badge: "Medicina",
-    title: "Quatro horas de Bioquímica seguidas.",
-    pain: "Você copia ciclo de Krebs no caderno enquanto o professor já tá em outra via metabólica. Em casa, metade da letra não dá pra ler.",
+    badge: "Administração",
+    title: "Micro, Contabilidade e Estatística no mesmo dia.",
+    pain: "Três disciplinas cabeçudas em sequência. Você sai sem saber qual fórmula vai cair em qual prova.",
     solution:
-      "Lumio transcreve tudo, gera flash card por reação e te pergunta no quiz. Você presta atenção no slide — a anotação fica com a gente.",
+      "Lumio organiza tudo por matéria, gera flash card por fórmula e quiz cruzado pra revisão. Você presta atenção — a anotação fica com a gente.",
   },
   {
     icon: "book",

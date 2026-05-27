@@ -7,9 +7,11 @@ import {
   Activity,
   BarChart3,
   Coins,
+  HeartPulse,
   LayoutDashboard,
   LogOut,
   Mail,
+  Megaphone,
   Menu,
   Settings,
   ShieldAlert,
@@ -19,16 +21,78 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const NAV_ITEMS = [
-  { href: "/admin", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/admin/realtime", label: "Tempo real", Icon: Activity },
-  { href: "/admin/users", label: "Usuários", Icon: Users },
-  { href: "/admin/leads", label: "Leads", Icon: UserPlus },
-  { href: "/admin/tickets", label: "Tickets", Icon: Mail },
-  { href: "/admin/metrics", label: "Métricas", Icon: BarChart3 },
-  { href: "/admin/usage", label: "Uso & Margem", Icon: Coins },
-  { href: "/admin/settings", label: "Configurações", Icon: Settings },
-] as const;
+type NavItem = {
+  href: string;
+  label: string;
+  Icon: typeof LayoutDashboard;
+  /** Cor de destaque opcional (tom emerald/fuchsia/etc) pra distinguir áreas
+   *  importantes que antes eram CTAs no topo do dashboard. */
+  accent?: "emerald" | "fuchsia";
+};
+
+type NavSection = {
+  label: string;
+  items: NavItem[];
+};
+
+const NAV_SECTIONS: NavSection[] = [
+  {
+    label: "Visão",
+    items: [
+      { href: "/admin", label: "Dashboard", Icon: LayoutDashboard },
+      { href: "/admin/realtime", label: "Tempo real", Icon: Activity },
+    ],
+  },
+  {
+    label: "Operação",
+    items: [
+      {
+        href: "/admin/health",
+        label: "Saúde & Segurança",
+        Icon: HeartPulse,
+        accent: "emerald",
+      },
+      { href: "/admin/metrics", label: "Métricas", Icon: BarChart3 },
+      { href: "/admin/usage", label: "Uso & Margem", Icon: Coins },
+    ],
+  },
+  {
+    label: "Crescimento",
+    items: [
+      {
+        href: "/admin/marketing",
+        label: "Vendas & Funil",
+        Icon: Megaphone,
+        accent: "fuchsia",
+      },
+      { href: "/admin/leads", label: "Leads", Icon: UserPlus },
+    ],
+  },
+  {
+    label: "Pessoas",
+    items: [
+      { href: "/admin/users", label: "Usuários", Icon: Users },
+      { href: "/admin/tickets", label: "Tickets", Icon: Mail },
+    ],
+  },
+  {
+    label: "Sistema",
+    items: [
+      { href: "/admin/settings", label: "Configurações", Icon: Settings },
+    ],
+  },
+];
+
+const ACCENT_CLASSES: Record<NonNullable<NavItem["accent"]>, { dot: string; active: string }> = {
+  emerald: {
+    dot: "bg-emerald-500",
+    active: "bg-emerald-500/15 text-emerald-200",
+  },
+  fuchsia: {
+    dot: "bg-fuchsia-500",
+    active: "bg-fuchsia-500/15 text-fuchsia-200",
+  },
+};
 
 export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
   const pathname = usePathname();
@@ -85,29 +149,45 @@ export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 px-2 py-4 flex flex-col gap-0.5 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
-            const active =
-              item.href === "/admin"
-                ? pathname === "/admin"
-                : pathname?.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                className={cn(
-                  "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors font-mono",
-                  active
-                    ? "bg-neutral-800 text-neutral-50"
-                    : "text-neutral-400 hover:text-neutral-100 hover:bg-neutral-900",
-                )}
-              >
-                <item.Icon className="h-4 w-4 shrink-0" />
-                <span className="flex-1 truncate">{item.label}</span>
-              </Link>
-            );
-          })}
+        <nav className="flex-1 px-2 py-4 flex flex-col gap-4 overflow-y-auto">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.label} className="flex flex-col gap-0.5">
+              <p className="px-3 mb-1 text-[9px] font-mono uppercase tracking-widest text-neutral-600">
+                {section.label}
+              </p>
+              {section.items.map((item) => {
+                const active =
+                  item.href === "/admin"
+                    ? pathname === "/admin"
+                    : pathname?.startsWith(item.href);
+                const accent = item.accent ? ACCENT_CLASSES[item.accent] : null;
+                return (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setMobileOpen(false)}
+                    className={cn(
+                      "group flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors font-mono",
+                      active
+                        ? accent?.active ?? "bg-neutral-800 text-neutral-50"
+                        : "text-neutral-400 hover:text-neutral-100 hover:bg-neutral-900",
+                    )}
+                  >
+                    <item.Icon className="h-4 w-4 shrink-0" />
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {accent && !active && (
+                      <span
+                        className={cn(
+                          "h-1.5 w-1.5 rounded-full shrink-0",
+                          accent.dot,
+                        )}
+                      />
+                    )}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
 
         {/* Footer */}

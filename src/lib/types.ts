@@ -63,6 +63,37 @@ export type LectureSummary = {
   images?: LectureSummaryImage[];
 };
 
+export type DocumentSourceKind = "pdf" | "text" | "audio_external";
+
+export type Document = {
+  id: string;
+  userId: string;
+  subjectId: string;
+  title: string;
+  sourceKind: DocumentSourceKind;
+  sourceUrl?: string;
+  sourceText?: string;
+  pageCount?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type SummarySource =
+  | { kind: "lecture"; lectureId: string }
+  | { kind: "document"; documentId: string };
+
+export type Summary = {
+  id: string;
+  userId: string;
+  subjectId: string;
+  title: string;
+  source: SummarySource;
+  content: LectureSummary;
+  images?: LectureSummaryImage[];
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type TranscriptMarker = "concept" | "doubt" | "example";
 export type TranscriptSpeaker = "professor" | "student" | "other";
 
@@ -108,8 +139,6 @@ export type Lecture = {
   slidesAddedAt?: string;
   correlation?: string;
   correlationUpdatedAt?: string;
-  summary?: LectureSummary;
-  summaryUpdatedAt?: string;
   /** URL pública (ou signed) do áudio gravado em paralelo à transcrição. */
   audioUrl?: string;
 };

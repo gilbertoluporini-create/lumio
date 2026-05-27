@@ -13,6 +13,7 @@ import { LumiCharacter } from "@/components/brand/lumi";
 import { Analytics } from "@/lib/analytics";
 import { signUp } from "@/lib/storage";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { getAttribution } from "@/lib/utm-tracker";
 
 type Mode = "password" | "magic";
 
@@ -53,7 +54,8 @@ function SignUpInner() {
         options: { redirectTo },
       });
       if (error) throw error;
-      Analytics.signUp("google");
+      // sign_up via Google é disparado no /auth/callback → ?welcome=google
+      // (a linha abaixo nunca executaria — signInWithOAuth redireciona antes).
     } catch (err) {
       toast.error((err as Error).message || "Não foi possível entrar com Google.");
       setGoogleLoading(false);
@@ -72,11 +74,13 @@ function SignUpInner() {
         return;
       }
 
+      const attribution = getAttribution();
+
       if (mode === "magic") {
         const res = await fetch("/api/auth/magic-link", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ email, name, next: nextPath }),
+          body: JSON.stringify({ email, name, next: nextPath, attribution }),
         });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
@@ -91,7 +95,7 @@ function SignUpInner() {
       const res = await fetch("/api/auth/signup-password", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ email, password, name, next: nextPath }),
+        body: JSON.stringify({ email, password, name, next: nextPath, attribution }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Não foi possível criar a conta.");
@@ -99,7 +103,10 @@ function SignUpInner() {
       if (data.needsConfirmation) {
         setSent("confirm");
         toast.success("Cheque seu email pra confirmar a conta.");
-        Analytics.signUp("magic_link");
+        // Confirmação por email pendente — ainda não é signup completo.
+        // O sign_up real é disparado quando o user clica no link e cai em
+        // /auth/callback (que adiciona ?welcome=&new=1).
+        Analytics.generateLead("signup_email_confirmation");
       } else {
         toast.success("Conta criada!");
         Analytics.signUp("password");

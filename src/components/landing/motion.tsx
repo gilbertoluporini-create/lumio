@@ -167,17 +167,12 @@ export function MarqueeRow({
         className,
       )}
     >
-      <motion.div
-        className="flex gap-12 whitespace-nowrap"
-        animate={
-          reduce
-            ? undefined
-            : { x: reverse ? ["-50%", "0%"] : ["0%", "-50%"] }
-        }
-        transition={{
-          duration: speed,
-          ease: "linear",
-          repeat: Infinity,
+      <div
+        className="flex gap-12 whitespace-nowrap will-change-transform motion-reduce:!animate-none"
+        style={{
+          animation: reduce
+            ? "none"
+            : `marquee-row ${speed}s linear infinite${reverse ? " reverse" : ""}`,
         }}
       >
         {duplicated.map((item, i) => (
@@ -189,7 +184,17 @@ export function MarqueeRow({
             {item}
           </span>
         ))}
-      </motion.div>
+      </div>
+      <style jsx>{`
+        @keyframes marquee-row {
+          from {
+            transform: translate3d(0, 0, 0);
+          }
+          to {
+            transform: translate3d(-50%, 0, 0);
+          }
+        }
+      `}</style>
     </div>
   );
 }

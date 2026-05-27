@@ -5,19 +5,18 @@ import { useEffect, useState } from "react";
 import { Bot, Mic } from "lucide-react";
 
 const TRANSCRIPT_PARTS = [
-  "As glândulas suprarrenais são pequenas estruturas localizadas sobre cada rim, ",
-  "no espaço retroperitoneal. ",
-  "A suprarrenal direita tem formato piramidal, ",
-  "enquanto a esquerda apresenta formato semilunar. ",
-  "Ambas mantêm contato direto com o diafragma. ",
-  "Sua vascularização vem de três artérias principais…",
+  "A independência do Brasil foi proclamada em 7 de setembro de 1822, ",
+  "às margens do riacho Ipiranga, em São Paulo. ",
+  "Dom Pedro I rompeu definitivamente com Portugal, ",
+  "encerrando três séculos de colonização. ",
+  "O processo foi influenciado pelas revoluções liberais europeias…",
 ];
 
 const FULL_TRANSCRIPT = TRANSCRIPT_PARTS.join("");
 
-const QUESTION = "Qual a diferença de formato entre as duas?";
+const QUESTION = "Por que dom João VI tinha voltado pra Portugal?";
 const ANSWER =
-  "A direita é piramidal e a esquerda semilunar, exatamente como o professor mencionou no início.";
+  "Pela Revolução do Porto em 1820, que exigiu o retorno do rei. Isso deixou dom Pedro como regente do Brasil.";
 
 export function LiveDemo() {
   const reduce = useReducedMotion();
@@ -97,7 +96,7 @@ export function LiveDemo() {
   return (
     <div className="relative">
       {/* Background frame — paper-like */}
-      <div className="absolute inset-0 -m-3 rounded-2xl bg-card/40 backdrop-blur-md border border-border/40 paper-texture" />
+      <div className="absolute inset-0 -m-3 rounded-2xl bg-card/60 border border-border/40 paper-texture" />
       <motion.div
         initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
@@ -115,7 +114,7 @@ export function LiveDemo() {
               <span className="h-1.5 w-1.5 rounded-full bg-red-500" /> AO VIVO
             </motion.span>
             <span className="text-xs text-muted-foreground font-mono">
-              Anatomia · Suprarrenais
+              História · Independência do Brasil
             </span>
           </div>
           <div className="flex items-center gap-1.5">
@@ -196,9 +195,9 @@ export function LiveDemo() {
         transition={{ delay: 1.2, duration: 0.6, type: "spring", stiffness: 200 }}
         className="hidden md:block absolute -bottom-4 md:-left-6 z-10"
       >
-        <div className="flex items-center gap-2 rounded-full bg-card border border-border shadow-xl px-3 py-1.5 backdrop-blur">
+        <div className="flex items-center gap-2 rounded-full bg-card border border-border shadow-xl px-3 py-1.5">
           <span className="h-2 w-2 rounded-full bg-gradient-to-br from-rose-500 to-pink-500" />
-          <span className="text-xs font-medium">Salvo na pasta Anatomia</span>
+          <span className="text-xs font-medium">Salvo na pasta História</span>
         </div>
       </motion.div>
     </div>

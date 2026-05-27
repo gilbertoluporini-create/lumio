@@ -1,12 +1,15 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { LumioWordmark } from "@/components/brand/logo";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata = {
+export const metadata: Metadata = buildPageMetadata({
   title: "Política de Privacidade · Lumio",
   description:
-    "Como o Lumio coleta, usa e protege seus dados pessoais. LGPD-compliant.",
-};
+    "Como o Lumio coleta, usa e protege seus dados pessoais. LGPD-compliant: privacidade por padrão, sem upload de áudio.",
+  path: "/privacy",
+});
 
 export default function PrivacyPage() {
   return (
@@ -31,7 +34,7 @@ export default function PrivacyPage() {
         <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-3">
           — Política de Privacidade —
         </p>
-        <h1 className="text-3xl md:text-4xl font-semibold tracking-tight mb-2">
+        <h1 className="text-3xl md:text-4xl heading-display mb-2">
           Política de Privacidade
         </h1>
         <p className="text-sm text-muted-foreground mb-10">

@@ -55,7 +55,7 @@ export function ProductsTabs() {
   const tab = TABS.find((t) => t.key === active)!;
 
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-border/60 bg-card/60 backdrop-blur p-5 md:p-7">
+    <div className="relative overflow-hidden rounded-3xl border border-border/60 bg-card/80 p-5 md:p-7">
       <div className="flex flex-wrap items-center gap-2 mb-6">
         {TABS.map(({ key, label, Icon, coins }) => {
           const isActive = active === key;
@@ -131,14 +131,14 @@ function ResumoPreview() {
         </span>
       </div>
       <h4 className="text-base font-semibold tracking-tight">
-        Glândulas suprarrenais — anatomia
+        Independência do Brasil — contexto e processo
       </h4>
       <ul className="space-y-2 pl-1">
         {[
-          "Pequenas, sobre cada rim, no espaço retroperitoneal.",
-          "Direita: piramidal. Esquerda: semilunar.",
-          "Contato direto com o diafragma.",
-          "Três artérias principais irrigam a estrutura.",
+          "Proclamada em 7 de setembro de 1822, às margens do Ipiranga.",
+          "Dom Pedro I rompeu com Portugal após pressão das Cortes.",
+          "Influência das revoluções liberais europeias do início do século XIX.",
+          "Reconhecimento internacional em 1825, via tratado com Portugal.",
         ].map((s, i) => (
           <motion.li
             key={s}
@@ -153,7 +153,7 @@ function ResumoPreview() {
         ))}
       </ul>
       <div className="mt-4 rounded-lg border border-border/40 bg-card/60 px-3 py-2 text-xs text-muted-foreground">
-        Dúvida do chat: <span className="text-foreground/85">&ldquo;qual a diferença de formato?&rdquo;</span> → respondida no parágrafo 2.
+        Dúvida do chat: <span className="text-foreground/85">&ldquo;por que Dom João voltou pra Portugal?&rdquo;</span> → respondida no parágrafo 2.
       </div>
     </div>
   );
@@ -161,9 +161,9 @@ function ResumoPreview() {
 
 function FlashcardsPreview() {
   const cards = [
-    { q: "Formato da suprarrenal direita?", a: "Piramidal" },
-    { q: "Formato da suprarrenal esquerda?", a: "Semilunar" },
-    { q: "Localização?", a: "Retroperitoneal, sobre os rins" },
+    { q: "Data da Independência?", a: "7 de setembro de 1822" },
+    { q: "Quem proclamou?", a: "Dom Pedro I" },
+    { q: "Onde foi proclamada?", a: "Riacho Ipiranga, SP" },
   ];
   return (
     <div className="space-y-3">
@@ -203,10 +203,10 @@ function FlashcardsPreview() {
 
 function QuizPreview() {
   const options = [
-    { label: "Piramidal", correct: true },
-    { label: "Semilunar", correct: false },
-    { label: "Esférica", correct: false },
-    { label: "Cúbica", correct: false },
+    { label: "7 de setembro de 1822", correct: true },
+    { label: "15 de novembro de 1889", correct: false },
+    { label: "5 de outubro de 1988", correct: false },
+    { label: "13 de maio de 1888", correct: false },
   ];
   return (
     <div className="space-y-3">
@@ -219,7 +219,7 @@ function QuizPreview() {
         </span>
       </div>
       <h4 className="text-base font-semibold tracking-tight leading-snug">
-        Qual o formato da suprarrenal direita?
+        Em que data foi proclamada a Independência do Brasil?
       </h4>
       <div className="grid gap-2">
         {options.map((o, i) => (
@@ -256,12 +256,12 @@ function QuizPreview() {
 
 function MapaPreview() {
   const branches = [
-    { label: "Localização", color: "from-violet-500 to-purple-500", angle: -60 },
-    { label: "Formato", color: "from-pink-500 to-rose-500", angle: 0 },
-    { label: "Vascularização", color: "from-amber-500 to-orange-500", angle: 60 },
-    { label: "Função", color: "from-emerald-500 to-teal-500", angle: 120 },
-    { label: "Hormônios", color: "from-sky-500 to-cyan-500", angle: 180 },
-    { label: "Patologias", color: "from-rose-500 to-red-500", angle: -120 },
+    { label: "Data", color: "from-violet-500 to-purple-500", angle: -60 },
+    { label: "Personagens", color: "from-pink-500 to-rose-500", angle: 0 },
+    { label: "Causas", color: "from-amber-500 to-orange-500", angle: 60 },
+    { label: "Consequências", color: "from-emerald-500 to-teal-500", angle: 120 },
+    { label: "Tratados", color: "from-sky-500 to-cyan-500", angle: 180 },
+    { label: "Contexto", color: "from-rose-500 to-red-500", angle: -120 },
   ];
   return (
     <div className="relative h-full min-h-[280px] flex items-center justify-center">
@@ -274,7 +274,7 @@ function MapaPreview() {
         transition={{ duration: 0.4, type: "spring", stiffness: 200 }}
         className="relative z-10 rounded-2xl bg-gradient-to-br from-primary to-violet-600 text-primary-foreground px-5 py-3 text-sm font-semibold tracking-tight shadow-lg"
       >
-        Suprarrenais
+        Independência
       </motion.div>
       {branches.map((b, i) => {
         const rad = (b.angle * Math.PI) / 180;

@@ -165,7 +165,7 @@ function HelpView({ user }: { user: User }) {
           <p className="text-sm text-muted-foreground">
             {greeting}, {first}
           </p>
-          <h1 className="mt-1 text-3xl md:text-4xl font-semibold tracking-tight">
+          <h1 className="mt-1 text-3xl md:text-4xl heading-display">
             Ajuda e suporte
           </h1>
           <p className="mt-2 max-w-2xl text-sm text-muted-foreground">

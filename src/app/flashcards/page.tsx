@@ -669,8 +669,10 @@ function FlashcardsHubView({ user }: { user: User }) {
           onOpenChange={setNewDeckOpen}
           mode="flashcards"
           userId={user.id}
-          onCreated={({ lectureId }) => {
-            router.push(`/lecture/${lectureId}/products`);
+          onCreated={({ summaryId }) => {
+            // Deck recém-criado aparece no topo da lista; recarrega via router refresh.
+            if (summaryId) router.push(`/resumo/doc/${summaryId}`);
+            else router.refresh();
           }}
         />
         <ImportDeckDialog open={importOpen} onOpenChange={setImportOpen} />
@@ -690,7 +692,7 @@ function FlashcardsHubView({ user }: { user: User }) {
             <div className="text-sm text-muted-foreground mb-1">
               {greeting}, {firstName}
             </div>
-            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+            <h1 className="text-3xl md:text-4xl heading-display">
               Flashcards
             </h1>
             <p className="mt-2 text-sm text-muted-foreground max-w-xl">
@@ -858,8 +860,9 @@ function FlashcardsHubView({ user }: { user: User }) {
         onOpenChange={setNewDeckOpen}
         mode="flashcards"
         userId={user.id}
-        onCreated={({ lectureId }) => {
-          router.push(`/lecture/${lectureId}/products`);
+        onCreated={() => {
+          // Recarrega a lista pra mostrar o novo deck.
+          router.refresh();
         }}
       />
       <ImportDeckDialog open={importOpen} onOpenChange={setImportOpen} />

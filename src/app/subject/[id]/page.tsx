@@ -9,9 +9,11 @@ import {
   Calendar,
   ChevronRight,
   Clock,
+  FileText,
   MapPin,
   Mic,
   Plus,
+  Sparkles,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -40,10 +42,14 @@ import {
   getSubjectAsync,
   listLecturesAsync,
 } from "@/lib/db";
+import { listSummariesAsync } from "@/lib/summaries";
+import { listDocumentsAsync } from "@/lib/documents";
 import {
   DAY_LABELS_LONG,
+  type Document as LumioDocument,
   type Lecture,
   type Subject,
+  type Summary,
   type User,
 } from "@/lib/types";
 import { cn, formatDuration, formatRelativeTime } from "@/lib/utils";
@@ -75,17 +81,23 @@ function SubjectView({
   const router = useRouter();
   const [subject, setSubject] = useState<Subject | null>(null);
   const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [summaries, setSummaries] = useState<Summary[]>([]);
+  const [documents, setDocuments] = useState<LumioDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [newOpen, setNewOpen] = useState(false);
   const [lectureTitle, setLectureTitle] = useState("");
 
   async function refresh() {
-    const [s, l] = await Promise.all([
+    const [s, l, sm, d] = await Promise.all([
       getSubjectAsync(user.id, subjectId),
       listLecturesAsync(user.id, subjectId),
+      listSummariesAsync(user.id, subjectId),
+      listDocumentsAsync(user.id, subjectId),
     ]);
     setSubject(s);
     setLectures(l);
+    setSummaries(sm);
+    setDocuments(d);
   }
 
   useEffect(() => {
@@ -143,10 +155,18 @@ function SubjectView({
     const withSlides = lectures.filter(
       (l) => (l.slides?.length ?? 0) > 0,
     ).length;
-    const withSummary = lectures.filter((l) => l.summary).length;
+    const withSummary = summaries.length;
     const totalMsgs = lectures.reduce((acc, l) => acc + l.messages.length, 0);
     return { totalMin, withSlides, withSummary, totalMsgs };
-  }, [lectures]);
+  }, [lectures, summaries]);
+
+  const lectureIdsWithSummary = useMemo(() => {
+    const set = new Set<string>();
+    for (const sm of summaries) {
+      if (sm.source.kind === "lecture") set.add(sm.source.lectureId);
+    }
+    return set;
+  }, [summaries]);
 
   if (loading) {
     return (
@@ -204,7 +224,7 @@ function SubjectView({
             })}
           </div>
           <div className="min-w-0">
-            <h1 className="text-3xl font-semibold tracking-tight truncate">
+            <h1 className="text-3xl heading-display truncate">
               {subject.name}
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
@@ -257,19 +277,49 @@ function SubjectView({
       )}
 
       {/* Lista de aulas como subpastas */}
-      {lectures.length === 0 ? (
+      {lectures.length === 0 && documents.length === 0 ? (
         <EmptyState onCreate={() => setNewOpen(true)} />
       ) : (
-        <div className="space-y-3">
-          {lectures.map((l) => (
-            <LectureFolder
-              key={l.id}
-              lecture={l}
-              subjectColor={subject.color}
-              onDelete={() => handleDeleteLecture(l)}
-            />
-          ))}
-        </div>
+        <>
+          {lectures.length > 0 && (
+            <div className="mb-6">
+              <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
+                Aulas gravadas · {lectures.length}
+              </h2>
+              <div className="space-y-3">
+                {lectures.map((l) => (
+                  <LectureFolder
+                    key={l.id}
+                    lecture={l}
+                    subjectColor={subject.color}
+                    hasSummary={lectureIdsWithSummary.has(l.id)}
+                    onDelete={() => handleDeleteLecture(l)}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {documents.length > 0 && (
+            <div>
+              <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
+                Documentos · {documents.length}
+              </h2>
+              <div className="space-y-2">
+                {documents.map((d) => {
+                  const sm = summaries.find(
+                    (s) =>
+                      s.source.kind === "document" &&
+                      s.source.documentId === d.id,
+                  );
+                  return (
+                    <DocumentRow key={d.id} document={d} summary={sm} />
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Dialog Nova Aula */}
@@ -309,15 +359,16 @@ function SubjectView({
 function LectureFolder({
   lecture,
   subjectColor,
+  hasSummary,
   onDelete,
 }: {
   lecture: Lecture;
   subjectColor: string;
+  hasSummary: boolean;
   onDelete: () => void;
 }) {
   const hasTranscript = lecture.transcript.trim().length > 0;
   const hasSlides = (lecture.slides?.length ?? 0) > 0;
-  const hasSummary = !!lecture.summary;
   const msgCount = lecture.messages.length;
 
   return (
@@ -414,13 +465,6 @@ function LectureFolder({
               }
               active={msgCount > 0}
             />
-            <FeatureTab
-              href={`/lecture/${lecture.id}/products`}
-              icon="sparkle"
-              label="Produtos"
-              detail={hasSummary ? "Resumo gerado" : "Resumo, flash cards…"}
-              active={hasSummary}
-            />
           </div>
         </div>
       </CardContent>
@@ -457,6 +501,47 @@ function FeatureTab({
         </div>
       </div>
       <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+    </Link>
+  );
+}
+
+function DocumentRow({
+  document,
+  summary,
+}: {
+  document: LumioDocument;
+  summary?: Summary;
+}) {
+  // Click sempre vai pra tela do documento. De lá, o user pode abrir
+  // o resumo gerado (se houver) ou gerar um novo.
+  const href = `/document/${document.id}`;
+  return (
+    <Link
+      href={href}
+      className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-sm transition-all p-4"
+    >
+      <div className="h-10 w-10 rounded-lg bg-sky-500/10 dark:bg-sky-500/15 flex items-center justify-center shrink-0">
+        <FileText className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold tracking-tight truncate group-hover:text-primary transition-colors">
+          {document.title}
+        </div>
+        <div className="text-xs text-muted-foreground mt-0.5 inline-flex items-center gap-2">
+          <span>
+            PDF
+            {document.pageCount
+              ? ` · ${document.pageCount} ${document.pageCount === 1 ? "página" : "páginas"}`
+              : ""}
+          </span>
+          {summary && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-1.5 py-px text-[9px] font-mono uppercase tracking-wider">
+              <Sparkles className="h-2.5 w-2.5" /> Com resumo
+            </span>
+          )}
+        </div>
+      </div>
+      <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
     </Link>
   );
 }

@@ -17,6 +17,16 @@ const PRICING: Record<string, PricingEntry> = {
   "imagen-3.0": { perImage: 0.04 },
   "imagen-4.0-generate-001": { perImage: 0.04 },
   "imagen-4.0": { perImage: 0.04 },
+  // OpenAI gpt-image-1 — preços jan/2026 (medium quality, square 1024x1024)
+  // Variantes pra registrar quality/aspect diferente sem reescrever schema.
+  "gpt-image-1": { perImage: 0.042 },
+  "gpt-image-1-low": { perImage: 0.011 },
+  "gpt-image-1-high": { perImage: 0.167 },
+  "gpt-image-1-landscape": { perImage: 0.063 }, // 1536x1024 medium
+  "gpt-image-1-portrait": { perImage: 0.063 }, // 1024x1536 medium
+  // OpenAI Embeddings — usado pelo RAG (indexação + busca semântica)
+  "text-embedding-3-small": { inputPerMtok: 0.02 },
+  "text-embedding-3-large": { inputPerMtok: 0.13 },
   // ElevenLabs Multilingual v2 — $0.30 por 1k chars (Pay-as-you-go)
   "elevenlabs-multilingual-v2": { perChar: 0.0003 },
 };

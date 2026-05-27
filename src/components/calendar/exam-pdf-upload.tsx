@@ -26,6 +26,7 @@ import {
 } from "@/lib/calendar-events";
 import type { Subject } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
 
 /* ---------------- types ---------------- */
 
@@ -231,8 +232,8 @@ function ExamPdfUploadBody({
         toast.error(msg);
         return;
       }
-      if (file.size > 20 * 1024 * 1024) {
-        const msg = "PDF muito grande (máx 20MB).";
+      if (file.size > LIMITS.PDF_BYTES) {
+        const msg = `PDF muito grande (máx ${PDF_LIMIT_MB}MB).`;
         setError(msg);
         toast.error(msg);
         return;
@@ -414,7 +415,7 @@ function ExamPdfUploadBody({
             </div>
             <div className="text-xs text-muted-foreground">
               Calendário acadêmico, plano de ensino, cronograma de provas… (máx
-              20MB)
+              50MB)
             </div>
           </button>
           <input

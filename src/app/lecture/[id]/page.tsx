@@ -20,6 +20,10 @@ import {
   getSubjectAsync,
   updateLectureAsync,
 } from "@/lib/db";
+import {
+  getSummaryByLectureIdAsync,
+  upsertSummaryByLectureAsync,
+} from "@/lib/summaries";
 import type {
   ChatMessage,
   Lecture,
@@ -30,6 +34,7 @@ import type {
   User,
 } from "@/lib/types";
 import { renderPdfToImages } from "@/lib/pdf-render";
+import { LIMITS, PDF_LIMIT_MB, PDF_VISION_LIMIT_MB } from "@/lib/api-security";
 import { formatDuration, generateId, stripChatFormatting } from "@/lib/utils";
 import {
   isSpeechRecognitionSupported,
@@ -206,7 +211,20 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         Array.isArray(l.slides) && l.slides.length > 0 ? l.slides : undefined;
       setSlides(validSlides);
       setSlidesFileName(validSlides ? l.slidesFileName : undefined);
-      setSummary(l.summary);
+      // Carrega summary da tabela summaries (source of truth)
+      const sm = await getSummaryByLectureIdAsync(user.id, l.id);
+      setSummary(sm?.content);
+
+      // Se a lecture é "shell" (sem transcript + sem slides) MAS tem summary,
+      // ela foi criada só pra abrigar resumo gerado de PDF/chat. Não faz
+      // sentido mostrar tela de transcrição ao vivo — manda direto pro resumo.
+      const hasTranscript = (l.transcript ?? "").trim().length > 0;
+      const hasEntries =
+        Array.isArray(l.transcriptEntries) && l.transcriptEntries.length > 0;
+      if (!hasTranscript && !hasEntries && !validSlides && sm?.content) {
+        router.replace(`/resumo/${l.id}`);
+        return;
+      }
       setAudioUrl(l.audioUrl);
       // Hydrate transcript entries (fallback: split simples se só tiver string)
       if (l.transcriptEntries && l.transcriptEntries.length > 0) {
@@ -303,6 +321,23 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       if (lecture?.id) {
         void finalizeAudioUpload(lecture.id);
       }
+
+      // Auto-indexa transcript pra RAG (Lumi consegue buscar trechos da aula)
+      if (lecture?.id && transcript.length > 80) {
+        void import("@/lib/embeddings-client").then(({ indexContentInBackground }) =>
+          indexContentInBackground({
+            sourceKind: "lecture",
+            sourceId: lecture.id,
+            subjectId: lecture.subjectId,
+            text: transcript,
+            metadata: {
+              title: lecture.title,
+              duration_sec: Math.round(durationRef.current),
+            },
+          }),
+        );
+      }
+
       // Classifica e gera insights uma vez ao parar
       void sync.classifyNow();
       void sync.refreshInsightsNow(lecture?.title);
@@ -376,27 +411,62 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       toast.error("Envie um PDF.");
       return;
     }
-    if (file.size > 20 * 1024 * 1024) {
-      toast.error("PDF muito grande (máx 20MB).");
+    if (file.size > LIMITS.PDF_BYTES) {
+      toast.error(`PDF muito grande (máx ${PDF_LIMIT_MB}MB).`);
       return;
     }
     setAttaching(true);
     const t = toast.loading("Renderizando slides do PDF...");
     try {
       const rendered = await renderPdfToImages(file);
-      toast.loading("Extraindo conteúdo de cada slide...", { id: t });
-      const fd = new FormData();
-      fd.append("file", file);
-      const res = await fetch("/api/extract-slides", {
-        method: "POST",
-        body: fd,
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data?.error || "Erro ao processar slides.", { id: t });
-        return;
+      const tooBigForVision = file.size > LIMITS.PDF_VISION_BYTES;
+
+      // PDFs > PDF_VISION_BYTES não cabem no body do serverless function da
+      // Vercel. Fallback: extração só de texto via pdfjs no client (sem
+      // Vision/AI). Cobre tudo, só não pega título por slide nem descreve
+      // diagramas — texto cru suficiente pra resumo/chat.
+      let extracted: Slide[] = [];
+      let fileNameFromServer: string | undefined;
+
+      if (tooBigForVision) {
+        toast.loading(
+          `PDF > ${PDF_VISION_LIMIT_MB}MB — extraindo texto direto no navegador...`,
+          { id: t },
+        );
+        const pdfjs = await import("pdfjs-dist");
+        if (typeof window !== "undefined") {
+          pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        }
+        const buf = await file.arrayBuffer();
+        const pdfDoc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+          const page = await pdfDoc.getPage(i);
+          const content = await page.getTextContent();
+          const text = content.items
+            .map((it) => ("str" in it ? it.str : ""))
+            .filter((s) => s.length > 0)
+            .join(" ");
+          extracted.push({ pageNumber: i, text });
+          page.cleanup();
+        }
+        await pdfDoc.destroy();
+      } else {
+        toast.loading("Extraindo conteúdo de cada slide...", { id: t });
+        const fd = new FormData();
+        fd.append("file", file);
+        const res = await fetch("/api/extract-slides", {
+          method: "POST",
+          body: fd,
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          toast.error(data?.error || "Erro ao processar slides.", { id: t });
+          return;
+        }
+        extracted = data.slides || [];
+        fileNameFromServer = data.fileName;
       }
-      const extracted: Slide[] = data.slides || [];
+
       const merged: Slide[] = rendered.map((r) => {
         const match = extracted.find((s) => s.pageNumber === r.pageNumber);
         return {
@@ -412,12 +482,13 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         }
       }
       merged.sort((a, b) => a.pageNumber - b.pageNumber);
+      const finalFileName = fileNameFromServer || file.name;
       setSlides(merged);
-      setSlidesFileName(data.fileName || file.name);
+      setSlidesFileName(finalFileName);
       setCurrentSlideIdx(0);
       persist({
         slides: merged,
-        slidesFileName: data.fileName || file.name,
+        slidesFileName: finalFileName,
         slidesAddedAt: new Date().toISOString(),
       });
       toast.success(
@@ -508,7 +579,17 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       }
       const s: LectureSummary = data.summary;
       setSummary(s);
-      persist({ summary: s, summaryUpdatedAt: s.generatedAt });
+      // Grava na tabela summaries (source of truth)
+      void upsertSummaryByLectureAsync({
+        userId: user.id,
+        subjectId: lecture?.subjectId ?? null,
+        lectureId: lecture!.id,
+        title: lecture?.title ?? "Resumo",
+        content: s,
+        images: s.images,
+      }).catch((err) =>
+        console.error("[lecture] summary upsert failed", err),
+      );
       if (t) toast.success("Resumo gerado.", { id: t });
       else toast.success("Resumo atualizado.");
       setView("summary");
@@ -642,9 +723,12 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     try {
       if (id === "summary") {
         await generateSummary();
-      } else {
-        // Redireciona pro wizard pré-configurado
-        router.push(`/lecture/${lecture.id}/products?mode=${id}`);
+      } else if (id === "flashcards") {
+        router.push("/flashcards?new=1");
+      } else if (id === "quiz") {
+        router.push("/quiz?new=1");
+      } else if (id === "mindmap") {
+        router.push("/documentos?new=mapa");
       }
     } finally {
       setActionLoading(null);
@@ -741,7 +825,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         view={view}
         hasSummary={!!summary}
         generatingSummary={generatingSummary}
-        productsHref={`/lecture/${lecture.id}/products`}
         onTitleChange={(t) => persist({ title: t })}
         onToggleRecording={toggleRecording}
         onChangeView={(v) => setView(v)}

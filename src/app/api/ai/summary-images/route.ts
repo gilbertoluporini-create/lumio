@@ -10,10 +10,80 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
-import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
+import { logAiUsage } from "@/lib/ai-usage";
+import {
+  generateImageOpenAI,
+  isOpenAIImageConfigured,
+  wrapPromptForMedicalDiagram,
+} from "@/lib/openai-image";
 import type { LectureSummary } from "@/lib/types";
+
+const STORAGE_BUCKET = "ai-images";
+
+/**
+ * Gera N imagens via OpenAI gpt-image-1 e faz upload pro bucket `ai-images`.
+ * Retorna URLs públicas. Roda em paralelo. Falhas individuais não derrubam o lote.
+ */
+async function generateAndUploadViaOpenAI(
+  prompts: string[],
+  userId: string,
+): Promise<string[]> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return [];
+  const admin = createAdminClient();
+
+  const results = await Promise.all(
+    prompts.map(async (rawPrompt, i) => {
+      try {
+        const { b64 } = await generateImageOpenAI({
+          prompt: wrapPromptForMedicalDiagram(rawPrompt),
+          quality: "medium",
+          size: "1024x1024",
+          apiKey,
+        });
+        const buffer = Buffer.from(b64, "base64");
+        const key = `${userId}/${Date.now()}-${i}-${Math.random()
+          .toString(36)
+          .slice(2, 8)}.png`;
+        const { error: upErr } = await admin.storage
+          .from(STORAGE_BUCKET)
+          .upload(key, buffer, {
+            contentType: "image/png",
+            upsert: false,
+          });
+        if (upErr) {
+          console.error("[summary-images] upload failed", upErr);
+          return null;
+        }
+        const { data: pub } = admin.storage
+          .from(STORAGE_BUCKET)
+          .getPublicUrl(key);
+        return pub?.publicUrl ?? null;
+      } catch (err) {
+        console.error("[summary-images] openai image failed", err);
+        return null;
+      }
+    }),
+  );
+
+  const urls = results.filter((u): u is string => !!u);
+  if (urls.length > 0) {
+    try {
+      await logAiUsage({
+        userId,
+        endpoint: "summary-images",
+        model: "gpt-image-1",
+        imagesCount: urls.length,
+      });
+    } catch {
+      /* ignora — telemetria não pode quebrar fluxo */
+    }
+  }
+  return urls;
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -71,11 +141,16 @@ PRIORIZE conceitos que sejam:
 
 EVITE: textos longos, definições puramente verbais, conceitos abstratos sem componente visual.
 
-ESTILO DOS PROMPTS (em inglês pra Imagen 4, mas com TERMOS TÉCNICOS EM PORTUGUÊS quando forem labels):
-- Comece descrevendo o tipo de diagrama ("anatomical cross-section diagram", "numbered process flow", "comparison table")
-- Liste OS LABELS exatos em português que devem aparecer (poucos, máximo 6 por imagem)
-- Descreva cores funcionais (vermelho=artéria, azul=veia, verde=normal, etc)
-- Indique se é vista frontal/posterior/transversal quando aplicável
+ESTILO DOS PROMPTS (em inglês pra gpt-image-1, com LABELS em português):
+- Comece descrevendo o tipo de figura, ESCOLHENDO UM ÚNICO formato por imagem:
+  "anatomical cross-section diagram" | "labeled anatomical structure" |
+  "numbered process flow diagram" | "side-by-side comparison diagram" |
+  "schematic mechanism with arrows" | "tabular classification grid"
+- Liste OS LABELS exatos em português que devem aparecer (máximo 6 por imagem, frases muito curtas, 1-3 palavras cada)
+- Descreva cores funcionais quando fizer sentido (vermelho=artéria, azul=veia, verde=normal, amarelo=destaque)
+- Indique a vista (frontal / posterior / transversal / sagital) quando aplicável
+- DESCREVA APENAS O CONTEÚDO. Não inclua estilo no prompt (estilo é injetado depois pelo wrapper).
+- PROIBIDO usar nos prompts: "photorealistic", "3D render", "vibrant", "glossy", "neon", "stylized", "documentary photography", "shallow depth of field", "cinematic"
 
 TEMA DA AULA: "${ctx.lectureTitle}" — Matéria: ${ctx.subjectName}
 
@@ -152,18 +227,24 @@ export async function POST(req: Request) {
   }
   const count = Math.max(2, Math.min(4, body.count ?? 3));
 
-  // Carrega lecture com TODO contexto pra ancorar a geração: summary +
-  // transcript + slides + título + matéria.
+  // Carrega lecture com TODO contexto pra ancorar a geração:
+  // transcript + slides + título + matéria. Summary vem de summaries table.
   const { data: lectureRow, error: lecErr } = await supabase
     .from("lectures")
-    .select("id, title, subject_id, transcript, slides, summary")
+    .select("id, title, subject_id, transcript, slides")
     .eq("id", body.lectureId)
     .eq("user_id", user.id)
     .maybeSingle();
   if (lecErr || !lectureRow) {
     return Response.json({ error: "Lecture não encontrada." }, { status: 404 });
   }
-  const lectureSummary = lectureRow.summary as LectureSummary | null;
+  const { data: sumRow } = await supabase
+    .from("summaries")
+    .select("content")
+    .eq("lecture_id", body.lectureId)
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const lectureSummary = (sumRow?.content as LectureSummary | null) ?? null;
   if (!lectureSummary?.generalSummary) {
     return Response.json(
       { error: "Summary ainda não foi gerado." },
@@ -208,33 +289,47 @@ export async function POST(req: Request) {
     return Response.json({ images: [] });
   }
 
-  // 2) Chamar generate-images via fetch interno
-  const origin = req.headers.get("x-forwarded-proto")
-    ? `${req.headers.get("x-forwarded-proto")}://${req.headers.get("host")}`
-    : `http://${req.headers.get("host")}`;
-  const cookieHeader = req.headers.get("cookie") ?? "";
-
-  const imagesResp = await fetch(`${origin}/api/ai/generate-images`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      cookie: cookieHeader,
-    },
-    body: JSON.stringify({
-      prompts: concepts.map((c) => c.prompt),
-    }),
-  });
-
-  if (!imagesResp.ok) {
-    const errText = await imagesResp.text().catch(() => "");
-    console.error("[summary-images] generate-images failed", errText);
-    return Response.json(
-      { error: "Falha ao gerar imagens." },
-      { status: 502 },
+  // 2) Geração de imagens — prefere OpenAI gpt-image-1 (mais fotográfico,
+  // melhor texto, menos "cara de IA"). Fallback: Imagen 4 via generate-images.
+  let urls: string[] = [];
+  if (isOpenAIImageConfigured()) {
+    urls = await generateAndUploadViaOpenAI(
+      concepts.map((c) => c.prompt),
+      user.id,
     );
   }
-  const { urls } = (await imagesResp.json()) as { urls?: string[] };
-  if (!urls || urls.length === 0) {
+
+  // Fallback Imagen quando OpenAI não configurado OU falhou completamente
+  if (urls.length === 0) {
+    const origin = req.headers.get("x-forwarded-proto")
+      ? `${req.headers.get("x-forwarded-proto")}://${req.headers.get("host")}`
+      : `http://${req.headers.get("host")}`;
+    const cookieHeader = req.headers.get("cookie") ?? "";
+
+    const imagesResp = await fetch(`${origin}/api/ai/generate-images`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: cookieHeader,
+      },
+      body: JSON.stringify({
+        prompts: concepts.map((c) => c.prompt),
+      }),
+    });
+
+    if (!imagesResp.ok) {
+      const errText = await imagesResp.text().catch(() => "");
+      console.error("[summary-images] generate-images failed", errText);
+      return Response.json(
+        { error: "Falha ao gerar imagens." },
+        { status: 502 },
+      );
+    }
+    const json = (await imagesResp.json()) as { urls?: string[] };
+    urls = json.urls ?? [];
+  }
+
+  if (urls.length === 0) {
     return Response.json({ images: [] });
   }
 
@@ -245,15 +340,15 @@ export async function POST(req: Request) {
     caption: concepts[i]?.caption ?? concepts[i]?.title,
   }));
 
-  // 4) Salvar em lecture.summary.images via update direto
+  // 4) Salvar em summaries (source of truth)
   const updatedSummary: LectureSummary = {
     ...lectureSummary,
     images,
   };
   await supabase
-    .from("lectures")
-    .update({ summary: updatedSummary })
-    .eq("id", body.lectureId)
+    .from("summaries")
+    .update({ content: updatedSummary, images })
+    .eq("lecture_id", body.lectureId)
     .eq("user_id", user.id);
 
   return Response.json({ images });

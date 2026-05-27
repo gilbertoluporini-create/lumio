@@ -8,7 +8,7 @@
 
 ## TL;DR
 
-A landing está visualmente **acima da média** do mercado BR pra SaaS de estudante: tipografia premium (Bricolage Grotesque), mascote consistente (Lumi), interações sofisticadas (Lenis smooth scroll, Magnetic, BeforeAfter), e um inventário sólido de seções (hero, products, pricing, FAQ, testimonials).
+A landing está visualmente **acima da média** do mercado BR pra SaaS de estudante: tipografia premium (Outfit), mascote consistente (Lumi), interações sofisticadas (Lenis smooth scroll, Magnetic, BeforeAfter), e um inventário sólido de seções (hero, products, pricing, FAQ, testimonials).
 
 Mas ela **não está calibrada pra converter tráfego pago frio**. Hoje serve melhor pra impressionar quem já chega curioso (ex: indicação) do que pra arrastar um estudante distraído do Instagram até o `/signup`.
 
@@ -25,7 +25,7 @@ Mas ela **não está calibrada pra converter tráfego pago frio**. Hoje serve me
 
 ### O que tá bom
 - Headline forte ("Volte a olhar pro **professor**. A gente cuida do **resto**.") — promessa emocional + benefício, ótimo.
-- Bricolage Grotesque + tracking negativo + line-height 1.02 = visual editorial de revista.
+- Outfit + tracking negativo + line-height 1.02 = visual editorial de revista.
 - `LumiCharacter mood="recording"` flutuando + `LiveDemo` mock na direita = movimento na primeira vista.
 - CTA primário "Começar grátis" com seta + magnetic effect.
 - Badge "Beta privado · vagas abertas" cria curiosidade.

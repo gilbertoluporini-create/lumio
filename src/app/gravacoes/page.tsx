@@ -16,7 +16,9 @@ import {
   Play,
   Search,
   Sparkles,
+  Trash2,
 } from "lucide-react";
+import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
@@ -29,7 +31,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { listLecturesAsync, listSubjectsAsync } from "@/lib/db";
+import {
+  deleteLectureAsync,
+  listLecturesAsync,
+  listSubjectsAsync,
+} from "@/lib/db";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn, formatDuration } from "@/lib/utils";
 import { Waveform } from "@/components/audio/waveform";
@@ -212,7 +218,7 @@ function GravacoesView({ user }: { user: User }) {
         <div className="text-sm text-muted-foreground mb-1">
           Suas aulas, organizadas e pesquisáveis
         </div>
-        <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+        <h1 className="text-3xl md:text-4xl heading-display">
           Minhas gravações
         </h1>
         <p className="mt-2 text-sm text-muted-foreground max-w-2xl">
@@ -295,6 +301,10 @@ function GravacoesView({ user }: { user: User }) {
                       key={l.id}
                       lecture={l}
                       subject={subjectById[l.subjectId]}
+                      userId={user.id}
+                      onDeleted={(id) =>
+                        setLectures((prev) => prev.filter((x) => x.id !== id))
+                      }
                     />
                   ))}
                 </div>
@@ -423,9 +433,13 @@ function RecentLectureCard({
 function LectureTableRow({
   lecture,
   subject,
+  userId,
+  onDeleted,
 }: {
   lecture: Lecture;
   subject: Subject | undefined;
+  userId: string;
+  onDeleted: (id: string) => void;
 }) {
   const Icon = subject ? getSubjectIcon(subject.name) : FileText;
   const hasTranscript = !!lecture.transcript && lecture.transcript.length > 0;
@@ -442,12 +456,29 @@ function LectureTableRow({
   });
   const isLive = lecture.status === "live";
   const [expanded, setExpanded] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   function toggleExpand(e: React.MouseEvent) {
     e.preventDefault();
     e.stopPropagation();
     if (!hasAudio) return;
     setExpanded((v) => !v);
+  }
+
+  async function handleDelete() {
+    const confirmed = window.confirm(
+      `Excluir a aula "${lecture.title}"?\n\nIsso remove transcrição, áudio, slides e o resumo gerado a partir dela.`,
+    );
+    if (!confirmed) return;
+    setDeleting(true);
+    try {
+      await deleteLectureAsync(userId, lecture.id);
+      toast.success("Aula excluída.");
+      onDeleted(lecture.id);
+    } catch (err) {
+      toast.error(`Erro ao excluir: ${(err as Error).message}`);
+      setDeleting(false);
+    }
   }
 
   return (
@@ -562,16 +593,34 @@ function LectureTableRow({
           >
             <Play className="h-3.5 w-3.5 text-primary fill-primary" />
           </Link>
-          <button
-            onClick={(e) => {
-              e.preventDefault();
-              // placeholder — menu kebab por aula (próxima iteração)
-            }}
-            className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-secondary/60"
-            aria-label="Mais opções"
-          >
-            <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
-          </button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                onClick={(e) => e.preventDefault()}
+                className="h-8 w-8 inline-flex items-center justify-center rounded-md hover:bg-secondary/60 disabled:opacity-50"
+                aria-label="Mais opções"
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                ) : (
+                  <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  void handleDelete();
+                }}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" /> Excluir aula
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 

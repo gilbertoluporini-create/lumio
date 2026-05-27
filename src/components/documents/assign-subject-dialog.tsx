@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { updateLectureAsync } from "@/lib/db";
+import { updateDocumentAsync } from "@/lib/documents";
 import { cn } from "@/lib/utils";
 import type { Subject } from "@/lib/types";
 import type { DocumentItem } from "@/hooks/use-all-documents";
@@ -43,11 +44,20 @@ export function AssignSubjectDialog({
     if (!doc || !effectivePick) return;
     setSaving(true);
     try {
-      await updateLectureAsync(userId, doc.lectureId, {
-        subjectId: effectivePick,
-      });
+      // Detecta a tabela alvo: documents (PDF standalone) vs lectures
+      if (doc.documentId) {
+        await updateDocumentAsync(userId, doc.documentId, {
+          subjectId: effectivePick,
+        });
+      } else if (doc.lectureId) {
+        await updateLectureAsync(userId, doc.lectureId, {
+          subjectId: effectivePick,
+        });
+      } else {
+        throw new Error("Documento sem fonte (lecture/document) atribuída.");
+      }
       toast.success("Documento atribuído à matéria.");
-      onAssigned?.(doc.lectureId, effectivePick);
+      onAssigned?.(doc.documentId || doc.lectureId, effectivePick);
       onOpenChange(false);
       setPicked(null);
     } catch (err) {

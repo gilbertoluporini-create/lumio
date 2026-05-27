@@ -720,8 +720,8 @@ function QuizView({ user }: { user: User }) {
           onOpenChange={setWizardOpen}
           mode="quiz"
           userId={user.id}
-          onCreated={({ lectureId }) => {
-            router.push(`/lecture/${lectureId}/products`);
+          onCreated={() => {
+            router.refresh();
           }}
         />
       </div>
@@ -1159,8 +1159,8 @@ function QuizView({ user }: { user: User }) {
                         </DropdownMenuItem>
                         {lec && (
                           <DropdownMenuItem asChild>
-                            <Link href={`/lecture/${lec.id}/products`}>
-                              <ArrowRight className="h-4 w-4" /> Abrir na aula
+                            <Link href={`/lecture/${lec.id}`}>
+                              <ArrowRight className="h-4 w-4" /> Abrir aula
                             </Link>
                           </DropdownMenuItem>
                         )}
@@ -1205,8 +1205,8 @@ function QuizView({ user }: { user: User }) {
         onOpenChange={setWizardOpen}
         mode="quiz"
         userId={user.id}
-        onCreated={({ lectureId }) => {
-          router.push(`/lecture/${lectureId}/products`);
+        onCreated={() => {
+          router.refresh();
         }}
       />
     </div>
@@ -1231,7 +1231,7 @@ function PageHeader({
         <div className="text-sm text-muted-foreground mb-1">
           {greeting}, {firstName}
         </div>
-        <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+        <h1 className="text-3xl md:text-4xl heading-display">
           Quiz para aprender e evoluir.
         </h1>
         <p className="mt-2 text-sm text-muted-foreground max-w-xl">

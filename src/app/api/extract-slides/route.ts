@@ -1,5 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { LIMITS, logAndSanitize, looksLikePdfBomb, sniffMagic } from "@/lib/api-security";
+import {
+  LIMITS,
+  PDF_VISION_LIMIT_MB,
+  logAndSanitize,
+  looksLikePdfBomb,
+  sniffMagic,
+} from "@/lib/api-security";
 import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
@@ -85,8 +91,14 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return Response.json({ error: "Arquivo ausente." }, { status: 400 });
   }
-  if (file.size === 0 || file.size > LIMITS.PDF_BYTES) {
-    return Response.json({ error: "Tamanho de PDF inválido (máx 20MB)." }, { status: 413 });
+  if (file.size === 0 || file.size > LIMITS.PDF_VISION_BYTES) {
+    return Response.json(
+      {
+        error: `PDF muito grande pra Vision (máx ${PDF_VISION_LIMIT_MB}MB). Pra arquivos maiores o client extrai texto direto sem Vision.`,
+        code: "pdf_too_large_for_vision",
+      },
+      { status: 413 },
+    );
   }
 
   const buf = Buffer.from(await file.arrayBuffer());

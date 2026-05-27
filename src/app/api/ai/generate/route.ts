@@ -88,9 +88,17 @@ function mergeAttachmentsIntoSources(
 /*  Prompts por mode                                                   */
 /* ------------------------------------------------------------------ */
 
+const INSUFFICIENT_GUARD = `GUARDA DE INSUFICIÊNCIA DE FONTES (regra absoluta, anterior a TODAS as outras):
+- Antes de gerar qualquer coisa, verifique se as fontes (transcrição + slides + PDFs) contêm conteúdo técnico real e específico sobre o tema solicitado, com no mínimo ~600 caracteres de material substantivo.
+- Se as fontes estiverem vazias, forem só uma conversa de chat sobre intenção de estudar (ex: "quero estudar X"), forem só metadados (títulos sem corpo), forem fragmentos genéricos, ou contradizerem o tema solicitado → responda EXCLUSIVAMENTE com a string literal a seguir e NADA MAIS:
+INSUFFICIENT_SOURCE
+- Não escreva avisos no corpo do resumo (proibido: "Aviso importante: as fontes não continham material processado"). Não use conhecimento geral pra preencher lacuna. Não invente conteúdo do programa típico da matéria. A única resposta aceita nesse caso é o marcador literal acima.`;
+
 const SYSTEM_SUMMARY = `Você é um TUTOR universitário brasileiro experiente criando um RESUMO DIDÁTICO COMPLETO de uma aula.
 
 Recebe trechos de aulas (transcrições, slides, PDFs) e gera um resumo em MARKDOWN coeso, profundo e altamente educativo. O objetivo é que o estudante leia esse resumo SEM ter assistido a aula original e ainda assim domine o conteúdo pra uma prova.
+
+${INSUFFICIENT_GUARD}
 
 ANCORAMENTO NAS FONTES (regra crítica):
 - Use TODO o conteúdo relevante das fontes (transcrição + slides + PDFs). Não pule blocos.
@@ -134,6 +142,8 @@ Quando withImages=true, mantenha o markdown limpo — o sistema vai inserir imag
 
 const SYSTEM_FLASHCARDS = `Você gera FLASHCARDS de revisão pra estudantes universitários brasileiros.
 
+${INSUFFICIENT_GUARD}
+
 REGRAS:
 - Responda APENAS com JSON válido. Sem markdown wrappers.
 - Crie EXATAMENTE o número solicitado de cards.
@@ -151,6 +161,8 @@ FORMATO:
 }`;
 
 const SYSTEM_QUIZ = `Você gera QUIZZES de revisão pra estudantes universitários brasileiros.
+
+${INSUFFICIENT_GUARD}
 
 REGRAS:
 - Responda APENAS com JSON válido. Sem markdown wrappers.
@@ -175,6 +187,8 @@ FORMATO:
 }`;
 
 const SYSTEM_MINDMAP = `Você gera MAPAS MENTAIS de aulas universitárias em português brasileiro.
+
+${INSUFFICIENT_GUARD}
 
 REGRAS:
 - Responda APENAS com JSON válido. Sem markdown wrappers.
@@ -331,28 +345,59 @@ function totalSourceChars(sources: Sources): number {
  * Extrai 3-4 conceitos-chave do markdown — primeiro tenta [[termos]],
  * depois cabeçalhos H2.
  */
-function extractImageConcepts(markdown: string, max: number = 4): string[] {
-  const set = new Set<string>();
+function extractImageConcepts(markdown: string, max: number = 2): string[] {
+  // Coleta candidatos: [[concept]] primeiro, depois títulos ## como fallback
+  const candidates: string[] = [];
   const re = /\[\[([^\]]+)\]\]/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(markdown)) !== null) {
     const term = m[1].trim();
-    if (term && term.length <= 80) set.add(term);
-    if (set.size >= max) break;
+    if (term && term.length <= 80) candidates.push(term);
   }
-  if (set.size < max) {
-    const h2Re = /^##\s+(.+)$/gm;
-    let h: RegExpExecArray | null;
-    while ((h = h2Re.exec(markdown)) !== null) {
-      const t = h[1]
-        .replace(/^\d+\.\s*/, "")
-        .replace(/^Pontos-chave.*/i, "")
-        .trim();
-      if (t && t.length <= 80) set.add(t);
-      if (set.size >= max) break;
+  const h2Re = /^##\s+(.+)$/gm;
+  let h: RegExpExecArray | null;
+  while ((h = h2Re.exec(markdown)) !== null) {
+    const t = h[1]
+      .replace(/^\d+\.\s*/, "")
+      .replace(/^Pontos-chave.*/i, "")
+      .replace(/^Aplicação cl[ií]nica.*/i, "")
+      .trim();
+    if (t && t.length <= 80) candidates.push(t);
+  }
+
+  // Dedup semântico: rejeita conceitos cujo texto (lowercase, sem palavras
+  // comuns) tenha >60% de overlap com algum já aceito. Evita "PCR" + "Reação
+  // em cadeia da polimerase" virarem 2 imagens visualmente iguais.
+  const STOPWORDS = new Set([
+    "de", "da", "do", "e", "a", "o", "em", "no", "na", "que", "para",
+    "com", "por", "um", "uma", "os", "as", "dos", "das",
+  ]);
+  const tokenize = (s: string) =>
+    new Set(
+      s
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .split(/[^a-z0-9]+/)
+        .filter((t) => t.length >= 3 && !STOPWORDS.has(t)),
+    );
+  const accepted: { raw: string; tokens: Set<string> }[] = [];
+  for (const c of candidates) {
+    if (accepted.length >= max) break;
+    const tokens = tokenize(c);
+    if (tokens.size === 0) continue;
+    let dup = false;
+    for (const a of accepted) {
+      const overlap = [...tokens].filter((t) => a.tokens.has(t)).length;
+      const minSize = Math.min(tokens.size, a.tokens.size);
+      if (minSize > 0 && overlap / minSize > 0.6) {
+        dup = true;
+        break;
+      }
     }
+    if (!dup) accepted.push({ raw: c, tokens });
   }
-  return Array.from(set).slice(0, max);
+  return accepted.map((a) => a.raw);
 }
 
 async function callImageEndpoint(
@@ -625,6 +670,25 @@ export async function POST(req: Request) {
       return Response.json(
         { error: "Resposta vazia da IA. Coins devolvidos." },
         { status: 500 },
+      );
+    }
+
+    // Detecta marcador de fontes insuficientes (guarda contra alucinação).
+    // Claude foi instruído pelo INSUFFICIENT_GUARD a retornar exatamente este
+    // token quando o material recebido não basta pra gerar o asset.
+    const rawTrim = raw.trim();
+    if (
+      rawTrim === "INSUFFICIENT_SOURCE" ||
+      rawTrim.startsWith("INSUFFICIENT_SOURCE")
+    ) {
+      await refundOnFailure("insufficient_source");
+      return Response.json(
+        {
+          error:
+            "Material insuficiente pra gerar esse conteúdo. Anexe um PDF com texto, grave a aula ou cole a transcrição antes de tentar de novo.",
+          code: "INSUFFICIENT_SOURCE",
+        },
+        { status: 422 },
       );
     }
 

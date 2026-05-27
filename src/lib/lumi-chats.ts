@@ -154,6 +154,86 @@ export async function hydrateFromServer(userId: string): Promise<void> {
   }
 }
 
+/**
+ * Heurística pra extrair título curto a partir da primeira mensagem do user.
+ * Remove fillers ("preciso de", "me ajuda com", "tô estudando pra"...) e
+ * fica com os 4-6 termos mais informativos. Pensado pra português BR coloquial.
+ *
+ * Exemplos:
+ *  "preciso estudar pra prova de anatomia respiratório amanhã, o que vc me indica"
+ *    → "Anatomia respiratório"
+ *  "explica o ciclo de krebs"
+ *    → "Ciclo de Krebs"
+ *  "como funciona a fotossíntese?"
+ *    → "Fotossíntese"
+ */
+export function extractChatTitle(rawMessage: string): string {
+  let s = rawMessage.trim().replace(/\s+/g, " ");
+  if (!s) return "Nova conversa";
+
+  // Remove pontuação no fim
+  s = s.replace(/[?!.,;:\-—]+$/g, "").trim();
+
+  // Patterns de "filler" no começo — case insensitive
+  const FILLER_PREFIXES: RegExp[] = [
+    /^(oi|olá|oie|eai|ei|alô|bom dia|boa tarde|boa noite)[,!.\s]+/i,
+    /^(por favor|pfv|please)[,\s]+/i,
+    /^(eu )?(preciso|queria|quero|gostaria|gostava)( de| que)?( saber| entender)?( sobre)?\s+/i,
+    /^(me )?(ajuda|ajude|ensina|ensine|explica|explique|explanar|fala|diz)( com| sobre| de| acerca de)?\s+/i,
+    /^(estou|tô|to|tava|estava)\s+(estudando|tentando entender|com dúvida em|com dificuldade em|aprendendo)\s+(sobre|de|com|em|pra|para|na|no|a)?\s*/i,
+    /^(tenho|tem)\s+(prova|teste|exame|trabalho|seminário|seminario)\s+(de|sobre|em)\s+/i,
+    /^(amanhã|hoje|semana que vem|próxima semana|na próxima)\s+/i,
+    /^(o que (é|sao|são|significa|quer dizer))\s+/i,
+    /^(qual (é|seria|foi|a))\s+/i,
+    /^(como (é|funciona|que funciona|se faz|fazer))\s+/i,
+    /^(quais (são|sao|seriam))\s+/i,
+    /^(por que|porque|pq)\s+/i,
+    /^(quando|onde|quem)\s+/i,
+    /^(pode (me )?(explicar|falar|dizer|ajudar|fazer))\s+/i,
+  ];
+
+  // Aplica até 3 vezes (cada filler pode revelar outro embaixo)
+  for (let i = 0; i < 3; i++) {
+    let changed = false;
+    for (const re of FILLER_PREFIXES) {
+      if (re.test(s)) {
+        s = s.replace(re, "").trim();
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) break;
+  }
+
+  // Remove conectivos "de/do/da" no começo se sobraram soltos
+  s = s.replace(/^(de|do|da|dos|das|sobre|acerca de|com|em|na|no|a|o)\s+/i, "");
+
+  // Corta no primeiro pontuador forte (vírgula, ponto-final, dois-pontos)
+  const cutAt = s.search(/[,;.:]/);
+  if (cutAt > 0) s = s.slice(0, cutAt);
+
+  // Remove sufixos temporais comuns
+  s = s.replace(
+    /\s+(amanhã|hoje|agora|de manhã|à tarde|à noite|essa semana|esta semana|próxima semana)\s*$/i,
+    "",
+  );
+
+  // Fica com no máximo 6 palavras
+  const words = s.split(/\s+/).filter(Boolean);
+  if (words.length > 6) s = words.slice(0, 6).join(" ");
+
+  s = s.trim();
+  if (!s) return rawMessage.trim().slice(0, 40) || "Nova conversa";
+
+  // Capitaliza primeira letra
+  s = s.charAt(0).toUpperCase() + s.slice(1);
+
+  // Limite final de 50 chars
+  if (s.length > 50) s = s.slice(0, 47).trim() + "...";
+
+  return s;
+}
+
 function nowISO(): string {
   return new Date().toISOString();
 }
@@ -248,7 +328,7 @@ export function appendMessage(
     msg.role === "user" &&
     msg.content.trim().length > 0
   ) {
-    updated.title = msg.content.trim().slice(0, 64);
+    updated.title = extractChatTitle(msg.content);
   }
   all[idx] = updated;
   safeWrite(userId, all);

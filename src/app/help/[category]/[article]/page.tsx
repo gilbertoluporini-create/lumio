@@ -1,6 +1,7 @@
 "use client";
 
-import { use, useMemo } from "react";
+import { use, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -24,6 +25,7 @@ import {
   type HelpCategory,
   type HelpCategoryIcon,
 } from "@/lib/help-articles";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { User } from "@/lib/types";
 
 const SUPPORT_EMAIL = "contato@lumioapp.net";
@@ -77,6 +79,29 @@ function HelpArticleView({
     .filter((a) => a.slug !== article.slug)
     .slice(0, 3);
 
+  // Capa gerada via OpenAI (admin endpoint). RLS read pública → anon client OK.
+  const [coverUrl, setCoverUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let cancel = false;
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data } = await supabase
+          .from("help_article_covers")
+          .select("image_url")
+          .eq("slug", article.slug)
+          .maybeSingle();
+        if (!cancel && data?.image_url) setCoverUrl(data.image_url as string);
+      } catch {
+        /* sem capa — segue sem renderizar */
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [article.slug]);
+
   return (
     <div className="mx-auto w-full max-w-3xl px-5 py-8">
       {/* Breadcrumb */}
@@ -104,7 +129,7 @@ function HelpArticleView({
           <Icon className="h-3 w-3 text-primary" aria-hidden="true" />
           {category.title}
         </div>
-        <h1 className="mt-3 text-3xl md:text-4xl font-semibold tracking-tight">
+        <h1 className="mt-3 text-3xl md:text-4xl heading-display">
           {article.title}
         </h1>
         <p className="mt-2 text-base text-muted-foreground">
@@ -117,6 +142,22 @@ function HelpArticleView({
           </span>
         </div>
       </header>
+
+      {/* Capa (se houver) */}
+      {coverUrl && (
+        <div className="mt-6 overflow-hidden rounded-2xl border border-border/60 bg-card">
+          <div className="relative aspect-[3/2] w-full">
+            <Image
+              src={coverUrl}
+              alt={article.title}
+              fill
+              priority
+              sizes="(max-width: 768px) 100vw, 768px"
+              className="object-cover"
+            />
+          </div>
+        </div>
+      )}
 
       {/* Body */}
       <article

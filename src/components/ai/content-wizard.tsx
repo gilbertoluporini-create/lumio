@@ -3,18 +3,15 @@
 /**
  * ContentWizard — wizard genérico de geração de conteúdo AI.
  *
- * 4 steps:
+ * 3 steps:
  *  1) Fontes (aulas, slides, PDFs uploadados, upload novo PDF) + descrição custom
  *  2) Opções específicas do mode (summary/flashcards/quiz/mindmap)
- *  3) Confirmação de custo (com check de saldo)
- *  4) Loading + preview do output (com botão Salvar / Descartar)
+ *  3) Confirmação de custo + botão "Gerar agora" (fecha wizard, geração corre
+ *     em background via toast persistente).
  *
  * Pricing real vem de src/lib/coins-pricing.ts.
  * Geração via POST /api/ai/generate (server consome coins).
- *
- * Salva no fim:
- *  - summary  → cria nova lecture, popula summary.generalSummary + sections
- *  - others   → cria lecture sintética + insere asset em lecture_assets
+ * Auto-save: handleGenerate cria lecture + popula direto, sem tela de preview.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,7 +19,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  CheckCircle2,
   ChevronDown,
   Coins,
   FileText,
@@ -30,15 +26,11 @@ import {
   Folder,
   Loader2,
   Mic,
-  RefreshCw,
   Sparkles,
-  Trash2,
   Upload,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -64,15 +56,25 @@ import {
   listSubjectsAsync,
   updateLectureAsync,
 } from "@/lib/db";
+import {
+  createSummaryAsync,
+  upsertSummaryByLectureAsync,
+} from "@/lib/summaries";
+import {
+  createDocumentAsync,
+  listDocumentsAsync,
+  updateDocumentAsync,
+} from "@/lib/documents";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
-import type { Lecture, Subject } from "@/lib/types";
+import type { Document, Lecture, Subject } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
 
 /* ------------------------------------------------------------------ */
 /*  Tipos                                                              */
 /* ------------------------------------------------------------------ */
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3;
 
 type Depth = "concise" | "standard" | "detailed";
 type Level = "beginner" | "intermediate" | "advanced";
@@ -84,6 +86,8 @@ type UploadedPdf = {
   name: string;
   text: string;
   pages: number;
+  /** File original — só na sessão; sobe pro Storage no submit do wizard */
+  file: File;
 };
 
 type GenerateResponse = {
@@ -122,7 +126,12 @@ export type ContentWizardProps = {
   /** Pré-seleciona uma aula como fonte (ex: usuário entrou pelo botão da própria aula) */
   initialSourceLectureId?: string;
   /** Callback opcional após salvar com sucesso */
-  onCreated?: (result: { lectureId: string; mode: AIMode }) => void;
+  onCreated?: (result: {
+    lectureId?: string;
+    summaryId?: string;
+    documentId?: string;
+    mode: AIMode;
+  }) => void;
 };
 
 /* ------------------------------------------------------------------ */
@@ -142,8 +151,12 @@ export function ContentWizard({
   // Step 1 state
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [loadingLectures, setLoadingLectures] = useState(false);
   const [selectedLectureIds, setSelectedLectureIds] = useState<Set<string>>(
+    new Set(),
+  );
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(
     new Set(),
   );
   const [includeSlides, setIncludeSlides] = useState(true);
@@ -151,6 +164,8 @@ export function ContentWizard({
   const [pdfProcessing, setPdfProcessing] = useState(false);
   const [userInstructions, setUserInstructions] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
+  const repairFileRef = useRef<HTMLInputElement>(null);
+  const [repairingDocId, setRepairingDocId] = useState<string | null>(null);
 
   // Step 2 state — específicas
   const [withImages, setWithImages] = useState(false);
@@ -166,12 +181,9 @@ export function ContentWizard({
   const [balance, setBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
 
-  // Step 4 state — generation
+  // Geração (rodando em background, wizard fecha imediatamente — toast persiste)
   const [generating, setGenerating] = useState(false);
-  const [genStage, setGenStage] = useState<string>("Preparando...");
-  const [result, setResult] = useState<GenerateResponse | null>(null);
-  const [saveTitle, setSaveTitle] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [, setGenStage] = useState<string>("Preparando...");
 
   /* --------------------------------------- carga inicial --------- */
 
@@ -179,11 +191,16 @@ export function ContentWizard({
     if (!open) return;
     let cancel = false;
     setLoadingLectures(true);
-    Promise.all([listLecturesAsync(userId), listSubjectsAsync(userId)])
-      .then(([l, s]) => {
+    Promise.all([
+      listLecturesAsync(userId),
+      listSubjectsAsync(userId),
+      listDocumentsAsync(userId),
+    ])
+      .then(([l, s, d]) => {
         if (cancel) return;
         setLectures(l);
         setSubjects(s);
+        setDocuments(d);
         // Pré-seleciona se vier initialSourceLectureId
         if (
           initialSourceLectureId &&
@@ -206,12 +223,11 @@ export function ContentWizard({
     const t = setTimeout(() => {
       setStep(1);
       setSelectedLectureIds(new Set());
+      setSelectedDocumentIds(new Set());
       setIncludeSlides(true);
       setUploadedPdfs([]);
       setUserInstructions("");
       setWithImages(false);
-      setResult(null);
-      setSaveTitle("");
       setGenerating(false);
     }, 250);
     return () => clearTimeout(t);
@@ -278,7 +294,14 @@ export function ContentWizard({
   /* --------------------------------------- step nav -------------- */
 
   const canAdvanceStep1 =
-    selectedLectureIds.size > 0 || uploadedPdfs.length > 0;
+    selectedLectureIds.size > 0 ||
+    selectedDocumentIds.size > 0 ||
+    uploadedPdfs.length > 0;
+
+  const selectedDocuments = useMemo(
+    () => documents.filter((d) => selectedDocumentIds.has(d.id)),
+    [documents, selectedDocumentIds],
+  );
 
   /* --------------------------------------- PDF upload ------------ */
 
@@ -293,8 +316,8 @@ export function ContentWizard({
 
       const newOnes: UploadedPdf[] = [];
       for (const file of Array.from(files)) {
-        if (file.size > 20 * 1024 * 1024) {
-          toast.error(`"${file.name}" passa de 20 MB — pula.`);
+        if (file.size > LIMITS.PDF_BYTES) {
+          toast.error(`"${file.name}" passa de ${PDF_LIMIT_MB} MB — pula.`);
           continue;
         }
         try {
@@ -325,6 +348,7 @@ export function ContentWizard({
             name: file.name,
             text,
             pages: doc.numPages,
+            file,
           });
         } catch (err) {
           console.error(err);
@@ -343,11 +367,114 @@ export function ContentWizard({
     }
   }, []);
 
+  /* --------------------------------------- repair doc sem texto -- */
+
+  const handleRepairDocFiles = useCallback(
+    async (files: FileList | null) => {
+      const docId = repairingDocId;
+      if (!docId || !files || files.length === 0) {
+        setRepairingDocId(null);
+        return;
+      }
+      const file = files[0];
+      if (file.size > LIMITS.PDF_BYTES) {
+        toast.error(`Arquivo passa de ${PDF_LIMIT_MB} MB.`);
+        setRepairingDocId(null);
+        return;
+      }
+      const t = toast.loading(`Extraindo texto de "${file.name}"...`);
+      try {
+        const pdfjs = await import("pdfjs-dist");
+        if (typeof window !== "undefined") {
+          pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        }
+        const buf = await file.arrayBuffer();
+        const task = pdfjs.getDocument({ data: new Uint8Array(buf) });
+        const doc = await task.promise;
+        const parts: string[] = [];
+        for (let i = 1; i <= doc.numPages; i++) {
+          const page = await doc.getPage(i);
+          const content = await page.getTextContent();
+          const pageText = content.items
+            .map((it) => ("str" in it ? it.str : ""))
+            .filter((s) => s.length > 0)
+            .join(" ");
+          if (pageText.trim().length > 0) {
+            parts.push(`--- Página ${i} ---\n${pageText}`);
+          }
+          page.cleanup();
+        }
+        await doc.destroy();
+        const text = parts.join("\n\n");
+        if (!text.trim()) {
+          toast.error("Este PDF não tem texto extraível.", { id: t });
+          return;
+        }
+        await updateDocumentAsync(userId, docId, {
+          sourceText: text,
+          pageCount: doc.numPages,
+        });
+        // Captura subjectId pra passar pra indexação
+        const docForIndex = documents.find((d) => d.id === docId);
+        setDocuments((prev) =>
+          prev.map((d) =>
+            d.id === docId
+              ? { ...d, sourceText: text, pageCount: doc.numPages }
+              : d,
+          ),
+        );
+        setSelectedDocumentIds((prev) => {
+          const next = new Set(prev);
+          next.add(docId);
+          return next;
+        });
+        toast.success("Texto extraído. Documento pronto pra usar.", { id: t });
+
+        // Auto-indexa o PDF reparado
+        const { indexContentInBackground } = await import(
+          "@/lib/embeddings-client"
+        );
+        void indexContentInBackground({
+          sourceKind: "document",
+          sourceId: docId,
+          subjectId: docForIndex?.subjectId,
+          text,
+          metadata: {
+            page_count: doc.numPages,
+            title: docForIndex?.title,
+          },
+        });
+      } catch (err) {
+        toast.error(`Falha ao processar PDF: ${(err as Error).message}`, {
+          id: t,
+        });
+      } finally {
+        setRepairingDocId(null);
+        if (repairFileRef.current) repairFileRef.current.value = "";
+      }
+    },
+    [repairingDocId, userId],
+  );
+
+  const triggerRepair = useCallback((docId: string) => {
+    setRepairingDocId(docId);
+    // Pequeno defer pra garantir que o input já reflita o estado novo
+    setTimeout(() => {
+      const input = repairFileRef.current;
+      if (!input) return;
+      // Detecta cancelamento do file picker pra destravar o botão "Extraindo...".
+      // O onChange só dispara se o user escolhe arquivo; cancel não emite change.
+      // Evento "cancel" é nativo do DOM (HTML spec) — não tem no type React.
+      const onCancel = () => setRepairingDocId(null);
+      input.addEventListener("cancel", onCancel, { once: true });
+      input.click();
+    }, 0);
+  }, []);
+
   /* --------------------------------------- generate -------------- */
 
   const handleGenerate = useCallback(async () => {
     setGenerating(true);
-    setResult(null);
     setGenStage("Lendo fontes...");
     // Toast persistente substitui a tela de preview — o user pode navegar e
     // será redirecionado quando salvar finalizar.
@@ -377,7 +504,12 @@ export function ContentWizard({
         transcripts.push(combined);
       }
     }
-    const pdfTexts = uploadedPdfs.map((p) => p.text);
+    const pdfTexts = [
+      ...uploadedPdfs.map((p) => p.text),
+      ...selectedDocuments
+        .map((d) => d.sourceText ?? "")
+        .filter((t) => t.length > 0),
+    ];
 
     const options: Record<string, unknown> = {
       withImages: withImages && imagesAvailable,
@@ -437,25 +569,123 @@ export function ContentWizard({
       const title = suggestTitle(mode, json).slice(0, 200);
 
       if (mode === "summary") {
-        const lecture = await createLectureAsync(userId, { subjectId, title });
         const md = (json.content as { markdown?: string })?.markdown ?? "";
-        const summary = {
+        const summaryContent = {
           generatedAt: new Date().toISOString(),
           generalSummary: md,
           highlights: extractHighlights(md, 6),
           sections: [],
         };
-        await updateLectureAsync(userId, lecture.id, { summary });
-        toast.dismiss("wizard-generation");
-        toast.success("Resumo pronto!");
-        onCreated?.({ lectureId: lecture.id, mode });
-        // Dispara geração de imagens automaticamente em background
-        void fetch("/api/ai/summary-images", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ lectureId: lecture.id, count: 3 }),
-          keepalive: true,
-        }).catch(() => {});
+        // Origem: tem aula gravada selecionada → resumo linkado à aula.
+        // Senão (só PDF/instruções): cria Document + Summary direto.
+        if (selectedLectures.length > 0) {
+          const baseLecture = selectedLectures[0];
+          const sm = await upsertSummaryByLectureAsync({
+            userId,
+            subjectId,
+            lectureId: baseLecture.id,
+            title,
+            content: summaryContent,
+          }).catch((err) => {
+            console.error("[wizard] summaries write failed", err);
+            return null;
+          });
+          toast.dismiss("wizard-generation");
+          toast.success("Resumo pronto!");
+          onCreated?.({
+            lectureId: baseLecture.id,
+            summaryId: sm?.id,
+            mode,
+          });
+          void fetch("/api/ai/summary-images", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ lectureId: baseLecture.id, count: 3 }),
+            keepalive: true,
+          }).catch(() => {});
+        } else {
+          // PDF/texto puro — cria Document + Summary, sem Lecture
+          const pageCount = uploadedPdfs.reduce(
+            (acc, p) => acc + (p.pages ?? 0),
+            0,
+          );
+          const docTitle =
+            uploadedPdfs.length === 1
+              ? uploadedPdfs[0].name.replace(/\.pdf$/i, "")
+              : title;
+          const doc = await createDocumentAsync({
+            userId,
+            subjectId,
+            title: docTitle,
+            sourceKind: "pdf",
+            sourceText: pdfTexts.join("\n\n---\n\n"),
+            pageCount: pageCount > 0 ? pageCount : undefined,
+          });
+          if (!doc) {
+            toast.dismiss("wizard-generation");
+            toast.error("Falha ao salvar documento.");
+            return;
+          }
+
+          // Sobe PDF(s) binários pro Storage e atualiza source_url.
+          // Quando >1 PDF foi anexado, salva o primeiro como representativo
+          // (compatível com schema atual de 1 source_url por documento).
+          if (uploadedPdfs.length > 0) {
+            try {
+              const supabase = (
+                await import("@/lib/supabase/client")
+              ).createClient();
+              const first = uploadedPdfs[0];
+              const storageKey = `${userId}/${doc.id}.pdf`;
+              const { error: upErr } = await supabase.storage
+                .from("user-documents")
+                .upload(storageKey, first.file, {
+                  contentType: "application/pdf",
+                  upsert: true,
+                });
+              if (!upErr) {
+                const { data: pub } = supabase.storage
+                  .from("user-documents")
+                  .getPublicUrl(storageKey);
+                if (pub?.publicUrl) {
+                  await supabase
+                    .from("documents")
+                    .update({ source_url: pub.publicUrl })
+                    .eq("id", doc.id);
+                }
+              }
+            } catch (err) {
+              console.warn("[wizard] pdf storage upload failed", err);
+            }
+          }
+
+          // Auto-indexa o PDF cru pra Lumi conseguir buscar trechos depois (RAG)
+          const { indexContentInBackground } = await import(
+            "@/lib/embeddings-client"
+          );
+          void indexContentInBackground({
+            sourceKind: "document",
+            sourceId: doc.id,
+            subjectId,
+            text: pdfTexts.join("\n\n---\n\n"),
+            metadata: { title: docTitle, page_count: pageCount },
+          });
+
+          const sm = await createSummaryAsync({
+            userId,
+            subjectId,
+            source: { kind: "document", documentId: doc.id },
+            title,
+            content: summaryContent,
+          });
+          toast.dismiss("wizard-generation");
+          toast.success("Resumo pronto!");
+          onCreated?.({
+            documentId: doc.id,
+            summaryId: sm?.id,
+            mode,
+          });
+        }
       } else {
         const lecture = await createLectureAsync(userId, { subjectId, title });
         if (isSupabaseConfigured()) {
@@ -557,110 +787,6 @@ export function ContentWizard({
     onOpenChange,
   ]);
 
-  /* --------------------------------------- save ------------------ */
-
-  const handleSave = useCallback(async () => {
-    if (!result) return;
-    setSaving(true);
-    try {
-      // Determina subject — usa a primeira aula selecionada, ou primeiro subject do user
-      const firstLecture = selectedLectures[0];
-      const subjectId =
-        firstLecture?.subjectId ?? subjects[0]?.id ?? "";
-      if (!subjectId) {
-        toast.error(
-          "Crie ao menos uma matéria antes de salvar — vá no dashboard.",
-        );
-        setSaving(false);
-        return;
-      }
-
-      const title = (saveTitle || "Material gerado").slice(0, 200);
-
-      if (mode === "summary") {
-        const lecture = await createLectureAsync(userId, {
-          subjectId,
-          title,
-        });
-        const md =
-          (result.content as { markdown?: string })?.markdown ?? "";
-        const summary = {
-          generatedAt: new Date().toISOString(),
-          generalSummary: md,
-          highlights: extractHighlights(md, 6),
-          sections: [],
-        };
-        await updateLectureAsync(userId, lecture.id, {
-          summary,
-        });
-        toast.success("Resumo salvo!");
-        onCreated?.({ lectureId: lecture.id, mode });
-      } else {
-        // flashcards/quiz/mindmap → cria lecture sintética + lecture_assets
-        const lecture = await createLectureAsync(userId, {
-          subjectId,
-          title,
-        });
-
-        // Insere asset via supabase client (mesmo padrão usado em outras pages)
-        if (isSupabaseConfigured()) {
-          const supabase = createClient();
-          const kind = mode; // "flashcards" | "quiz" | "mindmap"
-          let payload: Record<string, unknown> = {};
-          if (mode === "flashcards") {
-            const cards = ((result.content as { cards?: unknown[] }).cards ??
-              []) as Flashcard[];
-            payload = { generatedAt: new Date().toISOString(), cards };
-          } else if (mode === "quiz") {
-            const questions = ((result.content as { questions?: unknown[] })
-              .questions ?? []) as QuizQuestion[];
-            payload = {
-              generatedAt: new Date().toISOString(),
-              questions,
-            };
-          } else if (mode === "mindmap") {
-            const c = result.content as {
-              centralTopic?: string;
-              branches?: MindmapNode[];
-            };
-            payload = {
-              generatedAt: new Date().toISOString(),
-              centralTopic: c.centralTopic ?? title,
-              branches: c.branches ?? [],
-            };
-          }
-
-          const { error } = await supabase.from("lecture_assets").insert({
-            lecture_id: lecture.id,
-            user_id: userId,
-            kind,
-            payload,
-            coins_spent: result.coinsCharged,
-          });
-          if (error) throw error;
-        }
-
-        toast.success(`${modeLabel(mode)} salvo!`);
-        onCreated?.({ lectureId: lecture.id, mode });
-      }
-
-      onOpenChange(false);
-    } catch (err) {
-      console.error(err);
-      toast.error(`Erro ao salvar: ${(err as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
-  }, [
-    result,
-    mode,
-    userId,
-    selectedLectures,
-    subjects,
-    saveTitle,
-    onCreated,
-    onOpenChange,
-  ]);
 
   /* --------------------------------------- render ---------------- */
 
@@ -687,7 +813,6 @@ export function ContentWizard({
                 {step === 1 && "Escolha de onde vem o conteúdo."}
                 {step === 2 && "Ajuste as opções de geração."}
                 {step === 3 && "Confirme o custo e gere."}
-                {step === 4 && (generating ? "Gerando..." : "Pronto pra revisar.")}
               </DialogDescription>
             </div>
             <StepBadge step={step} />
@@ -709,6 +834,18 @@ export function ContentWizard({
                   return next;
                 });
               }}
+              documents={documents}
+              selectedDocumentIds={selectedDocumentIds}
+              onToggleDocument={(id) => {
+                setSelectedDocumentIds((prev) => {
+                  const next = new Set(prev);
+                  if (next.has(id)) next.delete(id);
+                  else next.add(id);
+                  return next;
+                });
+              }}
+              onRepairDocument={triggerRepair}
+              repairingDocId={repairingDocId}
               includeSlides={includeSlides}
               onToggleSlides={setIncludeSlides}
               uploadedPdfs={uploadedPdfs}
@@ -755,42 +892,18 @@ export function ContentWizard({
             />
           )}
 
-          {step === 4 && (
-            <Step4Result
-              mode={mode}
-              generating={generating}
-              stage={genStage}
-              result={result}
-              saveTitle={saveTitle}
-              onChangeTitle={setSaveTitle}
-            />
-          )}
         </div>
 
         {/* Footer com nav */}
         <div className="border-t border-border/50 px-6 py-3 flex items-center justify-between gap-3 shrink-0 bg-card/50">
           <div className="text-[11px] text-muted-foreground">
-            {step < 4 && (
-              <span>
-                Etapa <span className="font-semibold">{step}</span> de 3
-              </span>
-            )}
-            {step === 4 &&
-              (generating ? (
-                <span className="inline-flex items-center gap-1.5">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  {genStage}
-                </span>
-              ) : result ? (
-                <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
-                  <CheckCircle2 className="h-3 w-3" />
-                  Gerado · {result.coinsCharged} coins consumidos
-                </span>
-              ) : null)}
+            <span>
+              Etapa <span className="font-semibold">{step}</span> de 3
+            </span>
           </div>
 
           <div className="flex items-center gap-2">
-            {step > 1 && step < 4 && (
+            {step > 1 && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -823,46 +936,10 @@ export function ContentWizard({
                 variant="gradient"
                 size="lg"
                 onClick={() => void handleGenerate()}
-                disabled={insufficient || balance === null}
+                disabled={insufficient || balance === null || generating}
               >
                 <Sparkles className="h-4 w-4" /> Gerar agora
               </Button>
-            )}
-            {step === 4 && result && !generating && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onOpenChange(false)}
-                  disabled={saving}
-                >
-                  <Trash2 className="h-3.5 w-3.5" /> Descartar
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setResult(null);
-                    setStep(2);
-                  }}
-                  disabled={saving}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" /> Re-gerar
-                </Button>
-                <Button
-                  variant="gradient"
-                  size="sm"
-                  onClick={() => void handleSave()}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Check className="h-4 w-4" />
-                  )}
-                  Salvar
-                </Button>
-              </>
             )}
           </div>
         </div>
@@ -875,6 +952,13 @@ export function ContentWizard({
           className="hidden"
           onChange={(e) => void handlePdfFiles(e.target.files)}
         />
+        <input
+          ref={repairFileRef}
+          type="file"
+          accept="application/pdf"
+          className="hidden"
+          onChange={(e) => void handleRepairDocFiles(e.target.files)}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -885,13 +969,6 @@ export function ContentWizard({
 /* ------------------------------------------------------------------ */
 
 function StepBadge({ step }: { step: Step }) {
-  if (step === 4) {
-    return (
-      <Badge variant="secondary" className="gap-1 shrink-0">
-        <Sparkles className="h-3 w-3" /> Geração
-      </Badge>
-    );
-  }
   return (
     <Badge variant="outline" className="font-mono tabular-nums shrink-0">
       {step}/3
@@ -907,6 +984,11 @@ function Step1Sources({
   loading,
   selectedIds,
   onToggleLecture,
+  documents,
+  selectedDocumentIds,
+  onToggleDocument,
+  onRepairDocument,
+  repairingDocId,
   includeSlides,
   onToggleSlides,
   uploadedPdfs,
@@ -921,6 +1003,11 @@ function Step1Sources({
   loading: boolean;
   selectedIds: Set<string>;
   onToggleLecture: (id: string) => void;
+  documents: Document[];
+  selectedDocumentIds: Set<string>;
+  onToggleDocument: (id: string) => void;
+  onRepairDocument: (docId: string) => void;
+  repairingDocId: string | null;
   includeSlides: boolean;
   onToggleSlides: (v: boolean) => void;
   uploadedPdfs: UploadedPdf[];
@@ -1049,13 +1136,18 @@ function Step1Sources({
         )}
       </div>
 
-      {/* PDF da pasta Documentos — lectures com slides já uploadados */}
+      {/* PDF da pasta Documentos — documents salvos + lectures com slides */}
       <SavedPdfsSection
         lectures={lectures}
         subjects={subjects}
         loading={loading}
-        selectedIds={selectedIds}
-        onToggle={onToggleLecture}
+        selectedLectureIds={selectedIds}
+        onToggleLecture={onToggleLecture}
+        documents={documents}
+        selectedDocumentIds={selectedDocumentIds}
+        onToggleDocument={onToggleDocument}
+        onRepairDocument={onRepairDocument}
+        repairingDocId={repairingDocId}
       />
 
 
@@ -1322,14 +1414,24 @@ function SavedPdfsSection({
   lectures,
   subjects,
   loading,
-  selectedIds,
-  onToggle,
+  selectedLectureIds,
+  onToggleLecture,
+  documents,
+  selectedDocumentIds,
+  onToggleDocument,
+  onRepairDocument,
+  repairingDocId,
 }: {
   lectures: Lecture[];
   subjects: Map<string, Subject>;
   loading: boolean;
-  selectedIds: Set<string>;
-  onToggle: (id: string) => void;
+  selectedLectureIds: Set<string>;
+  onToggleLecture: (id: string) => void;
+  documents: Document[];
+  selectedDocumentIds: Set<string>;
+  onToggleDocument: (id: string) => void;
+  onRepairDocument: (docId: string) => void;
+  repairingDocId: string | null;
 }) {
   const [open, setOpen] = useState(true);
   const withSlides = useMemo(
@@ -1343,7 +1445,21 @@ function SavedPdfsSection({
         ),
     [lectures],
   );
-  const selectedCount = withSlides.filter((l) => selectedIds.has(l.id)).length;
+  const sortedDocuments = useMemo(
+    () =>
+      documents
+        .slice()
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt ?? b.createdAt).getTime() -
+            new Date(a.updatedAt ?? a.createdAt).getTime(),
+        ),
+    [documents],
+  );
+  const totalItems = withSlides.length + sortedDocuments.length;
+  const selectedCount =
+    withSlides.filter((l) => selectedLectureIds.has(l.id)).length +
+    sortedDocuments.filter((d) => selectedDocumentIds.has(d.id)).length;
 
   return (
     <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
@@ -1359,7 +1475,7 @@ function SavedPdfsSection({
           <div className="text-sm font-medium">PDF da pasta Documentos</div>
           <div className="text-[11px] text-muted-foreground">
             {selectedCount === 0
-              ? `${withSlides.length} PDF${withSlides.length === 1 ? "" : "s"} salvo${withSlides.length === 1 ? "" : "s"} na sua biblioteca`
+              ? `${totalItems} PDF${totalItems === 1 ? "" : "s"} salvo${totalItems === 1 ? "" : "s"} na sua biblioteca`
               : `${selectedCount} selecionado${selectedCount === 1 ? "" : "s"}`}
           </div>
         </div>
@@ -1377,23 +1493,109 @@ function SavedPdfsSection({
             <div className="px-4 py-6 flex items-center justify-center text-xs text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando...
             </div>
-          ) : withSlides.length === 0 ? (
+          ) : totalItems === 0 ? (
             <div className="px-4 py-6 text-center text-xs text-muted-foreground">
               Nenhum PDF salvo ainda. Faça upload abaixo e ele aparece aqui pra
               reaproveitar nas próximas gerações.
             </div>
           ) : (
             <ul className="divide-y divide-border/40">
+              {sortedDocuments.map((d) => {
+                const subj = d.subjectId ? subjects.get(d.subjectId) : undefined;
+                const sel = selectedDocumentIds.has(d.id);
+                const hasText = (d.sourceText ?? "").trim().length > 0;
+                const isRepairing = repairingDocId === d.id;
+                if (!hasText) {
+                  return (
+                    <li
+                      key={`doc:${d.id}`}
+                      className="px-4 py-2.5 flex items-center gap-3"
+                    >
+                      <div className="h-4 w-4 rounded border border-amber-500/40 bg-amber-500/10 shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          {d.title}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
+                          <span>{subj?.name ?? "Sem matéria"}</span>
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] py-0 px-1 h-3.5 font-mono border-amber-500/40 text-amber-600 dark:text-amber-400"
+                          >
+                            sem texto
+                          </Badge>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 h-7 px-2 text-[11px]"
+                        onClick={() => onRepairDocument(d.id)}
+                        disabled={isRepairing}
+                      >
+                        {isRepairing ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          <Upload className="h-3 w-3" />
+                        )}
+                        {isRepairing ? "Extraindo..." : "Anexar PDF"}
+                      </Button>
+                    </li>
+                  );
+                }
+                return (
+                  <li key={`doc:${d.id}`}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleDocument(d.id)}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
+                        sel
+                          ? "bg-primary/5 hover:bg-primary/10"
+                          : "hover:bg-secondary/30",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "h-4 w-4 rounded border flex items-center justify-center shrink-0",
+                          sel
+                            ? "bg-primary border-primary text-white"
+                            : "border-border",
+                        )}
+                      >
+                        {sel && <Check className="h-3 w-3" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          {d.title}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
+                          <span>{subj?.name ?? "Sem matéria"}</span>
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] py-0 px-1 h-3.5 font-mono"
+                          >
+                            {d.pageCount
+                              ? `${d.pageCount} ${d.pageCount === 1 ? "página" : "páginas"}`
+                              : "PDF"}
+                          </Badge>
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
               {withSlides.map((l) => {
                 const subj = subjects.get(l.subjectId);
-                const sel = selectedIds.has(l.id);
+                const sel = selectedLectureIds.has(l.id);
                 const slideCount = l.slides?.length ?? 0;
                 const fileLabel = l.slidesFileName || `Slides — ${l.title}`;
                 return (
-                  <li key={l.id}>
+                  <li key={`lec:${l.id}`}>
                     <button
                       type="button"
-                      onClick={() => onToggle(l.id)}
+                      onClick={() => onToggleLecture(l.id)}
                       className={cn(
                         "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
                         sel
@@ -1577,282 +1779,6 @@ function Step3Confirm({
         </div>
       )}
     </div>
-  );
-}
-
-/* ----- Step 4: Result -------------------------------------------- */
-
-function Step4Result({
-  mode,
-  generating,
-  stage,
-  result,
-  saveTitle,
-  onChangeTitle,
-}: {
-  mode: AIMode;
-  generating: boolean;
-  stage: string;
-  result: GenerateResponse | null;
-  saveTitle: string;
-  onChangeTitle: (s: string) => void;
-}) {
-  if (generating) {
-    return (
-      <div className="p-10 flex flex-col items-center justify-center text-center">
-        <div className="relative mb-5">
-          <div className="h-16 w-16 rounded-full bg-gradient-to-br from-primary/20 to-fuchsia-500/20 flex items-center justify-center">
-            <Sparkles className="h-7 w-7 text-primary animate-pulse" />
-          </div>
-          <div className="absolute inset-0 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-        </div>
-        <div className="text-base font-semibold mb-1">{stage}</div>
-        <div className="text-xs text-muted-foreground max-w-xs">
-          A IA está lendo suas fontes e organizando o conteúdo. Pode demorar até
-          2 minutos.
-        </div>
-      </div>
-    );
-  }
-
-  if (!result) {
-    return (
-      <div className="p-10 text-center text-sm text-muted-foreground">
-        Nenhum resultado ainda.
-      </div>
-    );
-  }
-
-  return (
-    <div className="p-6 space-y-5">
-      {/* Título editável */}
-      <div>
-        <Label
-          htmlFor="save-title"
-          className="text-xs font-medium text-muted-foreground"
-        >
-          Título
-        </Label>
-        <Input
-          id="save-title"
-          value={saveTitle}
-          onChange={(e) => onChangeTitle(e.target.value)}
-          placeholder="Como salvar este material?"
-          className="mt-1.5"
-          maxLength={200}
-        />
-      </div>
-
-      {/* Preview por tipo */}
-      <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-border/40 bg-secondary/20 flex items-center justify-between">
-          <div className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium">
-            Prévia
-          </div>
-          {result.imageUrls && result.imageUrls.length > 0 && (
-            <Badge variant="secondary" className="text-[10px] gap-1">
-              <Sparkles className="h-2.5 w-2.5" />
-              {result.imageUrls.length} imagem
-              {result.imageUrls.length === 1 ? "" : "s"}
-            </Badge>
-          )}
-        </div>
-
-        <div className="max-h-[400px] overflow-y-auto p-4">
-          {mode === "summary" && (
-            <SummaryPreview
-              markdown={
-                (result.content as { markdown?: string })?.markdown ?? ""
-              }
-            />
-          )}
-          {mode === "flashcards" && (
-            <FlashcardsPreview
-              cards={
-                (result.content as { cards?: Flashcard[] })?.cards ?? []
-              }
-            />
-          )}
-          {mode === "quiz" && (
-            <QuizPreview
-              questions={
-                (result.content as { questions?: QuizQuestion[] })
-                  ?.questions ?? []
-              }
-            />
-          )}
-          {mode === "mindmap" && (
-            <MindmapPreview
-              centralTopic={
-                (result.content as { centralTopic?: string })?.centralTopic ??
-                ""
-              }
-              branches={
-                (result.content as { branches?: MindmapNode[] })?.branches ??
-                []
-              }
-            />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SummaryPreview({ markdown }: { markdown: string }) {
-  if (!markdown.trim()) {
-    return (
-      <p className="text-xs text-muted-foreground">Sem conteúdo gerado.</p>
-    );
-  }
-  return (
-    <div className="prose prose-sm dark:prose-invert max-w-none">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
-    </div>
-  );
-}
-
-function FlashcardsPreview({ cards }: { cards: Flashcard[] }) {
-  if (cards.length === 0) {
-    return <p className="text-xs text-muted-foreground">Sem cards gerados.</p>;
-  }
-  return (
-    <div className="space-y-3">
-      <div className="text-xs text-muted-foreground">
-        {cards.length} card{cards.length === 1 ? "" : "s"} gerado
-        {cards.length === 1 ? "" : "s"}
-      </div>
-      {cards.slice(0, 5).map((c, i) => (
-        <div
-          key={i}
-          className="rounded-lg border border-border/60 p-3 bg-secondary/10"
-        >
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1 inline-flex items-center gap-1.5">
-            Card {i + 1}
-            {c.difficulty && (
-              <Badge variant="outline" className="text-[9px] py-0">
-                {c.difficulty === "easy"
-                  ? "Fácil"
-                  : c.difficulty === "hard"
-                    ? "Difícil"
-                    : "Médio"}
-              </Badge>
-            )}
-          </div>
-          <div className="text-sm font-medium">{c.question}</div>
-          <div className="text-xs text-muted-foreground mt-1">{c.answer}</div>
-        </div>
-      ))}
-      {cards.length > 5 && (
-        <div className="text-[11px] text-center text-muted-foreground">
-          + {cards.length - 5} cards adicionais
-        </div>
-      )}
-    </div>
-  );
-}
-
-function QuizPreview({ questions }: { questions: QuizQuestion[] }) {
-  if (questions.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">Sem questões geradas.</p>
-    );
-  }
-  return (
-    <div className="space-y-4">
-      <div className="text-xs text-muted-foreground">
-        {questions.length} questão{questions.length === 1 ? "" : "es"} gerada
-        {questions.length === 1 ? "" : "s"}
-      </div>
-      {questions.slice(0, 3).map((q, i) => (
-        <div
-          key={i}
-          className="rounded-lg border border-border/60 p-3 bg-secondary/10"
-        >
-          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">
-            Questão {i + 1}
-          </div>
-          <div className="text-sm font-medium mb-2">{q.question}</div>
-          <ul className="space-y-1">
-            {q.options.map((o, j) => (
-              <li
-                key={j}
-                className={cn(
-                  "text-xs px-2 py-1 rounded",
-                  j === q.correctIndex
-                    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 font-medium"
-                    : "text-muted-foreground",
-                )}
-              >
-                {String.fromCharCode(65 + j)}. {o}
-              </li>
-            ))}
-          </ul>
-        </div>
-      ))}
-      {questions.length > 3 && (
-        <div className="text-[11px] text-center text-muted-foreground">
-          + {questions.length - 3} questões adicionais
-        </div>
-      )}
-    </div>
-  );
-}
-
-function MindmapPreview({
-  centralTopic,
-  branches,
-}: {
-  centralTopic: string;
-  branches: MindmapNode[];
-}) {
-  if (!centralTopic && branches.length === 0) {
-    return (
-      <p className="text-xs text-muted-foreground">Sem mapa gerado.</p>
-    );
-  }
-  return (
-    <div className="space-y-3">
-      <div className="rounded-lg bg-primary/10 px-3 py-2 inline-block">
-        <div className="text-[10px] uppercase tracking-wider text-primary mb-0.5">
-          Tema central
-        </div>
-        <div className="text-sm font-semibold">{centralTopic}</div>
-      </div>
-      <ul className="space-y-2 mt-2">
-        {branches.map((b, i) => (
-          <MindmapNodeView key={i} node={b} depth={0} />
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function MindmapNodeView({ node, depth }: { node: MindmapNode; depth: number }) {
-  return (
-    <li>
-      <div
-        className="text-sm flex items-start gap-2"
-        style={{ paddingLeft: `${depth * 16}px` }}
-      >
-        <span className="text-primary mt-1.5">•</span>
-        <div>
-          <span className="font-medium">{node.label}</span>
-          {node.detail && (
-            <span className="text-muted-foreground text-xs ml-1.5">
-              — {node.detail}
-            </span>
-          )}
-        </div>
-      </div>
-      {node.children && node.children.length > 0 && (
-        <ul className="mt-1">
-          {node.children.map((c, i) => (
-            <MindmapNodeView key={i} node={c} depth={depth + 1} />
-          ))}
-        </ul>
-      )}
-    </li>
   );
 }
 

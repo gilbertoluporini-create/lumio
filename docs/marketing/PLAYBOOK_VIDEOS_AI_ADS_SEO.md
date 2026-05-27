@@ -1,6 +1,6 @@
 # Lumio — Playbook: Vídeos AI + Tráfego Pago + SEO
 
-**Premissa:** fundador não aparece em vídeo. Tudo gerado com IA. Mascote **Lumi** (lâmpada) é o protagonista.
+**Premissa:** zero rosto humano nos vídeos (anonimato de marca). Tudo gerado com IA. Mascote **Lumi** (lâmpada) é o protagonista.
 
 Três pilares: **(1) Vídeos AI** (criativos pra orgânico + pago), **(2) Tráfego Pago** (Meta + Google), **(3) SEO** (compounding longo prazo).
 
@@ -77,7 +77,7 @@ Três pilares: **(1) Vídeos AI** (criativos pra orgânico + pago), **(2) Tráfe
 - Inserir vídeo gerado
 - Sobrepor screenshot do app real em 1/3 do tempo (Lumi olhando pra tela mostrando resumo gerado)
 - Trend audio TikTok atual (pesquisar diário no `tiktok.com/discover/sounds`)
-- Legendas grandes (font Bricolage Grotesque, mesma da landing) — 80% das visualizações é sem som
+- Legendas grandes (font Outfit, mesma da landing) — 80% das visualizações é sem som
 - Logo Lumio + CTA "lumioapp.net" canto inferior
 
 ### Etapa 6 — Export e check

@@ -12,6 +12,7 @@ import {
   getAllSlugs,
   getPost,
 } from "@/lib/blog";
+import { buildPageMetadata, ogImage, SITE_URL } from "@/lib/seo";
 
 type PageProps = {
   params: Promise<{ slug: string }>;
@@ -28,34 +29,31 @@ export async function generateMetadata({
   const { slug } = await params;
   const post = await getPost(slug);
   if (!post) {
-    return {
-      title: "Post não encontrado — Lumio",
-    };
+    return buildPageMetadata({
+      title: "Post não encontrado · Lumio",
+      description: "Esse post não existe (ou foi movido). Volta pro blog.",
+      path: `/blog/${slug}`,
+      noindex: true,
+    });
   }
 
-  const url = `/blog/${post.slug}`;
+  const ogImageUrl = ogImage({
+    title: post.title,
+    subtitle: post.description,
+    type: "blog",
+  });
 
-  return {
-    title: `${post.title} — Lumio`,
+  return buildPageMetadata({
+    title: `${post.title} · Lumio`,
     description: post.description,
-    alternates: {
-      canonical: url,
-    },
-    openGraph: {
-      title: post.title,
-      description: post.description,
-      type: "article",
-      url,
-      publishedTime: post.publishedAt,
-      authors: ["Equipe Lumio"],
-      tags: post.tags,
-    },
-    twitter: {
-      card: "summary_large_image",
-      title: post.title,
-      description: post.description,
-    },
-  };
+    path: `/blog/${post.slug}`,
+    ogTitle: post.title,
+    ogDescription: post.description,
+    ogType: "article",
+    publishedTime: post.publishedAt,
+    tags: post.tags,
+    ogImageUrl,
+  });
 }
 
 export default async function BlogPostPage({ params }: PageProps) {
@@ -63,25 +61,34 @@ export default async function BlogPostPage({ params }: PageProps) {
   const post = await getPost(slug);
   if (!post) notFound();
 
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://lumioapp.net";
-  const canonical = `${appUrl}/blog/${post.slug}`;
+  const canonical = `${SITE_URL}/blog/${post.slug}`;
+  const ogImageUrl = ogImage({
+    title: post.title,
+    subtitle: post.description,
+    type: "blog",
+  });
 
   const articleJsonLd = {
     "@context": "https://schema.org",
     "@type": "Article",
     headline: post.title,
     description: post.description,
+    image: [ogImageUrl],
     datePublished: post.publishedAt,
     dateModified: post.publishedAt,
     author: {
       "@type": "Organization",
       name: "Equipe Lumio",
-      url: appUrl,
+      url: SITE_URL,
     },
     publisher: {
       "@type": "Organization",
       name: "Lumio",
-      url: appUrl,
+      url: SITE_URL,
+      logo: {
+        "@type": "ImageObject",
+        url: `${SITE_URL}/og-image.png`,
+      },
     },
     mainEntityOfPage: {
       "@type": "WebPage",

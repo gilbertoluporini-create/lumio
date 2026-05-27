@@ -27,6 +27,8 @@ import { VisuallyHidden } from "@/components/ui/visually-hidden";
 import { LumiIcon, type LumiIconName } from "@/components/brand/lumi-icon";
 import { LumioCoin } from "@/components/brand/lumio-coin";
 import { listLecturesAsync, listSubjectsAsync } from "@/lib/db";
+import { listSummariesAsync } from "@/lib/summaries";
+import type { Summary } from "@/lib/types";
 import { listFavorites } from "@/lib/favorites";
 import { helpCategories } from "@/lib/help-articles";
 import type { Lecture, Subject, User } from "@/lib/types";
@@ -69,6 +71,7 @@ export function CommandPalette({ user }: { user: User }) {
   const [selected, setSelected] = useState(0);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [summaries, setSummaries] = useState<Summary[]>([]);
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
 
   // Cmd+K / Ctrl+K toggle global
@@ -92,10 +95,12 @@ export function CommandPalette({ user }: { user: User }) {
     Promise.all([
       listSubjectsAsync(user.id),
       listLecturesAsync(user.id),
-    ]).then(([s, l]) => {
+      listSummariesAsync(user.id),
+    ]).then(([s, l, sm]) => {
       if (active) {
         setSubjects(s);
         setLectures(l);
+        setSummaries(sm);
         const favs = listFavorites(user.id);
         setFavoriteIds(new Set(favs.map((f) => `${f.kind}:${f.id}`)));
       }
@@ -280,26 +285,27 @@ export function CommandPalette({ user }: { user: User }) {
 
   const summaryItems: CommandItem[] = useMemo(
     () =>
-      lectures
-        .filter((l) => l.summary)
-        .slice(0, 30)
-        .map((l) => {
-          const s = subjects.find((x) => x.id === l.subjectId);
-          return {
-            id: `summary:${l.id}`,
-            group: "Resumos" as const,
-            label: l.title,
-            detail: s ? `Resumo · ${s.name}` : "Resumo",
-            href: `/lecture/${l.id}`,
-            lucide: FileText,
-            keywords: [
-              l.title,
-              s?.name ?? "",
-              l.summary?.generalSummary?.slice(0, 60) ?? "",
-            ],
-          };
-        }),
-    [lectures, subjects],
+      summaries.slice(0, 30).map((sm) => {
+        const s = subjects.find((x) => x.id === sm.subjectId);
+        const href =
+          sm.source.kind === "lecture"
+            ? `/resumo/${sm.source.lectureId}`
+            : `/resumo/doc/${sm.id}`;
+        return {
+          id: `summary:${sm.id}`,
+          group: "Resumos" as const,
+          label: sm.title,
+          detail: s ? `Resumo · ${s.name}` : "Resumo",
+          href,
+          lucide: FileText,
+          keywords: [
+            sm.title,
+            s?.name ?? "",
+            sm.content.generalSummary?.slice(0, 60) ?? "",
+          ],
+        };
+      }),
+    [summaries, subjects],
   );
 
   const favoriteItems: CommandItem[] = useMemo(() => {

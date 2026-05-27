@@ -20,16 +20,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.7,
     },
     {
-      url: `${BASE_URL}/signup`,
+      url: `${BASE_URL}/guia-revisao`,
       lastModified: now,
       changeFrequency: "monthly",
-      priority: 0.6,
-    },
-    {
-      url: `${BASE_URL}/login`,
-      lastModified: now,
-      changeFrequency: "yearly",
-      priority: 0.3,
+      priority: 0.7,
     },
     {
       url: `${BASE_URL}/blog`,
@@ -37,6 +31,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "weekly",
       priority: 0.9,
     },
+    // signup/login/links são noindex no robots — não entram aqui
   ];
 
   const personaRoutes: MetadataRoute.Sitemap = [

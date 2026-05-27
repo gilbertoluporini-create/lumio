@@ -105,7 +105,7 @@ function BillingView({ user }: { user: User }) {
         <ArrowLeft className="h-4 w-4" /> Voltar
       </Button>
 
-      <h1 className="text-3xl font-semibold tracking-tight mb-1">
+      <h1 className="text-3xl heading-display mb-1">
         Sua assinatura
       </h1>
       <p className="text-sm text-muted-foreground mb-8">

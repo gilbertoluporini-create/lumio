@@ -11,8 +11,26 @@ Project: **438840** (US Cloud). Host admin: `https://us.posthog.com`. Host inges
 |---|---|---|---|---|
 | 1 | Sprint 1 — Orgânico & Embaixadores | `1628411` | https://us.posthog.com/project/438840/dashboard/1628411 | 6 |
 | 2 | Sprint 2 — Paid Ads | `1628412` | https://us.posthog.com/project/438840/dashboard/1628412 | 6 |
+| 3 | Acquisition by Channel | `1632907` | https://us.posthog.com/project/438840/dashboard/1632907 | 4 |
 
 Bonus: o PostHog auto-gerou um terceiro dashboard `1628421 — embaixador_program Usage` ao criar a feature flag (não solicitado, ignorável).
+
+### Dashboard 3 — Acquisition by Channel — `1632907`
+
+Criado em **2026-05-26** durante o setup de tracking multi-canal pré-Sprint 2 (Instagram + TikTok + LinkedIn + Twitter + bio links + outbound + ads). Dependências:
+- Evento `outbound_social_click` (disparado pelo `src/proxy.ts` em `/ig`, `/tt`, `/li`, `/tw`, `/yt`).
+- Evento `sign_up` enriquecido com UTM super properties (via `src/lib/utm-tracker.ts` + `posthog.register`).
+- Person property `first_utm_source` (setada via `$set` no server-side `sign_up` no `signup-password`).
+- Migration `016_signup_attribution.sql` (tabela `signup_attribution` espelhando o que vai pro PostHog).
+
+| Insight | ID | short_id | Tipo | Notas |
+|---|---|---|---|---|
+| Signups por utm_source (30d) | `8868708` | `8TFzgYqG` | Trends · Bar Value | Daily 30d, breakdown `utm_source` |
+| Funnel: landing_view → signup_view → sign_up → purchase (por source) | `8868710` | `4hAF5TRt` | Funnel · Steps | Breakdown `utm_source`, janela 7d |
+| Retention 30d por first_utm_source | `8868711` | `FO8iUh4k` | Retention | Cohort de sign_up, returning $pageview, breakdown person prop `first_utm_source` |
+| outbound_social_click por destino | `8868717` | `vkeyX9U6` | Trends · Bar Value | Daily 30d, breakdown `channel` |
+
+Tiles ficam zerados até começarem a chegar UTMs reais (Sprint 2). Pra forçar smoke-test, abrir `https://lumioapp.net/?utm_source=test&utm_medium=manual&utm_campaign=qa` em janela anônima e dar uma volta no site.
 
 ---
 

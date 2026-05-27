@@ -23,6 +23,8 @@ import type { LumiChatMessage } from "@/lib/lumi-chats";
 
 type Props = {
   message: LumiChatMessage;
+  /** Quando true, mostra cursor piscando no fim e oculta toolbar (resposta ao vivo) */
+  isStreaming?: boolean;
 };
 
 function formatTime(iso: string): string {
@@ -67,7 +69,7 @@ const ATTACHMENT_CTA = {
   mindmap: "Abrir mapa",
 } as const;
 
-export function LumiMessageBubble({ message }: Props) {
+export function LumiMessageBubble({ message, isStreaming }: Props) {
   const [thumbed, setThumbed] = useState<"up" | "down" | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -130,7 +132,7 @@ export function LumiMessageBubble({ message }: Props) {
         </div>
         <div className="prose prose-sm dark:prose-invert mt-1 max-w-none leading-relaxed prose-p:my-2 prose-strong:text-foreground prose-ul:my-2 prose-li:my-0.5 prose-headings:mt-3 prose-headings:mb-1">
           <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {message.content}
+            {isStreaming ? `${message.content}▍` : message.content}
           </ReactMarkdown>
         </div>
 
@@ -182,6 +184,7 @@ export function LumiMessageBubble({ message }: Props) {
           );
         })()}
 
+        {!isStreaming && (
         <div className="mt-2 flex items-center gap-1 text-muted-foreground">
           <button
             type="button"
@@ -230,6 +233,7 @@ export function LumiMessageBubble({ message }: Props) {
             {formatTime(message.createdAt)}
           </span>
         </div>
+        )}
       </div>
     </div>
   );

@@ -31,6 +31,15 @@ const nextConfig: NextConfig = {
     root: path.resolve(__dirname),
   },
   poweredByHeader: false,
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "*.supabase.co",
+        pathname: "/storage/v1/object/public/**",
+      },
+    ],
+  },
   async headers() {
     return [
       {

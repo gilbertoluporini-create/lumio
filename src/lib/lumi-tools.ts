@@ -1,0 +1,933 @@
+/**
+ * Lumi Agent — definições das tools (Anthropic format) + handlers server-side.
+ *
+ * As tools transformam Lumi de "responde texto" em "executa ações":
+ *  - listar_materias        → Lumi descobre as matérias do user
+ *  - listar_aulas_e_docs    → Lumi descobre que material existe (por matéria)
+ *  - buscar_no_material     → RAG: trechos relevantes pra uma pergunta
+ *  - gerar_resumo           → Cria um Summary linkado a uma lecture/doc
+ *  - criar_flashcards       → Cria deck de flashcards
+ *  - criar_quiz             → Cria quiz
+ *  - criar_mapa_mental      → Cria mapa mental
+ *  - abrir_rota             → Devolve instrução de navegação pro client
+ *
+ * Cada handler recebe `ToolContext` com clients + user info.
+ * Retorna objeto que vai como tool_result no protocolo Anthropic.
+ */
+
+import type Anthropic from "@anthropic-ai/sdk";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { searchRelevantChunks } from "./embeddings";
+
+export type LumiToolName =
+  | "listar_materias"
+  | "listar_aulas_e_docs"
+  | "buscar_no_material"
+  | "gerar_resumo"
+  | "criar_flashcards"
+  | "criar_quiz"
+  | "criar_mapa_mental"
+  | "iniciar_modo_prova"
+  | "abrir_rota";
+
+export type ToolContext = {
+  userId: string;
+  supabaseAdmin: SupabaseClient;
+  /** OpenAI API key — usada pelo buscar_no_material (embedding da query) */
+  openaiKey: string;
+  /** Cookie da sessão pra encaminhar pra endpoints internos (que cobram coins via user logado) */
+  sessionCookie: string;
+  /** Origin pra fazer fetch interno */
+  origin: string;
+};
+
+/**
+ * Schema das tools no formato esperado pela Anthropic.
+ * Documentação em PT-BR pra Claude conseguir decidir quando chamar cada uma.
+ */
+export const LUMI_TOOLS: Anthropic.Tool[] = [
+  {
+    name: "listar_materias",
+    description:
+      "Lista todas as matérias (subjects) do usuário. Use isso PRIMEIRO quando o user mencionar uma matéria sem deixar claro qual é, ou quando precisar saber o que ele estuda.",
+    input_schema: {
+      type: "object",
+      properties: {},
+    },
+  },
+  {
+    name: "listar_aulas_e_docs",
+    description:
+      "Lista aulas gravadas (com transcrição) e documentos (PDFs) de uma matéria específica. Use pra descobrir que material existe antes de gerar resumo/cards/quiz.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: {
+          type: "string",
+          description: "UUID da matéria. Obrigatório.",
+        },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
+    name: "buscar_no_material",
+    description:
+      "Busca semântica (RAG) nos materiais do user (aulas gravadas + PDFs). Retorna os 5 trechos mais relevantes pra pergunta. USE SEMPRE antes de responder qualquer pergunta factual sobre o conteúdo de aulas/PDFs — evita inventar.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pergunta: {
+          type: "string",
+          description: "A pergunta ou tópico a buscar no material.",
+        },
+        subjectId: {
+          type: "string",
+          description: "Opcional: filtrar por matéria específica.",
+        },
+        limit: {
+          type: "number",
+          description: "Quantos trechos retornar (default 5, max 10).",
+        },
+      },
+      required: ["pergunta"],
+    },
+  },
+  {
+    name: "gerar_resumo",
+    description:
+      "Gera um resumo em Markdown a partir de aulas/documentos. Cria registro no banco e devolve um link clicável. Custa coins do user (10 sem imagens, 30 com).",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: {
+          type: "string",
+          description: "UUID da matéria (obrigatório).",
+        },
+        lectureIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "IDs das aulas gravadas pra incluir.",
+        },
+        documentIds: {
+          type: "array",
+          items: { type: "string" },
+          description: "IDs dos documentos (PDFs) pra incluir.",
+        },
+        focoCustom: {
+          type: "string",
+          description:
+            "Instrução opcional pra IA — ex: 'foco em tópicos da prova', 'só conceitos chave', 'detalhe mecanismos'.",
+        },
+        profundidade: {
+          type: "string",
+          enum: ["concise", "standard", "detailed"],
+          description: "Tamanho: concise (1-2pg), standard (2-4pg), detailed (5+pg). Default standard.",
+        },
+        comImagens: {
+          type: "boolean",
+          description: "Incluir 3-4 imagens geradas (gpt-image-1). +20 coins. Default false.",
+        },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
+    name: "criar_flashcards",
+    description:
+      "Cria deck de flashcards a partir de aulas/documentos. 5-30 cards. Custa 8 coins (25 com imagens).",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: { type: "string" },
+        lectureIds: { type: "array", items: { type: "string" } },
+        documentIds: { type: "array", items: { type: "string" } },
+        quantidade: {
+          type: "number",
+          description: "Quantos cards (5-30). Default 15.",
+        },
+        nivel: {
+          type: "string",
+          enum: ["beginner", "intermediate", "advanced"],
+          description: "Default intermediate.",
+        },
+        focoCustom: {
+          type: "string",
+          description: "Instrução opcional pra IA.",
+        },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
+    name: "criar_quiz",
+    description:
+      "Cria quiz de múltipla escolha. 5-20 questões. Custa 8 coins (25 com imagens).",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: { type: "string" },
+        lectureIds: { type: "array", items: { type: "string" } },
+        documentIds: { type: "array", items: { type: "string" } },
+        quantidade: { type: "number", description: "5-20. Default 10." },
+        dificuldade: {
+          type: "string",
+          enum: ["easy", "medium", "hard"],
+          description: "Default medium.",
+        },
+        focoCustom: { type: "string" },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
+    name: "criar_mapa_mental",
+    description: "Cria mapa mental (mindmap). Custa 6 coins.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: { type: "string" },
+        lectureIds: { type: "array", items: { type: "string" } },
+        documentIds: { type: "array", items: { type: "string" } },
+        complexidade: {
+          type: "string",
+          enum: ["simple", "medium", "deep"],
+          description: "Default medium.",
+        },
+        focoCustom: { type: "string" },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
+    name: "iniciar_modo_prova",
+    description:
+      "MODO PROVA — orquestrador composto. Use SEMPRE que o user disser 'tenho prova', 'amanhã tem prova', 'preciso me preparar pra prova de X', ou similar. Em UMA chamada, isso: (1) lista material da matéria, (2) busca tópicos críticos via RAG, (3) GERA EM PARALELO resumo + flashcards + quiz focados na prova, (4) monta cronograma de estudo. Custa ~26 coins (resumo 10 + cards 8 + quiz 8). Avise o user do custo ANTES de chamar.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: {
+          type: "string",
+          description: "UUID da matéria da prova (obrigatório).",
+        },
+        horasDisponiveis: {
+          type: "number",
+          description:
+            "Quantas horas o user tem pra estudar antes da prova. Default 3.",
+        },
+        dataProva: {
+          type: "string",
+          description:
+            "Data da prova (formato livre, ex: 'amanhã', '2026-05-27'). Usado só pro cronograma.",
+        },
+        topicosFoco: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Opcional: tópicos específicos que o user disse que vão cair. Se não, Lumi infere dos materiais.",
+        },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
+    name: "abrir_rota",
+    description:
+      "Devolve uma instrução pro frontend navegar pra uma rota interna. Use quando o user pedir explicitamente 'me leva pra X' ou quando faz sentido abrir um asset gerado. Não executa nada server-side.",
+    input_schema: {
+      type: "object",
+      properties: {
+        path: {
+          type: "string",
+          description:
+            "Path relativo (ex: '/resumos', '/dashboard', '/resumo/<id>', '/lecture/<id>').",
+        },
+        motivo: {
+          type: "string",
+          description: "Por que está abrindo (mostrado ao user no card).",
+        },
+      },
+      required: ["path"],
+    },
+  },
+];
+
+// =================== HANDLERS ===================
+
+type ToolHandler = (
+  input: Record<string, unknown>,
+  ctx: ToolContext,
+) => Promise<unknown>;
+
+/** Sanitiza pra string ou retorna default */
+function str(v: unknown, dflt = ""): string {
+  return typeof v === "string" ? v : dflt;
+}
+function num(v: unknown, dflt: number): number {
+  return typeof v === "number" && Number.isFinite(v) ? v : dflt;
+}
+function arr(v: unknown): string[] {
+  return Array.isArray(v) ? (v.filter((x) => typeof x === "string") as string[]) : [];
+}
+
+const handlers: Record<LumiToolName, ToolHandler> = {
+  async listar_materias(_input, ctx) {
+    const { data, error } = await ctx.supabaseAdmin
+      .from("subjects")
+      .select("id, name, color")
+      .eq("user_id", ctx.userId)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return {
+      materias: (data ?? []).map((s) => ({
+        id: s.id,
+        nome: s.name,
+      })),
+    };
+  },
+
+  async listar_aulas_e_docs(input, ctx) {
+    const subjectId = str(input.subjectId);
+    if (!subjectId) return { error: "subjectId obrigatório" };
+
+    const [lec, doc] = await Promise.all([
+      ctx.supabaseAdmin
+        .from("lectures")
+        .select("id, title, transcript, duration_sec, created_at, status, slides")
+        .eq("user_id", ctx.userId)
+        .eq("subject_id", subjectId)
+        .order("created_at", { ascending: false })
+        .limit(50),
+      ctx.supabaseAdmin
+        .from("documents")
+        .select("id, title, source_kind, page_count, created_at")
+        .eq("user_id", ctx.userId)
+        .eq("subject_id", subjectId)
+        .order("created_at", { ascending: false })
+        .limit(50),
+    ]);
+
+    type LecRow = {
+      id: string;
+      title: string;
+      transcript: string | null;
+      duration_sec: number;
+      created_at: string;
+      status: string;
+      slides: unknown[] | null;
+    };
+    type DocRow = {
+      id: string;
+      title: string;
+      source_kind: string;
+      page_count: number | null;
+      created_at: string;
+    };
+
+    return {
+      aulas: ((lec.data ?? []) as LecRow[]).map((l) => ({
+        id: l.id,
+        titulo: l.title,
+        tem_transcricao: !!(l.transcript && l.transcript.length > 50),
+        duracao_min: Math.round((l.duration_sec ?? 0) / 60),
+        tem_slides: Array.isArray(l.slides) && l.slides.length > 0,
+        criada_em: l.created_at,
+      })),
+      documentos: ((doc.data ?? []) as DocRow[]).map((d) => ({
+        id: d.id,
+        titulo: d.title,
+        tipo: d.source_kind,
+        paginas: d.page_count,
+        criado_em: d.created_at,
+      })),
+    };
+  },
+
+  async buscar_no_material(input, ctx) {
+    const pergunta = str(input.pergunta);
+    if (!pergunta) return { error: "pergunta obrigatória" };
+    const subjectId = str(input.subjectId);
+    const limit = Math.min(Math.max(num(input.limit, 5), 1), 10);
+
+    const chunks = await searchRelevantChunks({
+      userId: ctx.userId,
+      query: pergunta,
+      subjectId: subjectId || null,
+      limit,
+      supabaseAdmin: ctx.supabaseAdmin,
+      apiKey: ctx.openaiKey,
+    });
+
+    if (chunks.length === 0) {
+      return {
+        encontrados: 0,
+        mensagem:
+          "Nenhum trecho relevante encontrado. Talvez não tenha material indexado dessa matéria ainda — sugira o user gravar uma aula ou subir um PDF.",
+      };
+    }
+
+    return {
+      encontrados: chunks.length,
+      trechos: chunks.map((c) => ({
+        fonte_tipo: c.source_kind,
+        fonte_id: c.source_id,
+        trecho: c.content,
+        similaridade: Math.round(c.similarity * 100) / 100,
+        metadata: c.metadata,
+      })),
+    };
+  },
+
+  async gerar_resumo(input, ctx) {
+    return callGenerateEndpoint("summary", input, ctx);
+  },
+  async criar_flashcards(input, ctx) {
+    return callGenerateEndpoint("flashcards", input, ctx);
+  },
+  async criar_quiz(input, ctx) {
+    return callGenerateEndpoint("quiz", input, ctx);
+  },
+  async criar_mapa_mental(input, ctx) {
+    return callGenerateEndpoint("mindmap", input, ctx);
+  },
+
+  async abrir_rota(input) {
+    const path = str(input.path);
+    const motivo = str(input.motivo, "");
+    if (!path || !path.startsWith("/")) {
+      return { error: "path inválido (deve começar com /)" };
+    }
+    return {
+      navegacao: { path, motivo },
+      instrucao_pro_client:
+        "Renderize um card clicável com este path. Não navegue automaticamente.",
+    };
+  },
+
+  async iniciar_modo_prova(input, ctx) {
+    const subjectId = str(input.subjectId);
+    if (!subjectId) return { error: "subjectId obrigatório" };
+    const horasDisponiveis = num(input.horasDisponiveis, 3);
+    const dataProva = str(input.dataProva, "");
+    const topicosFoco = arr(input.topicosFoco);
+
+    // 1. Lista material da matéria
+    const [lecRes, docRes, subjRes] = await Promise.all([
+      ctx.supabaseAdmin
+        .from("lectures")
+        .select("id, title, transcript, slides, duration_sec")
+        .eq("user_id", ctx.userId)
+        .eq("subject_id", subjectId)
+        .order("created_at", { ascending: false })
+        .limit(20),
+      ctx.supabaseAdmin
+        .from("documents")
+        .select("id, title, source_text, page_count")
+        .eq("user_id", ctx.userId)
+        .eq("subject_id", subjectId)
+        .order("created_at", { ascending: false })
+        .limit(20),
+      ctx.supabaseAdmin
+        .from("subjects")
+        .select("name")
+        .eq("user_id", ctx.userId)
+        .eq("id", subjectId)
+        .maybeSingle(),
+    ]);
+
+    type LecRow = {
+      id: string;
+      title: string;
+      transcript: string | null;
+      slides: unknown;
+      duration_sec: number;
+    };
+    type DocRow = {
+      id: string;
+      title: string;
+      source_text: string | null;
+      page_count: number | null;
+    };
+
+    const lectures = ((lecRes.data ?? []) as LecRow[]).filter(
+      (l) => l.transcript && l.transcript.length > 80,
+    );
+    const documents = ((docRes.data ?? []) as DocRow[]).filter(
+      (d) => d.source_text && d.source_text.length > 80,
+    );
+    const subjectName =
+      (subjRes.data as { name?: string } | null)?.name ?? "Matéria";
+
+    if (lectures.length === 0 && documents.length === 0) {
+      return {
+        error:
+          "Sem material indexado nessa matéria. Sugira o user gravar aula ou anexar PDF antes.",
+        materia: subjectName,
+      };
+    }
+
+    const lectureIds = lectures.map((l) => l.id);
+    const documentIds = documents.map((d) => d.id);
+
+    // 2. Descoberta de tópicos críticos (via RAG ou tópicos forçados)
+    let topicos: string[] = topicosFoco;
+    if (topicos.length === 0) {
+      // Faz 2 buscas semânticas com queries genéricas pra mapear o terreno
+      const queries = [
+        `tópicos principais ${subjectName} prova`,
+        `conceitos chave ${subjectName}`,
+      ];
+      const found = await Promise.all(
+        queries.map((q) =>
+          searchRelevantChunks({
+            userId: ctx.userId,
+            query: q,
+            subjectId,
+            limit: 3,
+            supabaseAdmin: ctx.supabaseAdmin,
+            apiKey: ctx.openaiKey,
+          }).catch(() => []),
+        ),
+      );
+      const titles = new Set<string>();
+      for (const chunks of found) {
+        for (const c of chunks) {
+          const t = (c.metadata as { title?: string } | null)?.title;
+          if (typeof t === "string" && t.trim()) titles.add(t.trim());
+        }
+      }
+      topicos = Array.from(titles).slice(0, 5);
+    }
+
+    // 3. Foco custom pros 3 prompts (resumo + cards + quiz)
+    const focoComum = [
+      topicos.length > 0
+        ? `Foco em tópicos da prova: ${topicos.join(", ")}.`
+        : `Foco em tópicos críticos da matéria de ${subjectName}.`,
+      "Priorize conceitos com alta probabilidade de cair em prova.",
+      "Evite divagar — direto ao essencial pra revisão rápida.",
+    ].join(" ");
+
+    // 4. Gera 3 assets em paralelo via callGenerateEndpoint
+    const sharedInput = {
+      subjectId,
+      lectureIds,
+      documentIds,
+      focoCustom: focoComum,
+    };
+
+    const [resumo, cards, quiz] = await Promise.all([
+      callGenerateEndpoint("summary", { ...sharedInput, profundidade: "concise" }, ctx),
+      callGenerateEndpoint("flashcards", { ...sharedInput, quantidade: 15, nivel: "intermediate" }, ctx),
+      callGenerateEndpoint("quiz", { ...sharedInput, quantidade: 10, dificuldade: "medium" }, ctx),
+    ]);
+
+    // 5. Monta cronograma — split simples baseado nas horas disponíveis
+    const cronograma = montarCronograma({
+      horasDisponiveis,
+      temResumo: !!(resumo as { sucesso?: boolean }).sucesso,
+      temCards: !!(cards as { sucesso?: boolean }).sucesso,
+      temQuiz: !!(quiz as { sucesso?: boolean }).sucesso,
+    });
+
+    const totalCoins =
+      ((resumo as { coins_cobrados?: number }).coins_cobrados ?? 0) +
+      ((cards as { coins_cobrados?: number }).coins_cobrados ?? 0) +
+      ((quiz as { coins_cobrados?: number }).coins_cobrados ?? 0);
+
+    return {
+      sucesso: true,
+      tipo: "modo_prova",
+      materia: subjectName,
+      data_prova: dataProva || "amanhã",
+      horas_disponiveis: horasDisponiveis,
+      topicos_foco: topicos,
+      assets: {
+        resumo: resumo as Record<string, unknown>,
+        flashcards: cards as Record<string, unknown>,
+        quiz: quiz as Record<string, unknown>,
+      },
+      cronograma,
+      total_coins_cobrados: totalCoins,
+    };
+  },
+};
+
+type CronogramaBloco = {
+  ordem: number;
+  duracao_min: number;
+  atividade: string;
+  url?: string;
+  tipo: "resumo" | "flashcards" | "quiz" | "pausa";
+};
+
+/**
+ * Heurística simples de cronograma. Não chama IA — distribui as horas
+ * em blocos de revisão ativa intercalados com pausas curtas (Pomodoro-like).
+ */
+function montarCronograma(opts: {
+  horasDisponiveis: number;
+  temResumo: boolean;
+  temCards: boolean;
+  temQuiz: boolean;
+}): CronogramaBloco[] {
+  const totalMin = Math.round(opts.horasDisponiveis * 60);
+  const blocks: CronogramaBloco[] = [];
+  let order = 0;
+  let remaining = totalMin;
+
+  // Bloco 1: resumo (~30% do tempo, max 30min)
+  if (opts.temResumo && remaining > 0) {
+    const d = Math.min(Math.round(totalMin * 0.3), 30);
+    blocks.push({
+      ordem: ++order,
+      duracao_min: d,
+      atividade: "Ler resumo completo, marcar dúvidas",
+      tipo: "resumo",
+    });
+    remaining -= d;
+  }
+  // Pausa curta
+  if (remaining > 15) {
+    blocks.push({
+      ordem: ++order,
+      duracao_min: 5,
+      atividade: "Pausa curta — água, alongamento",
+      tipo: "pausa",
+    });
+    remaining -= 5;
+  }
+  // Bloco 2: flashcards (~35% do total, max 40min)
+  if (opts.temCards && remaining > 0) {
+    const d = Math.min(Math.round(totalMin * 0.35), Math.max(remaining - 25, 15));
+    blocks.push({
+      ordem: ++order,
+      duracao_min: d,
+      atividade: "Flashcards — revisão ativa, marcar errados",
+      tipo: "flashcards",
+    });
+    remaining -= d;
+  }
+  // Pausa
+  if (remaining > 10) {
+    blocks.push({
+      ordem: ++order,
+      duracao_min: 5,
+      atividade: "Pausa — dar uma volta",
+      tipo: "pausa",
+    });
+    remaining -= 5;
+  }
+  // Bloco 3: quiz (restante)
+  if (opts.temQuiz && remaining > 0) {
+    blocks.push({
+      ordem: ++order,
+      duracao_min: remaining,
+      atividade: "Quiz simulação — modo prova, revisar erros no final",
+      tipo: "quiz",
+    });
+  }
+  return blocks;
+}
+
+/**
+ * Helper unificado pros 4 modes de geração. Pega aulas/docs do input,
+ * monta payload no formato esperado pelo `/api/ai/generate`, chama-o
+ * com o cookie de sessão do user (cobra coins do user logado).
+ */
+async function callGenerateEndpoint(
+  mode: "summary" | "flashcards" | "quiz" | "mindmap",
+  input: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<unknown> {
+  const subjectId = str(input.subjectId);
+  if (!subjectId) return { error: "subjectId obrigatório" };
+
+  const lectureIds = arr(input.lectureIds);
+  const documentIds = arr(input.documentIds);
+  if (lectureIds.length === 0 && documentIds.length === 0) {
+    return {
+      error:
+        "Forneça pelo menos um lectureId ou documentId. Use buscar_no_material/listar_aulas_e_docs antes pra descobrir.",
+    };
+  }
+
+  // Carrega transcripts + sourceTexts
+  const transcripts: string[] = [];
+  const pdfTexts: string[] = [];
+
+  if (lectureIds.length > 0) {
+    const { data } = await ctx.supabaseAdmin
+      .from("lectures")
+      .select("id, transcript, slides")
+      .eq("user_id", ctx.userId)
+      .in("id", lectureIds);
+    type LecRow = { id: string; transcript: string | null; slides: unknown };
+    for (const l of (data ?? []) as LecRow[]) {
+      const t = (l.transcript ?? "").trim();
+      if (t.length > 0) {
+        let combined = t;
+        const slides = l.slides;
+        if (Array.isArray(slides) && slides.length > 0) {
+          type Slide = { pageNumber?: number; title?: string; text?: string };
+          const slidesText = (slides as Slide[])
+            .map(
+              (s) =>
+                `[Slide ${s.pageNumber ?? "?"}${s.title ? ` — ${s.title}` : ""}]\n${s.text ?? ""}`,
+            )
+            .join("\n\n");
+          combined = `${combined}\n\n${slidesText}`;
+        }
+        transcripts.push(combined);
+      }
+    }
+  }
+  if (documentIds.length > 0) {
+    const { data } = await ctx.supabaseAdmin
+      .from("documents")
+      .select("id, source_text")
+      .eq("user_id", ctx.userId)
+      .in("id", documentIds);
+    for (const d of ((data ?? []) as Array<{ source_text: string | null }>)) {
+      if (d.source_text && d.source_text.length > 0) pdfTexts.push(d.source_text);
+    }
+  }
+
+  if (transcripts.length === 0 && pdfTexts.length === 0) {
+    return {
+      error:
+        "As fontes selecionadas estão vazias (sem transcript/source_text). Avise o user.",
+    };
+  }
+
+  const comImagens = !!input.comImagens;
+  const options: Record<string, unknown> = {
+    withImages: comImagens && mode !== "mindmap",
+    userInstructions: str(input.focoCustom) || undefined,
+  };
+  if (mode === "summary") options.depth = str(input.profundidade, "standard");
+  if (mode === "flashcards") {
+    options.count = Math.min(Math.max(num(input.quantidade, 15), 5), 30);
+    options.level = str(input.nivel, "intermediate");
+  }
+  if (mode === "quiz") {
+    options.count = Math.min(Math.max(num(input.quantidade, 10), 5), 20);
+    options.difficulty = str(input.dificuldade, "medium");
+  }
+  if (mode === "mindmap") {
+    options.complexity = str(input.complexidade, "medium");
+  }
+
+  const resp = await fetch(`${ctx.origin}/api/ai/generate`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie: ctx.sessionCookie,
+    },
+    body: JSON.stringify({
+      mode,
+      sources: { transcripts, pdfTexts },
+      options,
+    }),
+  });
+
+  const json = (await resp.json()) as {
+    mode?: string;
+    content?: unknown;
+    coinsCharged?: number;
+    balanceAfter?: number;
+    error?: string;
+    required?: number;
+    balance?: number;
+  };
+
+  if (!resp.ok) {
+    return {
+      error: json.error ?? "Falha na geração.",
+      saldo_atual: json.balance,
+      custo_necessario: json.required,
+    };
+  }
+
+  // Persistência básica: cria asset com o subjectId vindo do input.
+  // (replica lógica do wizard de forma simplificada)
+  const titleGuess = inferTitle(mode, json.content);
+  let assetUrl: string | undefined;
+  let assetId: string | undefined;
+
+  if (mode === "summary") {
+    const md =
+      typeof json.content === "object" && json.content
+        ? (json.content as { markdown?: string }).markdown ?? ""
+        : "";
+    const summaryContent = {
+      generatedAt: new Date().toISOString(),
+      generalSummary: md,
+      highlights: extractHighlights(md, 6),
+      sections: [],
+    };
+    if (lectureIds.length > 0) {
+      // Upsert summary lecture-linked
+      const { data } = await ctx.supabaseAdmin
+        .from("summaries")
+        .upsert(
+          {
+            user_id: ctx.userId,
+            subject_id: subjectId,
+            lecture_id: lectureIds[0],
+            document_id: null,
+            title: titleGuess,
+            content: summaryContent,
+          },
+          { onConflict: "lecture_id" },
+        )
+        .select("id")
+        .single();
+      assetId = data?.id;
+      assetUrl = data?.id ? `/resumo/${lectureIds[0]}` : undefined;
+    } else if (documentIds.length > 0) {
+      const { data } = await ctx.supabaseAdmin
+        .from("summaries")
+        .insert({
+          user_id: ctx.userId,
+          subject_id: subjectId,
+          lecture_id: null,
+          document_id: documentIds[0],
+          title: titleGuess,
+          content: summaryContent,
+        })
+        .select("id")
+        .single();
+      assetId = data?.id;
+      assetUrl = data?.id ? `/resumo/doc/${data.id}` : undefined;
+    }
+  } else {
+    // Pra flashcards/quiz/mindmap: cria lecture wrapper + lecture_asset
+    const { data: lec } = await ctx.supabaseAdmin
+      .from("lectures")
+      .insert({
+        user_id: ctx.userId,
+        subject_id: subjectId,
+        title: titleGuess,
+        transcript: "",
+        duration_sec: 0,
+        status: "draft",
+        messages: [],
+      })
+      .select("id")
+      .single();
+    if (lec) {
+      let payload: Record<string, unknown> = {};
+      if (mode === "flashcards") {
+        payload = {
+          generatedAt: new Date().toISOString(),
+          cards: (json.content as { cards?: unknown[] }).cards ?? [],
+        };
+      } else if (mode === "quiz") {
+        payload = {
+          generatedAt: new Date().toISOString(),
+          questions: (json.content as { questions?: unknown[] }).questions ?? [],
+        };
+      } else {
+        const c = json.content as { centralTopic?: string; branches?: unknown[] };
+        payload = {
+          generatedAt: new Date().toISOString(),
+          centralTopic: c.centralTopic ?? titleGuess,
+          branches: c.branches ?? [],
+        };
+      }
+      await ctx.supabaseAdmin.from("lecture_assets").insert({
+        lecture_id: lec.id,
+        user_id: ctx.userId,
+        kind: mode,
+        payload,
+        coins_spent: json.coinsCharged ?? 0,
+      });
+      assetId = lec.id;
+      assetUrl =
+        mode === "flashcards"
+          ? `/deck/${lec.id}`
+          : mode === "quiz"
+            ? `/quiz-banco/${lec.id}`
+            : `/mapa/${lec.id}`;
+    }
+  }
+
+  return {
+    sucesso: true,
+    tipo: mode,
+    titulo: titleGuess,
+    asset_id: assetId,
+    url: assetUrl,
+    coins_cobrados: json.coinsCharged ?? 0,
+    saldo_apos: json.balanceAfter,
+  };
+}
+
+function inferTitle(mode: string, content: unknown): string {
+  if (mode === "summary") {
+    const md =
+      typeof content === "object" && content
+        ? (content as { markdown?: string }).markdown ?? ""
+        : "";
+    const m = md.match(/^#\s+(.+)$/m);
+    if (m) return m[1].trim().slice(0, 200);
+  }
+  if (typeof content === "object" && content) {
+    const t = (content as { title?: string }).title;
+    if (typeof t === "string" && t.trim()) return t.trim().slice(0, 200);
+    if (mode === "mindmap") {
+      const c = (content as { centralTopic?: string }).centralTopic;
+      if (c) return c.slice(0, 200);
+    }
+  }
+  const labels: Record<string, string> = {
+    summary: "Resumo",
+    flashcards: "Flashcards",
+    quiz: "Quiz",
+    mindmap: "Mapa mental",
+  };
+  return `${labels[mode] ?? "Asset"} ${new Date().toLocaleDateString("pt-BR")}`;
+}
+
+function extractHighlights(markdown: string, max: number): string[] {
+  const out: string[] = [];
+  const lines = markdown.split("\n");
+  let inH = false;
+  for (const line of lines) {
+    if (/^##\s+pontos[- ]chave/i.test(line.trim())) {
+      inH = true;
+      continue;
+    }
+    if (inH) {
+      if (/^##\s/.test(line)) break;
+      const m = line.match(/^\s*-\s+(.+)/);
+      if (m) {
+        out.push(m[1].replace(/\[\[([^\]]+)\]\]/g, "$1").slice(0, 120));
+        if (out.length >= max) break;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Executa uma tool. Retorna o resultado serializado pra mandar de volta
+ * pro Claude no formato `tool_result`.
+ */
+export async function executeTool(
+  name: string,
+  input: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<unknown> {
+  const handler = handlers[name as LumiToolName];
+  if (!handler) {
+    return { error: `Tool desconhecida: ${name}` };
+  }
+  try {
+    return await handler(input, ctx);
+  } catch (err) {
+    console.error(`[lumi-tools] ${name} failed`, err);
+    return { error: (err as Error).message ?? "Erro ao executar tool." };
+  }
+}

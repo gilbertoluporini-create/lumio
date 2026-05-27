@@ -341,7 +341,7 @@ function SlidesEmpty({
         )}
       </Button>
       <p className="mt-3 text-[11px] text-muted-foreground/70">
-        PDF até 20MB
+        PDF até 50MB
       </p>
     </div>
   );

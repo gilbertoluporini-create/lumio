@@ -629,7 +629,7 @@ function ScheduleView({ user }: { user: User }) {
           <p className="text-xs text-muted-foreground mb-1">
             {greetingPrefix()}, {firstName}
           </p>
-          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
+          <h1 className="text-3xl md:text-4xl heading-display">
             Calendário de estudos
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">

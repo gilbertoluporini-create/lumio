@@ -6,7 +6,6 @@ import {
   CheckCircle2,
   ChevronRight,
   Mail,
-  Quote,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
@@ -43,7 +42,7 @@ export default function LandingPage() {
         initial={{ y: -20, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.6, ease: "easeOut" }}
-        className="sticky top-0 z-30 backdrop-blur-xl bg-background/70 border-b border-border/40"
+        className="sticky top-0 z-30 backdrop-blur-md bg-background/85 border-b border-border/40"
       >
         <nav className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5">
           <Link href="/" className="flex items-center">
@@ -82,9 +81,9 @@ export default function LandingPage() {
               transition={{ duration: 0.5 }}
               className="mb-6 inline-flex items-center gap-2.5 rounded-full border border-border/60 bg-card/60 px-3 py-1"
             >
-              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
               <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-medium">
-                Beta privado · vagas abertas
+                Disponível agora · 50 coins grátis
               </span>
             </motion.div>
 
@@ -150,27 +149,17 @@ export default function LandingPage() {
               transition={{ delay: 0.7, duration: 0.6 }}
               className="mt-7 flex flex-col sm:flex-row items-start sm:items-center gap-4 text-xs"
             >
-              <div className="flex items-center gap-3">
-                <div className="flex -space-x-2">
-                  {["A", "B", "C", "D"].map((l, i) => (
-                    <div
-                      key={i}
-                      className="h-7 w-7 rounded-full border-2 border-background bg-muted flex items-center justify-center text-[9px] font-semibold text-muted-foreground tracking-wider"
-                    >
-                      {l}
-                    </div>
-                  ))}
-                </div>
-                <span className="text-muted-foreground">
-                  <span className="text-foreground font-medium">+200 estudantes</span>{" "}
-                  no beta privado
+              <div className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                <span>
+                  <span className="text-foreground font-medium">Sem cartão</span> · cancele a qualquer hora
                 </span>
               </div>
               <div className="hidden sm:block h-4 w-px bg-border" />
               <div className="inline-flex items-center gap-1.5 text-muted-foreground">
                 <LumioCoin size={14} />
                 <span>
-                  <span className="text-foreground font-medium">50 coins</span> de boas-vindas
+                  <span className="text-foreground font-medium">50 coins</span> ao criar conta
                 </span>
               </div>
             </motion.div>
@@ -182,12 +171,6 @@ export default function LandingPage() {
             transition={{ delay: 0.4, duration: 0.8 }}
             className="relative"
           >
-            {/* LumiCharacter posicionado pra ficar dentro do bounding-box
-                do card (não invade a coluna esquerda em viewports md/lg).
-                Esconde em <xl pra não brigar com o sticky note do LiveDemo. */}
-            <div className="pointer-events-none absolute -top-10 right-2 md:right-4 lg:right-6 z-20 hidden xl:block">
-              <LumiCharacter mood="recording" size="md" priority float />
-            </div>
             <LiveDemo />
           </motion.div>
         </div>
@@ -288,7 +271,7 @@ export default function LandingPage() {
               ].map((t) => (
                 <span
                   key={t.label}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card/60 backdrop-blur px-3 py-1.5 text-xs font-medium"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-card px-3 py-1.5 text-xs font-medium"
                 >
                   <span className="h-1.5 w-1.5 rounded-full bg-primary" />
                   {t.label}
@@ -356,34 +339,6 @@ export default function LandingPage() {
         </Reveal>
       </section>
 
-      {/* QUOTE — featured testimonial */}
-      <section className="relative z-10 mx-auto max-w-4xl px-6 py-16">
-        <Reveal>
-          <div className="relative rounded-3xl border border-border/60 bg-card/60 backdrop-blur p-8 md:p-12">
-            <Quote className="absolute top-6 left-6 h-10 w-10 text-foreground/8" />
-            <p className="text-2xl md:text-3xl leading-[1.3] font-medium tracking-tight text-foreground/90 pl-2 md:pl-6">
-              &ldquo;Eu chegava em casa exausto, com o caderno cheio mas a
-              cabeça vazia. O Lumio resolveu isso — agora eu{" "}
-              <span>
-                <Highlighter>presto atenção</Highlighter>
-              </span>{" "}
-              e revisão fica pro fim do dia.&rdquo;
-            </p>
-            <div className="mt-8 flex items-center gap-3 pl-2 md:pl-6">
-              <div className="h-10 w-10 rounded-full bg-muted ring-2 ring-background flex items-center justify-center text-xs font-semibold text-muted-foreground">
-                M
-              </div>
-              <div>
-                <p className="text-sm font-medium">Aluno do 3º ano · Medicina</p>
-                <p className="text-xs text-muted-foreground">
-                  Beta privado, maio de 2026
-                </p>
-              </div>
-            </div>
-          </div>
-        </Reveal>
-      </section>
-
       {/* PERSONAS */}
       <Personas />
 
@@ -397,7 +352,7 @@ export default function LandingPage() {
       <Reveal className="relative z-10 mx-auto max-w-6xl px-6 py-20">
         <div className="relative rounded-3xl border border-border/80 bg-card p-10 md:p-16 text-center overflow-hidden">
           <div className="relative">
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-background/60 backdrop-blur px-3 py-1">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-background px-3 py-1">
               <LumioCoin size={14} />
               <span className="text-[11px] uppercase tracking-wider text-primary font-medium">
                 50 coins de boas-vindas
@@ -429,7 +384,7 @@ export default function LandingPage() {
                 size="xl"
                 className="min-w-[180px]"
               >
-                <Link href="/pricing">Ver planos pagos</Link>
+                <Link href="#how">Como funciona</Link>
               </Button>
             </div>
             <div className="mt-10 flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-sm text-muted-foreground">
@@ -494,10 +449,7 @@ export default function LandingPage() {
           </div>
           <div className="mt-10 pt-6 border-t border-border/40 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-xs text-muted-foreground">
-              © {new Date().getFullYear()} Lumio · Feito em São Paulo, pra quem estuda.
-            </p>
-            <p className="text-[11px] text-muted-foreground/70 font-mono">
-              v0.beta · maio 2026
+              © {new Date().getFullYear()} Lumio · Feito no Brasil, pra quem estuda.
             </p>
           </div>
         </div>
@@ -543,15 +495,15 @@ const STATS: Array<{
   label: string;
   sub?: string;
 }> = [
-  { value: 97, suffix: "%", label: "Acurácia em PT-BR", sub: "no beta privado" },
+  { value: "PT-BR", label: "Reconhecimento nativo", sub: "português brasileiro" },
   { value: "∞", label: "Histórico", sub: "sem expirar" },
-  { value: 4, suffix: "h/dia", label: "Tempo médio salvo", sub: "por estudante" },
+  { value: 50, label: "Coins grátis", sub: "ao criar conta" },
   { value: 30, suffix: "s", label: "Pra criar conta", sub: "sem cartão" },
 ];
 
 const BULLETS = [
   "Sem cartão de crédito",
-  "Beta aberto",
-  "Chat IA incluído",
+  "50 coins grátis",
+  "Chat IA com PDFs",
   "Funciona no celular",
 ];

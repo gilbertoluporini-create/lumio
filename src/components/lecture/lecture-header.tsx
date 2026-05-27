@@ -1,7 +1,6 @@
 "use client";
 
 import { createElement, useState } from "react";
-import Link from "next/link";
 import {
   Check,
   ChevronLeft,
@@ -39,7 +38,6 @@ export function LectureHeader({
   view,
   hasSummary,
   generatingSummary,
-  productsHref,
   onTitleChange,
   onToggleRecording,
   onChangeView,
@@ -59,7 +57,6 @@ export function LectureHeader({
   view: LectureHeaderView;
   hasSummary: boolean;
   generatingSummary: boolean;
-  productsHref: string;
   onTitleChange: (next: string) => void;
   onToggleRecording: () => void;
   onChangeView: (v: LectureHeaderView) => void;
@@ -187,14 +184,6 @@ export function LectureHeader({
                   )}
                 </button>
               ))}
-              <Button
-                asChild
-                variant="ghost"
-                size="sm"
-                className="px-3 h-auto py-1.5 text-xs rounded-sm"
-              >
-                <Link href={productsHref}>Produtos</Link>
-              </Button>
             </div>
 
             {view === "live" && (
@@ -214,6 +203,17 @@ export function LectureHeader({
               </Button>
             )}
 
+            {hasSummary && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onExportPdf}
+                className="gap-1.5"
+              >
+                <Download className="h-4 w-4" /> Exportar PDF
+              </Button>
+            )}
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -229,9 +229,11 @@ export function LectureHeader({
                 <DropdownMenuItem onClick={onShare}>
                   <Share2 className="h-4 w-4" /> Compartilhar
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={onExportPdf}>
-                  <Download className="h-4 w-4" /> Exportar PDF
-                </DropdownMenuItem>
+                {!hasSummary && (
+                  <DropdownMenuItem onClick={onExportPdf}>
+                    <Download className="h-4 w-4" /> Exportar PDF
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                   onClick={onDelete}

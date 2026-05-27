@@ -37,6 +37,8 @@ import {
   Mic,
   MoreVertical,
   PanelLeft,
+  PanelRightClose,
+  PanelRightOpen,
   Pause,
   Play,
   RefreshCw,
@@ -71,6 +73,11 @@ import {
   updateLectureAsync,
 } from "@/lib/db";
 import {
+  deleteSummaryAsync,
+  getSummaryByLectureIdAsync,
+  listSummariesAsync,
+} from "@/lib/summaries";
+import {
   subscribeFavorites,
   toggleFavorite as toggleFavoriteLib,
 } from "@/lib/favorites";
@@ -83,7 +90,7 @@ import type {
   Subject,
   User,
 } from "@/lib/types";
-import { cn } from "@/lib/utils";
+import { cn, stripMarkdownToPlainText } from "@/lib/utils";
 
 export default function ResumoPage({
   params,
@@ -194,6 +201,9 @@ type MobileTab = "summary" | "chat" | "related" | "next";
 function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
   const router = useRouter();
   const [lecture, setLecture] = useState<Lecture | null>(null);
+  const [summary, setSummaryState] = useState<LectureSummary | undefined>(
+    undefined,
+  );
   const [subject, setSubject] = useState<Subject | null>(null);
   const [related, setRelated] = useState<Lecture[]>([]);
   const [loading, setLoading] = useState(true);
@@ -202,6 +212,7 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
   const [readingPct, setReadingPct] = useState(0);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("summary");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [ttsState, setTtsState] = useState<"idle" | "playing" | "paused">("idle");
   const [wizardOpen, setWizardOpen] = useState(false);
   const [assetCounts, setAssetCounts] = useState<AssetCounts>({
@@ -212,6 +223,31 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
 
   const contentRef = useRef<HTMLDivElement>(null);
   const sectionRefs = useRef<Map<string, HTMLElement>>(new Map());
+
+  // Restaura preferência de collapse da sidebar
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("lumio:summary-sidebar-collapsed");
+      if (stored === "1") setSidebarCollapsed(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleSidebar = useCallback(() => {
+    setSidebarCollapsed((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(
+          "lumio:summary-sidebar-collapsed",
+          next ? "1" : "0",
+        );
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }, []);
 
   // ===== Load lecture + subject + related + assets =====
   useEffect(() => {
@@ -226,17 +262,33 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
           router.replace("/resumos");
           return;
         }
+        // Source of truth: summaries table.
+        const sm = await getSummaryByLectureIdAsync(user.id, lec.id);
+        if (!active) return;
         setLecture(lec);
+        setSummaryState(sm?.content);
         const subj = await getSubjectAsync(user.id, lec.subjectId);
         if (active) setSubject(subj);
 
-        // Related: outras lectures da mesma matéria (top 3 por updatedAt)
-        const allLectures = await listLecturesAsync(user.id);
+        // Related: outras lectures da mesma matéria com summary (top 3)
+        const [allLectures, allSummaries] = await Promise.all([
+          listLecturesAsync(user.id),
+          listSummariesAsync(user.id, lec.subjectId),
+        ]);
         if (!active) return;
+        const lectureIdsWithSummary = new Set(
+          allSummaries
+            .filter((s) => s.source.kind === "lecture")
+            .map((s) =>
+              s.source.kind === "lecture" ? s.source.lectureId : null,
+            ),
+        );
         const rel = allLectures
           .filter(
             (l) =>
-              l.id !== lec.id && l.subjectId === lec.subjectId && !!l.summary,
+              l.id !== lec.id &&
+              l.subjectId === lec.subjectId &&
+              lectureIdsWithSummary.has(l.id),
           )
           .sort(
             (a, b) =>
@@ -316,7 +368,6 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
   }, [user.id]);
 
   // ===== Section refs / scroll observer =====
-  const summary = lecture?.summary;
   const sectionList = useMemo<SectionRef[]>(
     () => (summary ? buildSectionRefs(summary) : []),
     [summary],
@@ -387,9 +438,8 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
     );
     if (!ok) return;
     try {
-      await updateLectureAsync(user.id, lecture.id, {
-        summary: null as unknown as Lecture["summary"],
-      });
+      const sm = await getSummaryByLectureIdAsync(user.id, lecture.id);
+      if (sm) await deleteSummaryAsync(user.id, sm.id);
       toast.success("Resumo excluído.");
       router.push("/resumos");
     } catch (err) {
@@ -560,7 +610,7 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-5 mb-5">
         <div className="min-w-0 flex-1">
           <div className="flex items-start gap-2">
-            <h1 className="text-2xl md:text-3xl font-semibold tracking-tight leading-tight">
+            <h1 className="text-2xl md:text-3xl heading-display">
               {lecture.title}
             </h1>
             <button
@@ -697,8 +747,15 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
         </Button>
       </div>
 
-      {/* Grid 2-col: main amplo + sidebar direita (420px pra respirar o chat) */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_420px] gap-8">
+      {/* Grid 2-col: main amplo + sidebar direita (420px pra respirar o chat).
+          Quando collapsed: vira 1-col, main ganha o espaço todo. */}
+      <div
+        className={`grid grid-cols-1 gap-8 ${
+          sidebarCollapsed
+            ? "lg:grid-cols-1"
+            : "lg:grid-cols-[minmax(0,1fr)_420px]"
+        }`}
+      >
         {/* CENTER: Content */}
         <main ref={contentRef} className="min-w-0">
           <SummaryContent
@@ -707,10 +764,8 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
             sectionRefs={sectionRefs}
             lectureId={lectureId}
             onImagesUpdated={(images) => {
-              setLecture((prev) =>
-                prev && prev.summary
-                  ? { ...prev, summary: { ...prev.summary, images } }
-                  : prev,
+              setSummaryState((prev) =>
+                prev ? { ...prev, images } : prev,
               );
             }}
           />
@@ -747,9 +802,21 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
           </div>
         </main>
 
-        {/* RIGHT: Sidebar (desktop) */}
-        <aside className="hidden lg:block">
+        {/* RIGHT: Sidebar (desktop) — esconde quando collapsed */}
+        <aside className={sidebarCollapsed ? "hidden" : "hidden lg:block"}>
           <div className="sticky top-[80px] space-y-4 max-h-[calc(100vh-100px)] overflow-y-auto pr-1">
+            {/* Toggle de collapse */}
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={toggleSidebar}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                title="Recolher painel lateral"
+              >
+                <PanelRightClose className="h-3.5 w-3.5" />
+                Recolher
+              </button>
+            </div>
             {/* Progresso de leitura — sticky pra sempre visível durante scroll */}
             <div className="rounded-xl border border-border/60 bg-card p-3">
               <div className="flex items-center justify-between text-[11px] text-muted-foreground mb-1.5">
@@ -825,6 +892,19 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
           </div>
         </aside>
       </div>
+
+      {/* Botão flutuante pra reabrir sidebar quando collapsed (desktop only) */}
+      {sidebarCollapsed && (
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          className="hidden lg:inline-flex fixed right-4 top-1/2 -translate-y-1/2 z-40 items-center gap-2 rounded-full border border-border/60 bg-card/95 backdrop-blur px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 shadow-lg transition-all"
+          title="Mostrar painel lateral"
+        >
+          <PanelRightOpen className="h-3.5 w-3.5" />
+          Painel
+        </button>
+      )}
 
       {/* Mobile: drawer índice */}
       {mobileSidebarOpen && (
@@ -1667,11 +1747,14 @@ function QuickSummaryCard({
   summary: LectureSummary;
   onJumpToHighlights: () => void;
 }) {
-  const snippet = summary.generalSummary
-    ? summary.generalSummary.length > 220
-      ? summary.generalSummary.slice(0, 200).trim() + "…"
-      : summary.generalSummary
-    : (summary.highlights ?? []).slice(0, 2).join(" · ");
+  const cleanGeneral = stripMarkdownToPlainText(summary.generalSummary ?? "");
+  const snippet = cleanGeneral
+    ? cleanGeneral.length > 220
+      ? cleanGeneral.slice(0, 200).trim() + "…"
+      : cleanGeneral
+    : stripMarkdownToPlainText(
+        (summary.highlights ?? []).slice(0, 2).join(" · "),
+      );
   return (
     <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/8 via-card to-fuchsia-500/8 p-4">
       <div className="text-[11px] uppercase tracking-wider text-primary/90 font-medium mb-2 inline-flex items-center gap-1.5">

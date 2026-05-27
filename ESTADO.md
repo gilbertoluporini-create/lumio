@@ -1,201 +1,481 @@
-# ESTADO — Lumio (snapshot pra resistir a compact)
+# Lumio — ESTADO
 
-> Última atualização: **2026-05-24** (madrugada). App LIVE em produção, 9 rotas no sidebar, landing repaginada. Aguardando KYC Stripe aprovar pra começar checkout real.
+## 🔴 SESSÃO 2026-05-26 noite — PRÓXIMA AÇÃO: DEPLOY (BLOQUEADOR)
 
-## ⚡ AUTONOMIA (regras do user)
+**Estado git**: 141 arquivos modificados/novos NÃO COMMITADOS. Bloqueia tudo:
+- Não pode anunciar (lumioapp.net/links e /api/og em produção)
+- Não pode aquecer IG (precisa OG cards + /links page funcionando)
+- Não pode construir /admin/marketing v1
 
-- Faz commits a cada milestone mas NÃO push automático (só quando explicitamente pedido)
-- Edita código sem pedir confirmação a cada passo
-- Cuidado com ações destrutivas (rm -rf, drop table, force push)
-- "implementa X" = implementa direto sem refazer perguntas óbvias
-- Pode usar agentes em paralelo agressivamente (max plan, gastar tokens é trade-off favorável)
-- Nunca pede secrets/API keys pelo chat — instrui a colocar no `.env.local` direto
-- Honest empty states > fake data
-- Voz BR informal mas inteligente (sem "olá!", "incrível", "vamos juntos")
-
-## Pitch
-
-SaaS de transcrição de aulas (Web Speech API) + chat IA contextual (Claude Sonnet 4.5) + slides do professor (Vision) + **4 produtos gerados** (resumos, flashcards, quiz, mapa mental). Mascote **Lumi** (lâmpada) + moeda **Lumio Coin** 3D roxa com "+". Mercado: estudantes universitários BR, foco medicina.
-
-## Infra (LIVE)
-
-- Local: `/Users/gilbertoluporini/lumio`
-- GitHub: https://github.com/gilbertoluporini-create/lumio
-- Produção: **https://lumioapp.net** ✅ NO AR (Hostinger DNS → Vercel)
-- Dev: http://localhost:3001
-- Domínio: lumioapp.net (Hostinger, expira 2027-05-23)
-- Supabase: `pcatjumfdcxuthefixzf.supabase.co` — migrations completas
-- Anthropic: ativa com créditos
-- **Stripe LIVE**: KYC submetido 23/05, aguardando aprovação (1-3 dias úteis)
-- **Resend**: domínio lumioapp.net verificado (DKIM+SPF+DMARC no Hostinger), SMTP custom configurado no Supabase como `no-reply@lumioapp.net`
-- Email forwarding: ImprovMX catchall `*@lumioapp.net` → gilbertoluporini@gmail.com
-
-## User principal
-
-- Email: gilbertoluporini@gmail.com
-- ID Supabase: `1000206d-38bd-431f-b862-ff4a588b00e7`
-- Role: admin
-- Saldo: 50 coins (welcome bonus)
-- MEI ATIVA: CNPJ 53.393.782/0001-32 (CNAE "Promoção de Vendas" — não casa com SaaS, contador precisa ajustar OU migrar pra ME)
-
-## Stack
-
-- **Next.js 16.2.6** App Router + Turbopack
-  - ⚠️ **AGENTS.md warning**: APIs têm breaking changes. Sempre ler `node_modules/next/dist/docs/01-app/` antes de codar
-- React 19.2.4, TypeScript strict, Tailwind 4.3
-- Fonts: Bricolage Grotesque (sans) + Geist Mono + Instrument Serif
-- shadcn-style UI em `src/components/ui/`
-- Lucide-react (ícones)
-- Framer Motion 12 + Lenis (smooth scroll)
-- Anthropic SDK + Supabase SSR + Stripe + Resend + pdfjs-dist
-- Vercel hosting (deploy automático no push pra main)
-
-## Auth (3 fluxos)
-
-1. **Google OAuth** — Google Cloud OAuth client publicado (web app), Supabase Provider habilitado
-2. **Email + senha** — signup/login/reset proper com página dedicada
-3. **Magic link** — toggle alternativo
-
-Páginas: `/(auth)/{signup,login,reset-password}` + `/auth/callback` (PKCE).
-
-Endpoints: `/api/auth/{magic-link,signup-password,signin-password,reset-password}`.
-
-Perfil: `/account/profile` tem trocar senha + zona de perigo "EXCLUIR" pra deletar conta (endpoint `/api/account/delete` cancela subscription Stripe + apaga customer + admin.deleteUser).
-
-Site URL no Supabase: `https://www.lumioapp.net` (com www, pq Vercel redireciona naked→www). Redirect URLs incluem `https://www.lumioapp.net/**`, `https://lumioapp.net/**`, `http://localhost:3001/**`.
-
-## Rotas do app
-
-**Sidebar principal (6):**
-- `/dashboard` — KPIs (3 cards: próxima aula com ícone temático, aulas gravadas com sparkline, tempo de estudo com bar chart semana S T Q Q S S D) + matérias horizontais com progress bar (% concluído = aulas com summary / total) + lista linear de aulas recentes
-- `/schedule` — Calendário mês/semana/agenda + grid 6x7 + agenda lateral próximos 5 dias + 4 cards categorias (Próximas aulas com dados reais; Blocos/Provas/Trabalhos com "Em breve" honesto)
-- `/resumos` — Biblioteca: filtros (matéria/status/tipo/busca/ordenação) + featured card do resumo mais recente + tabela + sidebar com pastas por matéria + stats
-- `/flashcards` — 4 stat cards + study session card com flip + sidebar config + tabela decks. SRS toast "Em breve". Manual flip funciona
-- `/quiz` — 4 stat cards + pills de matéria + bancos à esquerda + practice panel à direita com feedback local de correto/errado
-- `/gravacoes` — Card destaque com preview transcrição + tabela todas as gravações + sidebar com stats + dica do Lumio
-- `/account/coins` — Carteira com moeda 3D animada + custos por feature + pacotes avulsos placeholder
-
-**Sidebar secundária (após divisor):**
-- `/account/settings` — Configurações
-- `/help` — FAQ search + 5 categorias + 3 guias + 3 cards suporte
-
-**Outras:** `/onboarding`, `/lecture/[id]`, `/lecture/[id]/products`, `/subject/[id]`, `/account/profile`, `/account/billing`, `/admin/*`, `/pricing`, `/terms`, `/privacy`, `/success`.
-
-## Landing repaginada (commit 923a9c8)
-
-Componentes em `src/components/landing/`:
-- `hero` (Lumi maior, "Beta privado · vagas abertas")
-- `logos-row` (8 faculdades como texto: Mandic, USP, Unifesp, FMUSP, Mackenzie, PUC-SP, UNICAMP, Insper)
-- `testimonials` (3 estudantes fictícios beta com badges)
-- `how-it-works` (4 steps com Lumi illustrations)
-- `personas` (Medicina/Direito/Engenharia com pain→solution específico)
-- `pricing-section` (50 coins welcome bonus + cards Starter/Pro/Power)
-- `faq-section` (8 perguntas honestas, reconhece trade-offs)
-- Footer 4-col com mailto contato@lumioapp.net
-
-## Moeda 3D
-
-- Componente: `src/components/brand/lumio-coin-spinning.tsx`
-- 2 formatos alpha: `/illustrations/lumio-coin.webm` (VP9, 736KB) + `/illustrations/lumio-coin.mov` (HEVC, 1.4MB)
-- Poster fallback: `/illustrations/lumio-coin.png` (transparente)
-- **Loop seamless via requestAnimationFrame** (timeupdate event tinha delay e deixava o último frame congelar)
-- Size default 260px (era 180 antes)
-- Source: Canva "fundo removido" + ffmpeg colorkey branco pra alpha real
-- Usar APENAS em destaques (card de saldo /account/coins). Resto usa `LumioCoin` PNG estática
-
-## Ícones temáticos
-
-Helper `getSubjectIcon(name)` duplicado em 5 arquivos. Cobre 30+ keywords: medicina (cardio/respirat/endócr/neuro/clinic/aps/genetic/etc), direito (Gavel/Scale), engenharia (Wrench), exatas (Calculator/Sigma/Atom), humanas (Landmark/Library), línguas (Languages), computação (Code), administração (Briefcase), artes (Palette/Music), ed. física (Dumbbell), inovação (Lightbulb). Fallback: BookOpen.
-
-**TODO refator**: extrair pra `src/lib/subject-icon.ts`.
-
-## Stripe (LIVE)
-
-- KYC submetido em **23/05/2026** — aguardando aprovação 1-3 dias úteis
-- Webhook LIVE: https://lumioapp.net/api/stripe/webhook (secret `whsec_8nb7kO6SpkWGU56ZPjBhwsCFTbHzQ0PZ`)
-- Customer Portal LIVE configurado
-- Price IDs LIVE em `.env.local`:
-  - `STRIPE_PRICE_ID_STARTER=price_1TaOO39ui6kMmrgUFYatvtX`
-  - `STRIPE_PRICE_ID_PRO=price_1TaOO39ui6kMmrgG2CUxRpOl`
-  - `STRIPE_PRICE_ID_POWER=price_1TaOO39ui6kMmrgIq76612s`
-  - `STRIPE_PRICE_ID_ANNUAL` vazio — **PRECISA CRIAR pros planos anuais**
-
-## Templates de email (aplicados no Supabase)
-
-4 HTMLs em `supabase/email-templates/`:
-- `confirm-signup.html` — "Confirma seu email pra começar no Lumio"
-- `magic-link.html` — "Seu link mágico do Lumio chegou ✨"
-- `reset-password.html` — "Define uma nova senha do Lumio"
-- `change-email.html` — "Confirma a troca do seu email no Lumio"
-
-Design: 560px, gradient roxo→fuchsia CTA, Lumi waving/thinking header, dark mode automático.
-
-## Plano de marketing (entregue, user não escolheu approach)
-
-3 fases 90 dias:
-- **Mês 1** (R$0): 10-20 betas via WhatsApp + 5 testimonials vídeo
-- **Mês 2** (R$200-500): Instagram + TikTok + 5-10 micro-influencers (acesso vitalício do Power em troca)
-- **Mês 3** (R$1000-2000): Meta Ads + 2-3 influencers maiores + 5-10 artigos SEO
-
-**Aguardando user escolher**: A) Action humana validar com 5 amigos / B) Build indication program / C) Roteiro de vídeos
-
-## Próximos passos pendentes (priorizado)
-
-1. ⏳ **KYC Stripe aprovação** (1-3 dias úteis a partir de 23/05) → testar checkout real com small charge
-2. 📦 **Criar planos anuais** (Starter/Pro/Power anuais com desconto ~20%) + toggle Mensal/Anual na pricing-section da landing + atualizar `.env.local`
-3. 💼 **Contador**: ajustar CNAE do MEI pra TI (tipo 6201-5/01 Desenvolvimento de programas) OU migrar pra ME
-4. 🚀 **Executar marketing**: user escolher A/B/C e começar
-5. 🎨 (opcional) Polish sidebar: logo ícone gradient + search bar global Cmd+K mais proeminente + card "Plano Premium" no rodapé (estilo mockup)
-6. 🔧 (opcional) Implementar SRS real pros flashcards (hoje "Em breve")
-7. 🔧 (opcional) Persistir respostas do /quiz (hoje só estado local)
-8. 🔧 (opcional) Refatorar `getSubjectIcon` pra `src/lib/subject-icon.ts`
-
-## Últimos commits
-
-```
-923a9c8 (2026-05-24) feat(app): repagina /schedule + cria /resumos /flashcards /quiz /help + landing rework + sidebar
-09998da feat(gravacoes): nova página /gravacoes
-47d0530 feat(app): renomeia 'Aulas'→'Dashboard', adiciona 'Gravações' + lista linear de aulas
-c850c46 fix(coin): loop seamless + tamanho maior + vídeo trimado
-2d05112 feat(dashboard): fase 2 do redesign — KPI com gráficos + cards horizontais
-96c4e69 feat(dashboard): moeda 3D real (vídeo com alpha) + ícones expandidos + cards neutros
-cddd947 feat(dashboard): fase 1 do redesign — ícones temáticos + greeting natural
-88b1482 feat(auth): fluxo proper de reset password
-b2219f3 chore(emails): templates HTML do Supabase Auth com brand Lumio
-9d6ff6d feat(account): trocar senha + excluir conta com confirmação "EXCLUIR"
-3c758dc feat(auth): signup/login híbrido — Google OAuth + senha + magic link
-```
-
-## Comandos úteis
-
+**Comando único pra fazer deploy** (user roda no terminal):
 ```bash
-# Dev
-cd /Users/gilbertoluporini/lumio && npm run dev
-
-# Typecheck
-npx tsc --noEmit
-
-# Lint
-npm run lint
-
-# Build local
-npm run build
-
-# Git log curto
-git log --oneline -15
+cd /Users/gilbertoluporini/lumio && \
+  git add -A && \
+  git commit -m "feat(marketing): sprint 1 — /links page, OG dinâmico, UTM tracking, attribution, embeddings, lumi tools, layouts noindex, anonimato founder" && \
+  git push origin main
 ```
 
-## Variáveis de ambiente importantes (`.env.local`)
+Vercel auto-deploya via webhook em ~3min. Verificar em https://lumioapp.net depois.
 
-- `NEXT_PUBLIC_APP_URL=https://lumioapp.net`
-- `ANTHROPIC_API_KEY=sk-ant-...`
-- `NEXT_PUBLIC_SUPABASE_URL=https://pcatjumfdcxuthefixzf.supabase.co`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY=...`
-- `SUPABASE_SERVICE_ROLE_KEY=...`
-- `STRIPE_SECRET_KEY=sk_live_...`
-- `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...`
-- `STRIPE_WEBHOOK_SECRET=whsec_8nb7kO6SpkWGU56ZPjBhwsCFTbHzQ0PZ`
-- `STRIPE_PRICE_ID_{STARTER,PRO,POWER}=price_...`
-- `RESEND_API_KEY=re_...`
-- `RESEND_FROM_EMAIL=Lumio <onboarding@resend.dev>` (TODO: trocar pra `no-reply@lumioapp.net` agora que domínio verificou)
-- `ADMIN_EMAILS=gilbertoluporini@gmail.com`
+## Sprint 1 Marketing — STATUS
+
+**FEITO nesta sessão (2026-05-26 sessões 2+3)**:
+- 4 contas sociais criadas: @lumioapp.br (IG/TT), @lumioapp_br (X), lumioapp-br (LI)
+- Email infra: Resend verified + ImprovMX catch-all hello@lumioapp.net
+- /links page (Linktree próprio) + /api/og endpoint + UTM tracking + signup_attribution
+- Migration 016 rodada no Supabase
+- PostHog dashboard "Acquisition by Channel" (id 1632907)
+- Anonimato founder corrigido em 3 lugares públicos
+- Typography Bricolage→Outfit em todo doc marketing
+- PLANO_VISUAL_COMPLETO.md (prompts pro Replit)
+- 10 posts IG gerados via Replit (em ~/Downloads/lumi-posts/)
+- 3 posts editados via Pillow (02, 04 handle + 09 pill)
+- Post 08 DESCARTADO (risco CDC art.37 + trademark USP)
+
+**Posts IG prontos pra publicar (9 de 10)**:
+- Originais: 01, 03, 05, 06, 07, 10 em `~/Downloads/lumi-posts/`
+- Editados: 02, 04, 09 em `~/Downloads/lumi-posts/edited/`
+- Ordem warmup 9 dias: 01→04→07→06→02→03→05→10→09
+
+**Decisões importantes**:
+- Coins onboarding: 50 fixos + 7 dias Pro grátis no lead magnet (NÃO +50 bonus coins)
+- Budget ads: R$ 500/mês máximo (~R$ 16/dia)
+- Timeline: 60-90 dias até MRR real
+- Painel `/admin/marketing` v1: 1 semana de dev (após deploy + token Meta)
+
+**Canais v1 do painel**:
+- Email (Resend webhook) — full inbox automática
+- IG Messaging API — depende do token Meta admin
+- TikTok/LinkedIn — copy/paste manual via painel
+- WhatsApp — PULAR (wa.me expõe número, Cloud API R$ 300+/mês não justifica agora)
+
+**Regras outbound** (em [[feedback-lumio-outbound-safety]]):
+- Máx 12 DMs/dia IG (acima disso = banimento)
+- Auto-discovery só pra ranquear, user aprova cada DM
+- Voz adaptativa "time Lumio" (formal vs casual)
+
+## Roadmap 8 semanas
+
+```
+S1-S2: Deploy + warmup orgânico + 5 embaixadores + construir painel
+S3-S4: Meta Lead Ads R$16/dia → PDF guia + email nurture
+S5-S6: Escala paid (R$25/dia) + TikTok Spark se Reels viralizarem
+S7-S8: Otimização + retargeting Pixel
+Meta cumulativa: 30-60 pagantes (R$ 600-1.500 MRR)
+```
+
+## Pendências críticas em ordem
+
+1. **DEPLOY** (comando acima) — desbloqueia tudo
+2. **Texto novo CTA PDF** (user mandando via GPT) — aplicar em `scripts/gen_lead_magnet_pdf.py:510-529`, regerar PDF, mencionar "7d Pro grátis" no lugar de "+50 coins bônus"
+3. **Token Meta admin** (Employee + 9 scopes) — desbloqueia IG Messaging API
+4. **Copiar 9 posts pra /public/instagram/** + commit
+5. **Schema marketing** (outbound_drafts, embaixadores, inbox_messages) migration 017
+6. **API routes** (Anthropic profile research + DM gen + Resend webhook)
+7. **UI /admin/marketing** v1 (3 seções)
+8. **Publicar post 01** + iniciar warmup
+
+---
+
+# Lumio — ESTADO pós-sessão 2026-05-25
+
+## Marketing/Analytics APIs (TUDO TESTADO via curl)
+
+### Vars no Vercel production (15 marketing) + .env.local local
+
+| Var | Tipo | Onde gerar |
+|-----|------|------------|
+| `NEXT_PUBLIC_GA_MEASUREMENT_ID` | público | GA4 Admin → Streams |
+| `GA4_PROPERTY_ID` | privado | GA4 Admin → Detalhes propriedade |
+| `GA4_STREAM_ID` | privado | URL do GA4 Admin streams |
+| `GA4_MEASUREMENT_PROTOCOL_SECRET` | secret | Stream → Measurement Protocol → Criar |
+| `NEXT_PUBLIC_META_PIXEL_ID` | público | 867791183024108 (Lumio pixel) |
+| `META_APP_ID` | público | 1496795342023931 |
+| `META_APP_SECRET` | secret | developers.facebook.com/apps/.../settings/basic |
+| `META_ACCESS_TOKEN` | secret | **System User token, NUNCA EXPIRA** |
+| `META_BUSINESS_ID` | privado | 4173408029656117 |
+| `META_AD_ACCOUNT_ID` | privado | act_1448905953408223 |
+| `META_SYSTEM_USER_ID` | privado | 122094825009349877 |
+| `NEXT_PUBLIC_POSTHOG_KEY` | público | PostHog Settings → Project → API Key |
+| `NEXT_PUBLIC_POSTHOG_HOST` | público | https://us.i.posthog.com |
+| `POSTHOG_PROJECT_ID` | público | 438840 |
+| `POSTHOG_PERSONAL_API_KEY` | secret | PostHog avatar → Personal API keys |
+
+## Tracking fixes (deployado 2026-05-25)
+
+### Bug raiz
+`Analytics.signUp("google")` rodava DEPOIS de `supabase.auth.signInWithOAuth()` — nunca executava (redirect imediato). PostHog só capturava `$autocapture/$pageview`, zero custom.
+
+### Solução
+- `src/lib/server-analytics.ts` — Meta CAPI + GA4 MP server-side com SHA-256 hashing PII
+- `src/app/api/stripe/webhook/route.ts` — `trackPurchaseServer()` no checkout completed (dedup via session.id)
+- `src/app/auth/callback/route.ts` — first-login detection via `user.created_at < 60s` → adiciona `?welcome=<provider>&new=1` (signup) ou `?welcome=<provider>` (login)
+- `src/components/analytics/auth-tracker.tsx` — client no layout, `identifyUser` sempre que há sessão + lê `?welcome=`
+
+### Validação ao vivo
+- `$set` no PostHog confirmou `identifyUser` (email/name ligados ao distinct_id real)
+- `log_in` NÃO disparou no login do amigo porque ele tinha cookies ativos (não passou pelo OAuth callback). Esperado.
+- Próximo signup OAuth fresco vai disparar `sign_up` real
+
+## Cleanup técnico (deployado 2026-05-25)
+
+- **content-wizard.tsx**: removeu Step4Result morto + 4 previews + handleSave + state (-454 linhas)
+- **/api/correlate**: hookou `logAiUsage` (tokens + custo USD)
+- **lumi-attachment-picker.tsx**: adicionou tab "Quizzes"
+- **supabase/.temp/** + **.playwright-mcp/**: untracked do git + .gitignore atualizado
+- **Vision real** pra PNG/JPG no Lumi: client lê base64, server monta content array `[image,text]` pra Claude. Fim do stub.
+
+## Landing fixes (deployado 2026-05-25)
+
+- Hero badge: "Beta privado · vagas abertas" → "Disponível agora · 50 coins grátis" (dot pulsando)
+- Removeu LumiCharacter sobreposto no canto direito do hero
+- Removeu avatares ABCD placeholder → "Sem cartão · cancele a qualquer hora"
+- Removeu testimonial anônimo "M · Aluno 3º ano"
+- CTA bottom: "Ver planos pagos" → "Como funciona"
+
+## Landing conversion fix (deployado 2026-05-25 02:50 UTC)
+
+### STATS / BULLETS / footer (anti-claim + consistência)
+- STATS: removeu "4h/dia tempo médio salvo" (inventado, risco legal) → "50 coins grátis"
+- STATS: "97% Acurácia em PT-BR no beta privado" → "PT-BR · Reconhecimento nativo"
+- BULLETS bottom CTA: "Beta aberto" → "50 coins grátis", "Chat IA incluído" → "Chat IA com PDFs"
+- Footer: removeu "v0.beta · maio 2026" (anti-credibilidade pra produto pago)
+
+### Neutralização tom medicina → história/genérico
+Per feedback do founder: landing não pode parecer "feito por estudante de medicina".
+
+- **LiveDemo**: Anatomia · Suprarrenais → História · Independência do Brasil (transcript + Q&A + sticky note + folder chip)
+- **ProductsTabs** (4 previews): Glândulas suprarrenais → Independência do Brasil em todas (Resumo, Flashcards, Quiz, MapaMental)
+- **BeforeAfter**: transcript medical + summary → história do Brasil
+- **Personas**: Medicina/Bioquímica/ciclo de Krebs → Administração/Micro/Contabilidade/Estatística
+- **Testimonials**: removeu "Beta privado · maio 2026", "Beta" chips em cada card → "Verificado" (verde). Aluna Medicina → Psicologia.
+- **LogosRow**: "Beta privado · Medicina, Direito e Engenharia" → "Funciona em qualquer curso"
+- **SubjectsMarquee**: 7 matérias de medicina (Anatomia, Cardiologia, Bioquímica, Farmacologia, Histologia, Patologia, Embriologia) → mix balanceado de Admin/Marketing/Estatística/Sociologia/Psicopatologia
+
+## Sprint Vendas R$700 — entregáveis prontos (2026-05-25)
+
+### Docs criados
+- **`docs/marketing/CRIATIVOS_SPRINT.md`** — 3 scripts de vídeo 30s com timing/cena/VO + copy A/B Meta + Google RSA (15 headlines, 4 descs) + 10 hooks TikTok + UTM naming + AEM order
+- **`docs/marketing/DOMAIN_VERIFICATION.md`** — passo-a-passo Meta domain verify + AEM config + Resend domain verify + ativar email sequence
+
+### Código
+- **`src/lib/email.ts`**: `sendOnboardingEmail({step: day1|day3|day7|day14})` com copy + UTM em CTA
+- **`src/app/api/cron/email-onboarding/route.ts`**: cron handler que busca users criados há N dias, valida idempotência via `email_send_log`, skip pagantes no day14
+- **NÃO ativado** no `vercel.json` ainda (espera Resend domain verify + criar tabela `email_send_log` — instruções em DOMAIN_VERIFICATION.md item 4)
+
+## Email sequence — ATIVADO em produção (2026-05-25 01:55 UTC)
+
+- Resend `lumioapp.net` já estava verified (sa-east-1, sending enabled)
+- `RESEND_FROM_EMAIL=Lumio <hello@lumioapp.net>` atualizado em .env.local + Vercel production
+- `CRON_SECRET` gerado (openssl rand -hex 32) + setado na Vercel
+- Migration `010_email_send_log.sql` aplicada via Supabase Management API (PAT)
+- Cron `/api/cron/email-onboarding` rodando 0 13 * * * (10h BRT)
+- Smoke test: day1 enviado pra 1 user elegível, re-run confirmou skipped: 1 (idempotência OK)
+
+## Próximas ações que precisam do founder (UI obrigatório)
+
+| Quando | O quê | Bloqueia |
+|---|---|---|
+| Hoje | Verificar `lumioapp.net` no Meta Business Manager (meta tag → me manda) | AEM iOS conversions |
+| Hoje | Configurar AEM priority order no Pixel | Otimização Meta ads |
+| Esta semana | Renderizar 3 vídeos (Veo3 ~R$150, ElevenLabs Will, CapCut) | Subir ads |
+| Esta semana | Revogar 3 keys expostas: PAT Supabase, ELEVENLABS, Hostinger | Segurança |
+
+## Sinais de "está funcionando"
+
+- **GA4**: HTTP 204 ao postar em `/mp/collect`
+- **PostHog**: identifyUser confirmado via `$set` events
+- **Meta CAPI**: `events_received: 1` no /events endpoint
+- **Stripe webhook**: server-side `purchase` no `checkout.session.completed`
+
+## Pendências técnicas residuais
+
+- [ ] Lint warning pre-existente: `setGenerating` em lumi/page.tsx:153 (não-bloqueante)
+
+---
+---
+
+## SESSÃO 2026-05-25 (tarde-noite) — Refator semântico + bug-fixing
+
+### Refator GRANDE: aula vs documento vs resumo (3 entidades separadas)
+
+**Antes:** Tudo era `Lecture`. `Lecture.summary` (JSONB) era o resumo. PDF puro virava Lecture vazia + summary.
+
+**Depois:** 3 tabelas separadas no Supabase:
+- `lectures` — aula gravada (transcript + áudio + slides + messages)
+- `documents` — PDF/texto avulso (uploadado sem gravação) — `source_kind`, `source_text`, `page_count`
+- `summaries` — asset derivado, FK exclusiva (`lecture_id` XOR `document_id`), conteúdo JSONB
+
+### Migrations aplicadas em prod (via Supabase Management API)
+- `011_documents_summaries.sql` — cria as 2 tabelas novas + RLS + triggers + backfill
+- `012_drop_lectures_summary.sql` — **dropou a coluna legacy `lectures.summary`**
+- `013_cleanup_empty_lectures.sql` — converteu lectures vazias com summary → documents; deletou lectures totalmente vazias
+
+### Estado atual do banco
+- `lectures`: 0 (todas as antigas vazias eram lixo)
+- `documents`: 2 (legados do backfill, **sem `source_text`** — vieram de lectures vazias)
+- `summaries`: 2 (linked a document_id)
+- Coluna `lectures.summary`: **não existe mais**
+
+### Arquivos novos criados
+- `src/lib/summaries.ts` — list/get/getByLectureId/create/upsertByLecture/update/delete
+- `src/lib/documents.ts` — list/get/create/update/delete
+- `src/app/document/[id]/page.tsx` — visualização de Document com botão **"Anexar PDF"** quando sem texto (extração via pdfjs no browser → grava `source_text`)
+- `src/app/resumo/doc/[summaryId]/page.tsx` — visualização rica de resumo de Document (2-col layout, sidebar com Documento original)
+
+### Wizard `ContentWizard` (refatorado)
+- Quando há aula selecionada → cria/atualiza Summary com `source: lecture`
+- Quando só PDF/texto → cria `Document` + `Summary` com `source: document` (não cria mais Lecture vazia)
+- Tab "PDF da pasta Documentos" mostra Documents + Lectures-com-slides
+- Documents sem texto aparecem com badge amarelo **"sem texto"** + desabilitados (tooltip orienta a re-anexar)
+- `onCreated` callback: `{ lectureId?, summaryId?, documentId?, mode }`
+
+### Performance landing (scroll travado → fluido)
+- `lerp 0.08 → 0.14` no Lenis, `wheelMultiplier 0.9 → 1.1` (smooth-scroll.tsx)
+- Header: `backdrop-blur-xl → backdrop-blur-md`
+- Removido `backdrop-blur` de 9 lugares (cards, marquees, chips)
+- `BeforeAfter` agora gating `requestAnimationFrame` por IntersectionObserver
+- `MarqueeRow` migrou de framer-motion JS → CSS keyframes
+
+### UI/UX fixes
+- Dashboard: dropdown "+Nova aula" virou 2 botões separados: **"Gravar aula"** (gradient) + **"Novo resumo"** (outline)
+- Dashboard: badge "1 dias de sequência" removido
+- Dashboard: filtra lectures totalmente vazias do state
+- Dashboard: auto-refresh quando aba volta a focar (back nav, troca de aba)
+- `/resumos`: filtro de origem ("De aulas / De documentos"), chip de origem em cada row, dropdown "Abrir aula original"
+- `/resumos`: agora itera `summaries` (não lectures) — resumos de doc aparecem na lista
+- `/subject/[id]`: ganhou seção **"Documentos · N"** abaixo de "Aulas gravadas · N"
+- `stripMarkdownToPlainText` helper em `utils.ts` — limpa `![](url)`, headers, **bold**, etc. dos snippets/previews
+
+### Bug fixes críticos deploys
+- **`/api/lectures/create`**: tinha `summary` no SELECT após INSERT → quebrou após drop da coluna. **HOTFIX** removeu `summary` da string.
+- `AssignSubjectDialog`: chamava só `updateLectureAsync` → falhava silenciosamente pra Documents. Agora detecta `documentId` vs `lectureId` e chama API certa.
+- `chat-summary` API e `summary-images` API: agora leem/escrevem em `summaries` (não mais legacy `lectures.summary`)
+- `/lecture/[id]`, `/lumi`: writes de summary agora só na tabela `summaries`
+
+### Pontos de atenção
+- **2 documents legados sem `source_text`** — user precisa abrir `/document/[id]` e clicar "Anexar PDF" pra extrair texto antes de gerar resumo
+- Página `/resumo/[lectureId]` (rica, 1700 linhas) tem features que NÃO foram replicadas no `/resumo/doc/[summaryId]`: TTS/áudio, chat LumiChatPanel (depende de lectureId), related lectures, action buttons gerar flashcards/quiz
+- Chat sobre resumo de Document: NÃO existe ainda (LumiChatPanel hoje exige `lectureId`)
+
+### Stack atual (não mudou)
+- Next.js 16.2.6 + Turbopack (proxy.ts, NÃO middleware.ts)
+- Supabase auth + RLS + service_role no server
+- Stripe LIVE (mensal + anual em 3 planos)
+- Anthropic Claude (haiku 4.5, sonnet 4.5)
+- PostHog + GA4 + Meta CAPI já validados
+- Lenis smooth scroll só em rotas públicas (landing, pricing, success)
+
+### Arquivos chave (mapa mental)
+- **Schema**: `supabase/migrations/011_documents_summaries.sql`, `012_drop_lectures_summary.sql`, `013_cleanup_empty_lectures.sql`
+- **Types**: `src/lib/types.ts` — `Lecture`, `Document`, `Summary`, `SummarySource` (kind: lecture XOR document)
+- **DB helpers**: `src/lib/db.ts` (lectures), `src/lib/documents.ts`, `src/lib/summaries.ts`
+- **Wizard**: `src/components/ai/content-wizard.tsx` — fluxo de geração
+- **/resumos**: `src/app/resumos/page.tsx` — iter `summaries` + filtros de origem
+- **Resumo de aula**: `src/app/resumo/[lectureId]/page.tsx` (rica, completa)
+- **Resumo de doc**: `src/app/resumo/doc/[summaryId]/page.tsx` (rica, sem chat/TTS/related)
+- **Documento**: `src/app/document/[id]/page.tsx` (visual + anexar PDF)
+- **Hook unificado de docs**: `src/hooks/use-all-documents.ts` — lê `lectures + documents + summaries + assets`
+
+---
+
+## PRÓXIMA SESSÃO (pós-compact)
+
+**Modo: bug-fixing continuado, aba por aba.**
+
+Founder navega em produção (`lumioapp.net`, logado como `gilbertoluporini@gmail.com`, role admin) e reporta bugs/inconsistências. Cada report:
+- Print + descrição
+- Ou só descrição textual
+
+### Protocolo
+1. Identificar arquivo(s) afetado(s) (`grep`/`find` direto)
+2. Aplicar fix (Edit) — sem pedir confirmação a cada arquivo
+3. `npx tsc --noEmit` rápido
+4. `npm run build && npx vercel --prod --yes` (founder confia, autonomia total)
+5. Smoke test `curl -sS -o /dev/null -w "%{http_code}" https://lumioapp.net/...`
+6. Reportar curto e seguir
+
+### NÃO fazer
+- Pedir confirmação a cada Edit
+- Refatorar coisas não-relacionadas
+- Sugerir features novas sem ser pedido
+- Mexer em `lectures.summary` (não existe mais — usar tabela `summaries`)
+
+### Áreas que ainda podem ter bugs
+- `/lecture/[id]` — gravação ao vivo (TTS, audio recorder, transcript em tempo real)
+- `/lumi` — chat IA, voice mode, anexos, geração de resumo via chat
+- `/onboarding` — primeira sessão pós-signup
+- `/admin/*` — dashboards founder
+- `/pricing` + `/checkout` — Stripe flow
+- Mobile views (celular)
+- Resumo de doc: precisa de chat? TTS? feature parity com resumo de aula?
+
+### Workflow de banco
+- Migrations sempre via Supabase Management API com PAT em `.env.local`:
+  ```bash
+  export $(grep -E '^(SUPABASE_ACCESS_TOKEN|NEXT_PUBLIC_SUPABASE_URL)=' .env.local | xargs) && REF=$(echo "$NEXT_PUBLIC_SUPABASE_URL" | sed -E 's|https://([^.]+)\.supabase\.co.*|\1|') && PAYLOAD=$(SQL_FILE=path/to/migration.sql node -e 'const fs=require("fs");console.log(JSON.stringify({query:fs.readFileSync(process.env.SQL_FILE,"utf8")}))') && curl -sS -X POST "https://api.supabase.com/v1/projects/$REF/database/query" -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" -H "Content-Type: application/json" -d "$PAYLOAD"
+  ```
+
+### Última feature deployada
+- `/document/[id]` com botão "Anexar PDF" — extrai texto via pdfjs no browser e grava em `documents.source_text`
+- Wizard mostra docs sem texto como desabilitados com badge "sem texto"
+
+Última atualização: 2026-05-25 — pós-refator de separação aula/documento/resumo
+
+---
+---
+
+## SESSÃO 2026-05-26 — Bug-fixes + Lumi virou Agente (3 Sprints)
+
+### Bug-fixes operacionais (deployados)
+
+| Bug | Fix |
+|---|---|
+| Stripe webhook nunca creditava (redirect lumioapp.net→www) | Mudei endpoint pra `www.lumioapp.net` via Stripe API + reenvio evento pendente. Corrigi user gibalupo2002 manualmente. |
+| `upsertSubscription` engolia error silenciosamente | Adicionei check de `error` + throw. Loga e força Stripe a re-tentar. |
+| Botão "Exportar PDF" escondido no menu "..." | Pulei pra botão outline visível no header quando `hasSummary` |
+| Wizard: docs "sem texto" sem caminho de fix | Botão **"Anexar PDF"** inline no row → extrai client-side → updateDocumentAsync + auto-select |
+| Streaming chat letter-by-letter (estilo Claude Code) | API `/api/ai/chat-summary` ganha modo `stream:true` (SSE). UI mostra cursor "▍" piscando. Voice mode segue não-streaming. |
+| Heurística de título de chat | `extractChatTitle()` em `lumi-chats.ts:170-241`. Remove 14 padrões de filler PT-BR + corta 6 palavras + 50 chars |
+| Coins badge sumido nos botões "Próximas ações" | Stack vertical: label em cima, badge moeda embaixo. Grid responsivo. |
+| Insights aprendizado pedia clique | Removi link "Ver relatório completo" |
+| Sidebar admin sem itens importantes | Reorganizei em 5 seções (Visão/Operação/Crescimento/Pessoas/Sistema). Removi botões duplicados do /admin |
+| `/gravacoes` não tinha exclusão | Implementei dropdown com "Excluir aula" (vermelho) + confirm + toast |
+| PDF cap 20MB → 50MB | Centralizei em `LIMITS.PDF_BYTES`. Pra `/api/extract-slides` (Vision) mantive 10MB com fallback automático pra extração só de texto client-side |
+
+### Article covers — gpt-image-1 (deployado)
+- Migration 014 (help_article_covers) + bucket Storage `article-covers` (public)
+- Endpoint `/api/admin/articles/generate-cover` + `src/lib/openai-image.ts` (photographic style anchors)
+- Migrei `/api/ai/summary-images` de Imagen 4 → gpt-image-1 (fallback Imagen se OpenAI faltar)
+- Pricing tracker: gpt-image-1 ($0.042 square / $0.063 landscape)
+- 15/15 capas geradas via script `scripts/retry-article-covers.mjs` — $0.94 total
+- Aparecem renderizadas em `/help/[cat]/[article]`
+
+### 🚀 Lumi virou AGENTE — 3 Sprints completos
+
+**Visão**: Lumi não responde mais — **age**. Tool calling + RAG + agent loop.
+
+#### Sprint 0 — RAG (pgvector)
+- Migration 015: pgvector + tabela `content_embeddings` (1536 dims) + função SQL `search_content_embeddings`
+- `src/lib/embeddings.ts`: chunkText (2k chars com overlap 200), generateEmbeddingsBatch, searchRelevantChunks
+- Endpoint `/api/embed`: auth + rate limit + ownership check + idempotente (delete+insert)
+- `src/lib/embeddings-client.ts`: helper fire-and-forget pra hooks
+- **Auto-index hooks ativos**:
+  - `/document/[id]` após "Anexar PDF" → indexa
+  - Wizard após criar doc PDF puro → indexa
+  - Wizard após reparar doc legado → indexa
+  - `/lecture/[id]` após parar gravação → indexa
+- Pricing tracker: `text-embedding-3-small` ($0.02/Mtok)
+- `scripts/backfill-embeddings.mjs` — idempotente, indexa o que ainda não foi
+- Custo real: ~$0.0005 por PDF de 50 págs
+
+#### Sprint 1 — Tool Calling (8 tools)
+- `src/lib/lumi-tools.ts` define + executa:
+  - `listar_materias` — query subjects
+  - `listar_aulas_e_docs` — query por subjectId
+  - `buscar_no_material` — RAG (a peça mais importante, usa pgvector)
+  - `gerar_resumo` — chama /api/ai/generate(summary), salva Summary linkado a lecture/doc
+  - `criar_flashcards` — idem, lecture wrapper + lecture_assets
+  - `criar_quiz` — idem
+  - `criar_mapa_mental` — idem
+  - `abrir_rota` — retorna instrução de nav pro client
+- `src/app/api/lumi/agent/route.ts`: agent loop com Anthropic SDK
+  - Modelo: `claude-haiku-4-5`
+  - Max 8 iterações
+  - Streaming SSE: `{delta}` (texto) + `{tool_start}` + `{tool_result}` + `{done}`
+  - Custo: 1 coin/turn do user (gerações internas cobram seus próprios coins)
+  - Refund garantido em qualquer falha
+- `src/components/lumi/lumi-tool-card.tsx`: cards inline mostrando tool em execução (loader → check/X → asset clicável quando gera algo)
+- `/lumi/page.tsx` substituiu `/api/ai/chat-summary` por `/api/lumi/agent`
+- Voice mode (lumi-voice-mode.tsx) e LumiChatPanel (resumo de aula) **inalterados** — seguem usando chat-summary
+
+#### Sprint 2 — Modo Prova
+- Tool **`iniciar_modo_prova`** (orquestrador composto, 1 call faz tudo):
+  1. Lista material da matéria
+  2. Faz 2 buscas RAG pra descobrir tópicos críticos
+  3. Roda 3 gerações em **paralelo** via Promise.all (resumo + 15 flashcards + 10 quiz)
+  4. Monta cronograma Pomodoro-like (resumo 30%/pausa/cards 35%/pausa/quiz)
+- `src/components/lumi/lumi-exam-mode-card.tsx`: card rico com header + chips de tópicos + 3 tiles clicáveis + cronograma
+- Botão **"Modo Prova"** no header do `/lumi` (gradient fuchsia, ao lado do calendário) — preenche prompt automaticamente
+- Custo: 26 coins por sessão (10+8+8)
+
+#### Bug-fix crítico: stream sobrevive navegação
+- **Sintoma**: user manda msg, sai do chat, volta → resposta sumiu / Lumi "parou"
+- **Causa**: fetch tava amarrado ao ciclo de vida da componente. Unmount → reader morto.
+- **Fix**: `src/lib/lumi-stream-store.ts` — singleton global keyed por chatId
+  - Stream roda no escopo do módulo, não da componente
+  - Estado acessível via `getStreamState(chatId)` + `subscribeStream`
+  - Quando termina, chama `appendMessage` direto (persiste mesmo se user navegou)
+  - `/lumi/page.tsx` agora usa `useSyncExternalStore` pra subscribir
+  - useEffect detecta `status === "done"` e recarrega chat do storage
+
+### Pendências/Limitações conhecidas
+
+1. **Anexos inline no /lumi** — PDF/imagem droppados no chat NÃO são considerados pelo agente (ele só busca no que tá no RAG). User deve subir via /documentos.
+2. **Voice mode** ainda usa `/api/ai/chat-summary` — não passou pelo refator do agente.
+3. **LumiChatPanel** (dentro de /resumo/[lectureId]) idem.
+4. **Memória de erros entre sessões** — ZERO. Sprint 4 (SRS) pendente.
+5. **Proatividade via calendário** — Sprint 5 pendente.
+6. **Chat grátis (0 coins/msg)** — buraco de margem identificado mas não corrigido. Atacante pode mandar 10k msgs/dia = $40 prejuízo direto.
+7. **2 documents legados sem source_text** — user resolve via "Anexar PDF" na UI.
+
+### Arquivos NOVOS desta sessão (todos em prod)
+
+```
+supabase/migrations/
+  014_help_article_covers.sql
+  015_content_embeddings.sql
+
+src/lib/
+  openai-image.ts
+  embeddings.ts
+  embeddings-client.ts
+  lumi-tools.ts
+  lumi-stream-store.ts
+
+src/app/api/
+  embed/route.ts
+  lumi/agent/route.ts
+  admin/articles/generate-cover/route.ts
+
+src/components/lumi/
+  lumi-tool-card.tsx
+  lumi-exam-mode-card.tsx
+
+scripts/
+  generate-article-covers.mjs
+  retry-article-covers.mjs
+  backfill-embeddings.mjs
+```
+
+### Próximos passos sugeridos (em ordem de impacto)
+
+**Pra fechar o produto:**
+- **Sprint 3** — Pomodoro guiado integrado ao chat (Lumi conduz sessão de estudo)
+- **Sprint 4** — Memória de erros + SRS (cards errados voltam, weak_points table)
+- **Sprint 5** — Proatividade calendário (notifica "prova em 3 dias")
+- Migrar voice mode + LumiChatPanel pra `/api/lumi/agent`
+- Cobrar 1 coin/msg no chat Lumi (fechar buraco de margem) OU cap diário no /api/chat
+
+**Bug-fixing residual:**
+- Anexos inline no /lumi entrarem no agente (subir via mesmo fluxo de auto-index)
+- 2 docs legados — apenas instruir user
+- /resumo/doc/[summaryId] sem chat/TTS (feature parity com /resumo/[lectureId])
+
+### Env vars adicionadas nesta sessão
+
+- `OPENAI_API_KEY` (Vercel production + .env.local) — usada por gpt-image-1 + text-embedding-3-small
+
+### Modelo de pricing agora
+
+| Endpoint | Cobra do user | Custa API (USD) |
+|---|---|---|
+| `/api/lumi/agent` | 1 coin/turn | ~$0.005/turn Haiku |
+| `/api/embed` | grátis (auto) | $0.0005 / PDF 50 págs |
+| `iniciar_modo_prova` | 26 coins (3 gerações) | ~$0.07 |
+| `gerar_resumo` (via tool) | 10 coins | ~$0.025 |
+| `criar_flashcards` (via tool) | 8 coins | ~$0.02 |
+| Article cover (admin) | grátis (founder) | $0.063 |
+| `/api/ai/summary-images` | conforme wizard | gpt-image-1 $0.042/img |
+
+Última atualização: 2026-05-26 — pós-implementação Lumi Agent (Sprints 0+1+2) + bug-fix stream global

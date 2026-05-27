@@ -145,9 +145,10 @@ export function LumiChatPanel({
             lectureId,
             message: trimmed,
             history: turns.map((t) => ({ role: t.role, content: t.content })),
+            stream: true,
           }),
         });
-        if (!res.ok) {
+        if (!res.ok || !res.body) {
           let errMsg = "Erro ao consultar o Lumio.";
           let upgrade: string | undefined;
           try {
@@ -176,17 +177,76 @@ export function LumiChatPanel({
           setTurns((prev) => prev.filter((t) => t.id !== userTurn.id));
           return;
         }
-        const data = (await res.json()) as {
-          reply: string;
-          coinsCharged?: number;
-        };
-        const assistantTurn: ChatTurn = {
-          id: newId(),
-          role: "assistant",
-          content: data.reply || "(Sem resposta)",
-          createdAt: new Date().toISOString(),
-        };
-        setTurns((prev) => [...prev, assistantTurn]);
+
+        const assistantId = newId();
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let accumulated = "";
+        let streamError: string | null = null;
+        let placeholderAdded = false;
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const part of parts) {
+            const line = part.trim();
+            if (!line.startsWith("data:")) continue;
+            const json = line.slice(5).trim();
+            if (!json) continue;
+            try {
+              const ev = JSON.parse(json) as {
+                delta?: string;
+                done?: boolean;
+                reply?: string;
+                error?: string;
+              };
+              if (ev.error) {
+                streamError = ev.error;
+                continue;
+              }
+              if (typeof ev.delta === "string") {
+                accumulated += ev.delta;
+                if (!placeholderAdded) {
+                  placeholderAdded = true;
+                  setTurns((prev) => [
+                    ...prev,
+                    {
+                      id: assistantId,
+                      role: "assistant",
+                      content: accumulated,
+                      createdAt: new Date().toISOString(),
+                    },
+                  ]);
+                } else {
+                  setTurns((prev) =>
+                    prev.map((t) =>
+                      t.id === assistantId ? { ...t, content: accumulated } : t,
+                    ),
+                  );
+                }
+              }
+              if (ev.done && typeof ev.reply === "string") {
+                accumulated = ev.reply;
+                setTurns((prev) =>
+                  prev.map((t) =>
+                    t.id === assistantId ? { ...t, content: ev.reply ?? "" } : t,
+                  ),
+                );
+              }
+            } catch {
+              /* ignora chunk inválido */
+            }
+          }
+        }
+
+        if (streamError) {
+          toast.error(streamError);
+          setTurns((prev) => prev.filter((t) => t.id !== userTurn.id));
+        }
       } catch (err) {
         toast.error(`Falha de rede: ${(err as Error).message}`);
         setTurns((prev) => prev.filter((t) => t.id !== userTurn.id));

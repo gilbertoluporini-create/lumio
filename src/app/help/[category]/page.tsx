@@ -94,7 +94,7 @@ function HelpCategoryView({
               <Icon className="h-6 w-6" aria-hidden="true" />
             </div>
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight">
+              <h1 className="text-3xl heading-display">
                 {category.title}
               </h1>
               <p className="mt-1 text-sm text-muted-foreground">

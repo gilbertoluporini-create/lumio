@@ -53,12 +53,114 @@ async function createRedemptionFromCookie(referredUserId: string) {
   }
 }
 
+/**
+ * Schema da attribution capturada client-side (localStorage `lumio.attribution`).
+ * Todos opcionais — ausência total é OK (user direto sem UTM).
+ *
+ * Limitamos string length pra evitar abuso (max 500 chars por campo é
+ * MAIS que suficiente — UTMs reais têm <50 chars).
+ */
+const AttributionSchema = z
+  .object({
+    source: z.string().max(500).nullable().optional(),
+    medium: z.string().max(500).nullable().optional(),
+    campaign: z.string().max(500).nullable().optional(),
+    content: z.string().max(500).nullable().optional(),
+    term: z.string().max(500).nullable().optional(),
+    firstSource: z.string().max(500).nullable().optional(),
+    firstMedium: z.string().max(500).nullable().optional(),
+    firstCampaign: z.string().max(500).nullable().optional(),
+    gclid: z.string().max(500).nullable().optional(),
+    fbclid: z.string().max(500).nullable().optional(),
+    ttclid: z.string().max(500).nullable().optional(),
+    channel: z.string().max(100).nullable().optional(),
+    firstTouchedAt: z.string().max(100).nullable().optional(),
+    lastTouchedAt: z.string().max(100).nullable().optional(),
+  })
+  .partial()
+  .optional();
+
 const Body = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(72),
   name: z.string().min(2).max(120),
   next: z.string().startsWith("/").optional(),
+  attribution: AttributionSchema,
 });
+
+type AttributionInput = z.infer<typeof AttributionSchema>;
+
+/**
+ * Persiste attribution em signup_attribution. Best-effort: nunca quebra signup.
+ * Idempotente via upsert em PK (user_id) — se já existir, mantém o original
+ * (first signup wins; preferimos NÃO sobrescrever pra preservar atribuição
+ * primária, mesmo que o user faça re-signup hipoteticamente).
+ */
+async function persistAttribution(userId: string, attribution: AttributionInput | undefined) {
+  if (!attribution) return;
+  // Não vale a pena salvar registro vazio
+  const hasAnything = Object.values(attribution).some(
+    (v) => v !== null && v !== undefined && v !== "",
+  );
+  if (!hasAnything) return;
+  try {
+    const admin = createAdminClient();
+    await admin.from("signup_attribution").upsert(
+      { user_id: userId, attribution },
+      { onConflict: "user_id", ignoreDuplicates: true },
+    );
+  } catch (err) {
+    console.error("[signup-password] persist attribution failed", err);
+  }
+}
+
+/**
+ * Dispara `sign_up` no PostHog server-side com attribution attached.
+ * Fire-and-forget — não bloqueia o response do signup.
+ */
+function fireSignupEventServerSide(
+  userId: string,
+  email: string,
+  attribution: AttributionInput | undefined,
+  method: "password",
+) {
+  const phKey = process.env.NEXT_PUBLIC_POSTHOG_KEY;
+  const phHost = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? "https://us.i.posthog.com";
+  if (!phKey) return;
+
+  void fetch(`${phHost}/capture/`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      api_key: phKey,
+      event: "sign_up",
+      distinct_id: userId,
+      properties: {
+        method,
+        email,
+        utm_source: attribution?.source ?? undefined,
+        utm_medium: attribution?.medium ?? undefined,
+        utm_campaign: attribution?.campaign ?? undefined,
+        utm_content: attribution?.content ?? undefined,
+        utm_term: attribution?.term ?? undefined,
+        first_utm_source: attribution?.firstSource ?? undefined,
+        first_utm_campaign: attribution?.firstCampaign ?? undefined,
+        gclid: attribution?.gclid ?? undefined,
+        fbclid: attribution?.fbclid ?? undefined,
+        ttclid: attribution?.ttclid ?? undefined,
+        channel: attribution?.channel ?? undefined,
+        $set: {
+          email,
+          first_utm_source: attribution?.firstSource ?? undefined,
+          first_utm_campaign: attribution?.firstCampaign ?? undefined,
+        },
+      },
+      timestamp: new Date().toISOString(),
+    }),
+  }).catch(() => {
+    /* fire-and-forget */
+  });
+}
 
 export async function POST(req: Request) {
   let parsed: z.infer<typeof Body>;
@@ -105,6 +207,11 @@ export async function POST(req: Request) {
   // Cria redemption se o user veio via link de embaixador (cookie lumio_ref).
   if (data?.user?.id) {
     await createRedemptionFromCookie(data.user.id);
+    // Persiste attribution + dispara server-side sign_up no PostHog.
+    // Server-side event garante captura mesmo se o user fechar a tab antes
+    // de receber a response (raríssimo mas barato de cobrir).
+    await persistAttribution(data.user.id, parsed.attribution);
+    fireSignupEventServerSide(data.user.id, parsed.email, parsed.attribution, "password");
   }
 
   return NextResponse.json({

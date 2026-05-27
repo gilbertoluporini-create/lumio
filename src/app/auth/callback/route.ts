@@ -28,7 +28,29 @@ export async function GET(request: Request) {
     const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
     if (!error) {
-      return NextResponse.redirect(`${url.origin}${next}`);
+      // First-login detection: se created_at e last_sign_in_at estão a < 60s
+      // de distância (ou são iguais), é signup novo. Marca com ?welcome=
+      // pra que o tracker client dispare Analytics.signUp().
+      // Detecta first-login (signup) vs return (login) comparando created_at
+      // com agora. Adiciona welcome=<provider> + new=1 pra signup, só welcome=
+      // pra login. O AuthTracker client lê isso e dispara o evento correto.
+      let extra = "";
+      try {
+        const { data: userData } = await supabase.auth.getUser();
+        const u = userData.user;
+        if (u) {
+          const provider = (u.app_metadata?.provider as string | undefined) ?? "google";
+          const createdMs = u.created_at ? new Date(u.created_at).getTime() : 0;
+          const isNew = createdMs > 0 && (Date.now() - createdMs) / 1000 < 60;
+          const sep = next.includes("?") ? "&" : "?";
+          extra = isNew
+            ? `${sep}welcome=${encodeURIComponent(provider)}&new=1`
+            : `${sep}welcome=${encodeURIComponent(provider)}`;
+        }
+      } catch {
+        /* ignore — não bloqueia redirect */
+      }
+      return NextResponse.redirect(`${url.origin}${next}${extra}`);
     }
     // Log detalhado pra debugar via Vercel logs.
     console.error("[auth/callback] exchangeCodeForSession failed", {

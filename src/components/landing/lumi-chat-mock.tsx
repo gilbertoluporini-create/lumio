@@ -33,7 +33,7 @@ export function LumiChatMock({ className }: { className?: string }) {
     <div
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
-      className={`relative rounded-2xl border border-border/60 bg-card/80 backdrop-blur p-5 shadow-md ${className ?? ""}`}
+      className={`relative rounded-2xl border border-border/60 bg-card p-5 shadow-md ${className ?? ""}`}
     >
       <div className="flex items-center gap-2 mb-4 pb-3 border-b border-border/40">
         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-primary to-violet-500">

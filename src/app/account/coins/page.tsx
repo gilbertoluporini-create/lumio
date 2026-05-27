@@ -131,7 +131,7 @@ function CoinsView({ user }: { user: User }) {
           <LumioCoin size={14} />
           Lumi Coins
         </div>
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+        <h1 className="text-2xl md:text-3xl heading-display">
           Sua carteira
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground max-w-2xl">

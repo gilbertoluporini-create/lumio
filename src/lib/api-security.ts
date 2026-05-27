@@ -54,10 +54,24 @@ export const LIMITS = {
   SLIDES_TOTAL_CHARS: 80_000,
   MESSAGE_CHARS: 4_000,
   MAX_MESSAGES: 30,
-  PDF_BYTES: 20 * 1024 * 1024,
+  /**
+   * Cap geral de PDF (extração client-side via pdfjs). Custo servidor = 0,
+   * só roda em browser. 50 MB cobre 95% de aulas/livros didáticos.
+   */
+  PDF_BYTES: 50 * 1024 * 1024,
+  /**
+   * Cap específico pra `/api/extract-slides` que sobe PDF inteiro pro server
+   * (Vision Sonnet analisa imagens dos slides). Vercel limita body de
+   * serverless function. Acima disso o client deve fazer fallback pra extração
+   * só de texto via pdfjs (sem Vision).
+   */
+  PDF_VISION_BYTES: 10 * 1024 * 1024,
   IMAGE_BYTES: 10 * 1024 * 1024,
-  PDF_MAX_PAGES_HINT: 100,
+  PDF_MAX_PAGES_HINT: 300,
 };
+
+export const PDF_LIMIT_MB = LIMITS.PDF_BYTES / 1024 / 1024;
+export const PDF_VISION_LIMIT_MB = LIMITS.PDF_VISION_BYTES / 1024 / 1024;
 
 /**
  * Detecção heurística de "PDF bomb" (#11 security review).

@@ -6,6 +6,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ChangeEvent,
   type KeyboardEvent,
 } from "react";
@@ -45,6 +46,12 @@ import {
   type LumiContext,
 } from "@/components/lumi/lumi-context-picker";
 import { LumiMessageBubble } from "@/components/lumi/lumi-message-bubble";
+import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
+import {
+  getStreamState,
+  startLumiStream,
+  subscribeStream,
+} from "@/lib/lumi-stream-store";
 import {
   QUICK_ACTIONS,
   type QuickAction,
@@ -72,6 +79,7 @@ import {
   listSubjectsAsync,
   updateLectureAsync,
 } from "@/lib/db";
+import { upsertSummaryByLectureAsync } from "@/lib/summaries";
 import {
   appendMessage,
   createChat,
@@ -145,7 +153,8 @@ function LumiAssistant({ user }: { user: User }) {
   const [context, setContext] = useState<LumiContext>({});
   const [chat, setChat] = useState<LumiChat | null>(null);
   const [input, setInput] = useState("");
-  const [sending, setSending] = useState(false);
+  // sending agora deriva do store global (sobrevive a navegações)
+  // streamingReply e streamingTools idem.
   const [coinBalance, setCoinBalance] = useState<number | null>(null);
   const [genDialogKind, setGenDialogKind] = useState<LumiGenerateKind | null>(
     null,
@@ -160,6 +169,41 @@ function LumiAssistant({ user }: { user: User }) {
   const interimRef = useRef("");
 
   const messages = chat?.messages ?? [];
+
+  // Subscribe ao stream global desse chat (sobrevive a navegações).
+  // Retorna { partial, tools, status } se houver stream rolando, undefined senão.
+  const activeChatId = chat?.id ?? "";
+  const streamState = useSyncExternalStore(
+    useCallback(
+      (cb: () => void) => {
+        if (!activeChatId) return () => {};
+        return subscribeStream(activeChatId, cb);
+      },
+      [activeChatId],
+    ),
+    useCallback(
+      () => (activeChatId ? getStreamState(activeChatId) : undefined),
+      [activeChatId],
+    ),
+    () => undefined, // server snapshot
+  );
+  const sending = streamState?.status === "running";
+  const streamingReply = streamState?.partial ?? "";
+  const streamingTools = streamState?.tools ?? [];
+
+  // Quando stream termina (done), garante re-load do chat do storage pra
+  // pegar o assistant message recém-commitado pelo store.
+  useEffect(() => {
+    if (streamState?.status === "done" && chat) {
+      const updated = getChat(user.id, chat.id);
+      if (updated && updated.messages.length !== chat.messages.length) {
+        setChat(updated);
+      }
+    }
+    if (streamState?.status === "error" && streamState.errorMsg) {
+      toast.error(streamState.errorMsg);
+    }
+  }, [streamState?.status, streamState?.errorMsg, chat, user.id]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -272,7 +316,15 @@ function LumiAssistant({ user }: { user: User }) {
   }, [context]);
 
   const attachmentsPayload = useMemo(
-    () => attachments.map((a) => ({ name: a.name, content: a.content })),
+    () =>
+      attachments.map((a) => {
+        const isImage = a.contentType?.startsWith("image/");
+        return {
+          name: a.name,
+          content: a.content,
+          ...(isImage ? { mediaType: a.contentType } : {}),
+        };
+      }),
     [attachments],
   );
 
@@ -301,68 +353,41 @@ function LumiAssistant({ user }: { user: User }) {
       const optimisticChat = appendMessage(user.id, currentChat.id, userMsg);
       if (optimisticChat) setChat(optimisticChat);
       setInput("");
-      setSending(true);
 
-      const mode = opts?.mode ?? (englishMode.current ? "english_medical" : "default");
+      // Silencia params não-usados no novo endpoint
+      void opts;
+      void attachmentsPayload;
+      void contextLabel;
 
-      try {
-        const res = await fetch("/api/ai/chat-summary", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            lectureId: context.lectureId,
-            message: trimmed,
-            mode,
-            contextLabel,
-            history: (optimisticChat?.messages ?? []).slice(-10).map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
-            attachments: attachmentsPayload,
-          }),
-        });
-        if (!res.ok) {
-          let errMsg = "Erro ao consultar o Lumi.";
-          let upgrade: string | undefined;
-          try {
-            const j = (await res.json()) as { error?: string; upgrade?: string };
-            if (j.error) errMsg = j.error;
-            if (j.upgrade) upgrade = j.upgrade;
-          } catch {
-            /* ignore */
-          }
-          if (res.status === 402 && upgrade) {
-            toast.error(errMsg, {
-              action: {
-                label: "Comprar coins",
-                onClick: () => router.push(upgrade),
-              },
-            });
-          } else {
-            toast.error(errMsg);
-          }
-          return;
-        }
-        const data = (await res.json()) as { reply: string };
-        const assistantMsg: LumiChatMessage = {
-          id: `a_${Date.now()}`,
-          role: "assistant",
-          content: stripChatFormatting(data.reply) || "(Sem resposta)",
-          createdAt: new Date().toISOString(),
-        };
-        const next = appendMessage(user.id, currentChat.id, assistantMsg);
-        if (next) setChat(next);
-        refreshBalance();
-      } catch (err) {
-        toast.error(`Falha de rede: ${(err as Error).message}`);
-      } finally {
-        setSending(false);
-      }
+      // Inicia stream via store global — sobrevive a navegações
+      startLumiStream({
+        chatId: currentChat.id,
+        userId: user.id,
+        url: "/api/lumi/agent",
+        body: {
+          message: trimmed,
+          history: (optimisticChat?.messages ?? []).slice(-10).map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+          subjectId: context.subjectId,
+          subjectName: context.subjectName,
+        },
+        onDone: () => {
+          // Refresh do chat pra renderizar a assistant message recém-commitada
+          const updated = getChat(user.id, currentChat!.id);
+          if (updated) setChat(updated);
+          refreshBalance();
+        },
+        onError: (msg) => {
+          // toast já é exibido pelo useEffect que observa streamState.errorMsg
+          void msg;
+        },
+      });
     },
     [
       attachmentsPayload,
       chat,
-      context.lectureId,
       context.subjectId,
       context.subjectName,
       contextLabel,
@@ -479,6 +504,7 @@ function LumiAssistant({ user }: { user: User }) {
             coinsCharged?: number;
             error?: string;
             upgrade?: string;
+            code?: string;
           };
           if (!resp.ok) {
             const errMsg = json.error ?? "Falha na geração.";
@@ -489,6 +515,11 @@ function LumiAssistant({ user }: { user: User }) {
                   label: "Comprar coins",
                   onClick: () => router.push(upgrade),
                 },
+              });
+            } else if (resp.status === 422 && json.code === "INSUFFICIENT_SOURCE") {
+              toast.error("Material insuficiente", {
+                description:
+                  "Anexe um PDF com texto, grave uma aula ou cole a transcrição antes de gerar. Coins devolvidos.",
               });
             }
             throw new Error(errMsg);
@@ -529,7 +560,13 @@ function LumiAssistant({ user }: { user: User }) {
               highlights: [],
               sections: [],
             };
-            await updateLectureAsync(userId, lectureId, { summary });
+            await upsertSummaryByLectureAsync({
+              userId,
+              subjectId,
+              lectureId,
+              title: titleBase,
+              content: summary,
+            });
             href = `/resumo/${lectureId}`;
             attachmentTitle = `Resumo: ${titleBase}`;
             previewText = md
@@ -865,15 +902,36 @@ function LumiAssistant({ user }: { user: User }) {
         }
 
         if (/\.(png|jpe?g)$/.test(lower)) {
+          // Lê como base64 puro (sem data: prefix) pra Anthropic Vision.
+          // Limite ~5MB de imagem (≈ 6.5M chars base64).
+          if (file.size > 5 * 1024 * 1024) {
+            toast.error("Imagem maior que 5MB. Comprima e tente de novo.");
+            return;
+          }
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = String(reader.result ?? "");
+              const idx = result.indexOf(",");
+              resolve(idx >= 0 ? result.slice(idx + 1) : "");
+            };
+            reader.onerror = () => reject(new Error("Falha ao ler imagem"));
+            reader.readAsDataURL(file);
+          });
+          if (!base64) {
+            toast.error("Não consegui ler a imagem.");
+            return;
+          }
+          const mediaType = file.type === "image/jpeg" ? "image/jpeg" : "image/png";
           handleAddAttachment({
             id: newAttachmentId(),
             kind: "file",
             name: file.name,
             sizeKb,
-            content: `[Imagem anexada: ${file.name} — análise visual ainda não suportada pela IA. Descreva o conteúdo na mensagem.]`,
-            contentType: file.type || "image/png",
+            content: base64,
+            contentType: mediaType,
           });
-          toast.info("Imagem anexada (sem leitura visual ainda).");
+          toast.success(`"${file.name}" anexado (Lumi vai ler a imagem).`);
           return;
         }
 
@@ -1001,6 +1059,19 @@ function LumiAssistant({ user }: { user: User }) {
             >
               <Calendar className="h-4 w-4" />
             </Link>
+            <button
+              type="button"
+              onClick={() => {
+                const subj = context.subjectName ?? "essa matéria";
+                const prompt = `Modo Prova: tenho prova de ${subj} amanhã. Prepara o kit (resumo + flashcards + quiz) focado nos tópicos críticos, com cronograma pra 3h de estudo. Pode cobrar ~26 coins.`;
+                setInput(prompt);
+              }}
+              title="Modo Prova"
+              className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 bg-gradient-to-r from-primary/10 to-fuchsia-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-fuchsia-500/20"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-fuchsia-500" />
+              Modo Prova
+            </button>
             <div className="hidden sm:inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/40 px-2.5 py-1 text-[11px] font-medium text-foreground">
               <Flame className="h-3 w-3 text-primary" />
               <span className="tabular-nums">{streakCount}</span>
@@ -1043,7 +1114,38 @@ function LumiAssistant({ user }: { user: User }) {
                 </div>
               ))}
 
-              {sending && (
+              {/* Tool execution cards (inline durante a turn ativa) */}
+              {sending && streamingTools.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  {streamingTools.map((t) => (
+                    <LumiToolCard
+                      key={t.id}
+                      name={t.name}
+                      status={t.status}
+                      input={t.input}
+                      output={t.output}
+                    />
+                  ))}
+                </div>
+              )}
+
+              {sending && streamingReply.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  <LumiMessageBubble
+                    message={{
+                      id: "streaming",
+                      role: "assistant",
+                      content: streamingReply,
+                      createdAt: new Date().toISOString(),
+                    }}
+                    isStreaming
+                  />
+                </div>
+              )}
+
+              {sending &&
+                streamingReply.length === 0 &&
+                streamingTools.length === 0 && (
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
                   <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-primary/5">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -1131,7 +1233,7 @@ function LumiAssistant({ user }: { user: User }) {
                 <Sparkles className="h-6 w-6 text-primary" />
               </div>
               <div>
-                <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
+                <h1 className="text-3xl heading-display text-foreground md:text-4xl">
                   Como o Lumi pode te ajudar?
                 </h1>
                 <p className="mt-1 text-sm text-muted-foreground">

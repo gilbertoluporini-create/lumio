@@ -11,16 +11,19 @@ export function BeforeAfter() {
 
   useEffect(() => {
     if (reduce) return;
+    const el = containerRef.current;
+    if (!el) return;
     let raf = 0;
     let dir = 1;
     let cur = 48;
     let auto = true;
+    let visible = false;
     const onDown = () => {
       auto = false;
     };
     window.addEventListener("pointerdown", onDown, { once: true });
     const tick = () => {
-      if (auto) {
+      if (auto && visible) {
         cur += 0.15 * dir;
         if (cur > 62) dir = -1;
         if (cur < 36) dir = 1;
@@ -28,9 +31,21 @@ export function BeforeAfter() {
       }
       raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
+    const io = new IntersectionObserver(
+      ([entry]) => {
+        visible = entry.isIntersecting;
+        if (visible && !raf) raf = requestAnimationFrame(tick);
+        if (!visible && raf) {
+          cancelAnimationFrame(raf);
+          raf = 0;
+        }
+      },
+      { threshold: 0.1 },
+    );
+    io.observe(el);
     return () => {
-      cancelAnimationFrame(raf);
+      if (raf) cancelAnimationFrame(raf);
+      io.disconnect();
       window.removeEventListener("pointerdown", onDown);
     };
   }, [reduce]);
@@ -65,13 +80,13 @@ export function BeforeAfter() {
             Aula transcrita · bruta
           </p>
           <p className="text-[11px] md:text-xs leading-snug text-foreground/55 font-mono">
-            entao galera a suprarrenal direita ela tem aquele formato meio
-            piramidal ta ja a esquerda ela é mais semilunar ok hum ambas elas
-            ficam ali no espaço retroperitoneal sobre os rins e tao em contato
-            com o diafragma deixa eu ver aqui no slide ah sim a vascularização
-            vem de três artérias principais a frenica inferior a aorta e a
-            renal entao se a gente for olhar pra prova vai cair isso de novo
-            como caiu no ano passado…
+            entao pessoal a independencia foi em 7 de setembro de 1822 lá no
+            riacho do ipiranga em sao paulo é o dom pedro um que rompeu com
+            portugal naquele dia ne lembrando que ele só era regente porque o
+            pai dele dom joao tinha voltado pra portugal por causa da revolucao
+            do porto em 1820 que exigia o rei de volta ai isso deixou o brasil
+            meio que à deriva e o reconhecimento internacional só veio em 1825
+            no tratado…
           </p>
         </div>
       </div>
@@ -85,25 +100,25 @@ export function BeforeAfter() {
             Resumo Lumio · estruturado
           </p>
           <h4 className="text-base md:text-lg font-semibold tracking-tight mb-2">
-            Suprarrenais — pontos-chave
+            Independência do Brasil — pontos-chave
           </h4>
           <ul className="space-y-1.5 text-xs md:text-sm text-foreground/85">
             <li className="flex gap-2">
               <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
-              Direita: <strong className="font-semibold">piramidal</strong>.
-              Esquerda: <strong className="font-semibold">semilunar</strong>.
+              Data: <strong className="font-semibold">7 set 1822</strong>.
+              Local: <strong className="font-semibold">riacho Ipiranga, SP</strong>.
             </li>
             <li className="flex gap-2">
               <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
-              Localização: retroperitoneal, sobre os rins.
+              Proclamada por <strong className="font-semibold">Dom Pedro I</strong>.
             </li>
             <li className="flex gap-2">
               <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
-              Contato direto com o diafragma.
+              Causa: pressão das Cortes de Lisboa após Revolução do Porto (1820).
             </li>
             <li className="flex gap-2">
               <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
-              Vascularização: frênica inferior, aorta, renal.
+              Reconhecimento internacional: tratado com Portugal em 1825.
             </li>
           </ul>
         </div>

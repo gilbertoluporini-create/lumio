@@ -1,16 +1,22 @@
 "use client";
 
 import { createElement } from "react";
-import { Brain, FileText, HelpCircle, Layers, Loader2, type LucideIcon } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Brain, Coins, FileText, HelpCircle, Layers, Loader2, type LucideIcon } from "lucide-react";
+import { COIN_COSTS } from "@/lib/coins-pricing";
 
 export type NextActionId = "summary" | "flashcards" | "quiz" | "mindmap";
 
-const ACTIONS: { id: NextActionId; label: string; icon: LucideIcon; color: string }[] = [
-  { id: "summary", label: "Gerar resumo", icon: FileText, color: "text-violet-500" },
-  { id: "flashcards", label: "Criar flashcards", icon: Layers, color: "text-emerald-500" },
-  { id: "quiz", label: "Gerar quiz", icon: HelpCircle, color: "text-amber-500" },
-  { id: "mindmap", label: "Mapa mental", icon: Brain, color: "text-rose-500" },
+const ACTIONS: {
+  id: NextActionId;
+  label: string;
+  icon: LucideIcon;
+  color: string;
+  cost: number;
+}[] = [
+  { id: "summary", label: "Gerar resumo", icon: FileText, color: "text-violet-500", cost: COIN_COSTS.summary },
+  { id: "flashcards", label: "Criar flashcards", icon: Layers, color: "text-emerald-500", cost: COIN_COSTS.flashcards },
+  { id: "quiz", label: "Gerar quiz", icon: HelpCircle, color: "text-amber-500", cost: COIN_COSTS.quiz },
+  { id: "mindmap", label: "Mapa mental", icon: Brain, color: "text-rose-500", cost: COIN_COSTS.mindmap },
 ];
 
 export function NextActionsCard({
@@ -23,27 +29,36 @@ export function NextActionsCard({
   disabled?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-border/60 bg-card p-5">
+    <div className="rounded-2xl border border-border/60 bg-card p-5 min-w-0">
       <h3 className="text-sm font-semibold mb-3">Próximas ações</h3>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         {ACTIONS.map((a) => {
           const isLoading = loading === a.id;
           return (
-            <Button
+            <button
               key={a.id}
-              variant="outline"
-              size="sm"
-              className="justify-start h-10 text-xs"
+              type="button"
               disabled={disabled || isLoading || !!loading}
               onClick={() => onAction(a.id)}
+              className="group flex items-center gap-2 rounded-md border border-input bg-background hover:bg-secondary/50 disabled:opacity-50 disabled:cursor-not-allowed px-2.5 py-2 min-w-0 transition-colors"
             >
               {isLoading ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
               ) : (
-                createElement(a.icon, { className: `h-3.5 w-3.5 ${a.color}` })
+                createElement(a.icon, {
+                  className: `h-4 w-4 shrink-0 ${a.color}`,
+                })
               )}
-              {a.label}
-            </Button>
+              <div className="min-w-0 flex-1 text-left">
+                <div className="text-[11px] font-medium truncate leading-tight">
+                  {a.label}
+                </div>
+                <div className="inline-flex items-center gap-0.5 mt-0.5 text-[9px] font-mono text-amber-600 dark:text-amber-400 tabular-nums">
+                  <Coins className="h-2 w-2" />
+                  {a.cost}
+                </div>
+              </div>
+            </button>
           );
         })}
       </div>

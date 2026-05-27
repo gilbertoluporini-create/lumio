@@ -426,14 +426,16 @@ export function personaJsonLd(opts: {
   description: string;
   url: string;
   courseName: string;
+  image?: string;
 }) {
-  const { name, description, url, courseName } = opts;
+  const { name, description, url, courseName, image } = opts;
   return {
     "@context": "https://schema.org",
     "@type": "Product",
     name,
     description,
     url,
+    ...(image ? { image: [image] } : {}),
     brand: { "@type": "Brand", name: "Lumio" },
     category: `Software educacional para ${courseName}`,
     offers: {

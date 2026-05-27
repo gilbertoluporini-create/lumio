@@ -175,6 +175,92 @@ export async function sendSupportTicketReply(opts: {
   });
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Onboarding email sequence — disparada por /api/cron/email-onboarding      */
+/* -------------------------------------------------------------------------- */
+
+type OnboardingStep = "day1" | "day3" | "day7" | "day14";
+
+const SEQUENCE_COPY: Record<
+  OnboardingStep,
+  { subject: string; preheader: string; headline: string; body: string; cta: string; ctaPath: string }
+> = {
+  day1: {
+    subject: "1 aula vira 4 materiais. Joga uma aí pra ver.",
+    preheader: "Você ganhou 50 coins. Bora estrear?",
+    headline: "Sua primeira aula com o Lumio",
+    body:
+      "Grava uma aula ou cola uma transcrição que você já tem. O Lumio gera resumo, flashcards, quiz e mapa mental em segundos. Tudo isso usando as 50 coins que vieram com sua conta — sem cartão.",
+    cta: "Gravar primeira aula",
+    ctaPath: "/dashboard",
+  },
+  day3: {
+    subject: "Estudante de medicina ganha 4h por dia com isso",
+    preheader: "É raro funcionar tão bem com pt-BR.",
+    headline: "Já testou anexar um PDF?",
+    body:
+      "Anexa o slide do professor no Lumi. A IA correlaciona slide com transcrição automaticamente — você pergunta \"o que ele falou no slide 7?\" e a resposta vem com contexto certo. É o pulo do gato que ninguém percebe no começo.",
+    cta: "Tentar com PDF",
+    ctaPath: "/lumi",
+  },
+  day7: {
+    subject: "Sua revisão SRS começa a fazer diferença essa semana",
+    preheader: "Flashcards do Lumio usam Anki por baixo.",
+    headline: "Flashcards que se ajustam ao SEU tempo",
+    body:
+      "Os decks que você gerou na semana começam a aparecer pra revisão hoje (algoritmo de repetição espaçada). 5 minutos por dia, mantém o conteúdo na cabeça pra prova. Sem precisar configurar nada — o Lumio cuida.",
+    cta: "Revisar flashcards",
+    ctaPath: "/flashcards",
+  },
+  day14: {
+    subject: "Seu trial tá acabando — vale R$39 pra você?",
+    preheader: "Sem cobrança automática. Você escolhe.",
+    headline: "Continuar com o Lumio?",
+    body:
+      "Você usou o Lumio nessas 2 semanas. Se ajudou, dá pra continuar com o plano Starter (R$39/mês) ou Pro (R$69/mês) — cancela quando quiser, sem letra miúda. Se não rolou, sem stress, conta fica salva.",
+    cta: "Ver planos",
+    ctaPath: "/pricing",
+  },
+};
+
+export async function sendOnboardingEmail(opts: {
+  to: string;
+  name?: string;
+  step: OnboardingStep;
+}) {
+  const resend = getResend();
+  if (!resend) {
+    console.warn("[email] RESEND_API_KEY ausente — skip onboarding email");
+    return { skipped: true };
+  }
+  const copy = SEQUENCE_COPY[opts.step];
+  const safeName = (opts.name ?? "").split(" ")[0] || "estudante";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://lumioapp.net";
+  const utmCta = `${appUrl}${copy.ctaPath}?utm_source=email&utm_medium=lifecycle&utm_campaign=onboarding_${opts.step}`;
+
+  const html = `<!doctype html>
+<html><head><meta charset="utf-8"><title>${escapeHtml(copy.subject)}</title></head>
+<body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:32px;color:#18181b;background:#fafafa;">
+  <span style="display:none;font-size:1px;color:#fafafa;">${escapeHtml(copy.preheader)}</span>
+  <h1 style="font-size:24px;margin:0 0 16px;line-height:1.3;">${escapeHtml(copy.headline)}, ${escapeHtml(safeName)}.</h1>
+  <p style="line-height:1.6;color:#52525b;font-size:15px;">${escapeHtml(copy.body)}</p>
+  <p style="margin:28px 0;">
+    <a href="${utmCta}" style="display:inline-block;background:linear-gradient(135deg,#6366f1,#a855f7);color:white;text-decoration:none;padding:13px 26px;border-radius:8px;font-weight:600;font-size:15px;">${escapeHtml(copy.cta)}</a>
+  </p>
+  <p style="line-height:1.6;color:#52525b;font-size:14px;">Dúvida? Só responder esse email.</p>
+  <hr style="border:none;border-top:1px solid #e4e4e7;margin:32px 0;">
+  <p style="font-size:11px;color:#a1a1aa;">Lumio · Transcrição de aulas + IA · <a href="${appUrl}/account/email-preferences" style="color:#a1a1aa;">preferências de email</a></p>
+</body></html>`;
+
+  return resend.emails.send({
+    from: FROM,
+    to: opts.to,
+    subject: copy.subject,
+    html,
+    headers: { "X-Lumio-Onboarding-Step": opts.step },
+  });
+}
+
 function escapeHtml(s: string): string {
   return s
     .replace(/&/g, "&amp;")

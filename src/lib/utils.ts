@@ -59,3 +59,43 @@ export function stripChatFormatting(text: string): string {
   out = out.replace(/\n{3,}/g, "\n\n");
   return out.trim();
 }
+
+/**
+ * Remove TODA sintaxe markdown — usado para snippets/previews onde
+ * o texto vai ser renderizado como plain text (sem markdown render).
+ * Diferente de stripChatFormatting que mantém **bold** e listas.
+ */
+export function stripMarkdownToPlainText(text: string): string {
+  if (!text) return "";
+  let out = text;
+  // Imagens ![alt](url) → "" (pula completo, não queremos URL nem alt)
+  out = out.replace(/!\[[^\]]*\]\([^)]*\)/g, "");
+  // Links [text](url) → text
+  out = out.replace(/\[([^\]]+)\]\([^)]*\)/g, "$1");
+  // Wikilinks [[X]] → X
+  out = out.replace(/\[\[([^\]]+)\]\]/g, "$1");
+  // Headings: remove # do início
+  out = out.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  // Bold/italic — remove só os marcadores: **x** *x* _x_ __x__
+  out = out.replace(/\*\*([^*]+)\*\*/g, "$1");
+  out = out.replace(/__([^_]+)__/g, "$1");
+  out = out.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "$1");
+  out = out.replace(/(?<!_)_([^_\n]+)_(?!_)/g, "$1");
+  // Inline code `x`
+  out = out.replace(/`([^`]+)`/g, "$1");
+  // Cercas de código completas — remove bloco inteiro
+  out = out.replace(/```[\s\S]*?```/g, "");
+  // Separadores
+  out = out.replace(/^\s*(?:---|===|___)\s*$/gm, "");
+  // Bullets/numerados no início da linha — remove o marcador
+  out = out.replace(/^\s*[-*+]\s+/gm, "");
+  out = out.replace(/^\s*\d+\.\s+/gm, "");
+  // Blockquote >
+  out = out.replace(/^\s*>\s?/gm, "");
+  // Múltiplas blank lines → 1 espaço (snippet é inline)
+  out = out.replace(/\n{2,}/g, " ");
+  out = out.replace(/\n/g, " ");
+  // Espaços múltiplos
+  out = out.replace(/\s{2,}/g, " ");
+  return out.trim();
+}

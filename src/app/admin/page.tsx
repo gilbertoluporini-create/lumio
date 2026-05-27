@@ -91,43 +91,11 @@ export default async function AdminPage() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <div className="mb-8 flex flex-col md:flex-row md:items-end md:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Visão geral</h1>
-          <p className="text-sm text-neutral-400 mt-1">
-            Snapshot do Lumio em tempo real.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Link
-            href="/admin/health"
-            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
-          >
-            Saúde &amp; Segurança
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-          <Link
-            href="/admin/marketing"
-            className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/30 bg-fuchsia-500/5 px-3 py-1.5 text-xs font-medium text-fuchsia-700 dark:text-fuchsia-300 hover:bg-fuchsia-500/10 transition-colors"
-          >
-            Vendas &amp; Funil
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-          <Link
-            href="/admin/usage"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-1.5 text-xs font-medium hover:bg-secondary/60 transition-colors"
-          >
-            Uso &amp; Margem
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-          <Link
-            href="/admin/realtime"
-            className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-1.5 text-xs font-medium hover:bg-secondary/60 transition-colors"
-          >
-            Realtime
-            <ArrowRight className="h-3 w-3" />
-          </Link>
-        </div>
+      <div className="mb-8">
+        <h1 className="text-2xl font-semibold tracking-tight">Visão geral</h1>
+        <p className="text-sm text-neutral-400 mt-1">
+          Snapshot do Lumio em tempo real.
+        </p>
       </div>
 
       {/* KPIs */}

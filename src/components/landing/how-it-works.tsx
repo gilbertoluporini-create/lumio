@@ -74,7 +74,7 @@ export function HowItWorks() {
             <motion.div
               whileHover={{ y: -6 }}
               transition={{ type: "spring", stiffness: 280, damping: 20 }}
-              className="group relative h-full overflow-hidden rounded-2xl border border-border/60 bg-card/80 backdrop-blur p-6 hover:border-primary/40 hover:shadow-lg transition-colors"
+              className="group relative h-full overflow-hidden rounded-2xl border border-border/60 bg-card p-6 hover:border-primary/40 hover:shadow-lg transition-colors"
             >
               {/* connector line - desktop only */}
               {i < STEPS.length - 1 && (

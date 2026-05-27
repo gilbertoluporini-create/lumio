@@ -230,7 +230,6 @@ type LectureRow = {
   status: "draft" | "live" | "completed";
   slides_file_name: string | null;
   slides: Slide[] | null;
-  summary: Lecture["summary"];
   messages: ChatMessage[];
   audio_url: string | null;
   created_at: string;
@@ -251,7 +250,6 @@ function rowToLecture(r: LectureRow): Lecture {
     status: r.status,
     slidesFileName: r.slides_file_name ?? undefined,
     slides: slidesArr,
-    summary: r.summary ?? undefined,
     messages: r.messages ?? [],
     audioUrl: r.audio_url ?? undefined,
     createdAt: r.created_at,
@@ -260,7 +258,7 @@ function rowToLecture(r: LectureRow): Lecture {
 }
 
 const LECTURE_COLS =
-  "id, user_id, subject_id, title, transcript, transcript_entries, transcript_insights, duration_sec, status, slides_file_name, slides, summary, messages, audio_url, created_at, updated_at";
+  "id, user_id, subject_id, title, transcript, transcript_entries, transcript_insights, duration_sec, status, slides_file_name, slides, messages, audio_url, created_at, updated_at";
 
 export async function listLecturesAsync(
   userId: string,
@@ -361,7 +359,6 @@ export async function updateLectureAsync(
   if ("slidesFileName" in patch)
     dbPatch.slides_file_name = patch.slidesFileName ?? null;
   if ("slides" in patch) dbPatch.slides = patch.slides ?? null;
-  if ("summary" in patch) dbPatch.summary = patch.summary ?? null;
   if ("messages" in patch) dbPatch.messages = patch.messages ?? null;
   if ("audioUrl" in patch) dbPatch.audio_url = patch.audioUrl ?? null;
   if (Object.keys(dbPatch).length === 0) return getLectureAsync(userId, id);

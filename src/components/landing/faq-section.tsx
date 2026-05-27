@@ -36,7 +36,7 @@ const FAQS = [
   },
   {
     q: "Quem tá por trás do Lumio?",
-    a: "Time pequeno baseado em São Paulo. O fundador é universitário e começou construindo o Lumio pra resolver o próprio problema de estudo. Suporte é por contato@lumioapp.net, gente real responde.",
+    a: "Time pequeno focado em uma coisa só: fazer estudante brasileiro entender mais sem estudar mais. Construído em pt-BR, pra realidade da faculdade BR. Suporte é por contato@lumioapp.net — gente real responde, sem bot.",
   },
 ];
 

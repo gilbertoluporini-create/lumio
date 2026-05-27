@@ -58,8 +58,8 @@ function LoginInner() {
         options: { redirectTo },
       });
       if (error) throw error;
-      // Fire-and-forget — user já vai pro Google nesse momento
-      Analytics.logIn("google");
+      // log_in via Google é disparado no /auth/callback → ?welcome=google
+      // (a linha abaixo nunca executaria — signInWithOAuth redireciona antes).
     } catch (err) {
       toast.error((err as Error).message || "Não foi possível entrar com Google.");
       setGoogleLoading(false);

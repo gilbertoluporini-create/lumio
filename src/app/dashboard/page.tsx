@@ -18,7 +18,6 @@ import {
   Dna,
   Dumbbell,
   FileText,
-  Flame,
   FlaskConical,
   Gavel,
   Globe,
@@ -89,7 +88,7 @@ import {
   listLecturesAsync,
   listSubjectsAsync,
 } from "@/lib/db";
-import { calculateStreak } from "@/lib/streak";
+import { listSummariesAsync } from "@/lib/summaries";
 import {
   getSubjectGradientFromName,
   getSubjectPalette,
@@ -100,6 +99,7 @@ import {
   type Lecture,
   type ScheduleSlot,
   type Subject,
+  type Summary,
   type User,
 } from "@/lib/types";
 import { cn, formatDuration, formatRelativeTime } from "@/lib/utils";
@@ -263,7 +263,7 @@ function findTodaySlots(subjects: Subject[]): { subject: Subject; slot: Schedule
 }
 
 /** Calcula trend % entre últimos 7 dias e os 7 anteriores. */
-function computeWeekTrends(lectures: Lecture[]) {
+function computeWeekTrends(lectures: Lecture[], summaries: Summary[]) {
   const day = 24 * 60 * 60 * 1000;
   const now = Date.now();
   const currentStart = now - 7 * day;
@@ -277,13 +277,14 @@ function computeWeekTrends(lectures: Lecture[]) {
   for (const l of lectures) {
     const t = new Date(l.createdAt).getTime();
     const min = Math.round(l.durationSec / 60);
-    if (t >= currentStart) {
-      curMinutes += min;
-      if (l.summary) curSummaries += 1;
-    } else if (t >= prevStart) {
-      prevMinutes += min;
-      if (l.summary) prevSummaries += 1;
-    }
+    if (t >= currentStart) curMinutes += min;
+    else if (t >= prevStart) prevMinutes += min;
+  }
+
+  for (const s of summaries) {
+    const t = new Date(s.createdAt).getTime();
+    if (t >= currentStart) curSummaries += 1;
+    else if (t >= prevStart) prevSummaries += 1;
   }
 
   return {
@@ -324,6 +325,7 @@ function Dashboard({ user }: { user: User }) {
   const router = useRouter();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [summaries, setSummaries] = useState<Summary[]>([]);
   const [newOpen, setNewOpen] = useState(false);
   const [lectureOpen, setLectureOpen] = useState(false);
   const [lectureTitle, setLectureTitle] = useState("");
@@ -339,12 +341,25 @@ function Dashboard({ user }: { user: User }) {
   }, [user.id]);
 
   async function refresh() {
-    const [s, l] = await Promise.all([
+    const [s, l, sm] = await Promise.all([
       listSubjectsAsync(user.id),
       listLecturesAsync(user.id),
+      listSummariesAsync(user.id),
     ]);
+    // Filtra lectures totalmente vazias (sem áudio, sem transcript,
+    // sem mensagens, sem slides). São criações acidentais via "Nova aula"
+    // que o user não chegou a gravar.
+    const nonEmpty = l.filter(
+      (x) =>
+        x.durationSec > 0 ||
+        (x.transcript ?? "").trim().length > 0 ||
+        (x.messages?.length ?? 0) > 0 ||
+        (x.slides?.length ?? 0) > 0 ||
+        x.status === "live",
+    );
     setSubjects(s);
-    setLectures(l);
+    setLectures(nonEmpty);
+    setSummaries(sm);
   }
 
   useEffect(() => {
@@ -361,24 +376,49 @@ function Dashboard({ user }: { user: User }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Refresh quando a aba volta a focar (back nav, troca de aba do browser).
+  // Cobre o caso: usuário exclui aula em /lecture/[id], volta com back —
+  // dashboard precisa re-buscar pra sumir o card.
+  useEffect(() => {
+    const onFocus = () => {
+      void refresh();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") void refresh();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pageshow", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pageshow", onFocus);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const stats = useMemo(() => {
     const totalLectures = lectures.length;
-    const withSummary = lectures.filter((l) => l.summary).length;
+    const summariesCount = summaries.length;
     const weekMinutesByDay = getWeekMinutesByDay(lectures);
     const weekMinutesTotal = weekMinutesByDay.reduce((a, b) => a + b, 0);
     const progressPct =
-      totalLectures > 0 ? Math.round((withSummary / totalLectures) * 100) : 0;
+      totalLectures > 0
+        ? Math.round((summariesCount / totalLectures) * 100)
+        : 0;
     return {
       totalLectures,
-      withSummary,
+      withSummary: summariesCount,
       weekMinutesByDay,
       weekMinutesTotal,
       progressPct,
     };
-  }, [lectures]);
+  }, [lectures, summaries]);
 
-  const trends = useMemo(() => computeWeekTrends(lectures), [lectures]);
-  const streak = useMemo(() => calculateStreak(lectures), [lectures]);
+  const trends = useMemo(
+    () => computeWeekTrends(lectures, summaries),
+    [lectures, summaries],
+  );
   const nextSlot = useMemo(() => findNextSlot(subjects), [subjects]);
   const todayAgenda = useMemo(() => findTodaySlots(subjects), [subjects]);
 
@@ -403,15 +443,25 @@ function Dashboard({ user }: { user: User }) {
     [lectures],
   );
 
+  const lectureIdsWithSummary = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of summaries) {
+      if (s.source.kind === "lecture") set.add(s.source.lectureId);
+    }
+    return set;
+  }, [summaries]);
+
   /** Aula mais recente que ainda não foi concluída (sem resumo, não live). */
   const continueLecture = useMemo(() => {
     return lectures
-      .filter((l) => l.status !== "live" && !l.summary)
+      .filter(
+        (l) => l.status !== "live" && !lectureIdsWithSummary.has(l.id),
+      )
       .sort(
         (a, b) =>
           new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
       )[0];
-  }, [lectures]);
+  }, [lectures, lectureIdsWithSummary]);
 
   async function handleCreateSubject() {
     const trimmed = newName.trim();
@@ -517,51 +567,12 @@ function Dashboard({ user }: { user: User }) {
           </p>
         </div>
 
-        {streak.current > 0 && (
-          <Link
-            href="/schedule"
-            className="group hidden md:inline-flex items-center gap-3 rounded-2xl bg-primary/5 hover:bg-primary/10 border border-primary/15 px-4 py-2.5 transition-colors shrink-0"
-            title={`Streak atual: ${streak.current} dia(s). Melhor: ${streak.longest}`}
-          >
-            <div className="h-9 w-9 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
-              <Flame className="h-5 w-5 text-amber-500" />
-            </div>
-            <div className="leading-tight">
-              <div className="text-sm font-semibold text-primary">
-                {streak.current} dias de sequência
-              </div>
-              <div className="text-xs text-muted-foreground">
-                Melhor sequência: {streak.longest} dias
-              </div>
-            </div>
-            <ArrowRight className="h-3.5 w-3.5 text-primary/60 group-hover:translate-x-0.5 transition-transform" />
-          </Link>
-        )}
-
         <div className="flex gap-2 shrink-0">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="gradient">
-                <Plus className="h-4 w-4" /> Nova aula
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuItem
-                onClick={() => startNewLecture()}
-                className="gap-2"
-              >
-                <Mic className="h-4 w-4" /> Gravar aula
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={() => setWizardOpen(true)}
-                className="gap-2"
-              >
-                <Sparkles className="h-4 w-4" /> Gerar resumo de PDF/aula
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <Button variant="gradient" onClick={() => startNewLecture()}>
+            <Mic className="h-4 w-4" /> Gravar aula
+          </Button>
           <Button variant="outline" onClick={() => setWizardOpen(true)}>
-            <Upload className="h-4 w-4" /> Novo upload
+            <Sparkles className="h-4 w-4" /> Novo resumo
           </Button>
         </div>
       </div>
@@ -690,7 +701,7 @@ function Dashboard({ user }: { user: User }) {
                 )}
                 {subjects.length > 0 && (
                   <Link
-                    href="/documents"
+                    href="/documentos"
                     className="text-xs text-primary font-medium inline-flex items-center gap-1 hover:gap-1.5 transition-all"
                   >
                     Ver todas <ArrowRight className="h-3 w-3" />
@@ -701,9 +712,12 @@ function Dashboard({ user }: { user: User }) {
             {subjects.length === 0 ? (
               <SubjectsEmpty onCreate={() => setNewOpen(true)} />
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 auto-rows-fr">
                 {subjects.slice(0, 10).map((s) => {
                   const subjectLectures = lecturesBySubject[s.id] ?? [];
+                  const subjectSummaries = summaries.filter(
+                    (sm) => sm.subjectId === s.id,
+                  );
                   const fav = favorites.some(
                     (f) => f.kind === "subject" && f.id === s.id,
                   );
@@ -712,6 +726,7 @@ function Dashboard({ user }: { user: User }) {
                       key={s.id}
                       subject={s}
                       lectures={subjectLectures}
+                      summariesCount={subjectSummaries.length}
                       onDelete={() => handleDeleteSubject(s)}
                       onNewLecture={() => startNewLecture(s.id)}
                       favorited={fav}
@@ -752,6 +767,7 @@ function Dashboard({ user }: { user: User }) {
                       key={l.id}
                       lecture={l}
                       subject={subject}
+                      hasSummary={lectureIdsWithSummary.has(l.id)}
                       favorited={fav}
                       onToggleFavorite={() =>
                         toggleFavorite(user.id, "lecture", l.id)
@@ -954,11 +970,11 @@ function KPICard({
           <Icon className="h-4 w-4 text-primary" strokeWidth={2.2} />
         </div>
       </div>
-      <div className="display-num text-2xl sm:text-[26px] font-semibold leading-none line-clamp-1">
+      <div className="display-num text-xl sm:text-2xl font-semibold leading-tight line-clamp-2 break-words">
         {value}
       </div>
       {sub && (
-        <div className={cn("mt-1.5 text-[11px] line-clamp-1", subColor)}>
+        <div className={cn("mt-1.5 text-[11px] line-clamp-2 break-words", subColor)}>
           {sub}
         </div>
       )}
@@ -1032,7 +1048,7 @@ function ContinueLectureCard({
             </div>
           </div>
 
-          <h3 className="text-lg sm:text-xl font-semibold leading-tight line-clamp-1">
+          <h3 className="text-lg sm:text-xl font-semibold leading-tight line-clamp-2 break-words">
             {lecture.title}
           </h3>
 
@@ -1075,6 +1091,7 @@ function ContinueLectureCard({
 function SubjectMiniCard({
   subject,
   lectures,
+  summariesCount,
   onDelete,
   onNewLecture,
   favorited,
@@ -1082,21 +1099,22 @@ function SubjectMiniCard({
 }: {
   subject: Subject;
   lectures: Lecture[];
+  summariesCount: number;
   onDelete: () => void;
   onNewLecture: () => void;
   favorited: boolean;
   onToggleFavorite: () => void;
 }) {
   const lectureCount = lectures.length;
-  const withSummary = lectures.filter((l) => l.summary).length;
+  const withSummary = summariesCount;
   const progress =
     lectureCount > 0 ? Math.round((withSummary / lectureCount) * 100) : 0;
   const subjectIcon = getSubjectIcon(subject.name);
   const tone = getSubjectTone(subject.name);
 
   return (
-    <div className="group relative rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-md transition-all">
-      <Link href={`/subject/${subject.id}`} className="block p-3">
+    <div className="group relative rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-md transition-all h-full flex flex-col">
+      <Link href={`/subject/${subject.id}`} className="block p-3 flex-1 flex flex-col">
         <div className="flex items-center justify-between gap-2 mb-2">
           <div
             className="h-9 w-9 shrink-0 rounded-lg flex items-center justify-center"
@@ -1111,10 +1129,10 @@ function SubjectMiniCard({
             {progress}%
           </span>
         </div>
-        <div className="text-sm font-semibold leading-tight line-clamp-1 group-hover:text-primary transition-colors">
+        <div className="text-sm font-semibold leading-tight line-clamp-2 group-hover:text-primary transition-colors break-words min-h-[2.5em]">
           {subject.name}
         </div>
-        <div className="mt-2 h-1.5 bg-secondary/60 rounded-full overflow-hidden">
+        <div className="mt-auto pt-2 h-1.5 bg-secondary/60 rounded-full overflow-hidden">
           <div
             className="h-full bg-primary rounded-full transition-all"
             style={{ width: `${progress}%` }}
@@ -1185,16 +1203,17 @@ function SubjectMiniCard({
 function ActivityRow({
   lecture,
   subject,
+  hasSummary,
   favorited,
   onToggleFavorite,
 }: {
   lecture: Lecture;
   subject: Subject | undefined;
+  hasSummary: boolean;
   favorited: boolean;
   onToggleFavorite: () => void;
 }) {
   const isLive = lecture.status === "live";
-  const hasSummary = !!lecture.summary;
 
   const { label, Icon, iconBg, iconColor } = hasSummary
     ? {
@@ -1523,12 +1542,6 @@ function LearningInsightsCard({
         <Lightbulb className="h-3.5 w-3.5 text-amber-500 mt-0.5 shrink-0" />
         <p className="text-[11px] text-foreground/80 leading-snug">{insight}</p>
       </div>
-      <Link
-        href="/dashboard/insights"
-        className="mt-3 inline-flex items-center gap-1 text-xs text-primary font-medium hover:gap-1.5 transition-all"
-      >
-        Ver relatório completo <ArrowRight className="h-3 w-3" />
-      </Link>
     </div>
   );
 }

@@ -3,32 +3,22 @@ import {
   PersonaLanding,
   personaJsonLd,
 } from "@/components/landing/persona-landing";
+import { buildPageMetadata, ogImage, SITE_URL } from "@/lib/seo";
 
-const URL_BASE = process.env.NEXT_PUBLIC_APP_URL ?? "https://lumioapp.net";
-const CANONICAL = `${URL_BASE}/para-psicologia`;
+const PATH = "/para-psicologia";
+const CANONICAL = `${SITE_URL}${PATH}`;
 
 const TITLE = "Psicologia no Lumio · Resumo, flashcards e quiz com IA";
 const DESCRIPTION =
   "Transcreva aulas de psicopatologia, psicanálise e neurociência. Lumio gera resumo, flashcards e quiz por matéria. 50 coins grátis, sem cartão.";
 
-export const metadata: Metadata = {
+export const metadata: Metadata = buildPageMetadata({
   title: TITLE,
   description: DESCRIPTION,
-  alternates: { canonical: CANONICAL },
-  openGraph: {
-    title: TITLE,
-    description: DESCRIPTION,
-    url: CANONICAL,
-    type: "website",
-    locale: "pt_BR",
-    siteName: "Lumio",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: TITLE,
-    description: DESCRIPTION,
-  },
-};
+  path: PATH,
+  ogImageType: "persona",
+  ogImagePersona: "psicologia",
+});
 
 export default function ParaPsicologiaPage() {
   const jsonLd = personaJsonLd({
@@ -36,6 +26,12 @@ export default function ParaPsicologiaPage() {
     description: DESCRIPTION,
     url: CANONICAL,
     courseName: "Psicologia",
+    image: ogImage({
+      title: TITLE,
+      subtitle: DESCRIPTION,
+      type: "persona",
+      persona: "psicologia",
+    }),
   });
 
   return (

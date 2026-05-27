@@ -5,22 +5,22 @@ import { getSubjectIcon } from "@/lib/subject-icon";
 import { cn } from "@/lib/utils";
 
 const SUBJECTS = [
-  { label: "Anatomia" },
-  { label: "Cardiologia" },
-  { label: "Bioquímica" },
-  { label: "Farmacologia" },
   { label: "Direito Civil" },
   { label: "Processo Penal" },
-  { label: "Cálculo I" },
-  { label: "Mecânica dos Sólidos" },
-  { label: "Histologia" },
   { label: "Constitucional" },
   { label: "Tributário" },
+  { label: "Cálculo I" },
+  { label: "Mecânica dos Sólidos" },
   { label: "Termodinâmica" },
-  { label: "Patologia" },
-  { label: "Embriologia" },
-  { label: "Sinais e Sistemas" },
   { label: "Eletromagnetismo" },
+  { label: "Sinais e Sistemas" },
+  { label: "Microeconomia" },
+  { label: "Macroeconomia" },
+  { label: "Estatística" },
+  { label: "Contabilidade Geral" },
+  { label: "Marketing" },
+  { label: "Psicopatologia" },
+  { label: "Sociologia" },
 ];
 
 export function SubjectsMarquee({
@@ -55,7 +55,7 @@ export function SubjectsMarquee({
           return (
             <span
               key={`${s.label}-${i}`}
-              className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card/70 backdrop-blur px-4 py-2 text-sm font-medium tracking-tight text-foreground/85 shadow-sm"
+              className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card px-4 py-2 text-sm font-medium tracking-tight text-foreground/85 shadow-sm"
             >
               <Icon aria-hidden className="h-4 w-4 text-muted-foreground" />
               {s.label}

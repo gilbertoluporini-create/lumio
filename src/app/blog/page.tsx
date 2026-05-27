@@ -5,28 +5,18 @@ import { LumioWordmark } from "@/components/brand/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import { formatPublishedDate, getAllPosts } from "@/lib/blog";
+import { buildPageMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Blog Lumio — Estudo, IA e faculdade",
-  description:
-    "Guias e artigos sobre como estudar com IA na faculdade brasileira: transcrição de aula, flashcards SRS, active recall, organização de matéria.",
-  alternates: {
-    canonical: "/blog",
-  },
-  openGraph: {
-    title: "Blog Lumio — Estudo, IA e faculdade",
-    description:
-      "Guias práticos sobre estudar com IA, transcrição de aula em pt-BR, flashcards SRS e técnicas com respaldo de cognitive science.",
-    type: "website",
-    url: "/blog",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "Blog Lumio — Estudo, IA e faculdade",
-    description:
-      "Guias práticos sobre estudar com IA, transcrição de aula em pt-BR e técnicas de estudo.",
-  },
-};
+const BLOG_TITLE = "Blog Lumio · Estudo, IA e faculdade";
+const BLOG_DESCRIPTION =
+  "Guias e artigos sobre estudar com IA na faculdade brasileira: transcrição de aula, flashcards SRS, active recall e organização de matéria.";
+
+export const metadata: Metadata = buildPageMetadata({
+  title: BLOG_TITLE,
+  description: BLOG_DESCRIPTION,
+  path: "/blog",
+  ogImageType: "blog",
+});
 
 export default async function BlogIndexPage() {
   const posts = await getAllPosts();
@@ -104,7 +94,7 @@ export default async function BlogIndexPage() {
                     </>
                   )}
                 </div>
-                <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-display mb-2 group-hover:text-primary transition-colors">
+                <h2 className="text-2xl sm:text-3xl heading-display text-display mb-2 group-hover:text-primary transition-colors">
                   {post.title}
                 </h2>
                 <p className="text-muted-foreground leading-relaxed">

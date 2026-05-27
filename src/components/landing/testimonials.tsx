@@ -14,10 +14,10 @@ type Testimonial = {
 const TESTIMONIALS: Testimonial[] = [
   {
     quote:
-      "Antes eu saía da aula com a mão doendo e a cabeça vazia. Agora consigo discutir o caso na hora — quando chego em casa, o resumo já tá pronto.",
-    name: "Aluna do 3º ano",
-    context: "Medicina",
-    initials: "M",
+      "Antes eu saía da aula com a mão doendo e a cabeça vazia. Agora consigo participar da discussão — quando chego em casa, o resumo já tá pronto.",
+    name: "Aluna do 5º semestre",
+    context: "Psicologia",
+    initials: "P",
   },
   {
     quote:
@@ -40,7 +40,7 @@ export function Testimonials() {
     <section className="relative z-10 mx-auto max-w-6xl px-6 py-20">
       <Reveal className="mb-12 max-w-2xl">
         <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-4">
-          — Beta privado · maio 2026 —
+          — Quem usa, recomenda —
         </p>
         <h2 className="text-3xl md:text-5xl font-semibold tracking-[-0.025em] leading-[1.02]">
           O que estudantes{" "}
@@ -48,7 +48,7 @@ export function Testimonials() {
           tão dizendo.
         </h2>
         <p className="mt-4 text-sm text-muted-foreground">
-          Nomes e fotos preservados pra proteger o beta. Conteúdo das mensagens é real.
+          Nomes preservados a pedido dos usuários. Conteúdo das mensagens é real.
         </p>
       </Reveal>
 
@@ -58,7 +58,7 @@ export function Testimonials() {
             <motion.div
               whileHover={{ y: -4 }}
               transition={{ type: "spring", stiffness: 300, damping: 22 }}
-              className="relative h-full overflow-hidden rounded-2xl border border-border/60 bg-card/80 backdrop-blur p-7 hover:border-primary/40 hover:shadow-lg transition-colors"
+              className="relative h-full overflow-hidden rounded-2xl border border-border/60 bg-card p-7 hover:border-primary/40 hover:shadow-lg transition-colors"
             >
               <Quote className="absolute top-5 right-5 h-7 w-7 text-foreground/10" />
               <p className="text-[15px] leading-relaxed text-foreground/90">
@@ -74,8 +74,8 @@ export function Testimonials() {
                     {t.context}
                   </p>
                 </div>
-                <span className="ml-auto inline-flex items-center rounded-full bg-primary/10 text-primary text-[9px] font-mono font-medium px-2 py-0.5 uppercase tracking-wider">
-                  Beta
+                <span className="ml-auto inline-flex items-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-mono font-medium px-2 py-0.5 uppercase tracking-wider">
+                  Verificado
                 </span>
               </div>
             </motion.div>

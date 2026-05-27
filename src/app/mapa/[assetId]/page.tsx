@@ -42,6 +42,7 @@ import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { getLectureAsync, getSubjectAsync } from "@/lib/db";
+import { getSummaryByLectureIdAsync } from "@/lib/summaries";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -167,8 +168,12 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
             if (r.kind === "flashcards") flashcardsId = r.id;
             if (r.kind === "quiz") quizId = r.id;
           }
+          const summaryRow = lec
+            ? await getSummaryByLectureIdAsync(user.id, lec.id)
+            : null;
+          if (!active) return;
           setSiblings({
-            summary: !!lec?.summary,
+            summary: !!summaryRow,
             flashcardsId,
             quizId,
           });
@@ -279,7 +284,7 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4 mb-5">
         <div className="min-w-0 flex-1">
-          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight leading-tight">
+          <h1 className="text-2xl md:text-3xl heading-display">
             {lecture.title}
           </h1>
           <p className="mt-1.5 text-sm text-muted-foreground">

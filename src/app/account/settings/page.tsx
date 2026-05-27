@@ -80,7 +80,7 @@ function SettingsView({ user }: { user: User }) {
           <SettingsIcon className="h-3 w-3 text-primary" />
           Configurações
         </div>
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight">
+        <h1 className="text-2xl md:text-3xl heading-display">
           Como o Lumio se comporta
         </h1>
         <p className="mt-1.5 text-sm text-muted-foreground">

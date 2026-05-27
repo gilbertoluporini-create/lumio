@@ -10,6 +10,7 @@ import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { assertLectureOwnership } from "@/lib/lecture-auth";
+import { logAiUsage } from "@/lib/ai-usage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -306,6 +307,18 @@ Gere o resumo estruturado conforme o formato JSON especificado. Responda APENAS 
         },
         { status: 500 },
       );
+    }
+
+    // Log usage (tokens + custo USD) — alimenta dashboard admin/cost-cap
+    if (userId) {
+      await logAiUsage({
+        userId,
+        endpoint: "correlate",
+        model: "claude-sonnet-4-5-20250929",
+        inputTokens: resp.usage?.input_tokens ?? 0,
+        outputTokens: resp.usage?.output_tokens ?? 0,
+        coinsCharged: COIN_COSTS.summary,
+      });
     }
 
     // Salva como asset na subpasta da aula (lecture_assets)

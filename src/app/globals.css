@@ -228,6 +228,21 @@ body {
   line-height: 1.02;
 }
 
+/* Heading punchy estilo landing — Black + tracking apertado.
+   Use em h1/h2 principais das telas internas pra ficar igual à landing. */
+.heading-display {
+  font-family: var(--font-sans);
+  font-weight: 900;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+.heading-display-sm {
+  font-family: var(--font-sans);
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-lumi-float,
   .animate-lumi-glow,

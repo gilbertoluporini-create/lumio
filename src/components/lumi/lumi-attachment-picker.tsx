@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Check,
   FileText,
+  HelpCircle,
   Layers,
   Loader2,
   Network,
@@ -26,7 +27,7 @@ import type { ChatAttachment } from "@/lib/lumi-chats";
 import type { Lecture } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type Tab = "lectures" | "summaries" | "flashcards" | "mindmaps";
+type Tab = "lectures" | "summaries" | "flashcards" | "quizzes" | "mindmaps";
 
 type AssetRow = {
   id: string;
@@ -47,6 +48,7 @@ const TABS: { id: Tab; label: string; Icon: typeof FileText }[] = [
   { id: "lectures", label: "Aulas", Icon: FileText },
   { id: "summaries", label: "Resumos", Icon: Sparkles },
   { id: "flashcards", label: "Flashcards", Icon: Layers },
+  { id: "quizzes", label: "Quizzes", Icon: HelpCircle },
   { id: "mindmaps", label: "Mapas mentais", Icon: Network },
 ];
 
@@ -57,6 +59,34 @@ function flashcardsToText(payload: Record<string, unknown> | null): string {
   if (!Array.isArray(cards)) return "";
   return cards
     .map((c, i) => `Q${i + 1}: ${c.question ?? ""}\nA: ${c.answer ?? ""}`)
+    .join("\n\n");
+}
+
+function quizToText(payload: Record<string, unknown> | null): string {
+  if (!payload) return "";
+  const questions = (payload as {
+    questions?: Array<{
+      question?: string;
+      options?: string[];
+      correctIndex?: number;
+      explanation?: string;
+    }>;
+  }).questions;
+  if (!Array.isArray(questions)) return "";
+  return questions
+    .map((q, i) => {
+      const opts = Array.isArray(q.options)
+        ? q.options
+            .map((o, j) => `  ${String.fromCharCode(97 + j)}) ${o}`)
+            .join("\n")
+        : "";
+      const correctLetter =
+        typeof q.correctIndex === "number"
+          ? String.fromCharCode(97 + q.correctIndex)
+          : "?";
+      const explain = q.explanation ? `\nExplicação: ${q.explanation}` : "";
+      return `Q${i + 1}: ${q.question ?? ""}\n${opts}\nCorreta: ${correctLetter}${explain}`;
+    })
     .join("\n\n");
 }
 
@@ -159,9 +189,11 @@ export function LumiAttachmentPicker({ open, userId, onClose, onPick }: Props) {
         ? "summary"
         : tab === "flashcards"
           ? "flashcards"
-          : tab === "mindmaps"
-            ? "mindmap"
-            : null;
+          : tab === "quizzes"
+            ? "quiz"
+            : tab === "mindmaps"
+              ? "mindmap"
+              : null;
     if (!kindFilter) return [];
     return assets
       .filter((a) => a.kind === kindFilter)
@@ -210,6 +242,9 @@ export function LumiAttachmentPicker({ open, userId, onClose, onPick }: Props) {
         } else if (asset.kind === "flashcards") {
           content = flashcardsToText(asset.payload);
           prefix = "Deck";
+        } else if (asset.kind === "quiz") {
+          content = quizToText(asset.payload);
+          prefix = "Quiz";
         } else if (asset.kind === "mindmap") {
           content = mindmapToText(asset.payload);
           prefix = "Mapa";
@@ -325,7 +360,9 @@ export function LumiAttachmentPicker({ open, userId, onClose, onPick }: Props) {
                     ? "Nenhum resumo gerado ainda."
                     : tab === "flashcards"
                       ? "Nenhum deck de flashcards encontrado."
-                      : "Nenhum mapa mental encontrado."
+                      : tab === "quizzes"
+                        ? "Nenhum quiz encontrado."
+                        : "Nenhum mapa mental encontrado."
                 }
               />
             ) : (
@@ -337,7 +374,9 @@ export function LumiAttachmentPicker({ open, userId, onClose, onPick }: Props) {
                       ? Sparkles
                       : a.kind === "flashcards"
                         ? Layers
-                        : Network;
+                        : a.kind === "quiz"
+                          ? HelpCircle
+                          : Network;
                   return (
                     <li key={a.id}>
                       <button
@@ -358,7 +397,9 @@ export function LumiAttachmentPicker({ open, userId, onClose, onPick }: Props) {
                               ? "Resumo"
                               : a.kind === "flashcards"
                                 ? "Deck"
-                                : "Mapa mental"}
+                                : a.kind === "quiz"
+                                  ? "Quiz"
+                                  : "Mapa mental"}
                           </div>
                         </div>
                         {picking === a.id ? (

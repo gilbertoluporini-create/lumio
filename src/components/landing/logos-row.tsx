@@ -19,11 +19,11 @@ export function LogosRow() {
       <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-card px-3 py-1 mb-6">
         <span className="inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
         <span className="text-[11px] uppercase tracking-[0.18em] text-muted-foreground font-medium">
-          Beta privado · Medicina, Direito e Engenharia
+          Funciona em qualquer curso
         </span>
       </div>
       <p className="text-xs text-muted-foreground/80 mb-7">
-        Já em uso por estudantes de
+        Feito pra estudantes de
       </p>
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-x-8 gap-y-5 max-w-4xl mx-auto items-center">
         {FACULTIES.map((name, i) => (
