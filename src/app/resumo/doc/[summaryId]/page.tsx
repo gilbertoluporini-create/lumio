@@ -161,7 +161,11 @@ function ResumoDocView({
       const sm = await getSummaryAsync(user.id, summaryId);
       if (!active) return;
       if (!sm) {
-        setLoading(false);
+        // Não mostra fallback "Resumo não encontrado" — só atrapalha UX.
+        // Quem chega aqui veio de link antigo / acabou de deletar / acesso
+        // negado. Em todos os casos /resumos é o destino correto.
+        toast.info("Esse resumo não existe mais.");
+        router.replace("/resumos");
         return;
       }
       setSummary(sm);
