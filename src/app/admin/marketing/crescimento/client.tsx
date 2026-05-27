@@ -281,6 +281,7 @@ function EstudioPanel() {
               key={d.id}
               draft={d}
               onClick={() => setSelectedId(d.id)}
+              onDeleted={load}
             />
           ))}
         </div>
@@ -541,19 +542,69 @@ function NewIdeaForm({
 function DraftCardThumb({
   draft,
   onClick,
+  onDeleted,
 }: {
   draft: ContentDraft;
   onClick: () => void;
+  onDeleted: () => void;
 }) {
+  const [deleting, setDeleting] = useState(false);
   const hasImages = Object.keys(draft.images || {}).length > 0;
   const hasContent = Object.keys(draft.content_per_network || {}).length > 0;
   const thumb = draft.images?.ratio_1x1?.url;
 
+  const handleDelete = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const warning =
+      draft.status === "published"
+        ? `Esse draft JÁ FOI PUBLICADO. Excluir aqui NÃO remove os posts das redes. Continuar?`
+        : `Excluir "${draft.idea_title}"? Texto e imagens geradas vão junto. Sem volta.`;
+    if (!confirm(warning)) return;
+
+    setDeleting(true);
+    try {
+      const r = await fetch(
+        `/api/admin/marketing/content/drafts?id=${draft.id}`,
+        { method: "DELETE" },
+      );
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error || "erro");
+      toast.success("Draft excluído");
+      onDeleted();
+    } catch (err) {
+      toast.error(`Falha: ${(err as Error).message}`);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
-    <button
+    <div
       onClick={onClick}
-      className="text-left rounded-xl border border-border/60 bg-card p-3 hover:border-fuchsia-500/40 transition-colors"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className="relative text-left rounded-xl border border-border/60 bg-card p-3 hover:border-fuchsia-500/40 transition-colors cursor-pointer group"
     >
+      <button
+        onClick={handleDelete}
+        disabled={deleting}
+        title="Excluir draft"
+        className="absolute top-2 right-2 inline-flex items-center justify-center h-6 w-6 rounded border border-red-500/40 text-red-300 hover:bg-red-500/15 disabled:opacity-50 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-10"
+      >
+        {deleting ? (
+          <Loader2 className="h-3 w-3 animate-spin" />
+        ) : (
+          <Trash2 className="h-3 w-3" />
+        )}
+      </button>
+
       <div className="flex gap-3">
         {thumb ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -567,7 +618,7 @@ function DraftCardThumb({
             <Sparkles className="h-5 w-5 text-muted-foreground/50" />
           </div>
         )}
-        <div className="flex-1 min-w-0 space-y-1">
+        <div className="flex-1 min-w-0 space-y-1 pr-7">
           <p className="text-sm font-semibold line-clamp-2">{draft.idea_title}</p>
           <div className="flex items-center gap-1.5 flex-wrap">
             <span
@@ -599,7 +650,7 @@ function DraftCardThumb({
           </div>
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
