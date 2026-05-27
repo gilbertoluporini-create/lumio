@@ -29,7 +29,7 @@ import { toast } from "sonner";
 // TYPES
 // ============================================================================
 
-type Tab = "publicar" | "outbound" | "inbox" | "embaixadores";
+type Tab = "estudio" | "publicar" | "outbound" | "inbox" | "embaixadores";
 
 type PublishablePost = {
   id: string;
@@ -104,20 +104,23 @@ type Embaixador = {
 // ============================================================================
 
 export function CrescimentoClient() {
-  const [tab, setTab] = useState<Tab>("publicar");
+  const [tab, setTab] = useState<Tab>("estudio");
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Crescimento</h1>
         <p className="text-xs text-muted-foreground mt-1">
-          Publicar no IG, fazer outbound, gerenciar inbox e embaixadores — tudo num lugar.
+          Estúdio de conteúdo multi-rede + publicação + outbound + inbox + embaixadores.
         </p>
       </div>
 
       <div className="flex items-center gap-1 border-b border-border/60 overflow-x-auto">
+        <TabBtn active={tab === "estudio"} onClick={() => setTab("estudio")}>
+          <Sparkles className="h-3.5 w-3.5" /> Estúdio
+        </TabBtn>
         <TabBtn active={tab === "publicar"} onClick={() => setTab("publicar")}>
-          <ImageIcon className="h-3.5 w-3.5" /> Publicar IG
+          <ImageIcon className="h-3.5 w-3.5" /> Warmup IG
         </TabBtn>
         <TabBtn active={tab === "outbound"} onClick={() => setTab("outbound")}>
           <Send className="h-3.5 w-3.5" /> Outbound
@@ -133,12 +136,761 @@ export function CrescimentoClient() {
         </TabBtn>
       </div>
 
+      {tab === "estudio" && <EstudioPanel />}
       {tab === "publicar" && <PublicarPanel />}
       {tab === "outbound" && <OutboundPanel />}
       {tab === "inbox" && <InboxPanel />}
       {tab === "embaixadores" && <EmbaixadoresPanel />}
     </div>
   );
+}
+
+// ============================================================================
+// ESTÚDIO PANEL — fábrica de conteúdo educacional multi-rede
+// ============================================================================
+
+type ContentDraft = {
+  id: string;
+  idea_title: string;
+  idea_summary: string | null;
+  category: string;
+  content_per_network: {
+    instagram?: { caption: string; hashtags: string[] };
+    x?: { thread: string[]; hashtags: string[] };
+    linkedin?: { headline: string; body: string; hashtags: string[] };
+    tiktok?: { hook: string; script: string; duration_estimate_s: number };
+  };
+  images: {
+    ratio_1x1?: { url: string };
+    ratio_landscape?: { url: string };
+    ratio_portrait?: { url: string };
+  };
+  status: string;
+  generated_at: string | null;
+  scheduled_for: string | null;
+  published_at: string | null;
+  publish_results: Record<string, { id: string; permalink: string | null }> | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function EstudioPanel() {
+  const [drafts, setDrafts] = useState<ContentDraft[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("all");
+  const [newOpen, setNewOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const url =
+        filter === "all"
+          ? "/api/admin/marketing/content/drafts"
+          : `/api/admin/marketing/content/drafts?status=${filter}`;
+      const r = await fetch(url);
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "erro");
+      setDrafts(j.drafts);
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const selected = drafts.find((d) => d.id === selectedId) || null;
+
+  if (selected) {
+    return (
+      <DraftEditor
+        draft={selected}
+        onClose={() => setSelectedId(null)}
+        onChanged={load}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        {[
+          ["all", "Todos"],
+          ["idea", "Ideias"],
+          ["drafted", "Draftados"],
+          ["approved", "Aprovados"],
+          ["scheduled", "Agendados"],
+          ["published", "Publicados"],
+        ].map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setFilter(k)}
+            className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
+              filter === k
+                ? "bg-fuchsia-500/15 border-fuchsia-500/40 text-fuchsia-200"
+                : "border-border/60 text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+        <button
+          onClick={() => load()}
+          className="ml-auto text-[11px] inline-flex items-center gap-1 px-2.5 py-1 rounded border border-border/60 text-muted-foreground hover:text-foreground"
+        >
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+          Atualizar
+        </button>
+        <button
+          onClick={() => setNewOpen(true)}
+          className="text-[11px] inline-flex items-center gap-1 px-2.5 py-1 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600"
+        >
+          <Plus className="h-3 w-3" /> Nova ideia
+        </button>
+      </div>
+
+      {newOpen && (
+        <NewIdeaForm
+          onClose={() => setNewOpen(false)}
+          onCreated={(id) => {
+            setNewOpen(false);
+            load();
+            setSelectedId(id);
+          }}
+        />
+      )}
+
+      {loading && drafts.length === 0 ? (
+        <div className="text-xs text-muted-foreground py-6 text-center">
+          <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando...
+        </div>
+      ) : drafts.length === 0 ? (
+        <EmptyState
+          icon={<Sparkles className="h-8 w-8 text-muted-foreground/50" />}
+          title="Sem ideias ainda"
+          desc='Clica "Nova ideia" → escreve o tema → IA gera texto + 3 imagens nativas pra IG, X, LinkedIn e TikTok.'
+        />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {drafts.map((d) => (
+            <DraftCardThumb
+              key={d.id}
+              draft={d}
+              onClick={() => setSelectedId(d.id)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewIdeaForm({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (id: string) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [summary, setSummary] = useState("");
+  const [category, setCategory] = useState("educacional");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!title.trim()) {
+      toast.error("Título obrigatório");
+      return;
+    }
+    setSaving(true);
+    try {
+      const r = await fetch("/api/admin/marketing/content/drafts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          idea_title: title.trim(),
+          idea_summary: summary.trim(),
+          category,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "erro");
+      toast.success("Ideia criada — abrindo editor");
+      onCreated(j.draft.id);
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Nova ideia editorial</h3>
+        <button
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <FormInput
+        label="Título / tema"
+        value={title}
+        onChange={setTitle}
+        placeholder="Curva do esquecimento — por que perdemos 70% em 24h"
+      />
+
+      <div>
+        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
+          Ângulo / pitch (opcional)
+        </label>
+        <textarea
+          value={summary}
+          onChange={(e) => setSummary(e.target.value)}
+          placeholder="Ex: dado de Ebbinghaus, explicar por que ler 2x não vale revisão espaçada, gancho com semana de prova"
+          rows={3}
+          className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500 resize-none"
+        />
+      </div>
+
+      <div>
+        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
+          Categoria
+        </label>
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500"
+        >
+          <option value="educacional">Educacional / Neurociência</option>
+          <option value="opiniao">Opinião / Crítica</option>
+          <option value="dados">Dados / Curadoria</option>
+          <option value="bts">Behind the scenes</option>
+        </select>
+      </div>
+
+      <button
+        onClick={save}
+        disabled={saving || !title.trim()}
+        className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
+      >
+        {saving ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <CheckCircle2 className="h-3.5 w-3.5" />
+        )}
+        Criar e abrir editor
+      </button>
+    </div>
+  );
+}
+
+function DraftCardThumb({
+  draft,
+  onClick,
+}: {
+  draft: ContentDraft;
+  onClick: () => void;
+}) {
+  const hasImages = Object.keys(draft.images || {}).length > 0;
+  const hasContent = Object.keys(draft.content_per_network || {}).length > 0;
+  const thumb = draft.images?.ratio_1x1?.url;
+
+  return (
+    <button
+      onClick={onClick}
+      className="text-left rounded-xl border border-border/60 bg-card p-3 hover:border-fuchsia-500/40 transition-colors"
+    >
+      <div className="flex gap-3">
+        {thumb ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={thumb}
+            alt=""
+            className="w-16 h-16 rounded-lg object-cover bg-background shrink-0"
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-lg bg-background border border-border/40 flex items-center justify-center shrink-0">
+            <Sparkles className="h-5 w-5 text-muted-foreground/50" />
+          </div>
+        )}
+        <div className="flex-1 min-w-0 space-y-1">
+          <p className="text-sm font-semibold line-clamp-2">{draft.idea_title}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span
+              className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono uppercase tracking-wider ${draftStatusClass(
+                draft.status,
+              )}`}
+            >
+              {draft.status}
+            </span>
+            <span className="text-[10px] text-muted-foreground font-mono uppercase">
+              {draft.category}
+            </span>
+            {hasContent && (
+              <span
+                className="text-[10px] text-fuchsia-300"
+                title="Texto gerado"
+              >
+                ✦ texto
+              </span>
+            )}
+            {hasImages && (
+              <span
+                className="text-[10px] text-emerald-300"
+                title="Imagens geradas"
+              >
+                ✦ imgs
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+function DraftEditor({
+  draft,
+  onClose,
+  onChanged,
+}: {
+  draft: ContentDraft;
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [generatingText, setGeneratingText] = useState(false);
+  const [generatingImages, setGeneratingImages] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [imagePrompt, setImagePrompt] = useState("");
+  const [editingNetwork, setEditingNetwork] = useState<string | null>(null);
+
+  const generateText = async () => {
+    setGeneratingText(true);
+    try {
+      const r = await fetch("/api/admin/marketing/content/generate-text", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          idea_title: draft.idea_title,
+          idea_summary: draft.idea_summary,
+          category: draft.category,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "erro");
+
+      // salva no draft
+      await fetch("/api/admin/marketing/content/drafts", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          id: draft.id,
+          content_per_network: j.content_per_network,
+          status: draft.status === "idea" ? "drafted" : draft.status,
+        }),
+      });
+      toast.success("Texto gerado");
+      onChanged();
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setGeneratingText(false);
+    }
+  };
+
+  const generateImages = async () => {
+    if (!imagePrompt.trim()) {
+      toast.error("Descreva o visual primeiro");
+      return;
+    }
+    setGeneratingImages(true);
+    try {
+      const r = await fetch("/api/admin/marketing/content/generate-images", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          draft_id: draft.id,
+          prompt: imagePrompt.trim(),
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "erro");
+      toast.success("3 imagens geradas");
+      onChanged();
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setGeneratingImages(false);
+    }
+  };
+
+  const publish = async (networks: string[]) => {
+    if (!draft.content_per_network?.instagram?.caption) {
+      toast.error("Gera o texto antes");
+      return;
+    }
+    if (!draft.images?.ratio_1x1?.url) {
+      toast.error("Gera as imagens antes");
+      return;
+    }
+    if (
+      !confirm(
+        `Publicar AGORA "${draft.idea_title}" em ${networks.join(", ")}? Não tem como deletar daqui depois.`,
+      )
+    )
+      return;
+
+    setPublishing(true);
+    try {
+      const r = await fetch("/api/admin/marketing/content/publish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ draft_id: draft.id, networks }),
+      });
+      const j = await r.json();
+      const successCount = Object.keys(j.results || {}).length;
+      const errorCount = Object.keys(j.errors || {}).length;
+      if (successCount > 0) {
+        toast.success(`Publicado em ${successCount} rede(s)`);
+      }
+      if (errorCount > 0) {
+        toast.error(
+          `${errorCount} falha(s): ${Object.entries(j.errors)
+            .map(([n, e]) => `${n}: ${e}`)
+            .join(" | ")}`,
+          { duration: 10000 },
+        );
+      }
+      onChanged();
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const saveNetworkEdit = async (network: string, value: unknown) => {
+    const updated = {
+      ...draft.content_per_network,
+      [network]: value,
+    };
+    await fetch("/api/admin/marketing/content/drafts", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        id: draft.id,
+        content_per_network: updated,
+      }),
+    });
+    toast.success("Salvo");
+    setEditingNetwork(null);
+    onChanged();
+  };
+
+  const hasContent = !!draft.content_per_network?.instagram;
+  const hasImages = !!draft.images?.ratio_1x1?.url;
+  const isPublished = draft.status === "published";
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-2">
+        <button
+          onClick={onClose}
+          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-border/60 text-muted-foreground hover:text-foreground"
+        >
+          ← Voltar
+        </button>
+        <div className="flex-1 min-w-0">
+          <h2 className="text-base font-semibold">{draft.idea_title}</h2>
+          {draft.idea_summary && (
+            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+              {draft.idea_summary}
+            </p>
+          )}
+        </div>
+        <span
+          className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono uppercase tracking-wider ${draftStatusClass(
+            draft.status,
+          )}`}
+        >
+          {draft.status}
+        </span>
+      </div>
+
+      {/* PASSO 1: TEXTO */}
+      <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold inline-flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-fuchsia-300 font-mono">
+              Passo 1
+            </span>
+            Texto multi-rede
+          </h3>
+          <button
+            onClick={generateText}
+            disabled={generatingText}
+            className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50"
+          >
+            {generatingText ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            {hasContent ? "Regenerar texto" : "Gerar texto"}
+          </button>
+        </div>
+
+        {!hasContent ? (
+          <p className="text-xs text-muted-foreground italic">
+            Clique em &quot;Gerar texto&quot; — IA cria caption IG, thread X, post LinkedIn e script TikTok.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <NetworkContent
+              label="Instagram"
+              content={draft.content_per_network.instagram?.caption || ""}
+              extra={
+                draft.content_per_network.instagram?.hashtags?.join(" ") || ""
+              }
+            />
+            <NetworkContent
+              label="X (Twitter)"
+              content={
+                draft.content_per_network.x?.thread?.join("\n\n---\n\n") || ""
+              }
+              extra=""
+            />
+            <NetworkContent
+              label="LinkedIn"
+              content={
+                (draft.content_per_network.linkedin?.headline || "") +
+                "\n\n" +
+                (draft.content_per_network.linkedin?.body || "")
+              }
+              extra={
+                draft.content_per_network.linkedin?.hashtags?.join(" ") || ""
+              }
+            />
+            <NetworkContent
+              label="TikTok"
+              content={
+                (draft.content_per_network.tiktok?.hook || "") +
+                "\n\n" +
+                (draft.content_per_network.tiktok?.script || "")
+              }
+              extra={`~${draft.content_per_network.tiktok?.duration_estimate_s || 0}s`}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* PASSO 2: IMAGENS */}
+      <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold inline-flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-fuchsia-300 font-mono">
+              Passo 2
+            </span>
+            Imagens (3 ratios)
+          </h3>
+        </div>
+
+        <div>
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
+            Prompt visual (descreva o que quer ver — sem texto)
+          </label>
+          <textarea
+            value={imagePrompt}
+            onChange={(e) => setImagePrompt(e.target.value)}
+            placeholder="Ex: ilustração abstrata de uma curva descendente representando esquecimento, em paleta lavender, estilo editorial limpo"
+            rows={2}
+            className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500 resize-none"
+          />
+        </div>
+
+        <button
+          onClick={generateImages}
+          disabled={generatingImages || !imagePrompt.trim()}
+          className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50"
+        >
+          {generatingImages ? (
+            <>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Gerando (30-60s)...
+            </>
+          ) : (
+            <>
+              <ImageIcon className="h-3.5 w-3.5" />{" "}
+              {hasImages ? "Regenerar imagens" : "Gerar 3 imagens"}
+            </>
+          )}
+        </button>
+
+        {hasImages && (
+          <div className="grid grid-cols-3 gap-3 pt-2">
+            <ImagePreview
+              label="1:1 (IG, FB)"
+              url={draft.images.ratio_1x1?.url}
+            />
+            <ImagePreview
+              label="3:2 (X, LI)"
+              url={draft.images.ratio_landscape?.url}
+            />
+            <ImagePreview
+              label="2:3 (Stories, TT)"
+              url={draft.images.ratio_portrait?.url}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* PASSO 3: PUBLICAR */}
+      <div className="rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/5 p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold inline-flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-fuchsia-300 font-mono">
+              Passo 3
+            </span>
+            Publicar
+          </h3>
+          {isPublished && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-500/15 text-emerald-200 inline-flex items-center gap-1">
+              <CheckCircle2 className="h-3 w-3" /> Já publicado
+            </span>
+          )}
+        </div>
+
+        {!hasContent || !hasImages ? (
+          <p className="text-xs text-muted-foreground italic">
+            Gera texto e imagens primeiro.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => publish(["instagram", "facebook"])}
+              disabled={publishing || isPublished}
+              className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {publishing ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Zap className="h-3.5 w-3.5" />
+              )}
+              Publicar IG + FB
+            </button>
+            <button
+              onClick={() => publish(["instagram"])}
+              disabled={publishing || isPublished}
+              className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border/60 text-foreground hover:bg-secondary/40 disabled:opacity-50"
+            >
+              Só IG
+            </button>
+            <button
+              onClick={() => publish(["facebook"])}
+              disabled={publishing || isPublished}
+              className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border/60 text-foreground hover:bg-secondary/40 disabled:opacity-50"
+            >
+              Só FB
+            </button>
+          </div>
+        )}
+
+        {draft.publish_results && Object.keys(draft.publish_results).length > 0 && (
+          <div className="space-y-1 pt-2 border-t border-fuchsia-500/20">
+            {Object.entries(draft.publish_results).map(([net, r]) => (
+              <a
+                key={net}
+                href={r.permalink || "#"}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[11px] inline-flex items-center gap-1 text-fuchsia-300 hover:text-fuchsia-200"
+              >
+                <ExternalLink className="h-3 w-3" /> {net} → {r.id}
+              </a>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function NetworkContent({
+  label,
+  content,
+  extra,
+}: {
+  label: string;
+  content: string;
+  extra: string;
+}) {
+  return (
+    <div className="rounded-lg border border-border/60 bg-background p-3 space-y-1.5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[10px] uppercase tracking-wider font-mono text-fuchsia-300">
+          {label}
+        </span>
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(content + (extra ? `\n\n${extra}` : ""));
+            toast.success("Copiado");
+          }}
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <Copy className="h-3 w-3" />
+        </button>
+      </div>
+      <pre className="text-[11px] whitespace-pre-wrap font-sans leading-relaxed text-foreground max-h-[180px] overflow-y-auto">
+        {content}
+      </pre>
+      {extra && (
+        <p className="text-[10px] text-muted-foreground italic border-t border-border/40 pt-1">
+          {extra}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ImagePreview({ label, url }: { label: string; url?: string }) {
+  if (!url) return null;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="block">
+      <div className="rounded-lg overflow-hidden border border-border/60 bg-background aspect-square">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={url} alt={label} className="w-full h-full object-cover" />
+      </div>
+      <p className="text-[10px] text-center text-muted-foreground font-mono mt-1">
+        {label}
+      </p>
+    </a>
+  );
+}
+
+function draftStatusClass(status: string) {
+  switch (status) {
+    case "idea":
+      return "bg-neutral-500/15 text-neutral-300";
+    case "drafted":
+      return "bg-sky-500/15 text-sky-200";
+    case "approved":
+      return "bg-fuchsia-500/15 text-fuchsia-200";
+    case "scheduled":
+      return "bg-amber-500/15 text-amber-200";
+    case "published":
+      return "bg-emerald-500/15 text-emerald-200";
+    case "rejected":
+      return "bg-neutral-500/15 text-neutral-300";
+    default:
+      return "bg-muted text-muted-foreground";
+  }
 }
 
 // ============================================================================
