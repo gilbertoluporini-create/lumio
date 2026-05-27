@@ -25,7 +25,14 @@ const ALLOWED_STATUS = [
   "rejected",
 ] as const;
 
-const ALLOWED_CATEGORY = ["educacional", "opiniao", "dados", "bts"] as const;
+const ALLOWED_CATEGORY = [
+  "educacional",
+  "curiosidade",
+  "pesquisa",
+  "opiniao",
+  "dados",
+  "bts",
+] as const;
 
 export async function GET(req: NextRequest) {
   const auth = await requireAdmin();

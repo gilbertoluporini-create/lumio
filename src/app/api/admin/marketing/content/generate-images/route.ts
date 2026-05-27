@@ -41,9 +41,11 @@ const BUCKET = "marketing-images";
  * Trocar essas imagens só se a marca visual mudar.
  */
 const REFERENCE_FILENAMES = [
-  "01-lancamento.jpg",
-  "06-transcricao.jpg",
-  "07-tudo-num-lugar.jpg",
+  "01-lancamento.jpg",     // Lumi frontal, sobre livros (pose canônica)
+  "04-motivacao.jpg",      // Lumi lendo livro (mostra olhos pequenos meia-lua corretos)
+  "06-transcricao.jpg",    // Lumi lateral com braço (variação pose)
+  "07-tudo-num-lugar.jpg", // Lumi em cena rica multi-objetos
+  "10-anexe-pdf.jpg",      // Lumi expressão neutra serena
 ];
 
 async function loadReferences(): Promise<
@@ -64,33 +66,87 @@ async function loadReferences(): Promise<
  * + descreve a CENA específica do post. NÃO descreve o Lumi (referências fazem isso).
  */
 const BRAND_ANCHOR = `
-========== LUMIO BRAND — REFERENCE-DRIVEN GENERATION ==========
+========== LUMIO MASCOT — STRICT VISUAL FIDELITY ==========
 
-You have been given REFERENCE IMAGES of the Lumi mascot. The mascot in every output image MUST match the references EXACTLY in:
-- Character shape (bell-shaped lamp head, articulated bronze arm, cream base with lilac button)
-- Color palette of Lumi itself (cream/ivory shade, soft lavender eyes, champagne-bronze arm, lilac purple accents)
-- Eye shape and friendly expression (kawaii rounded eyes, gentle smile, subtle blush)
-- 3D Pixar-style rendering quality (volumetric, soft lighting, NOT flat vector)
+You have 5 REFERENCE IMAGES of the Lumi mascot. The output MUST be visually consistent with the EXACT character in those refs. Study them carefully — this is a SPECIFIC custom mascot, not a generic cute 3D character.
 
-CRITICAL: IGNORE all text, headlines, captions, UI elements, website stamps visible in the reference images. Those are NOT part of the brand — they were added later in design tools. The OUTPUT IMAGE MUST CONTAIN ZERO TEXT.
+==================== LUMI'S EXACT FACE (most important) ====================
 
-SCENE COMPOSITION:
-- Lumi is the focal element of every image, in a new pose/scene matching the user's prompt
-- NO human characters, NO students, NO people, NO hands. Only Lumi + objects.
-- Educational props OK: stacked books (purple/magenta/amber covers like references), notebook, paper sheets with abstract scribble (NEVER readable), coffee mug, plant, headphones, hourglass, tablet/laptop with BLANK screen, sticky notes
-- Background: smooth lavender-to-cream gradient like references (#e9d5ff to #fdf4e8) OR deeper purple (#6d28d9) for variety, both work
-- Floating decorative elements OK: small sparkles, stars, lightbulb icons in lavender tones
+Eyes — THIS IS THE #1 THING TO GET RIGHT:
+- SMALL, narrow lavender SHAPES — NOT large round anime eyes
+- Shape: like an upside-down letter "D" or a thin sleeping crescent / closed-eye gesture
+- Solid uniform lavender color (#a78bfa to #b599f5) — flat fill, NO gradient inside
+- NO white reflection / NO glint / NO sparkle highlight in the eyes
+- NO visible eyelashes — eyes are clean smooth curves
+- NO eye whites / sclera visible — eyes are solid lavender shapes only
+- Eyes look subtly closed-but-happy, peaceful, NOT excited or wide open
+- Both eyes are equal-sized, gently curved, sitting low on the face
 
-ABSOLUTELY FORBIDDEN:
-- NO TEXT of any kind anywhere in the image (no captions, no labels, no logos, no watermarks, no website URLs, no headlines)
-- NO website screenshots, NO UI mockups, NO phone/computer screens with visible content
-- NO faces of real humans, NO Disney/Pixar copyrighted characters, NO other mascots
-- NO multiple Lumi mascots (ONE Lumi per image)
-- NO scary, dark, melancholic moods — always warm, friendly, hopeful
-- NO photography/photorealism — must remain stylized 3D render matching references
-- NO modifications to Lumi's core anatomy — same lamp shape, same eye style, same proportions
+Mouth:
+- Tiny gentle curved smile, single thin line
+- NOT an open mouth, NOT teeth showing
+- Subtle and minimal
 
-Generate a NEW scene featuring the SAME Lumi character from references.
+Cheeks:
+- BARELY visible pink blush, near invisible — just a whisper of warmth
+- NOT rosy pronounced cheeks, NOT Disney baby cheeks
+
+Expression overall:
+- Serene, calm, content — like a wise companion
+- NOT excited, NOT over-cheerful, NOT "kawaii aggressive"
+- Subdued and dignified, not childish
+
+==================== LUMI'S BODY ====================
+
+Head (lampshade):
+- Bell-shaped / dome-shaped cream-ivory color (#f5ebd6 to #fff8e7)
+- Soft lilac purple top ring / cap (#a78bfa)
+- Smooth surface, subtle volumetric shading
+
+Neck:
+- Articulated bronze/champagne-gold metallic stem
+- 2-3 jointed segments, slightly weathered metallic finish
+- Connects head to base
+
+Base:
+- Round cream-ivory disc base
+- Single small lilac purple button on top
+
+==================== STYLE ====================
+
+Render: 3D stylized in the vein of modern Pixar / high-end Cinema 4D commercial work. Soft global illumination, gentle subsurface scattering on cream surfaces, mild ambient occlusion. NOT flat vector. NOT 2D illustration. NOT cel-shaded anime.
+
+Lighting: soft 3-point with warm key from upper-left, lavender ambient fill, subtle rim. Mild dreamy mood. NO harsh shadows.
+
+Background: smooth lavender-to-cream vertical gradient (#e9d5ff at top → #fdf4e8 at bottom) OR deep solid purple background (#6d28d9 to #4c1d95) for variety. Soft, clean, never noisy.
+
+==================== SCENE ====================
+
+- Lumi is the focal element, in a NEW pose/scene matching the user's prompt
+- Lumi can be paired with: books (purple/magenta/amber covers), notebook, plain paper with abstract squiggle marks NEVER readable text, coffee mug, plant, headphones, hourglass, blank tablet/laptop, sticky notes, light bulb, simple sparkles
+- NO human characters, NO students, NO hands, NO faces other than Lumi
+- ONE Lumi per image — never multiple mascots
+
+==================== STRICT FORBIDS ====================
+
+Eyes — most common failure mode, AVOID:
+- NO large round wide-open eyes (anime/Disney style)
+- NO white sparkle/glint reflections inside eyes
+- NO visible pupils with iris detail
+- NO eyelashes drawn out
+- NO eye whites
+- NO oversized "cute baby" eye proportions
+
+Other forbids:
+- NO TEXT anywhere — no captions, no labels, no logos, no watermarks, no URLs
+- NO readable handwriting on papers/notebooks (abstract scribble only)
+- NO UI mockups, NO computer/phone screens with visible content
+- NO real humans, NO Disney/Pixar copyrighted characters
+- NO photorealism, NO oversaturation, NO neon, NO dark/scary moods
+- NO modifications to Lumi's silhouette / proportions / face structure
+- IGNORE text/typography visible in reference images — that's NOT part of the brand
+
+Generate a NEW scene with the SAME Lumi character.
 `.trim();
 
 async function ensureBucket(supabase: ReturnType<typeof createAdminClient>) {

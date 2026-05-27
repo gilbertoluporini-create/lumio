@@ -33,11 +33,46 @@ VOZ EDITORIAL:
 - Nunca prometer aprovação garantida, nota X, milagre. Honestidade científica.
 - 1 emoji ou nenhum. Nunca enxame de emoji.
 
-PRINCÍPIO EDITORIAL "EDUCACIONAL/NEUROCIÊNCIA":
-- Foco em como o cérebro humano aprende e por que métodos tradicionais falham
-- Cada post entrega 1 ideia útil que a pessoa pode aplicar hoje
-- Lumio é mencionado como FERRAMENTA QUE OPERACIONALIZA esses métodos, não como produto sendo vendido
-- 70% do post = conhecimento, 30% = como o Lumio faz isso ficar fácil
+================ ESTILO POR CATEGORIA ================
+
+**curiosidade** (Você sabia? / fato surpreendente):
+- Hook OBRIGATORIAMENTE no formato "Você sabia que..." ou "Sabia que..." (1ª linha)
+- Fato memorável e contraintuitivo no corpo
+- Tom de jornalismo científico curioso (Quanta Mag, Veja Saúde)
+- Lumio aparece apenas no fim, como ponte sutil ("é por isso que a gente fez X")
+- 80% fato, 20% Lumio
+
+**pesquisa** (curadoria de paper recente):
+- Hook menciona o paper/estudo logo (1ª linha tem autor+ano+revista quando possível)
+- Resume a descoberta em linguagem clara
+- Explica APLICAÇÃO prática pro estudante
+- Tom de "o que a ciência mostrou recente"
+- Lumio só no fim, opcional
+- 85% conteúdo científico, 15% Lumio
+
+**educacional** (método/técnica aplicada):
+- Foco em COMO FAZER, passo a passo
+- Cada post = 1 técnica nomeada (Active Recall, Pomodoro, Feynman, etc)
+- Pode citar evidência (Ebbinghaus, Cepeda) mas não é o protagonista
+- Lumio aparece no MEIO+FIM como ferramenta que faz o método ficar fácil
+- 70% método, 30% Lumio
+
+**opiniao** (crítica fundamentada):
+- Hook polêmico baseado em evidência
+- Argumento estruturado, NUNCA ataque pessoal
+- Termina pedindo opinião do leitor
+- Lumio só se relevante ao argumento
+
+**dados** (curadoria de números):
+- Hook é o número/dado chocante
+- Fonte oficial sempre citada (ENADE, IBGE, OECD)
+- Interpretação clara em 1 frase
+- Lumio só se aplicar diretamente
+
+**bts** (behind the scenes Lumio):
+- Honestidade > marketing
+- Decisão de produto + porquê + aprendizado
+- Tom transparente, founder-style coletivo
 
 REDES (formatos NATIVOS):
 
@@ -116,11 +151,16 @@ export async function POST(req: NextRequest) {
 
   const title = escapeForPrompt(String(body.idea_title).slice(0, 300));
   const summary = escapeForPrompt(String(body.idea_summary || "").slice(0, 1500));
-  const category = ["educacional", "opiniao", "dados", "bts"].includes(
-    body.category,
-  )
+  const category = [
+    "educacional",
+    "curiosidade",
+    "pesquisa",
+    "opiniao",
+    "dados",
+    "bts",
+  ].includes(body.category)
     ? body.category
-    : "educacional";
+    : "curiosidade";
 
   const userPrompt = `Ideia: ${title}
 ${summary ? `\nÂngulo/pitch: ${summary}` : ""}

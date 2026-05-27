@@ -302,11 +302,16 @@ function NewIdeaForm({
   const [summary, setSummary] = useState("");
   const [category, setCategory] = useState("educacional");
   const [saving, setSaving] = useState(false);
-  const [suggesting, setSuggesting] = useState(false);
+  const [suggestingFor, setSuggestingFor] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<SuggestedIdea[]>([]);
+  const [lastRequested, setLastRequested] = useState<string | null>(null);
+
+  const suggesting = suggestingFor !== null;
 
   const suggest = async (focusCategory?: string) => {
-    setSuggesting(true);
+    const tag = focusCategory ?? "mix";
+    setSuggestingFor(tag);
+    setLastRequested(tag);
     setSuggestions([]);
     try {
       const r = await fetch(
@@ -327,14 +332,23 @@ function NewIdeaForm({
     } catch (e) {
       toast.error(`Falha: ${(e as Error).message}`);
     } finally {
-      setSuggesting(false);
+      setSuggestingFor(null);
     }
   };
 
   const useSuggestion = (s: SuggestedIdea) => {
     setTitle(s.title);
     setSummary(s.summary);
-    if (["educacional", "opiniao", "dados", "bts"].includes(s.category)) {
+    if (
+      [
+        "educacional",
+        "curiosidade",
+        "pesquisa",
+        "opiniao",
+        "dados",
+        "bts",
+      ].includes(s.category)
+    ) {
       setCategory(s.category);
     }
     setSuggestions([]);
@@ -381,48 +395,63 @@ function NewIdeaForm({
       </div>
 
       <div className="rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 p-3 space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <p className="text-xs text-foreground">
-            <span className="font-semibold">Sem ideia?</span>{" "}
-            <span className="text-muted-foreground">
-              Pede pra IA sugerir 5 alinhadas com a voz Lumio.
-            </span>
-          </p>
-          <div className="flex gap-1.5 flex-wrap shrink-0">
-            <button
-              onClick={() => suggest()}
-              disabled={suggesting}
-              className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50"
-            >
-              {suggesting ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <Sparkles className="h-3 w-3" />
-              )}
-              Mix
-            </button>
-            <button
-              onClick={() => suggest("educacional")}
-              disabled={suggesting}
-              className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/15 disabled:opacity-50"
-            >
-              Educacional
-            </button>
-            <button
-              onClick={() => suggest("opiniao")}
-              disabled={suggesting}
-              className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/15 disabled:opacity-50"
-            >
-              Opinião
-            </button>
-            <button
-              onClick={() => suggest("dados")}
-              disabled={suggesting}
-              className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/15 disabled:opacity-50"
-            >
-              Dados
-            </button>
-          </div>
+        <p className="text-xs text-foreground">
+          <span className="font-semibold">Sem ideia?</span>{" "}
+          <span className="text-muted-foreground">
+            Pede pra IA sugerir 5 — escolhe a vibe abaixo.
+          </span>
+        </p>
+        <div className="flex gap-1.5 flex-wrap">
+          <SuggestBtn
+            tag="mix"
+            label="Mix"
+            icon={<Sparkles className="h-3 w-3" />}
+            activeLoading={suggestingFor === "mix"}
+            lastRequested={lastRequested}
+            anyLoading={suggesting}
+            onClick={() => suggest()}
+            primary
+          />
+          <SuggestBtn
+            tag="curiosidade"
+            label="Você sabia?"
+            activeLoading={suggestingFor === "curiosidade"}
+            lastRequested={lastRequested}
+            anyLoading={suggesting}
+            onClick={() => suggest("curiosidade")}
+          />
+          <SuggestBtn
+            tag="pesquisa"
+            label="Pesquisa recente"
+            activeLoading={suggestingFor === "pesquisa"}
+            lastRequested={lastRequested}
+            anyLoading={suggesting}
+            onClick={() => suggest("pesquisa")}
+          />
+          <SuggestBtn
+            tag="educacional"
+            label="Método de estudo"
+            activeLoading={suggestingFor === "educacional"}
+            lastRequested={lastRequested}
+            anyLoading={suggesting}
+            onClick={() => suggest("educacional")}
+          />
+          <SuggestBtn
+            tag="opiniao"
+            label="Opinião"
+            activeLoading={suggestingFor === "opiniao"}
+            lastRequested={lastRequested}
+            anyLoading={suggesting}
+            onClick={() => suggest("opiniao")}
+          />
+          <SuggestBtn
+            tag="dados"
+            label="Dados"
+            activeLoading={suggestingFor === "dados"}
+            lastRequested={lastRequested}
+            anyLoading={suggesting}
+            onClick={() => suggest("dados")}
+          />
         </div>
 
         {suggestions.length > 0 && (
@@ -484,10 +513,12 @@ function NewIdeaForm({
           onChange={(e) => setCategory(e.target.value)}
           className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500"
         >
-          <option value="educacional">Educacional / Neurociência</option>
+          <option value="curiosidade">Você sabia? / Curiosidade</option>
+          <option value="pesquisa">Pesquisa recente (paper / estudo)</option>
+          <option value="educacional">Método de estudo / Técnica</option>
           <option value="opiniao">Opinião / Crítica</option>
-          <option value="dados">Dados / Curadoria</option>
-          <option value="bts">Behind the scenes</option>
+          <option value="dados">Dados / Curadoria oficial</option>
+          <option value="bts">Behind the scenes Lumio</option>
         </select>
       </div>
 
@@ -2216,6 +2247,48 @@ function EmbaixadorCard({
 // ============================================================================
 // UTILS
 // ============================================================================
+
+function SuggestBtn({
+  tag,
+  label,
+  icon,
+  activeLoading,
+  lastRequested,
+  anyLoading,
+  onClick,
+  primary,
+}: {
+  tag: string;
+  label: string;
+  icon?: React.ReactNode;
+  activeLoading: boolean;
+  lastRequested: string | null;
+  anyLoading: boolean;
+  onClick: () => void;
+  primary?: boolean;
+}) {
+  const wasLast = lastRequested === tag && !anyLoading;
+
+  const baseClass = primary
+    ? "bg-fuchsia-500 text-white hover:bg-fuchsia-600 border border-fuchsia-500"
+    : wasLast
+      ? "bg-fuchsia-500/25 border border-fuchsia-500/60 text-fuchsia-100 ring-1 ring-fuchsia-500/40"
+      : "border border-fuchsia-500/40 text-fuchsia-200 hover:bg-fuchsia-500/15";
+
+  return (
+    <button
+      onClick={onClick}
+      disabled={anyLoading}
+      className={`text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded transition-colors disabled:opacity-50 ${baseClass}`}
+    >
+      {activeLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : icon}
+      {label}
+      {wasLast && !primary && (
+        <span className="ml-0.5 text-[9px]">✓</span>
+      )}
+    </button>
+  );
+}
 
 function FormInput({
   label,
