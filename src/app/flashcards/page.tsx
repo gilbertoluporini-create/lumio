@@ -315,6 +315,7 @@ function FlashcardsHubView({ user }: { user: User }) {
       .select("*")
       .eq("user_id", user.id)
       .eq("kind", "flashcards")
+      .is("deleted_at", null)
       .order("updated_at", { ascending: false });
 
     if (error) {

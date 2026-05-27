@@ -134,6 +134,7 @@ function SubjectView({
           .select("id, lecture_id, kind, payload, created_at, updated_at")
           .eq("user_id", user.id)
           .in("lecture_id", lectureIds)
+          .is("deleted_at", null)
           .order("updated_at", { ascending: false });
         if (!error && rows) {
           setAssets(rows as SubjectAsset[]);

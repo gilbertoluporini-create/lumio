@@ -139,6 +139,7 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
           .eq("id", assetId)
           .eq("user_id", user.id)
           .eq("kind", "flashcards")
+          .is("deleted_at", null)
           .maybeSingle();
         if (!active) return;
         if (error || !data) {
@@ -179,7 +180,8 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
             .from("lecture_assets")
             .select("id, kind")
             .eq("user_id", user.id)
-            .eq("lecture_id", row.lecture_id);
+            .eq("lecture_id", row.lecture_id)
+            .is("deleted_at", null);
           if (!active) return;
           const rows = (siblings ?? []) as Array<{ id: string; kind: string }>;
           let quizId: string | null = null;

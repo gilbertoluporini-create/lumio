@@ -305,7 +305,8 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
             .from("lecture_assets")
             .select("id, kind, payload")
             .eq("user_id", user.id)
-            .eq("lecture_id", lec.id);
+            .eq("lecture_id", lec.id)
+            .is("deleted_at", null);
           if (!active) return;
           const counts: AssetCounts = {
             flashcards: { count: 0, assetId: null },

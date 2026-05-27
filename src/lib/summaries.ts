@@ -41,6 +41,12 @@ function rowToSummary(r: SummaryRow): Summary {
 const SUMMARY_COLS =
   "id, user_id, subject_id, lecture_id, document_id, title, content, images, created_at, updated_at";
 
+// Todas as leituras filtram deleted_at IS NULL. Quando um resumo é deletado
+// (soft-delete via deleteSummaryAsync), ele some das listagens mas o row
+// continua no banco pra possível recuperação via restoreSummaryAsync.
+// Sem esse filtro, /resumos continuava mostrando resumos deletados e clicar
+// num deles abria conteúdo fantasma (já experiência reportada pelo user).
+
 export async function listSummariesAsync(
   userId: string,
   subjectId?: string,
@@ -51,6 +57,7 @@ export async function listSummariesAsync(
     let q = supabase
       .from("summaries")
       .select(SUMMARY_COLS)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (subjectId) q = q.eq("subject_id", subjectId);
     const { data, error } = await q;
@@ -73,6 +80,7 @@ export async function getSummaryAsync(
       .from("summaries")
       .select(SUMMARY_COLS)
       .eq("id", id)
+      .is("deleted_at", null)
       .maybeSingle();
     return data ? rowToSummary(data as SummaryRow) : null;
   } catch (err) {
@@ -92,6 +100,7 @@ export async function getSummaryByLectureIdAsync(
       .from("summaries")
       .select(SUMMARY_COLS)
       .eq("lecture_id", lectureId)
+      .is("deleted_at", null)
       .maybeSingle();
     return data ? rowToSummary(data as SummaryRow) : null;
   } catch (err) {

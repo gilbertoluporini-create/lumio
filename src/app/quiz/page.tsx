@@ -447,6 +447,7 @@ function QuizView({ user }: { user: User }) {
         )
         .eq("user_id", user.id)
         .eq("kind", "quiz")
+        .is("deleted_at", null)
         .order("created_at", { ascending: false });
       if (error) {
         console.error("[quiz] erro listando quizzes", error);

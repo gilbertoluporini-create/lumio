@@ -123,6 +123,7 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
           .eq("id", assetId)
           .eq("user_id", user.id)
           .eq("kind", "mindmap")
+          .is("deleted_at", null)
           .maybeSingle();
         if (!active) return;
         if (error || !data) {

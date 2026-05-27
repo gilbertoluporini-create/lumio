@@ -27,6 +27,7 @@ export async function GET(
       .from("lecture_assets")
       .select("id, kind, payload, coins_spent, created_at, updated_at")
       .eq("lecture_id", id)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
 
     if (error) {
