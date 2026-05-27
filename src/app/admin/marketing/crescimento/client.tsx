@@ -730,7 +730,6 @@ function DraftEditor({
       }),
     });
     toast.success("Salvo");
-    setEditingNetwork(null);
     onChanged();
   };
 

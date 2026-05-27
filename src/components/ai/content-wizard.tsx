@@ -491,6 +491,35 @@ export function ContentWizard({
     // numa tela de preview. O resultado vai pro /resumo/[id] direto.
     onOpenChange(false);
 
+    // Wrapper pra etapas async pós-API: Storage uploads do Supabase em
+    // navegadores móveis com rede ruim conseguem PENDURAR sem rejeitar
+    // (sem timeout do SDK). Sem isso, o toast de progresso trava em 95%
+    // e o user não recebe nem sucesso nem erro. Devolve null em vez de
+    // lançar pra deixar o caller decidir.
+    const withTimeout = async <T,>(
+      promise: Promise<T>,
+      ms: number,
+      label: string,
+    ): Promise<T | null> => {
+      let to: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          promise,
+          new Promise<T>((_, rej) => {
+            to = setTimeout(
+              () => rej(new Error(`timeout: ${label} >${ms}ms`)),
+              ms,
+            );
+          }),
+        ]);
+      } catch (err) {
+        console.warn(`[wizard] ${label} failed/timeout`, err);
+        return null;
+      } finally {
+        if (to) clearTimeout(to);
+      }
+    };
+
     // -----------------------------------------------------------------
     // Toast com barra de progresso 0–100. Sonner aceita JSX como label,
     // então atualizamos o mesmo toast a cada ~400ms enquanto o fetch roda.
@@ -528,9 +557,14 @@ export function ContentWizard({
       </div>
     );
 
+    // closeButton:false aqui — o toast global tem closeButton, mas neste de
+    // progresso o "×" empurra o conteúdo e quebra a simetria visual. O timer
+    // de safety abaixo garante que o toast nunca trava (sai mesmo se uma
+    // etapa async pós-API pendurar silenciosamente).
     toast(renderProgress(0, currentStage), {
       id: "wizard-generation",
       duration: Infinity,
+      closeButton: false,
     });
 
     const progressTimer = setInterval(() => {
@@ -547,14 +581,31 @@ export function ContentWizard({
       toast(renderProgress(currentPct, currentStage), {
         id: "wizard-generation",
         duration: Infinity,
+        closeButton: false,
       });
     }, 400);
 
+    // Safety net: se passar de 4x o tempo estimado sem terminar, força fechar
+    // o toast pra não deixar o user travado em 95%. Era o que acontecia quando
+    // alguma etapa pós-API (storage upload, insert) pendurava silenciosamente.
+    const safetyTimer = setTimeout(
+      () => {
+        clearInterval(progressTimer);
+        toast.dismiss("wizard-generation");
+        toast.error(
+          "A geração demorou demais. Verifica se o resultado apareceu — se não, tenta de novo.",
+        );
+      },
+      Math.max(estMs * 4, 120_000),
+    );
+
     const finishProgress = (label: string) => {
       clearInterval(progressTimer);
+      clearTimeout(safetyTimer);
       toast(renderProgress(100, label), {
         id: "wizard-generation",
         duration: 600,
+        closeButton: false,
       });
     };
 
@@ -600,6 +651,7 @@ export function ContentWizard({
 
     const cancelProgress = () => {
       clearInterval(progressTimer);
+      clearTimeout(safetyTimer);
       toast.dismiss("wizard-generation");
     };
 
@@ -779,32 +831,45 @@ export function ContentWizard({
             for (const p of uploadedPdfs) {
               try {
                 const docTitle = p.name.replace(/\.pdf$/i, "");
-                const docCreated = await createDocumentAsync({
-                  userId,
-                  subjectId,
-                  title: docTitle,
-                  sourceKind: "pdf",
-                  sourceText: p.text,
-                  pageCount: p.pages,
-                });
+                const docCreated = await withTimeout(
+                  createDocumentAsync({
+                    userId,
+                    subjectId,
+                    title: docTitle,
+                    sourceKind: "pdf",
+                    sourceText: p.text,
+                    pageCount: p.pages,
+                  }),
+                  20_000,
+                  `createDocument:${docTitle}`,
+                );
                 if (!docCreated) continue;
-                // Sobe o PDF binário pro Storage pra visualização inline
+                // Sobe o PDF binário pro Storage pra visualização inline.
+                // Timeout 30s — em redes ruins o SDK pendura sem rejeitar.
                 const storageKey = `${userId}/${docCreated.id}.pdf`;
-                const { error: upErr } = await supabase.storage
-                  .from("user-documents")
-                  .upload(storageKey, p.file, {
+                const upRes = await withTimeout<{
+                  error: { message: string } | null;
+                }>(
+                  supabase.storage.from("user-documents").upload(storageKey, p.file, {
                     contentType: "application/pdf",
                     upsert: true,
-                  });
-                if (!upErr) {
+                  }) as unknown as Promise<{ error: { message: string } | null }>,
+                  30_000,
+                  `storage.upload:${p.name}`,
+                );
+                if (upRes && !upRes.error) {
                   const { data: pub } = supabase.storage
                     .from("user-documents")
                     .getPublicUrl(storageKey);
                   if (pub?.publicUrl) {
-                    await supabase
-                      .from("documents")
-                      .update({ source_url: pub.publicUrl })
-                      .eq("id", docCreated.id);
+                    await withTimeout(
+                      supabase
+                        .from("documents")
+                        .update({ source_url: pub.publicUrl })
+                        .eq("id", docCreated.id),
+                      10_000,
+                      `documents.update:${docCreated.id}`,
+                    );
                   }
                 }
                 void indexContentInBackground({
@@ -827,7 +892,18 @@ export function ContentWizard({
           }
         }
 
-        const lecture = await createLectureAsync(userId, { subjectId, title });
+        const lecture = await withTimeout(
+          createLectureAsync(userId, { subjectId, title }),
+          15_000,
+          "createLecture",
+        );
+        if (!lecture) {
+          cancelProgress();
+          toast.error(
+            "Não consegui salvar o resultado. Verifica sua conexão e tenta de novo.",
+          );
+          return;
+        }
         if (isSupabaseConfigured()) {
           const supabase = createClient();
           const kind = mode;
@@ -878,13 +954,19 @@ export function ContentWizard({
               ...(heroImage ? { heroImageUrl: heroImage } : {}),
             };
           }
-          await supabase.from("lecture_assets").insert({
-            lecture_id: lecture.id,
-            user_id: userId,
-            kind,
-            payload,
-            coins_spent: json.coinsCharged,
-          });
+          // Insert lecture_asset com timeout — se o Supabase pendurar,
+          // o user ainda recebe feedback em vez de travar em 95%.
+          await withTimeout(
+            supabase.from("lecture_assets").insert({
+              lecture_id: lecture.id,
+              user_id: userId,
+              kind,
+              payload,
+              coins_spent: json.coinsCharged,
+            }),
+            15_000,
+            "lecture_assets.insert",
+          );
         }
         finishProgress("Pronto!");
         toast.success(`${modeLabel(mode)} pronto!`);
@@ -927,8 +1009,9 @@ export function ContentWizard({
         toast.error(`Erro: ${e.message}`);
       }
     } finally {
-      // Defensivo: garante que o interval para mesmo em caminhos inesperados
+      // Defensivo: garante que ambos os timers param mesmo em caminhos inesperados
       clearInterval(progressTimer);
+      clearTimeout(safetyTimer);
       setGenerating(false);
     }
   }, [
