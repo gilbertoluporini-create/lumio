@@ -1,12 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Image from "next/image";
 import {
   AlertCircle,
   CheckCircle2,
   Clock,
   Copy,
+  ExternalLink,
   Gift,
+  Image as ImageIcon,
   Inbox,
   Loader2,
   MessageSquare,
@@ -18,6 +21,7 @@ import {
   User,
   Users,
   X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -25,7 +29,19 @@ import { toast } from "sonner";
 // TYPES
 // ============================================================================
 
-type Tab = "outbound" | "inbox" | "embaixadores";
+type Tab = "publicar" | "outbound" | "inbox" | "embaixadores";
+
+type PublishablePost = {
+  id: string;
+  filename: string;
+  order: number;
+  type: string;
+  dia: string;
+  hora: string;
+  caption: string;
+  image_url: string;
+  already_published: boolean;
+};
 
 type Draft = {
   id: string;
@@ -88,19 +104,21 @@ type Embaixador = {
 // ============================================================================
 
 export function CrescimentoClient() {
-  const [tab, setTab] = useState<Tab>("outbound");
+  const [tab, setTab] = useState<Tab>("publicar");
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Outbound & Embaixadores</h1>
+        <h1 className="text-xl font-semibold">Crescimento</h1>
         <p className="text-xs text-muted-foreground mt-1">
-          Painel operacional. DMs são draftadas pela IA — você aprova e copia/cola
-          no Instagram (Graph API exige App Review pra envio direto).
+          Publicar no IG, fazer outbound, gerenciar inbox e embaixadores — tudo num lugar.
         </p>
       </div>
 
-      <div className="flex items-center gap-1 border-b border-border/60">
+      <div className="flex items-center gap-1 border-b border-border/60 overflow-x-auto">
+        <TabBtn active={tab === "publicar"} onClick={() => setTab("publicar")}>
+          <ImageIcon className="h-3.5 w-3.5" /> Publicar IG
+        </TabBtn>
         <TabBtn active={tab === "outbound"} onClick={() => setTab("outbound")}>
           <Send className="h-3.5 w-3.5" /> Outbound
         </TabBtn>
@@ -115,9 +133,228 @@ export function CrescimentoClient() {
         </TabBtn>
       </div>
 
+      {tab === "publicar" && <PublicarPanel />}
       {tab === "outbound" && <OutboundPanel />}
       {tab === "inbox" && <InboxPanel />}
       {tab === "embaixadores" && <EmbaixadoresPanel />}
+    </div>
+  );
+}
+
+// ============================================================================
+// PUBLICAR PANEL — feed warmup IG, 1 clique publica
+// ============================================================================
+
+function PublicarPanel() {
+  const [posts, setPosts] = useState<PublishablePost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await fetch("/api/admin/marketing/ig-publish");
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "erro");
+      setPosts(j.posts);
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const publish = async (post: PublishablePost) => {
+    if (
+      !confirm(
+        `Publicar AGORA "${post.id} — ${post.type}" no @lumioapp.br?\n\nDepois de publicado não tem como deletar daqui — só pelo app do IG.`,
+      )
+    )
+      return;
+
+    setPublishingId(post.id);
+    try {
+      const r = await fetch("/api/admin/marketing/ig-publish", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ post_id: post.id }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "erro");
+      toast.success(`Publicado! Media ID: ${j.id}`);
+      if (j.permalink) window.open(j.permalink, "_blank");
+      load();
+    } catch (e) {
+      toast.error(`Falha ao publicar: ${(e as Error).message}`, {
+        duration: 8000,
+      });
+    } finally {
+      setPublishingId(null);
+    }
+  };
+
+  const publishedCount = posts.filter((p) => p.already_published).length;
+  const nextPost = posts.find((p) => !p.already_published);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/5 p-4">
+        <div className="flex items-start gap-3">
+          <Zap className="h-5 w-5 text-fuchsia-400 mt-0.5 shrink-0" />
+          <div className="space-y-1 text-xs">
+            <p className="font-semibold text-foreground">
+              {publishedCount} / {posts.length} posts publicados no warmup
+            </p>
+            <p className="text-muted-foreground leading-relaxed">
+              Ordem editorial: 01 (lançamento) → 04 → 07 → 06 → 02 → 03 → 05 → 10 → 09 (CTA).
+              <br />
+              Pico de engagement BR: <b>12h-13h</b> (almoço) e <b>19h-21h</b> (pós-aula).
+              Evita domingo.
+              {nextPost && (
+                <>
+                  <br />
+                  <b className="text-foreground">Próximo recomendado:</b> {nextPost.id} —{" "}
+                  {nextPost.type} ({nextPost.dia} {nextPost.hora}).
+                </>
+              )}
+            </p>
+          </div>
+          <button
+            onClick={load}
+            className="ml-auto text-[11px] inline-flex items-center gap-1 px-2.5 py-1 rounded border border-border/60 text-muted-foreground hover:text-foreground shrink-0"
+          >
+            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      {loading && posts.length === 0 ? (
+        <div className="text-xs text-muted-foreground py-6 text-center">
+          <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando...
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {posts.map((p) => (
+            <PostCard
+              key={p.id}
+              post={p}
+              isPublishing={publishingId === p.id}
+              isDisabled={publishingId !== null && publishingId !== p.id}
+              onPublish={() => publish(p)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PostCard({
+  post,
+  isPublishing,
+  isDisabled,
+  onPublish,
+}: {
+  post: PublishablePost;
+  isPublishing: boolean;
+  isDisabled: boolean;
+  onPublish: () => void;
+}) {
+  const [showFullCaption, setShowFullCaption] = useState(false);
+  const truncated =
+    post.caption.length > 200 ? post.caption.slice(0, 200) + "…" : post.caption;
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+      <div className="flex gap-4">
+        <div className="shrink-0 relative w-24 h-24 md:w-32 md:h-32 rounded-lg overflow-hidden bg-background border border-border/40">
+          <Image
+            src={`/instagram/lumi-posts/${post.filename}`}
+            alt={post.type}
+            fill
+            sizes="128px"
+            className="object-cover"
+          />
+        </div>
+
+        <div className="flex-1 min-w-0 space-y-2">
+          <div className="flex items-start gap-2 flex-wrap">
+            <span className="text-sm font-semibold font-mono">{post.id}</span>
+            <span className="text-xs text-muted-foreground">{post.type}</span>
+            <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">
+              {post.dia} · {post.hora}
+            </span>
+            {post.already_published ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-500/15 text-emerald-200 inline-flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Publicado
+              </span>
+            ) : (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-amber-500/15 text-amber-200">
+                Pendente
+              </span>
+            )}
+          </div>
+
+          <pre className="text-[11px] whitespace-pre-wrap font-sans leading-relaxed text-foreground/90 bg-background/40 rounded p-2 max-h-[140px] overflow-y-auto">
+            {showFullCaption ? post.caption : truncated}
+          </pre>
+
+          {post.caption.length > 200 && (
+            <button
+              onClick={() => setShowFullCaption(!showFullCaption)}
+              className="text-[10px] text-muted-foreground hover:text-foreground underline"
+            >
+              {showFullCaption ? "Recolher" : "Ver caption completa"}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5 pt-1 border-t border-border/40">
+        {post.already_published ? (
+          <span className="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+            <CheckCircle2 className="h-3 w-3 text-emerald-400" /> Já tá no feed
+          </span>
+        ) : (
+          <button
+            onClick={onPublish}
+            disabled={isPublishing || isDisabled}
+            className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isPublishing ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" /> Publicando…
+              </>
+            ) : (
+              <>
+                <Zap className="h-3.5 w-3.5" /> Publicar agora
+              </>
+            )}
+          </button>
+        )}
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(post.caption);
+            toast.success("Caption copiada");
+          }}
+          className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-border/60 text-muted-foreground hover:text-foreground"
+        >
+          <Copy className="h-3 w-3" /> Copiar caption
+        </button>
+        <a
+          href={post.image_url}
+          target="_blank"
+          rel="noreferrer"
+          className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-border/60 text-muted-foreground hover:text-foreground"
+        >
+          <ExternalLink className="h-3 w-3" /> Ver imagem
+        </a>
+      </div>
     </div>
   );
 }
