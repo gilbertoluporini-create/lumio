@@ -664,10 +664,8 @@ function DraftEditor({
   onChanged: () => void;
 }) {
   const [generatingText, setGeneratingText] = useState(false);
-  const [generatingImages, setGeneratingImages] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [imagePrompt, setImagePrompt] = useState("");
 
   const removeDraft = async () => {
     const warning = draft.status === "published"
@@ -727,31 +725,6 @@ function DraftEditor({
     }
   };
 
-  const generateImages = async () => {
-    if (!imagePrompt.trim()) {
-      toast.error("Descreva o visual primeiro");
-      return;
-    }
-    setGeneratingImages(true);
-    try {
-      const r = await fetch("/api/admin/marketing/content/generate-images", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          draft_id: draft.id,
-          prompt: imagePrompt.trim(),
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "erro");
-      toast.success("3 imagens geradas");
-      onChanged();
-    } catch (e) {
-      toast.error(`Falha: ${(e as Error).message}`);
-    } finally {
-      setGeneratingImages(false);
-    }
-  };
 
   const publish = async (networks: string[]) => {
     if (!draft.content_per_network?.instagram?.caption) {
@@ -924,69 +897,8 @@ function DraftEditor({
         )}
       </div>
 
-      {/* PASSO 2: IMAGENS */}
-      <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold inline-flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wider text-fuchsia-300 font-mono">
-              Passo 2
-            </span>
-            Imagens (3 ratios)
-          </h3>
-        </div>
-
-        <div>
-          <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
-            Cena do Lumi (descreva o que Lumi está fazendo / cercado por quê)
-          </label>
-          <textarea
-            value={imagePrompt}
-            onChange={(e) => setImagePrompt(e.target.value)}
-            placeholder='Ex: Lumi em cima de uma pilha de livros, com uma ampulheta de areia que está virando (representando o esquecimento que avança com o tempo). Caderno aberto ao lado com setinhas curvas desenhadas.'
-            rows={3}
-            className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500 resize-none"
-          />
-          <p className="text-[10px] text-muted-foreground italic mt-1">
-            ✨ A IA usa 3 imagens warmup do Lumi como REFERÊNCIA visual permanente —
-            o mascote vai sair idêntico ao que você fez no Replit. Você só descreve a CENA
-            específica (o que Lumi está fazendo, quais objetos ao redor).
-          </p>
-        </div>
-
-        <button
-          onClick={generateImages}
-          disabled={generatingImages || !imagePrompt.trim()}
-          className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50"
-        >
-          {generatingImages ? (
-            <>
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Gerando (30-60s)...
-            </>
-          ) : (
-            <>
-              <ImageIcon className="h-3.5 w-3.5" />{" "}
-              {hasImages ? "Regenerar imagens" : "Gerar 3 imagens"}
-            </>
-          )}
-        </button>
-
-        {hasImages && (
-          <div className="grid grid-cols-3 gap-3 pt-2">
-            <ImagePreview
-              label="1:1 (IG, FB)"
-              url={draft.images.ratio_1x1?.url}
-            />
-            <ImagePreview
-              label="3:2 (X, LI)"
-              url={draft.images.ratio_landscape?.url}
-            />
-            <ImagePreview
-              label="2:3 (Stories, TT)"
-              url={draft.images.ratio_portrait?.url}
-            />
-          </div>
-        )}
-      </div>
+      {/* PASSO 2: IMAGENS (manual via ChatGPT/Gemini + upload) */}
+      <ManualImageSection draft={draft} onChanged={onChanged} />
 
       {/* PASSO 3: PUBLICAR */}
       <div className="rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/5 p-4 space-y-3">
@@ -1108,6 +1020,237 @@ function ImagePreview({ label, url }: { label: string; url?: string }) {
         {label}
       </p>
     </a>
+  );
+}
+
+// ============================================================================
+// MANUAL IMAGE SECTION — gera prompt textual + upload manual
+// ============================================================================
+
+function ManualImageSection({
+  draft,
+  onChanged,
+}: {
+  draft: ContentDraft;
+  onChanged: () => void;
+}) {
+  const [scene, setScene] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [prompts, setPrompts] = useState<Record<string, string> | null>(null);
+  const [uploadingRatio, setUploadingRatio] = useState<string | null>(null);
+
+  const generatePrompt = async () => {
+    if (!scene.trim()) {
+      toast.error("Descreve a cena primeiro");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const r = await fetch("/api/admin/marketing/content/generate-image-prompt", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          draft_id: draft.id,
+          scene_description: scene.trim(),
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "erro");
+      setPrompts(j.prompts);
+      toast.success("Prompts gerados — copia e cola no ChatGPT/Gemini");
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const uploadImage = async (ratio: "1x1" | "landscape" | "portrait", file: File) => {
+    setUploadingRatio(ratio);
+    try {
+      const form = new FormData();
+      form.append("draft_id", draft.id);
+      form.append("ratio", ratio);
+      form.append("file", file);
+
+      const r = await fetch("/api/admin/marketing/content/upload-image", {
+        method: "POST",
+        body: form,
+      });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || "erro");
+      toast.success(`Imagem ${ratio} subida`);
+      onChanged();
+    } catch (e) {
+      toast.error(`Falha: ${(e as Error).message}`);
+    } finally {
+      setUploadingRatio(null);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-semibold inline-flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-fuchsia-300 font-mono">
+            Passo 2
+          </span>
+          Imagens (manual via ChatGPT / Gemini)
+        </h3>
+      </div>
+
+      <div className="rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 p-3 text-[11px] text-muted-foreground space-y-1">
+        <p className="text-foreground font-semibold">Fluxo manual = Lumi 100% fiel + custo zero</p>
+        <p>
+          1. Descreve a cena → 2. Clica &quot;Gerar prompts&quot; → 3. Copia 1 dos 3 prompts (1:1, 16:9, 9:16) →
+          4. Cola no ChatGPT/Gemini com sua assinatura → 5. Salva imagem → 6. Faz upload aqui no ratio certo.
+        </p>
+      </div>
+
+      <div>
+        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
+          Cena do Lumi (o que ele faz / o que tem ao redor)
+        </label>
+        <textarea
+          value={scene}
+          onChange={(e) => setScene(e.target.value)}
+          placeholder="Ex: Lumi olhando uma ampulheta que está virando, sobre uma mesa com livros roxos e magenta, fundo lavanda gradient. Pequenas setinhas curvas decorativas."
+          rows={3}
+          className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500 resize-none"
+        />
+      </div>
+
+      <button
+        onClick={generatePrompt}
+        disabled={generating || !scene.trim()}
+        className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50"
+      >
+        {generating ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Sparkles className="h-3.5 w-3.5" />
+        )}
+        Gerar prompts (3 ratios)
+      </button>
+
+      {prompts && (
+        <div className="space-y-2 pt-2 border-t border-border/40">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
+            Prompts prontos (copia e cola no ChatGPT/Gemini)
+          </p>
+          {(["1x1", "landscape", "portrait"] as const).map((ratio) => {
+            const key = `ratio_${ratio}` as const;
+            const text = prompts[key];
+            if (!text) return null;
+            const label =
+              ratio === "1x1"
+                ? "1:1 (IG, FB)"
+                : ratio === "landscape"
+                  ? "16:9 (X, LinkedIn)"
+                  : "9:16 (Stories, TikTok)";
+            const draftUrl = draft.images?.[`ratio_${ratio}` as keyof typeof draft.images]?.url;
+            return (
+              <PromptRow
+                key={ratio}
+                label={label}
+                text={text}
+                ratio={ratio}
+                uploadedUrl={draftUrl}
+                uploading={uploadingRatio === ratio}
+                onUpload={(file) => uploadImage(ratio, file)}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* Preview das 3 imagens já subidas */}
+      {(draft.images?.ratio_1x1 || draft.images?.ratio_landscape || draft.images?.ratio_portrait) && (
+        <div className="grid grid-cols-3 gap-3 pt-3 border-t border-border/40">
+          <ImagePreview label="1:1 (IG, FB)" url={draft.images.ratio_1x1?.url} />
+          <ImagePreview label="16:9 (X, LI)" url={draft.images.ratio_landscape?.url} />
+          <ImagePreview label="9:16 (Stories, TT)" url={draft.images.ratio_portrait?.url} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PromptRow({
+  label,
+  text,
+  ratio,
+  uploadedUrl,
+  uploading,
+  onUpload,
+}: {
+  label: string;
+  text: string;
+  ratio: "1x1" | "landscape" | "portrait";
+  uploadedUrl?: string;
+  uploading: boolean;
+  onUpload: (file: File) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background p-2.5 space-y-1.5">
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[11px] font-mono text-fuchsia-300 font-semibold">{label}</span>
+        {uploadedUrl && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-500/15 text-emerald-200 inline-flex items-center gap-1">
+            <CheckCircle2 className="h-3 w-3" /> subida
+          </span>
+        )}
+        <div className="ml-auto flex gap-1.5">
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(text);
+              toast.success("Prompt copiado");
+            }}
+            className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600"
+          >
+            <Copy className="h-3 w-3" /> Copiar
+          </button>
+          <label className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-border/60 text-foreground hover:bg-secondary/40 cursor-pointer">
+            {uploading ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <ImageIcon className="h-3 w-3" />
+            )}
+            {uploadedUrl ? "Substituir" : "Subir imagem"}
+            <input
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              className="hidden"
+              disabled={uploading}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onUpload(f);
+                e.target.value = "";
+              }}
+            />
+          </label>
+        </div>
+      </div>
+
+      {expanded ? (
+        <pre className="text-[10px] whitespace-pre-wrap font-mono leading-relaxed text-muted-foreground bg-secondary/20 rounded p-2 max-h-48 overflow-y-auto">
+          {text}
+        </pre>
+      ) : (
+        <p className="text-[10px] text-muted-foreground line-clamp-1">
+          {text.slice(0, 100)}...
+        </p>
+      )}
+
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="text-[10px] text-muted-foreground hover:text-foreground underline"
+      >
+        {expanded ? "Recolher" : "Ver prompt completo"}
+      </button>
+    </div>
   );
 }
 
