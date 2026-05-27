@@ -539,32 +539,34 @@ export function ContentWizard({
     let currentPct = 0;
     let currentStage = "Lendo fontes...";
 
+    // unstyled:true desliga TODO o styling padrão do Sonner pra esse toast e
+    // a gente desenha o card inteiro. Sem isso, o toast global tem padding
+    // assimétrico (reservado pro closeButton) que faz a barra ficar deslocada
+    // mesmo desabilitando closeButton localmente.
     const renderProgress = (pct: number, stage: string) => (
-      <div className="flex flex-col gap-1.5 w-full min-w-[220px]">
-        <div className="text-sm font-medium">
+      <div className="flex flex-col gap-2 w-[300px] rounded-xl bg-zinc-900 text-zinc-100 shadow-lg ring-1 ring-white/10 px-4 py-3.5">
+        <div className="text-sm font-medium leading-tight">
           Gerando {modeLabel(mode).toLowerCase()}
         </div>
-        <div className="text-[11px] text-muted-foreground">{stage}</div>
-        <div className="h-1.5 w-full bg-secondary/60 rounded-full overflow-hidden">
+        <div className="flex items-center justify-between text-[11px] text-zinc-400">
+          <span>{stage}</span>
+          <span className="font-mono tabular-nums">{Math.round(pct)}%</span>
+        </div>
+        <div className="h-1.5 w-full bg-white/10 rounded-full overflow-hidden">
           <div
-            className="h-full bg-gradient-to-r from-primary to-fuchsia-500 transition-[width] duration-300 ease-out"
+            className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-[width] duration-300 ease-out"
             style={{ width: `${pct}%` }}
           />
-        </div>
-        <div className="text-[10px] text-muted-foreground font-mono tabular-nums text-right">
-          {Math.round(pct)}%
         </div>
       </div>
     );
 
-    // closeButton:false aqui — o toast global tem closeButton, mas neste de
-    // progresso o "×" empurra o conteúdo e quebra a simetria visual. O timer
-    // de safety abaixo garante que o toast nunca trava (sai mesmo se uma
-    // etapa async pós-API pendurar silenciosamente).
-    toast(renderProgress(0, currentStage), {
+    // closeButton:false + unstyled:true → controle total. A safety timer
+    // abaixo garante que o toast nunca trava (sai mesmo se uma etapa async
+    // pós-API pendurar silenciosamente).
+    toast.custom(() => renderProgress(0, currentStage), {
       id: "wizard-generation",
       duration: Infinity,
-      closeButton: false,
     });
 
     const progressTimer = setInterval(() => {
@@ -578,10 +580,9 @@ export function ContentWizard({
             ? "Gerando imagens..."
             : "Estruturando...";
       else if (currentPct > 12) currentStage = "Pensando...";
-      toast(renderProgress(currentPct, currentStage), {
+      toast.custom(() => renderProgress(currentPct, currentStage), {
         id: "wizard-generation",
         duration: Infinity,
-        closeButton: false,
       });
     }, 400);
 
@@ -602,10 +603,9 @@ export function ContentWizard({
     const finishProgress = (label: string) => {
       clearInterval(progressTimer);
       clearTimeout(safetyTimer);
-      toast(renderProgress(100, label), {
+      toast.custom(() => renderProgress(100, label), {
         id: "wizard-generation",
         duration: 600,
-        closeButton: false,
       });
     };
 
