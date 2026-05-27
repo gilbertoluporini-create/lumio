@@ -266,7 +266,7 @@ def page_step1(c):
         c,
         "01",
         "Transcreva sem anotar",
-        "Sua mão tá ocupada copiando — sua cabeça tá fora da aula. "
+        "Sua mão fica ocupada copiando — sua cabeça fica fora da aula. "
         "Inverta a ordem: grave primeiro, organize depois.",
     )
 
@@ -275,7 +275,7 @@ def page_step1(c):
     y = draw_paragraph(
         c,
         "Anotar à mão durante a aula te tira do contexto. Você fica decidindo o que "
-        "escrever, perde a próxima frase, e quando volta o professor já tá em outro slide. "
+        "escrever, perde a próxima frase e, quando volta, o professor já está em outro slide. "
         "Resultado: caderno cheio, cabeça vazia.",
         20 * mm,
         y,
@@ -289,9 +289,9 @@ def page_step1(c):
 
     y = draw_paragraph(
         c,
-        "A IA permite outra ordem: você grava (ou liga o app no celular dentro da mochila), "
-        "presta atenção 100% no professor, e depois o sistema entrega a transcrição limpa, "
-        "com pontuação, separada por tópicos. Sua função na aula vira uma só: entender.",
+        "Com a IA, você grava, presta atenção no professor e depois recebe a "
+        "transcrição limpa, com pontuação e tópicos. Sua função na aula vira "
+        "uma só: entender.",
         20 * mm,
         y,
         FONT_REG,
@@ -311,18 +311,18 @@ def page_step1(c):
     bullets = [
         (
             "Antes da aula",
-            "Abra o app, escolha a matéria (criada uma vez), aperta gravar. "
-            "Deixa rodando — não precisa olhar.",
+            "Abra o app, escolha a matéria e aperte gravar. "
+            "Deixe rodando — não precisa olhar.",
         ),
         (
             "Durante a aula",
             "Foque no raciocínio do professor. Se o ponto for crítico, "
-            "marque mentalmente — você revisa depois pelo timestamp.",
+            "revise depois pelo timestamp.",
         ),
         (
             "Depois da aula",
-            "Em 10 minutos você tem a transcrição. Não leia ainda — "
-            "use ela como insumo pro Passo 2.",
+            "Em 10 minutos você tem a transcrição. "
+            "Use como insumo para gerar resumo e flashcards.",
         ),
     ]
     for t, body in bullets:
@@ -334,10 +334,9 @@ def page_step1(c):
         c,
         y,
         "Princípio",
-        "Atenção dividida (dual task) reduz retenção em até 40%. "
-        "Manter a mente em modo 'compreensão pura' durante a aula "
-        "preserva o ciclo de processamento profundo — você lembra do conceito, "
-        "não só da frase escrita.",
+        "Atenção dividida reduz retenção. Manter a mente em modo de "
+        "compreensão pura durante a aula preserva o processamento profundo: "
+        "você lembra do conceito, não só da frase escrita.",
     )
 
     draw_footer(c)
@@ -350,26 +349,12 @@ def page_step2(c):
     y = draw_step_header(
         c,
         "02",
-        "Resumo + Flashcards =\nVencer o esquecimento",
-        "Em 24h, você esquece 70% do que ouviu. A IA gera o material "
+        "Resumo + Flashcards vencem o esquecimento",
+        "Em 24h, você esquece boa parte do que ouviu. A IA gera o material "
         "que segura essa curva — você só precisa revisar nos intervalos certos.",
     )
 
-    y -= 4 * mm
-    y = draw_paragraph(
-        c,
-        "Logo depois da aula, peça pra IA gerar dois ativos a partir da transcrição: "
-        "um resumo estruturado (5 a 8 tópicos) e um deck de flashcards (10 a 20 cards). "
-        "O resumo é pra você ter o mapa do conteúdo na cabeça. Os cards são pra fixar.",
-        20 * mm,
-        y,
-        FONT_REG,
-        11.5,
-        INK,
-        PAGE_W - 40 * mm,
-        leading=17,
-    )
-    y -= 10 * mm
+    y -= 6 * mm
 
     # 2 colunas: resumo / flashcards
     col_w = (PAGE_W - 40 * mm - 6 * mm) / 2
@@ -384,18 +369,18 @@ def page_step2(c):
             c1_x,
             "Resumo",
             [
-                "Bom pra leitura passiva, recap rápido",
+                "Bom para leitura passiva, recap rápido",
                 "Use no dia seguinte e na véspera da prova",
-                "Sem decoreba — só pra ativar memória",
+                "Sem decoreba — só para ativar memória",
             ],
         ),
         (
             c2_x,
             "Flashcards",
             [
-                "Pergunta + resposta, formato Anki",
+                "Pergunta + resposta, estilo Anki",
                 "Algoritmo decide quando você revisa cada um",
-                "5 min/dia = ganho composto até a prova",
+                "5 min/dia viram ganho composto até a prova",
             ],
         ),
     ]:
@@ -424,17 +409,18 @@ def page_step2(c):
         c,
         y,
         "Evidência · Ebbinghaus & spaced repetition",
-        "A curva do esquecimento de Ebbinghaus (1885) e os estudos de "
-        "Cepeda et al. (2006) mostram que revisar o mesmo conteúdo em "
-        "intervalos crescentes (1d, 3d, 7d, 14d) sobe a retenção de 20% "
-        "pra mais de 80% sem aumentar tempo total de estudo.",
+        "Revisões em 1d, 3d, 7d e 14d mantêm a memória ativa com menos "
+        "tempo total de estudo. A curva do esquecimento de Ebbinghaus (1885) "
+        "e os estudos de Cepeda et al. (2006) indicam que revisar o mesmo "
+        "conteúdo em intervalos crescentes melhora a retenção sem aumentar "
+        "o tempo total de estudo.",
     )
 
     y -= 2 * mm
     y = draw_paragraph(
         c,
         "Não precisa montar planilha. O app organiza os intervalos sozinho — "
-        "você só abre e responde os cards que ele te mostra no dia.",
+        "você só abre e responde os cards que ele mostra no dia.",
         20 * mm,
         y,
         FONT_REG,
@@ -481,52 +467,44 @@ def page_step3(c):
     y -= 8 * mm
 
     bullets = [
-        ("D-3", "Gere o quiz a partir do resumo. Responda sem consultar. Marque os erros."),
-        ("D-2", "Refaça SÓ os errados. Releia o trecho correspondente da transcrição."),
-        ("D-1", "Quiz misto: matérias densas no fim, leves no começo. Dorme 7h+."),
+        ("D-3", "Gere um quiz e responda sem consultar."),
+        ("D-2", "Refaça os erros e releia o trecho."),
+        ("D-1", "Quiz misto e durma 7h+."),
     ]
     for t, body in bullets:
         y = draw_bullet(c, 20 * mm, y, t, body)
         y -= 6 * mm
 
-    y -= 2 * mm
-    y = draw_evidence_box(
-        c,
-        y,
-        "Evidência · cognitive science",
-        "Roediger & Karpicke (2006) mostraram que estudantes que fizeram "
-        "testes de recall retiveram 50% mais conteúdo 1 semana depois "
-        "do que os que só releram o material — mesmo tempo total de estudo.",
-    )
-
     # CTA box
-    y -= 4 * mm
+    y -= 6 * mm
     cta_h = 36 * mm
-    c.setFillColor(VIOLET)
+    c.setFillColor(VIOLET_DARK)
     c.roundRect(20 * mm, y - cta_h, PAGE_W - 40 * mm, cta_h, 5 * mm, fill=1, stroke=0)
 
     c.setFont(FONT_BOLD, 14)
     c.setFillColor(white)
-    c.drawString(28 * mm, y - 10 * mm, "Comece grátis em lumioapp.net")
+    c.drawString(28 * mm, y - 11 * mm, "Comece grátis em lumioapp.net")
 
     c.setFont(FONT_REG, 10.5)
     c.setFillColor(HexColor("#e9d5ff"))
     cta_lines = wrap_text(
-        "50 coins de boas-vindas + 50 bonus pra quem baixou esse guia. "
-        "Sem cartão. Cancele quando quiser.",
+        "50 coins de boas-vindas + 50 bônus para quem baixou este guia. Sem cartão.",
         FONT_REG,
         10.5,
-        PAGE_W - 40 * mm - 16 * mm,
+        PAGE_W - 40 * mm - 16 * mm - 38 * mm,
     )
     for i, ln in enumerate(cta_lines):
-        c.drawString(28 * mm, y - 18 * mm - i * 13, ln)
+        c.drawString(28 * mm, y - 19 * mm - i * 13, ln)
 
     # tag pill
+    pill_w = 32 * mm
+    pill_x = PAGE_W - 20 * mm - 8 * mm - pill_w
+    pill_y = y - cta_h / 2 - 4 * mm
     c.setFillColor(white)
-    c.roundRect(28 * mm, y - cta_h + 6 * mm, 50 * mm, 8 * mm, 4 * mm, fill=1, stroke=0)
+    c.roundRect(pill_x, pill_y, pill_w, 8 * mm, 4 * mm, fill=1, stroke=0)
     c.setFont(FONT_BOLD, 8.5)
     c.setFillColor(VIOLET_DARK)
-    c.drawString(33 * mm, y - cta_h + 8.5 * mm, "100 COINS · TOTAL DE BÔNUS")
+    c.drawCentredString(pill_x + pill_w / 2, pill_y + 2.5 * mm, "100 COINS · BÔNUS")
 
     draw_footer(c)
 
