@@ -830,7 +830,9 @@ function DraftEditor({
             className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500 resize-none"
           />
           <p className="text-[10px] text-muted-foreground italic mt-1">
-            ✨ A IA já sabe que Lumi é um lampião 3D cute estilo Pixar, com olhos lavender, fundo gradient lavender, livros roxo/magenta/amarelo. Você só descreve a CENA específica desse post.
+            ✨ A IA usa 3 imagens warmup do Lumi como REFERÊNCIA visual permanente —
+            o mascote vai sair idêntico ao que você fez no Replit. Você só descreve a CENA
+            específica (o que Lumi está fazendo, quais objetos ao redor).
           </p>
         </div>
 

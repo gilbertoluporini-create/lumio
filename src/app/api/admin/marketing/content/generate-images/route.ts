@@ -15,11 +15,13 @@
  * Apenas admin.
  */
 
+import fs from "node:fs/promises";
+import path from "node:path";
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/admin";
 import { createAdminClient } from "@/lib/supabase/server";
 import {
-  generateImageOpenAI,
+  editImageWithReferences,
   isOpenAIImageConfigured,
 } from "@/lib/openai-image";
 
@@ -30,54 +32,65 @@ export const maxDuration = 120; // gpt-image-1 high quality demora 30-60s
 const BUCKET = "marketing-images";
 
 /**
- * Brand anchor obrigatório no fim do prompt — mantém visual coerente
- * com a identidade Lumio. O mascote Lumi DEVE aparecer em todo post.
+ * Imagens warmup usadas como referência permanente pra gpt-image-1 edits.
+ * São 3 poses distintas do mascote Lumi pra OpenAI capturar identidade visual:
+ *  - 01-lancamento.jpg: Lumi frontal, em pilha de livros (pose central)
+ *  - 06-transcricao.jpg: Lumi de lado, com braço articulado (pose lateral)
+ *  - 07-tudo-num-lugar.jpg: Lumi em cena rica, com mesa e objetos (composição)
  *
- * Estilo: 3D render estilizado tipo Pixar/Cinema 4D, NÃO vetor flat.
- * Descrição do mascote vem das imagens originais em /public/instagram/lumi-posts/.
+ * Trocar essas imagens só se a marca visual mudar.
+ */
+const REFERENCE_FILENAMES = [
+  "01-lancamento.jpg",
+  "06-transcricao.jpg",
+  "07-tudo-num-lugar.jpg",
+];
+
+async function loadReferences(): Promise<
+  Array<{ buffer: Buffer; filename: string }>
+> {
+  const base = path.join(process.cwd(), "public", "instagram", "lumi-posts");
+  const refs = await Promise.all(
+    REFERENCE_FILENAMES.map(async (filename) => {
+      const buf = await fs.readFile(path.join(base, filename));
+      return { buffer: buf, filename };
+    }),
+  );
+  return refs;
+}
+
+/**
+ * Brand anchor — instrui modelo a usar referências pra identidade visual
+ * + descreve a CENA específica do post. NÃO descreve o Lumi (referências fazem isso).
  */
 const BRAND_ANCHOR = `
-========== LUMIO BRAND VISUAL IDENTITY — STRICT RULES ==========
+========== LUMIO BRAND — REFERENCE-DRIVEN GENERATION ==========
 
-THE LUMI MASCOT (MUST appear in every image, centered or prominent):
-A cute 3D-rendered cartoon desk lamp character named Lumi. Style: stylized 3D render in the visual language of Pixar / modern Cinema 4D animation. Soft global illumination, gentle subsurface scattering on the cream surfaces, subtle ambient occlusion. NOT flat vector, NOT 2D illustration — fully volumetric 3D render with depth.
+You have been given REFERENCE IMAGES of the Lumi mascot. The mascot in every output image MUST match the references EXACTLY in:
+- Character shape (bell-shaped lamp head, articulated bronze arm, cream base with lilac button)
+- Color palette of Lumi itself (cream/ivory shade, soft lavender eyes, champagne-bronze arm, lilac purple accents)
+- Eye shape and friendly expression (kawaii rounded eyes, gentle smile, subtle blush)
+- 3D Pixar-style rendering quality (volumetric, soft lighting, NOT flat vector)
 
-Lumi's anatomy:
-- A small friendly desk lamp with a personified face
-- Bell-shaped lampshade head in warm cream / pale ivory color (#f5ebd6 to #fff8e7) with a soft lilac purple top ring
-- Lumi's "face" sits inside the shade opening: two big rounded soft-lavender eyes (#c4b5fd) shaped like upside-down half-circles, a small subtle blush, and a gentle closed-mouth smile — childlike, kawaii, never creepy, never sad
-- Articulated bronze/champagne-gold metallic arm in 2-3 jointed segments, slightly weathered, soft metallic shading
-- Round cream base with a tiny lilac purple button on top
-- Lumi is always cheerful, calm, helpful — a study companion vibe, not a salesperson
+CRITICAL: IGNORE all text, headlines, captions, UI elements, website stamps visible in the reference images. Those are NOT part of the brand — they were added later in design tools. The OUTPUT IMAGE MUST CONTAIN ZERO TEXT.
 
-SCENE COMPOSITION RULES:
-- Lumi is ALWAYS present and is the focal element
+SCENE COMPOSITION:
+- Lumi is the focal element of every image, in a new pose/scene matching the user's prompt
 - NO human characters, NO students, NO people, NO hands. Only Lumi + objects.
-- Lumi can be paired with educational props: stacked books (purple, magenta, amber covers), an open notebook, a coffee mug, a tablet/laptop with blank screen, sticky notes, paper sheets with abstract writing scribbles (never readable text), a tiny plant, headphones, a microphone
-- Books, when stacked, follow Lumio palette: deep purple #6d28d9, magenta #db2777, warm amber #d97706
-- Floating decorative elements OK: small stars (✦), sparkles, lightbulb icons — all in lavender tones
-
-BACKGROUND & PALETTE:
-- Background: smooth lavender-to-cream vertical gradient (#e9d5ff at top, #faf5ff/#fdf4e8 at bottom). Soft, no texture noise.
-- Optional subtle window-light cast from the side
-- Strict palette: lavender purples (#a78bfa, #c4b5fd, #ddd6fe, #ede9fe), cream (#fdf4e8, #fff8e7), magenta/pink accents (#db2777, #f472b6) ONLY where books/objects justify it
-- NO black, NO neon, NO oversaturation, NO photorealistic textures
+- Educational props OK: stacked books (purple/magenta/amber covers like references), notebook, paper sheets with abstract scribble (NEVER readable), coffee mug, plant, headphones, hourglass, tablet/laptop with BLANK screen, sticky notes
+- Background: smooth lavender-to-cream gradient like references (#e9d5ff to #fdf4e8) OR deeper purple (#6d28d9) for variety, both work
+- Floating decorative elements OK: small sparkles, stars, lightbulb icons in lavender tones
 
 ABSOLUTELY FORBIDDEN:
-- NO TEXT of any kind (no captions, no labels, no logos, no watermarks, no website URLs, no LumioApp.net stamp — text is added later in design tool)
+- NO TEXT of any kind anywhere in the image (no captions, no labels, no logos, no watermarks, no website URLs, no headlines)
 - NO website screenshots, NO UI mockups, NO phone/computer screens with visible content
-- NO faces of real humans, NO Disney characters, NO copyrighted mascots
-- NO multiple Lumi mascots (only ONE Lumi per image)
+- NO faces of real humans, NO Disney/Pixar copyrighted characters, NO other mascots
+- NO multiple Lumi mascots (ONE Lumi per image)
 - NO scary, dark, melancholic moods — always warm, friendly, hopeful
-- NO photography/photorealism — must remain stylized 3D render
+- NO photography/photorealism — must remain stylized 3D render matching references
+- NO modifications to Lumi's core anatomy — same lamp shape, same eye style, same proportions
 
-LIGHTING & RENDER:
-- Soft 3-point lighting with key from upper-left, lavender ambient
-- Mild bloom on Lumi's eyes for a glowy "alive" feel
-- Shallow depth of field, gentle background blur if scene allows
-- Clean focused composition with breathing room
-
-This is the EXACT brand. Generate accordingly.
+Generate a NEW scene featuring the SAME Lumi character from references.
 `.trim();
 
 async function ensureBucket(supabase: ReturnType<typeof createAdminClient>) {
@@ -134,11 +147,23 @@ export async function POST(req: NextRequest) {
 
   const draftId = String(body.draft_id);
   const prompt = String(body.prompt).slice(0, 4000);
-  const fullPrompt = `${prompt}\n\n${BRAND_ANCHOR}`;
+  const fullPrompt = `SCENE TO GENERATE: ${prompt}\n\n${BRAND_ANCHOR}`;
   const apiKey = process.env.OPENAI_API_KEY as string;
 
   const supabase = createAdminClient();
   await ensureBucket(supabase);
+
+  // Carrega referências do Lumi 1 vez (compartilhada entre os 3 ratios)
+  let references: Array<{ buffer: Buffer; filename: string }>;
+  try {
+    references = await loadReferences();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "ler refs";
+    return NextResponse.json(
+      { error: `falha ao carregar refs do Lumi: ${msg}` },
+      { status: 500 },
+    );
+  }
 
   type Ratio = "1x1" | "landscape" | "portrait";
   const ratios: Array<{ ratio: Ratio; size: "1024x1024" | "1536x1024" | "1024x1536" }> = [
@@ -148,17 +173,18 @@ export async function POST(req: NextRequest) {
   ];
 
   try {
-    // Gera as 3 em paralelo
+    // Gera as 3 em paralelo — cada uma usa as MESMAS referências do Lumi
     const results = await Promise.all(
       ratios.map(async ({ ratio, size }) => {
-        const { b64, revisedPrompt } = await generateImageOpenAI({
+        const { b64, revisedPrompt } = await editImageWithReferences({
           prompt: fullPrompt,
+          references,
           quality: "medium",
           size,
           apiKey,
         });
-        const path = `content-drafts/${draftId}/${ratio}-${Date.now()}.png`;
-        const url = await uploadAndGetUrl(supabase, path, b64);
+        const storagePath = `content-drafts/${draftId}/${ratio}-${Date.now()}.png`;
+        const url = await uploadAndGetUrl(supabase, storagePath, b64);
         return {
           ratio,
           size,
