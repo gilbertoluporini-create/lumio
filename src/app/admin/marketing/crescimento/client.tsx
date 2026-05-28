@@ -29,7 +29,7 @@ import { toast } from "sonner";
 // TYPES
 // ============================================================================
 
-type Tab = "estudio" | "publicar" | "outbound" | "inbox" | "embaixadores";
+type Tab = "calendario" | "publicar" | "outbound" | "inbox" | "embaixadores";
 
 type PublishablePost = {
   id: string;
@@ -104,20 +104,20 @@ type Embaixador = {
 // ============================================================================
 
 export function CrescimentoClient() {
-  const [tab, setTab] = useState<Tab>("estudio");
+  const [tab, setTab] = useState<Tab>("calendario");
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Crescimento</h1>
         <p className="text-xs text-muted-foreground mt-1">
-          Estúdio de conteúdo multi-rede + publicação + outbound + inbox + embaixadores.
+          Calendário editorial multi-rede + publicação + outbound + inbox + embaixadores.
         </p>
       </div>
 
       <div className="flex items-center gap-1 border-b border-border/60 overflow-x-auto">
-        <TabBtn active={tab === "estudio"} onClick={() => setTab("estudio")}>
-          <Sparkles className="h-3.5 w-3.5" /> Estúdio
+        <TabBtn active={tab === "calendario"} onClick={() => setTab("calendario")}>
+          <Clock className="h-3.5 w-3.5" /> Calendário
         </TabBtn>
         <TabBtn active={tab === "publicar"} onClick={() => setTab("publicar")}>
           <ImageIcon className="h-3.5 w-3.5" /> Warmup IG
@@ -136,7 +136,7 @@ export function CrescimentoClient() {
         </TabBtn>
       </div>
 
-      {tab === "estudio" && <EstudioPanel />}
+      {tab === "calendario" && <CalendarioPanel />}
       {tab === "publicar" && <PublicarPanel />}
       {tab === "outbound" && <OutboundPanel />}
       {tab === "inbox" && <InboxPanel />}
@@ -146,1110 +146,372 @@ export function CrescimentoClient() {
 }
 
 // ============================================================================
-// ESTÚDIO PANEL — fábrica de conteúdo educacional multi-rede
+// CALENDÁRIO PANEL — posts vindos de content/marketing/posts/ (filesystem)
+// Cron */5 * * * * publica automaticamente quando scheduled_for <= now
 // ============================================================================
 
-type ContentDraft = {
+type CalDraft = {
   id: string;
-  idea_title: string;
-  idea_summary: string | null;
-  category: string;
-  content_per_network: {
-    instagram?: { caption: string; hashtags: string[] };
-    x?: { thread: string[]; hashtags: string[] };
-    linkedin?: { headline: string; body: string; hashtags: string[] };
-    tiktok?: { hook: string; script: string; duration_estimate_s: number };
-  };
-  images: {
-    ratio_1x1?: { url: string };
-    ratio_landscape?: { url: string };
-    ratio_portrait?: { url: string };
-  };
+  slug: string;
+  idea_title: string | null;
+  category: string | null;
   status: string;
-  generated_at: string | null;
   scheduled_for: string | null;
   published_at: string | null;
-  publish_results: Record<string, { id: string; permalink: string | null }> | null;
-  created_at: string;
+  content_per_network: Record<string, Record<string, unknown>>;
+  images: Record<string, { url: string } | undefined>;
+  publish_results: Record<string, unknown> | null;
+  sync_error: string | null;
   updated_at: string;
 };
 
-function EstudioPanel() {
-  const [drafts, setDrafts] = useState<ContentDraft[]>([]);
+function CalendarioPanel() {
+  const [drafts, setDrafts] = useState<CalDraft[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("all");
-  const [newOpen, setNewOpen] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [publishingId, setPublishingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const url =
-        filter === "all"
-          ? "/api/admin/marketing/content/drafts"
-          : `/api/admin/marketing/content/drafts?status=${filter}`;
-      const r = await fetch(url);
+      const r = await fetch(
+        "/api/admin/marketing/content/drafts?source=filesystem&limit=500",
+      );
       const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "erro");
-      setDrafts(j.drafts);
-    } catch (e) {
-      toast.error(`Falha: ${(e as Error).message}`);
+      setDrafts((j.drafts || []) as CalDraft[]);
+    } catch {
+      toast.error("erro ao carregar drafts");
     } finally {
       setLoading(false);
     }
-  }, [filter]);
+  }, []);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  const selected = drafts.find((d) => d.id === selectedId) || null;
-
-  if (selected) {
-    return (
-      <DraftEditor
-        draft={selected}
-        onClose={() => setSelectedId(null)}
-        onChanged={load}
-      />
-    );
+  async function handleSync() {
+    setSyncing(true);
+    try {
+      const r = await fetch("/api/admin/marketing/content/sync", {
+        method: "POST",
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        toast.error(j.error || "sync falhou");
+        return;
+      }
+      const parts: string[] = [`${j.synced.length} ok`];
+      if (j.errors.length) parts.push(`${j.errors.length} erro(s)`);
+      if (j.orphaned.length) parts.push(`${j.orphaned.length} órfão(s)`);
+      toast.success(`sync: ${parts.join(", ")}`);
+      if (j.errors.length) {
+        console.error("[sync errors]", j.errors);
+      }
+      load();
+    } catch {
+      toast.error("erro de rede");
+    } finally {
+      setSyncing(false);
+    }
   }
 
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2 flex-wrap">
-        {[
-          ["all", "Todos"],
-          ["idea", "Ideias"],
-          ["drafted", "Draftados"],
-          ["approved", "Aprovados"],
-          ["scheduled", "Agendados"],
-          ["published", "Publicados"],
-        ].map(([k, label]) => (
-          <button
-            key={k}
-            onClick={() => setFilter(k)}
-            className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors ${
-              filter === k
-                ? "bg-fuchsia-500/15 border-fuchsia-500/40 text-fuchsia-200"
-                : "border-border/60 text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-        <button
-          onClick={() => load()}
-          className="ml-auto text-[11px] inline-flex items-center gap-1 px-2.5 py-1 rounded border border-border/60 text-muted-foreground hover:text-foreground"
-        >
-          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
-          Atualizar
-        </button>
-        <button
-          onClick={() => setNewOpen(true)}
-          className="text-[11px] inline-flex items-center gap-1 px-2.5 py-1 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600"
-        >
-          <Plus className="h-3 w-3" /> Nova ideia
-        </button>
-      </div>
-
-      {newOpen && (
-        <NewIdeaForm
-          onClose={() => setNewOpen(false)}
-          onCreated={(id) => {
-            setNewOpen(false);
-            load();
-            setSelectedId(id);
-          }}
-        />
-      )}
-
-      {loading && drafts.length === 0 ? (
-        <div className="text-xs text-muted-foreground py-6 text-center">
-          <Loader2 className="h-4 w-4 animate-spin inline mr-2" /> Carregando...
-        </div>
-      ) : drafts.length === 0 ? (
-        <EmptyState
-          icon={<Sparkles className="h-8 w-8 text-muted-foreground/50" />}
-          title="Sem ideias ainda"
-          desc='Clica "Nova ideia" → escreve o tema → IA gera texto + 3 imagens nativas pra IG, X, LinkedIn e TikTok.'
-        />
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {drafts.map((d) => (
-            <DraftCardThumb
-              key={d.id}
-              draft={d}
-              onClick={() => setSelectedId(d.id)}
-              onDeleted={load}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-type SuggestedIdea = { title: string; summary: string; category: string };
-
-function NewIdeaForm({
-  onClose,
-  onCreated,
-}: {
-  onClose: () => void;
-  onCreated: (id: string) => void;
-}) {
-  const [title, setTitle] = useState("");
-  const [summary, setSummary] = useState("");
-  const [category, setCategory] = useState("educacional");
-  const [saving, setSaving] = useState(false);
-  const [suggestingFor, setSuggestingFor] = useState<string | null>(null);
-  const [suggestions, setSuggestions] = useState<SuggestedIdea[]>([]);
-  const [lastRequested, setLastRequested] = useState<string | null>(null);
-
-  const suggesting = suggestingFor !== null;
-
-  const suggest = async (focusCategory?: string) => {
-    const tag = focusCategory ?? "mix";
-    setSuggestingFor(tag);
-    setLastRequested(tag);
-    setSuggestions([]);
-    try {
-      const r = await fetch(
-        "/api/admin/marketing/content/suggest-ideas",
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            category: focusCategory,
-            count: 5,
-          }),
-        },
-      );
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "erro");
-      setSuggestions(j.ideas || []);
-      if (!j.ideas?.length) toast.error("IA não retornou ideias");
-    } catch (e) {
-      toast.error(`Falha: ${(e as Error).message}`);
-    } finally {
-      setSuggestingFor(null);
-    }
-  };
-
-  const useSuggestion = (s: SuggestedIdea) => {
-    setTitle(s.title);
-    setSummary(s.summary);
+  async function handlePublishNow(draft: CalDraft) {
     if (
-      [
-        "educacional",
-        "curiosidade",
-        "pesquisa",
-        "opiniao",
-        "dados",
-        "bts",
-      ].includes(s.category)
-    ) {
-      setCategory(s.category);
-    }
-    setSuggestions([]);
-    toast.success("Ideia carregada — ajuste se quiser e clica criar");
-  };
-
-  const save = async () => {
-    if (!title.trim()) {
-      toast.error("Título obrigatório");
-      return;
-    }
-    setSaving(true);
-    try {
-      const r = await fetch("/api/admin/marketing/content/drafts", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          idea_title: title.trim(),
-          idea_summary: summary.trim(),
-          category,
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "erro");
-      toast.success("Ideia criada — abrindo editor");
-      onCreated(j.draft.id);
-    } catch (e) {
-      toast.error(`Falha: ${(e as Error).message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold">Nova ideia editorial</h3>
-        <button
-          onClick={onClose}
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/5 p-3 space-y-2">
-        <p className="text-xs text-foreground">
-          <span className="font-semibold">Sem ideia?</span>{" "}
-          <span className="text-muted-foreground">
-            Pede pra IA sugerir 5 — escolhe a vibe abaixo.
-          </span>
-        </p>
-        <div className="flex gap-1.5 flex-wrap">
-          <SuggestBtn
-            tag="mix"
-            label="Mix"
-            icon={<Sparkles className="h-3 w-3" />}
-            activeLoading={suggestingFor === "mix"}
-            lastRequested={lastRequested}
-            anyLoading={suggesting}
-            onClick={() => suggest()}
-            primary
-          />
-          <SuggestBtn
-            tag="curiosidade"
-            label="Você sabia?"
-            activeLoading={suggestingFor === "curiosidade"}
-            lastRequested={lastRequested}
-            anyLoading={suggesting}
-            onClick={() => suggest("curiosidade")}
-          />
-          <SuggestBtn
-            tag="pesquisa"
-            label="Pesquisa recente"
-            activeLoading={suggestingFor === "pesquisa"}
-            lastRequested={lastRequested}
-            anyLoading={suggesting}
-            onClick={() => suggest("pesquisa")}
-          />
-          <SuggestBtn
-            tag="educacional"
-            label="Método de estudo"
-            activeLoading={suggestingFor === "educacional"}
-            lastRequested={lastRequested}
-            anyLoading={suggesting}
-            onClick={() => suggest("educacional")}
-          />
-          <SuggestBtn
-            tag="opiniao"
-            label="Opinião"
-            activeLoading={suggestingFor === "opiniao"}
-            lastRequested={lastRequested}
-            anyLoading={suggesting}
-            onClick={() => suggest("opiniao")}
-          />
-          <SuggestBtn
-            tag="dados"
-            label="Dados"
-            activeLoading={suggestingFor === "dados"}
-            lastRequested={lastRequested}
-            anyLoading={suggesting}
-            onClick={() => suggest("dados")}
-          />
-        </div>
-
-        {suggestions.length > 0 && (
-          <div className="space-y-1.5 pt-2 border-t border-fuchsia-500/20">
-            {suggestions.map((s, i) => (
-              <button
-                key={i}
-                onClick={() => useSuggestion(s)}
-                className="text-left w-full p-2 rounded border border-border/40 hover:border-fuchsia-500/40 hover:bg-background transition-colors group"
-              >
-                <div className="flex items-start gap-2">
-                  <span className="text-[10px] font-mono text-muted-foreground shrink-0 mt-0.5">
-                    #{i + 1}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-foreground group-hover:text-fuchsia-200">
-                      {s.title}
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
-                      {s.summary}
-                    </p>
-                    <span className="text-[10px] uppercase tracking-wider font-mono text-fuchsia-300 mt-1 inline-block">
-                      {s.category}
-                    </span>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <FormInput
-        label="Título / tema"
-        value={title}
-        onChange={setTitle}
-        placeholder="Curva do esquecimento — por que perdemos 70% em 24h"
-      />
-
-      <div>
-        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
-          Ângulo / pitch (opcional)
-        </label>
-        <textarea
-          value={summary}
-          onChange={(e) => setSummary(e.target.value)}
-          placeholder="Ex: dado de Ebbinghaus, explicar por que ler 2x não vale revisão espaçada, gancho com semana de prova"
-          rows={3}
-          className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500 resize-none"
-        />
-      </div>
-
-      <div>
-        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
-          Categoria
-        </label>
-        <select
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500"
-        >
-          <option value="curiosidade">Você sabia? / Curiosidade</option>
-          <option value="pesquisa">Pesquisa recente (paper / estudo)</option>
-          <option value="educacional">Método de estudo / Técnica</option>
-          <option value="opiniao">Opinião / Crítica</option>
-          <option value="dados">Dados / Curadoria oficial</option>
-          <option value="bts">Behind the scenes Lumio</option>
-        </select>
-      </div>
-
-      <button
-        onClick={save}
-        disabled={saving || !title.trim()}
-        className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-emerald-500 text-white hover:bg-emerald-600 disabled:opacity-50"
-      >
-        {saving ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <CheckCircle2 className="h-3.5 w-3.5" />
-        )}
-        Criar e abrir editor
-      </button>
-    </div>
-  );
-}
-
-function DraftCardThumb({
-  draft,
-  onClick,
-  onDeleted,
-}: {
-  draft: ContentDraft;
-  onClick: () => void;
-  onDeleted: () => void;
-}) {
-  const [deleting, setDeleting] = useState(false);
-  const hasImages = Object.keys(draft.images || {}).length > 0;
-  const hasContent = Object.keys(draft.content_per_network || {}).length > 0;
-  const thumb = draft.images?.ratio_1x1?.url;
-
-  const handleDelete = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
-    const warning =
-      draft.status === "published"
-        ? `Esse draft JÁ FOI PUBLICADO. Excluir aqui NÃO remove os posts das redes. Continuar?`
-        : `Excluir "${draft.idea_title}"? Texto e imagens geradas vão junto. Sem volta.`;
-    if (!confirm(warning)) return;
-
-    setDeleting(true);
-    try {
-      const r = await fetch(
-        `/api/admin/marketing/content/drafts?id=${draft.id}`,
-        { method: "DELETE" },
-      );
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || "erro");
-      toast.success("Draft excluído");
-      onDeleted();
-    } catch (err) {
-      toast.error(`Falha: ${(err as Error).message}`);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  return (
-    <div
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick();
-        }
-      }}
-      className="relative text-left rounded-xl border border-border/60 bg-card p-3 hover:border-fuchsia-500/40 transition-colors cursor-pointer group"
-    >
-      <button
-        onClick={handleDelete}
-        disabled={deleting}
-        title="Excluir draft"
-        className="absolute top-2 right-2 inline-flex items-center justify-center h-6 w-6 rounded border border-red-500/40 text-red-300 hover:bg-red-500/15 disabled:opacity-50 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity z-10"
-      >
-        {deleting ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <Trash2 className="h-3 w-3" />
-        )}
-      </button>
-
-      <div className="flex gap-3">
-        {thumb ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={thumb}
-            alt=""
-            className="w-16 h-16 rounded-lg object-cover bg-background shrink-0"
-          />
-        ) : (
-          <div className="w-16 h-16 rounded-lg bg-background border border-border/40 flex items-center justify-center shrink-0">
-            <Sparkles className="h-5 w-5 text-muted-foreground/50" />
-          </div>
-        )}
-        <div className="flex-1 min-w-0 space-y-1 pr-7">
-          <p className="text-sm font-semibold line-clamp-2">{draft.idea_title}</p>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span
-              className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono uppercase tracking-wider ${draftStatusClass(
-                draft.status,
-              )}`}
-            >
-              {draft.status}
-            </span>
-            <span className="text-[10px] text-muted-foreground font-mono uppercase">
-              {draft.category}
-            </span>
-            {hasContent && (
-              <span
-                className="text-[10px] text-fuchsia-300"
-                title="Texto gerado"
-              >
-                ✦ texto
-              </span>
-            )}
-            {hasImages && (
-              <span
-                className="text-[10px] text-emerald-300"
-                title="Imagens geradas"
-              >
-                ✦ imgs
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function DraftEditor({
-  draft,
-  onClose,
-  onChanged,
-}: {
-  draft: ContentDraft;
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const [generatingText, setGeneratingText] = useState(false);
-  const [publishing, setPublishing] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  const removeDraft = async () => {
-    const warning = draft.status === "published"
-      ? `Esse draft JÁ FOI PUBLICADO em ${Object.keys(draft.publish_results || {}).join(", ")}.\n\nExcluir aqui NÃO remove os posts das redes (só dá pra apagar pelos apps).\n\nContinuar?`
-      : `Excluir "${draft.idea_title}"? Texto e imagens geradas vão junto. Sem volta.`;
-    if (!confirm(warning)) return;
-
-    setDeleting(true);
-    try {
-      const r = await fetch(
-        `/api/admin/marketing/content/drafts?id=${draft.id}`,
-        { method: "DELETE" },
-      );
-      const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error || "erro");
-      toast.success("Draft excluído");
-      onClose();
-      onChanged();
-    } catch (e) {
-      toast.error(`Falha: ${(e as Error).message}`);
-    } finally {
-      setDeleting(false);
-    }
-  };
-
-  const generateText = async () => {
-    setGeneratingText(true);
-    try {
-      const r = await fetch("/api/admin/marketing/content/generate-text", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          idea_title: draft.idea_title,
-          idea_summary: draft.idea_summary,
-          category: draft.category,
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "erro");
-
-      // salva no draft
-      await fetch("/api/admin/marketing/content/drafts", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          id: draft.id,
-          content_per_network: j.content_per_network,
-          status: draft.status === "idea" ? "drafted" : draft.status,
-        }),
-      });
-      toast.success("Texto gerado");
-      onChanged();
-    } catch (e) {
-      toast.error(`Falha: ${(e as Error).message}`);
-    } finally {
-      setGeneratingText(false);
-    }
-  };
-
-
-  const publish = async (networks: string[]) => {
-    if (!draft.content_per_network?.instagram?.caption) {
-      toast.error("Gera o texto antes");
-      return;
-    }
-    if (!draft.images?.ratio_1x1?.url) {
-      toast.error("Gera as imagens antes");
-      return;
-    }
-    if (
-      !confirm(
-        `Publicar AGORA "${draft.idea_title}" em ${networks.join(", ")}? Não tem como deletar daqui depois.`,
-      )
+      !confirm(`Publicar "${draft.idea_title || draft.slug}" agora?`)
     )
       return;
-
-    setPublishing(true);
+    setPublishingId(draft.id);
     try {
       const r = await fetch("/api/admin/marketing/content/publish", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ draft_id: draft.id, networks }),
+        body: JSON.stringify({ draft_id: draft.id }),
       });
       const j = await r.json();
-      const successCount = Object.keys(j.results || {}).length;
-      const errorCount = Object.keys(j.errors || {}).length;
-      if (successCount > 0) {
-        toast.success(`Publicado em ${successCount} rede(s)`);
+      if (j.ok) {
+        toast.success(`publicado em ${Object.keys(j.results).join(", ")}`);
+      } else {
+        const e = j.errors || {};
+        const msg = Object.entries(e)
+          .map(([n, m]) => `${n}: ${m}`)
+          .join(" | ");
+        toast.error(`falhou: ${msg || j.error || "desconhecido"}`);
       }
-      if (errorCount > 0) {
-        toast.error(
-          `${errorCount} falha(s): ${Object.entries(j.errors)
-            .map(([n, e]) => `${n}: ${e}`)
-            .join(" | ")}`,
-          { duration: 10000 },
-        );
-      }
-      onChanged();
-    } catch (e) {
-      toast.error(`Falha: ${(e as Error).message}`);
+      load();
+    } catch {
+      toast.error("erro de rede");
     } finally {
-      setPublishing(false);
+      setPublishingId(null);
     }
-  };
+  }
 
-  const saveNetworkEdit = async (network: string, value: unknown) => {
-    const updated = {
-      ...draft.content_per_network,
-      [network]: value,
-    };
-    await fetch("/api/admin/marketing/content/drafts", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        id: draft.id,
-        content_per_network: updated,
-      }),
-    });
-    toast.success("Salvo");
-    onChanged();
-  };
-
-  const hasContent = !!draft.content_per_network?.instagram;
-  const hasImages = !!draft.images?.ratio_1x1?.url;
-  const isPublished = draft.status === "published";
+  const upcoming = drafts
+    .filter((d) => d.status === "scheduled")
+    .sort((a, b) =>
+      (a.scheduled_for || "").localeCompare(b.scheduled_for || ""),
+    );
+  const published = drafts
+    .filter((d) => d.status === "published")
+    .sort((a, b) =>
+      (b.published_at || "").localeCompare(a.published_at || ""),
+    )
+    .slice(0, 30);
+  const errored = drafts.filter(
+    (d) =>
+      d.status === "rejected" ||
+      (d.sync_error && d.status !== "published"),
+  );
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start gap-2">
-        <button
-          onClick={onClose}
-          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-border/60 text-muted-foreground hover:text-foreground shrink-0"
-        >
-          ← Voltar
-        </button>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-base font-semibold">{draft.idea_title}</h2>
-          {draft.idea_summary && (
-            <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-              {draft.idea_summary}
-            </p>
-          )}
+    <div className="space-y-6">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="space-y-1">
+          <h2 className="text-sm font-semibold">Calendário editorial</h2>
+          <p className="text-xs text-muted-foreground">
+            Posts vivem em{" "}
+            <code className="font-mono text-fuchsia-300">
+              content/marketing/posts/
+            </code>
+            . Cron <code className="font-mono">*/5 * * * *</code> publica
+            automaticamente.
+          </p>
         </div>
-        <span
-          className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono uppercase tracking-wider ${draftStatusClass(
-            draft.status,
-          )}`}
-        >
-          {draft.status}
-        </span>
         <button
-          onClick={removeDraft}
-          disabled={deleting}
-          title="Excluir draft"
-          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded border border-red-500/40 text-red-300 hover:bg-red-500/15 disabled:opacity-50 shrink-0"
+          onClick={handleSync}
+          disabled={syncing}
+          className="h-9 px-3 inline-flex items-center gap-1.5 rounded-md bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 text-xs font-medium text-white"
         >
-          {deleting ? (
+          {syncing ? (
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
           ) : (
-            <Trash2 className="h-3.5 w-3.5" />
+            <RefreshCw className="h-3.5 w-3.5" />
           )}
+          Sincronizar pasta
         </button>
       </div>
 
-      {/* PASSO 1: TEXTO */}
-      <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold inline-flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wider text-fuchsia-300 font-mono">
-              Passo 1
-            </span>
-            Texto multi-rede
-          </h3>
-          <button
-            onClick={generateText}
-            disabled={generatingText}
-            className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50"
+      {loading ? (
+        <div className="rounded-lg border border-border/60 p-8 flex items-center justify-center text-muted-foreground text-sm">
+          <Loader2 className="h-4 w-4 animate-spin mr-2" /> Carregando…
+        </div>
+      ) : (
+        <>
+          <CalSection
+            title={`Agendados (${upcoming.length})`}
+            icon={<Clock className="h-3.5 w-3.5" />}
           >
-            {generatingText ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            {upcoming.length === 0 ? (
+              <CalEmptyState text="Nenhum post agendado. Crie pastas em content/marketing/posts/ e clique em Sincronizar." />
             ) : (
-              <Sparkles className="h-3.5 w-3.5" />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {upcoming.map((d) => (
+                  <CalCard
+                    key={d.id}
+                    draft={d}
+                    onPublishNow={handlePublishNow}
+                    publishing={publishingId === d.id}
+                  />
+                ))}
+              </div>
             )}
-            {hasContent ? "Regenerar texto" : "Gerar texto"}
-          </button>
+          </CalSection>
+
+          {errored.length > 0 && (
+            <CalSection
+              title={`Com erro (${errored.length})`}
+              icon={<AlertCircle className="h-3.5 w-3.5 text-rose-400" />}
+            >
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {errored.map((d) => (
+                  <CalCard
+                    key={d.id}
+                    draft={d}
+                    onPublishNow={handlePublishNow}
+                    publishing={publishingId === d.id}
+                  />
+                ))}
+              </div>
+            </CalSection>
+          )}
+
+          <CalSection
+            title={`Publicados recentes (${published.length})`}
+            icon={<CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />}
+          >
+            {published.length === 0 ? (
+              <CalEmptyState text="Nenhum publicado ainda." />
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {published.map((d) => (
+                  <CalCard
+                    key={d.id}
+                    draft={d}
+                    onPublishNow={handlePublishNow}
+                    publishing={publishingId === d.id}
+                  />
+                ))}
+              </div>
+            )}
+          </CalSection>
+        </>
+      )}
+    </div>
+  );
+}
+
+function CalSection({
+  title,
+  icon,
+  children,
+}: {
+  title: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-3">
+      <h3 className="text-xs font-semibold text-muted-foreground flex items-center gap-1.5">
+        {icon} {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function CalEmptyState({ text }: { text: string }) {
+  return (
+    <div className="rounded-lg border border-dashed border-border/60 p-6 text-center text-xs text-muted-foreground">
+      {text}
+    </div>
+  );
+}
+
+function CalCard({
+  draft,
+  onPublishNow,
+  publishing,
+}: {
+  draft: CalDraft;
+  onPublishNow: (d: CalDraft) => void;
+  publishing: boolean;
+}) {
+  const networksTarget = (draft.publish_results as Record<string, unknown> | null)?.networks_target as
+    | Record<string, boolean>
+    | undefined;
+  const networks = networksTarget
+    ? Object.keys(networksTarget)
+    : Object.keys(draft.content_per_network || {});
+  const img = draft.images.ratio_1x1?.url;
+
+  const dt = draft.scheduled_for ? new Date(draft.scheduled_for) : null;
+  const when = dt
+    ? dt.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })
+    : "—";
+
+  const publishLinks = draft.publish_results
+    ? Object.entries(draft.publish_results).filter(
+        ([k]) => k !== "networks_target",
+      )
+    : [];
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-card/40 p-3 flex gap-3">
+      {img ? (
+        <Image
+          src={img}
+          alt=""
+          width={80}
+          height={80}
+          className="w-20 h-20 rounded-md object-cover flex-shrink-0"
+          unoptimized
+        />
+      ) : (
+        <div className="w-20 h-20 rounded-md bg-muted flex-shrink-0 flex items-center justify-center">
+          <ImageIcon className="h-5 w-5 text-muted-foreground" />
+        </div>
+      )}
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-xs font-medium truncate">
+              {draft.idea_title || draft.slug}
+            </div>
+            <div className="text-[10px] text-muted-foreground font-mono truncate">
+              {draft.slug}
+            </div>
+          </div>
+          <span
+            className={`text-[10px] px-1.5 py-0.5 rounded ${draftStatusClass(draft.status)} flex-shrink-0`}
+          >
+            {draft.status}
+          </span>
         </div>
 
-        {!hasContent ? (
-          <p className="text-xs text-muted-foreground italic">
-            Clique em &quot;Gerar texto&quot; — IA cria caption IG, thread X, post LinkedIn e script TikTok.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <NetworkContent
-              label="Instagram"
-              content={draft.content_per_network.instagram?.caption || ""}
-              extra={
-                draft.content_per_network.instagram?.hashtags?.join(" ") || ""
-              }
-            />
-            <NetworkContent
-              label="X (Twitter)"
-              content={
-                draft.content_per_network.x?.thread?.join("\n\n---\n\n") || ""
-              }
-              extra=""
-            />
-            <NetworkContent
-              label="LinkedIn"
-              content={
-                (draft.content_per_network.linkedin?.headline || "") +
-                "\n\n" +
-                (draft.content_per_network.linkedin?.body || "")
-              }
-              extra={
-                draft.content_per_network.linkedin?.hashtags?.join(" ") || ""
-              }
-            />
-            <NetworkContent
-              label="TikTok"
-              content={
-                (draft.content_per_network.tiktok?.hook || "") +
-                "\n\n" +
-                (draft.content_per_network.tiktok?.script || "")
-              }
-              extra={`~${draft.content_per_network.tiktok?.duration_estimate_s || 0}s`}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* PASSO 2: IMAGENS (manual via ChatGPT/Gemini + upload) */}
-      <ManualImageSection draft={draft} onChanged={onChanged} />
-
-      {/* PASSO 3: PUBLICAR */}
-      <div className="rounded-xl border border-fuchsia-500/30 bg-fuchsia-500/5 p-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold inline-flex items-center gap-2">
-            <span className="text-[10px] uppercase tracking-wider text-fuchsia-300 font-mono">
-              Passo 3
-            </span>
-            Publicar
-          </h3>
-          {isPublished && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-500/15 text-emerald-200 inline-flex items-center gap-1">
-              <CheckCircle2 className="h-3 w-3" /> Já publicado
+        <div className="flex items-center gap-2 text-[10px] text-muted-foreground flex-wrap">
+          <span className="inline-flex items-center gap-1">
+            <Clock className="h-3 w-3" /> {when}
+          </span>
+          {draft.category && (
+            <span className="px-1.5 py-0.5 rounded bg-fuchsia-500/10 text-fuchsia-300">
+              {draft.category}
             </span>
           )}
         </div>
 
-        {!hasContent || !hasImages ? (
-          <p className="text-xs text-muted-foreground italic">
-            Gera texto e imagens primeiro.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => publish(["instagram", "facebook"])}
-              disabled={publishing || isPublished}
-              className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50 disabled:cursor-not-allowed"
+        <div className="flex items-center gap-1 flex-wrap">
+          {networks.map((n) => (
+            <span
+              key={n}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground"
             >
-              {publishing ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Zap className="h-3.5 w-3.5" />
-              )}
-              Publicar IG + FB
-            </button>
-            <button
-              onClick={() => publish(["instagram"])}
-              disabled={publishing || isPublished}
-              className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border/60 text-foreground hover:bg-secondary/40 disabled:opacity-50"
-            >
-              Só IG
-            </button>
-            <button
-              onClick={() => publish(["facebook"])}
-              disabled={publishing || isPublished}
-              className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-border/60 text-foreground hover:bg-secondary/40 disabled:opacity-50"
-            >
-              Só FB
-            </button>
+              {n}
+            </span>
+          ))}
+        </div>
+
+        {draft.sync_error && (
+          <div className="text-[10px] text-rose-300 flex items-start gap-1">
+            <AlertCircle className="h-3 w-3 mt-0.5 flex-shrink-0" />
+            <span className="line-clamp-2">{draft.sync_error}</span>
           </div>
         )}
 
-        {draft.publish_results && Object.keys(draft.publish_results).length > 0 && (
-          <div className="space-y-1 pt-2 border-t border-fuchsia-500/20">
-            {Object.entries(draft.publish_results).map(([net, r]) => (
-              <a
-                key={net}
-                href={r.permalink || "#"}
-                target="_blank"
-                rel="noreferrer"
-                className="text-[11px] inline-flex items-center gap-1 text-fuchsia-300 hover:text-fuchsia-200"
-              >
-                <ExternalLink className="h-3 w-3" /> {net} → {r.id}
-              </a>
-            ))}
+        {publishLinks.length > 0 && (
+          <div className="flex items-center gap-2 flex-wrap">
+            {publishLinks.map(([net, info]) => {
+              const r = info as { permalink?: string | null };
+              if (!r?.permalink) return null;
+              return (
+                <a
+                  key={net}
+                  href={r.permalink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[10px] text-fuchsia-300 hover:underline inline-flex items-center gap-1"
+                >
+                  <ExternalLink className="h-3 w-3" /> {net}
+                </a>
+              );
+            })}
           </div>
         )}
-      </div>
-    </div>
-  );
-}
 
-function NetworkContent({
-  label,
-  content,
-  extra,
-}: {
-  label: string;
-  content: string;
-  extra: string;
-}) {
-  return (
-    <div className="rounded-lg border border-border/60 bg-background p-3 space-y-1.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] uppercase tracking-wider font-mono text-fuchsia-300">
-          {label}
-        </span>
-        <button
-          onClick={() => {
-            navigator.clipboard.writeText(content + (extra ? `\n\n${extra}` : ""));
-            toast.success("Copiado");
-          }}
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <Copy className="h-3 w-3" />
-        </button>
-      </div>
-      <pre className="text-[11px] whitespace-pre-wrap font-sans leading-relaxed text-foreground max-h-[180px] overflow-y-auto">
-        {content}
-      </pre>
-      {extra && (
-        <p className="text-[10px] text-muted-foreground italic border-t border-border/40 pt-1">
-          {extra}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function ImagePreview({ label, url }: { label: string; url?: string }) {
-  if (!url) return null;
-  return (
-    <a href={url} target="_blank" rel="noreferrer" className="block">
-      <div className="rounded-lg overflow-hidden border border-border/60 bg-background aspect-square">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={url} alt={label} className="w-full h-full object-cover" />
-      </div>
-      <p className="text-[10px] text-center text-muted-foreground font-mono mt-1">
-        {label}
-      </p>
-    </a>
-  );
-}
-
-// ============================================================================
-// MANUAL IMAGE SECTION — gera prompt textual + upload manual
-// ============================================================================
-
-function ManualImageSection({
-  draft,
-  onChanged,
-}: {
-  draft: ContentDraft;
-  onChanged: () => void;
-}) {
-  const [scene, setScene] = useState("");
-  const [generating, setGenerating] = useState(false);
-  const [prompts, setPrompts] = useState<Record<string, string> | null>(null);
-  const [uploadingRatio, setUploadingRatio] = useState<string | null>(null);
-
-  const generatePrompt = async () => {
-    if (!scene.trim()) {
-      toast.error("Descreve a cena primeiro");
-      return;
-    }
-    setGenerating(true);
-    try {
-      const r = await fetch("/api/admin/marketing/content/generate-image-prompt", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          draft_id: draft.id,
-          scene_description: scene.trim(),
-        }),
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "erro");
-      setPrompts(j.prompts);
-      toast.success("Prompts gerados — copia e cola no ChatGPT/Gemini");
-    } catch (e) {
-      toast.error(`Falha: ${(e as Error).message}`);
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const uploadImage = async (ratio: "1x1" | "landscape" | "portrait", file: File) => {
-    setUploadingRatio(ratio);
-    try {
-      const form = new FormData();
-      form.append("draft_id", draft.id);
-      form.append("ratio", ratio);
-      form.append("file", file);
-
-      const r = await fetch("/api/admin/marketing/content/upload-image", {
-        method: "POST",
-        body: form,
-      });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error || "erro");
-      toast.success(`Imagem ${ratio} subida`);
-      onChanged();
-    } catch (e) {
-      toast.error(`Falha: ${(e as Error).message}`);
-    } finally {
-      setUploadingRatio(null);
-    }
-  };
-
-  return (
-    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold inline-flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-wider text-fuchsia-300 font-mono">
-            Passo 2
-          </span>
-          Imagens (manual via ChatGPT / Gemini)
-        </h3>
-      </div>
-
-      <div className="rounded-lg border border-fuchsia-500/20 bg-fuchsia-500/5 p-3 text-[11px] text-muted-foreground space-y-1">
-        <p className="text-foreground font-semibold">Fluxo manual = Lumi 100% fiel + custo zero</p>
-        <p>
-          1. Descreve a cena → 2. Clica &quot;Gerar prompts&quot; → 3. Copia 1 dos 3 prompts (1:1, 16:9, 9:16) →
-          4. Cola no ChatGPT/Gemini com sua assinatura → 5. Salva imagem → 6. Faz upload aqui no ratio certo.
-        </p>
-      </div>
-
-      <div>
-        <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
-          Cena do Lumi (o que ele faz / o que tem ao redor)
-        </label>
-        <textarea
-          value={scene}
-          onChange={(e) => setScene(e.target.value)}
-          placeholder="Ex: Lumi olhando uma ampulheta que está virando, sobre uma mesa com livros roxos e magenta, fundo lavanda gradient. Pequenas setinhas curvas decorativas."
-          rows={3}
-          className="mt-1 w-full text-sm bg-background border border-border/60 rounded px-2.5 py-1.5 outline-none focus:border-fuchsia-500 resize-none"
-        />
-      </div>
-
-      <button
-        onClick={generatePrompt}
-        disabled={generating || !scene.trim()}
-        className="text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600 disabled:opacity-50"
-      >
-        {generating ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        ) : (
-          <Sparkles className="h-3.5 w-3.5" />
-        )}
-        Gerar prompts (3 ratios)
-      </button>
-
-      {prompts && (
-        <div className="space-y-2 pt-2 border-t border-border/40">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-mono">
-            Prompts prontos (copia e cola no ChatGPT/Gemini)
-          </p>
-          {(["1x1", "landscape", "portrait"] as const).map((ratio) => {
-            const key = `ratio_${ratio}` as const;
-            const text = prompts[key];
-            if (!text) return null;
-            const label =
-              ratio === "1x1"
-                ? "1:1 (IG, FB)"
-                : ratio === "landscape"
-                  ? "16:9 (X, LinkedIn)"
-                  : "9:16 (Stories, TikTok)";
-            const draftUrl = draft.images?.[`ratio_${ratio}` as keyof typeof draft.images]?.url;
-            return (
-              <PromptRow
-                key={ratio}
-                label={label}
-                text={text}
-                ratio={ratio}
-                uploadedUrl={draftUrl}
-                uploading={uploadingRatio === ratio}
-                onUpload={(file) => uploadImage(ratio, file)}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      {/* Preview das 3 imagens já subidas */}
-      {(draft.images?.ratio_1x1 || draft.images?.ratio_landscape || draft.images?.ratio_portrait) && (
-        <div className="grid grid-cols-3 gap-3 pt-3 border-t border-border/40">
-          <ImagePreview label="1:1 (IG, FB)" url={draft.images.ratio_1x1?.url} />
-          <ImagePreview label="16:9 (X, LI)" url={draft.images.ratio_landscape?.url} />
-          <ImagePreview label="9:16 (Stories, TT)" url={draft.images.ratio_portrait?.url} />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PromptRow({
-  label,
-  text,
-  ratio,
-  uploadedUrl,
-  uploading,
-  onUpload,
-}: {
-  label: string;
-  text: string;
-  ratio: "1x1" | "landscape" | "portrait";
-  uploadedUrl?: string;
-  uploading: boolean;
-  onUpload: (file: File) => void;
-}) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-background p-2.5 space-y-1.5">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[11px] font-mono text-fuchsia-300 font-semibold">{label}</span>
-        {uploadedUrl && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-mono bg-emerald-500/15 text-emerald-200 inline-flex items-center gap-1">
-            <CheckCircle2 className="h-3 w-3" /> subida
-          </span>
-        )}
-        <div className="ml-auto flex gap-1.5">
+        {draft.status !== "published" && (
           <button
-            onClick={() => {
-              navigator.clipboard.writeText(text);
-              toast.success("Prompt copiado");
-            }}
-            className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded bg-fuchsia-500 text-white hover:bg-fuchsia-600"
+            onClick={() => onPublishNow(draft)}
+            disabled={publishing}
+            className="text-[10px] h-6 px-2 rounded bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 text-white inline-flex items-center gap-1"
           >
-            <Copy className="h-3 w-3" /> Copiar
-          </button>
-          <label className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded border border-border/60 text-foreground hover:bg-secondary/40 cursor-pointer">
-            {uploading ? (
+            {publishing ? (
               <Loader2 className="h-3 w-3 animate-spin" />
             ) : (
-              <ImageIcon className="h-3 w-3" />
+              <Send className="h-3 w-3" />
             )}
-            {uploadedUrl ? "Substituir" : "Subir imagem"}
-            <input
-              type="file"
-              accept="image/png,image/jpeg,image/webp"
-              className="hidden"
-              disabled={uploading}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onUpload(f);
-                e.target.value = "";
-              }}
-            />
-          </label>
-        </div>
+            Publicar agora
+          </button>
+        )}
       </div>
-
-      {expanded ? (
-        <pre className="text-[10px] whitespace-pre-wrap font-mono leading-relaxed text-muted-foreground bg-secondary/20 rounded p-2 max-h-48 overflow-y-auto">
-          {text}
-        </pre>
-      ) : (
-        <p className="text-[10px] text-muted-foreground line-clamp-1">
-          {text.slice(0, 100)}...
-        </p>
-      )}
-
-      <button
-        onClick={() => setExpanded(!expanded)}
-        className="text-[10px] text-muted-foreground hover:text-foreground underline"
-      >
-        {expanded ? "Recolher" : "Ver prompt completo"}
-      </button>
     </div>
   );
 }

@@ -41,17 +41,19 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const status = searchParams.get("status");
   const category = searchParams.get("category");
-  const limit = Math.min(Number(searchParams.get("limit") || 50), 200);
+  const source = searchParams.get("source"); // 'filesystem' | 'manual'
+  const limit = Math.min(Number(searchParams.get("limit") || 200), 500);
 
   const supabase = createAdminClient();
   let query = supabase
     .from("content_drafts")
     .select("*")
-    .order("created_at", { ascending: false })
+    .order("scheduled_for", { ascending: true, nullsFirst: false })
     .limit(limit);
 
   if (status) query = query.eq("status", status);
   if (category) query = query.eq("category", category);
+  if (source) query = query.eq("source", source);
 
   const { data, error } = await query;
   if (error) {

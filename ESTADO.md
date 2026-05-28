@@ -1,6 +1,94 @@
 # Lumio — ESTADO
 
-## 🟢 SESSÃO 2026-05-27 madrugada (prep-compact) — ESTÚDIO MULTI-REDE LIVE
+## 🟢 SESSÃO 2026-05-27 tarde — CALENDÁRIO + CRON DE PUBLICAÇÃO
+
+### Pivô estratégico: removida geração via IA
+Founder decidiu: **conteúdo é pré-feito offline**, painel só agenda e publica. Sem mais "Estúdio" / geração de ideias / prompts de imagem.
+
+### Nova arquitetura — source of truth é o filesystem
+
+```
+content/marketing/posts/<slug>/
+  metadata.json    ← scheduled_for, networks, content per network
+  1x1.jpg          ← obrigatório
+  landscape.jpg    ← opcional
+  portrait.jpg     ← opcional
+```
+
+Doc completo em `content/marketing/README.md`.
+
+### Fluxo end-to-end
+
+1. Founder cria pasta `content/marketing/posts/<NNN-slug>/` + edita metadata.json + dropa imagens
+2. Commit/push pro git (Vercel deploy automático)
+3. Painel `/admin/marketing/crescimento` aba **Calendário** → botão **Sincronizar pasta**
+4. Endpoint `POST /api/admin/marketing/content/sync`:
+   - Lê filesystem (`process.cwd()/content/marketing/posts/`)
+   - Sobe imagens pro Supabase Storage `marketing-images/synced/<slug>/`
+   - Upserta `content_drafts` via `slug` (chave única)
+   - Marca `status='scheduled'` + `source='filesystem'`
+   - Posts removidos do filesystem viram `status='rejected'`
+5. Cron `*/5 * * * *` em `/api/cron/publish-scheduled`:
+   - Lê drafts com `status='scheduled' AND scheduled_for <= now()`
+   - Publica em todas as redes alvo (IG+FB ativas; X+LinkedIn stub)
+   - Marca `status='published'` + grava `publish_results`
+
+### Arquivos novos
+```
+src/lib/marketing-publish.ts                          ← lógica publish compartilhada (publish endpoint + cron)
+src/app/api/admin/marketing/content/sync/route.ts     ← lê filesystem, sobe Storage, upserta drafts
+src/app/api/cron/publish-scheduled/route.ts           ← cron Vercel, BATCH_SIZE=5/tick
+supabase/migrations/021_content_drafts_filesystem_source.sql
+content/marketing/README.md                           ← doc schema metadata.json
+content/marketing/posts/001-exemplo-curiosidade-gpt/  ← post exemplo (metadata.json + 1x1.jpg)
+```
+
+### Arquivos modificados
+- `src/app/admin/marketing/crescimento/client.tsx` — substituído EstudioPanel inteiro (1100 linhas) por `CalendarioPanel` enxuto (~350 linhas). Tab "estudio" → "calendario"
+- `src/app/api/admin/marketing/content/drafts/route.ts` — adicionado filtro `?source=filesystem`
+- `src/app/api/admin/marketing/content/publish/route.ts` — refatorado pra usar `marketing-publish.ts` (compartilhado com cron)
+- `vercel.json` — adicionado cron `*/5 * * * *` em publish-scheduled
+
+### Arquivos removidos
+- `src/app/api/admin/marketing/content/suggest-ideas/`
+- `src/app/api/admin/marketing/content/generate-text/`
+- `src/app/api/admin/marketing/content/generate-image-prompt/`
+- `src/app/api/admin/marketing/content/generate-images/`
+- `src/app/api/admin/marketing/content/upload-image/`
+
+### Schema migration 021
+```sql
+alter table content_drafts add column slug text;          -- chave de upsert da sync
+alter table content_drafts add column source text default 'manual';  -- 'manual' | 'filesystem'
+alter table content_drafts add column sync_error text;    -- última falha de publish
+create unique index content_drafts_slug_idx on content_drafts(slug) where slug is not null;
+alter table content_drafts alter column idea_title drop not null;
+```
+
+Aplicado em remote via `supabase db push` após `migration repair` em 011-020.
+
+### Estado das redes
+| Rede | Status | Bloqueador |
+|------|--------|------------|
+| Instagram | ✅ Funcional (Graph API v21) | — |
+| Facebook Page | ✅ Funcional (Graph API v21) | — |
+| X (Twitter) | ⚠️ `src/lib/publish-x.ts` pronto + stub em marketing-publish.ts retorna erro claro | Falta criar app em developer.x.com e setar `X_API_KEY/X_API_SECRET/X_ACCESS_TOKEN/X_ACCESS_TOKEN_SECRET` |
+| LinkedIn | ❌ Stub retorna erro claro | Falta criar Company Page + app + aprovar Community Management API. Alternativa: Buffer/Publer ($6-10/mês) |
+
+### Próximas ações user-side
+1. **Criar app X** em developer.x.com (free tier 500 posts/mês basta) — tutorial completo na sessão anterior
+2. **Criar Company Page Lumio + app LinkedIn** + pedir Community Management API (espera 2-4 semanas)
+3. **Popular pasta** `content/marketing/posts/` com posts reais (deletar `001-exemplo-curiosidade-gpt` quando tiver outros)
+4. **Verificar Vercel plan**: cron a cada 5min requer **Pro** (Hobby = max diário). Conferir em vercel.com/<team>/settings/billing
+
+### ⚠️ Atenção custos Vercel
+- Hobby plan: limitado a crons diários, 2 totais
+- Pro plan ($20/mês): ilimitado, qualquer schedule
+- Lumio já tinha 2 crons (health-check + email-onboarding), adicionei o 3º. Se em Hobby → vai falhar deploy ou pular crons
+
+---
+
+## 🟢 SESSÃO 2026-05-27 madrugada (anterior) — ESTÚDIO MULTI-REDE LIVE
 
 **O que tá rodando em prod agora (commit `011d6d4`):**
 
