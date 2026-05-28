@@ -1,13 +1,28 @@
 {
   "id": "017-prod-semana-prova",
-  "scheduled_for": "2026-06-01T12:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "scheduled_for": "2026-05-31T19:00:00-03:00",
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "bts",
   "title": "PRODUTO: 8 matérias, 1 semana, 0 pânico",
   "content": {
     "instagram": {
       "caption": "Semana de prova: 8 matérias, 5 dias, e aquela sensação de que não vai dar tempo.\n\nO problema nunca foi você. Foi a desorganização.\n\nO Lumi junta tudo num lugar só, separado por matéria:\n↳ Todas as aulas gravadas, transcritas\n↳ Resumo de cada uma, pronto\n↳ Flashcards pra revisar no ônibus\n↳ Quiz pra saber o que ainda não fixou\n\nVocê abre o app e sabe EXATAMENTE o que estudar agora. Sem planilha, sem caos.\n\nSemana de prova deixa de ser pânico e vira execução.\n\n→ Link na bio. Começa com 50 coins grátis.\n\n— time Lumio",
-      "hashtags": ["semanadeprova", "estudante", "faculdade", "organizacao", "produtividade", "estudoeficiente", "vidauniversitaria", "lumio", "lumioapp", "rotinadeestudos", "provas"]
+      "hashtags": [
+        "semanadeprova",
+        "estudante",
+        "faculdade",
+        "organizacao",
+        "produtividade",
+        "estudoeficiente",
+        "vidauniversitaria",
+        "lumio",
+        "lumioapp",
+        "rotinadeestudos",
+        "provas"
+      ]
     },
     "facebook": {
       "caption": "Semana de prova: 8 matérias, 5 dias, pânico. O problema nunca foi você — foi a desorganização.\n\nO Lumi junta tudo num lugar só, por matéria: aulas transcritas, resumos, flashcards, quiz. Você abre e sabe exatamente o que estudar agora.\n\nSemana de prova vira execução, não pânico. Link na bio."

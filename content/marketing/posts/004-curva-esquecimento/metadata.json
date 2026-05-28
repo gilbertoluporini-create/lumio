@@ -1,13 +1,28 @@
 {
   "id": "004-curva-esquecimento",
-  "scheduled_for": "2026-05-30T12:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "scheduled_for": "2026-06-04T19:00:00-03:00",
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "educacional",
   "title": "Curva de Ebbinghaus — perdemos 70% em 24h",
   "content": {
     "instagram": {
       "caption": "Você esquece 70% do que estuda em 24 horas.\n\nIsso não é preguiça nem falta de inteligência — é como o cérebro funciona.\n\nEm 1885, Hermann Ebbinghaus passou anos memorizando sílabas sem sentido pra mapear como a memória decai.\n\nDescobriu a Curva do Esquecimento:\n→ 20 minutos depois: você já perdeu 40%\n→ 24 horas: perdeu 70%\n→ 1 semana: sobra ~20% do conteúdo\n\nA boa notícia: revisar QUEBRA a curva.\n→ 1ª revisão em 1 dia → retém 90%\n→ 2ª revisão em 3 dias → retém 95%\n→ 3ª revisão em 7 dias → conteúdo virou \"de longo prazo\"\n\nÉ por isso que estudar 4h no dia anterior à prova é o pior método possível. Estudar 30min/dia por 1 semana retém 4x mais.\n\nO Lumi monta a revisão espaçada da sua aula gravada automaticamente.\n\n— time Lumio\n\n→ link na bio",
-      "hashtags": ["estudante", "metodoestudo", "ebbinghaus", "memoria", "neurociencia", "revisaoespacada", "faculdade", "produtividade", "lumio", "lumioapp", "estudoeficiente"]
+      "hashtags": [
+        "estudante",
+        "metodoestudo",
+        "ebbinghaus",
+        "memoria",
+        "neurociencia",
+        "revisaoespacada",
+        "faculdade",
+        "produtividade",
+        "lumio",
+        "lumioapp",
+        "estudoeficiente"
+      ]
     },
     "facebook": {
       "caption": "Você esquece 70% do que estuda em 24h. Não é preguiça — é a Curva de Ebbinghaus (1885).\n\nRevisão espaçada quebra essa curva: 1 revisão em 1 dia → retém 90%. 30min/dia por 1 semana retém 4x mais que 4h no dia anterior à prova.\n\nO Lumi monta a revisão automaticamente a partir da sua aula gravada."

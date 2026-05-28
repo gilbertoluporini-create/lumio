@@ -1,13 +1,28 @@
 {
   "id": "020-prod-antes-depois",
-  "scheduled_for": "2026-06-10T19:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "scheduled_for": "2026-06-09T12:00:00-03:00",
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "bts",
   "title": "PRODUTO: do caos à organização",
   "content": {
     "instagram": {
       "caption": "ANTES do Lumi:\n↳ 47 áudios sem nome na galeria\n↳ \"gravação_2847.m4a\" — qual matéria mesmo?\n↳ aula de 2h que você nunca mais vai ouvir\n↳ caderno com 3 páginas e depois nada\n\nDEPOIS do Lumi:\n↳ tudo separado por matéria\n↳ cada aula com resumo + flashcard + quiz\n↳ busca por palavra dentro da aula\n↳ revisão pronta pra semana de prova\n\nNão é que você seja desorganizado. É que ninguém te deu a ferramenta certa.\n\nA matéria-prima (suas aulas) sempre esteve aí. Faltava transformar.\n\n→ Link na bio. 50 coins grátis pra começar.\n\n— time Lumio",
-      "hashtags": ["antesdepois", "organizacao", "estudante", "faculdade", "produtividade", "estudoeficiente", "vidauniversitaria", "lumio", "lumioapp", "rotinadeestudos", "transformacao"]
+      "hashtags": [
+        "antesdepois",
+        "organizacao",
+        "estudante",
+        "faculdade",
+        "produtividade",
+        "estudoeficiente",
+        "vidauniversitaria",
+        "lumio",
+        "lumioapp",
+        "rotinadeestudos",
+        "transformacao"
+      ]
     },
     "facebook": {
       "caption": "ANTES do Lumi: 47 áudios sem nome na galeria, \"gravação_2847.m4a\", aulas que você nunca mais ouve.\n\nDEPOIS: tudo por matéria, cada aula com resumo + flashcard + quiz, busca por palavra, revisão pronta.\n\nNão é que você é desorganizado — faltava a ferramenta certa. Link na bio."
