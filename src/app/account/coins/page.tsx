@@ -211,8 +211,17 @@ function CoinsView({ user }: { user: User }) {
 
       {/* Saldo + ações */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
-        <div className="lg:col-span-2 rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-fuchsia-500/5 p-6 shadow-lg shadow-primary/10">
-          <div className="flex items-start justify-between">
+        <div className="relative lg:col-span-2 overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-fuchsia-500/5 p-6 shadow-lg shadow-primary/10">
+          {/* Lumi mascote + moedas — decorativo, canto direito. Menor que o
+              mockup pra não competir com o número do saldo. Escondido em
+              telas estreitas pra não cobrir o conteúdo. */}
+          <img
+            src="/coins/lumi-hero.png"
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none select-none absolute -right-2 bottom-0 hidden sm:block w-32 md:w-40 opacity-95 drop-shadow-md"
+          />
+          <div className="relative flex items-start justify-between">
             <div>
               <div className="text-xs uppercase tracking-wider text-muted-foreground font-medium">
                 Saldo atual
@@ -238,12 +247,12 @@ function CoinsView({ user }: { user: User }) {
           </div>
 
           {!loading && balance !== null && balance < 50 && (
-            <div className="mt-4 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-200">
+            <div className="relative mt-4 rounded-lg bg-amber-500/10 border border-amber-500/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-200 max-w-md">
               <strong>Saldo baixo.</strong> Compre coins ou assine um plano pra continuar usando o Lumio.
             </div>
           )}
 
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div className="relative mt-5 flex flex-wrap gap-2">
             <Button asChild variant="gradient">
               <Link href="/pricing">
                 <TrendingUp className="h-4 w-4" /> Ver planos
