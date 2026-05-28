@@ -1,0 +1,16 @@
+{
+  "id": "002-gpt4-custo-treino",
+  "scheduled_for": "2026-05-28T12:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "curiosidade",
+  "title": "GPT-4 custou US$100M só em compute",
+  "content": {
+    "instagram": {
+      "caption": "Você sabia que treinar o GPT-4 custou estimativamente US$ 100 MILHÕES só em compute?\n\nFonte: Sam Altman, fundador da OpenAI (2024).\n\nPra dar dimensão:\n→ É mais que o custo de produção do Vingadores: Ultimato\n→ Mais que o PIB anual de Tuvalu\n→ Daria pra pagar 6 anos da bolsa CAPES de TODOS os doutorandos do Brasil\n\nE o GPT-5? Estimativa: US$ 1 BILHÃO.\n\nE você, estudante, usa isso de graça (ou quase) no celular.\n\nA democratização do compute é o maior subsídio educacional do século XXI.\n\n— time Lumio",
+      "hashtags": ["ia", "gpt4", "openai", "samaltman", "tecnologia", "curiosidade", "estudante", "machinelearning", "inteligenciaartificial", "lumio", "lumioapp"]
+    },
+    "facebook": {
+      "caption": "Treinar o GPT-4 custou estimativamente US$ 100 milhões só em compute. Fonte: Sam Altman (2024).\n\nÉ mais que o orçamento do Vingadores: Ultimato. E o GPT-5 deve passar de US$ 1 bilhão.\n\nE você usa essa tecnologia de graça no celular. A democratização do compute é o maior subsídio educacional do século."
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "id": "003-nvidia-h100-domina",
+  "scheduled_for": "2026-05-29T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "curiosidade",
+  "title": "NVIDIA H100 — por que domina o treino de IA",
+  "content": {
+    "instagram": {
+      "caption": "Por que TODO mundo treina IA na NVIDIA H100?\n\nUma única H100 custa US$ 30 mil. A Meta comprou 350 mil delas em 2024.\n\nIsso são US$ 10,5 BILHÕES em GPU. Só na Meta.\n\nA NVIDIA detém ~95% do mercado de chips pra treinar IA. Por quê?\n\n1. CUDA — software proprietário que roda há 18 anos. Todo framework (PyTorch, TensorFlow) depende dele.\n\n2. Memória HBM3 — 80GB de RAM ultra-rápida por GPU. Concorrentes ficaram 2 gerações pra trás.\n\n3. NVLink — conecta milhares de GPUs como se fossem uma só. AMD e Intel ainda não têm equivalente real.\n\nResultado: Jensen Huang virou o homem mais influente da indústria de IA.\n\nE a próxima geração (Blackwell B200) já tá saindo.\n\n— time Lumio",
+      "hashtags": ["nvidia", "h100", "gpu", "ia", "tecnologia", "curiosidade", "jensenhuang", "hardware", "machinelearning", "lumio", "lumioapp"]
+    },
+    "facebook": {
+      "caption": "Uma única NVIDIA H100 custa US$ 30 mil. A Meta comprou 350 mil em 2024 — US$ 10,5 bilhões só em GPU.\n\nA NVIDIA detém ~95% do mercado de chips de IA. CUDA (software de 18 anos), memória HBM3 e NVLink são os pilares.\n\nA próxima geração (Blackwell B200) já está chegando."
+    }
+  }
+}

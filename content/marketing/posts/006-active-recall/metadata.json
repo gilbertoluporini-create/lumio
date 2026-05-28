@@ -1,0 +1,16 @@
+{
+  "id": "006-active-recall",
+  "scheduled_for": "2026-06-01T12:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "educacional",
+  "title": "Active Recall — dobra retenção (Roediger 2006)",
+  "content": {
+    "instagram": {
+      "caption": "Reler resumo 5x antes da prova ≠ estudar.\n\nÉ ILUSÃO de aprendizado.\n\nO estudo definitivo é de Roediger & Karpicke (Washington University, 2006):\n\nDuas turmas. Mesmo texto. Mesmo tempo de estudo.\n→ Grupo A: leu 4 vezes\n→ Grupo B: leu 1 vez + fez 3 testes (sem olhar o texto)\n\nResultado 1 semana depois:\n→ Grupo A: lembrava 40%\n→ Grupo B: lembrava 60%\n\n50% mais retenção. Só trocando releitura por TESTE.\n\nIsso se chama Active Recall. O esforço de \"tentar lembrar\" é exatamente o que cria a memória de longo prazo.\n\nReler é confortável e dá sensação de domínio. Mas é fake.\nFazer flashcard sem olhar a resposta dói, parece menos eficiente — mas é o que funciona.\n\nO Lumi gera os flashcards a partir da sua aula gravada. Você só precisa fazer.\n\n— time Lumio\n\n→ link na bio",
+      "hashtags": ["activerecall", "metodoestudo", "roediger", "flashcards", "estudoeficiente", "neurociencia", "memoria", "faculdade", "estudante", "lumio", "lumioapp"]
+    },
+    "facebook": {
+      "caption": "Reler resumo 5x não é estudar — é ilusão de aprendizado. Roediger & Karpicke (Washington U., 2006) provaram: testar lembra 50% mais que reler.\n\nGrupo que fez 3 testes lembrava 60% após 1 semana. Grupo que releu 4x lembrava 40%.\n\nActive Recall: o esforço de tentar lembrar é o que cria memória de longo prazo. O Lumi gera os flashcards automaticamente."
+    }
+  }
+}

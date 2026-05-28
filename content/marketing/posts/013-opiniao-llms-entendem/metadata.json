@@ -1,0 +1,16 @@
+{
+  "id": "013-opiniao-llms-entendem",
+  "scheduled_for": "2026-06-08T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "opiniao",
+  "title": "LLMs não entendem? Crítica fundamentada",
+  "content": {
+    "instagram": {
+      "caption": "Toda semana alguém aparece dizendo que \"LLM não entende, só prevê o próximo token\".\n\nE tecnicamente está certo. Mas filosoficamente é raso.\n\nVamos por partes:\n\n1️⃣ \"Só prevê token\"\nVerdade. Mas seu cérebro \"só dispara neurônios\". Reduzir um sistema às suas operações de baixo nível NÃO invalida o comportamento emergente.\n\n2️⃣ \"Não tem consciência\"\nNinguém sabe. Definir consciência é o Hard Problem da filosofia da mente há 400 anos. Cobrar isso de IA antes de resolver pra humano é mover gol.\n\n3️⃣ \"Hallucina, então não pensa\"\nHumanos também confabulam (Loftus, 1975). Memória humana é reconstrutiva, não fotográfica. Você inventa quando não lembra.\n\n4️⃣ \"Só interpola dados de treino\"\nNature (2024) mostrou: GPT-4 resolve problemas que LITERALMENTE não estão no dataset (provas IMO 2024 nunca vistas).\n\nO debate maduro não é \"entende ou não entende\". É:\n→ Que função cognitiva ele REALMENTE executa?\n→ Como medir capacidade sem antropomorfizar?\n→ Onde fica a fronteira do que importa pro uso prático?\n\nMenos slogan. Mais epistemologia.\n\n— time Lumio",
+      "hashtags": ["ia", "filosofia", "epistemologia", "machinelearning", "consciencia", "opiniao", "cienciacognitiva", "lumio", "lumioapp", "tecnologia"]
+    },
+    "facebook": {
+      "caption": "\"LLM não entende, só prevê próximo token\". Tecnicamente certo, filosoficamente raso.\n\nReduzir um sistema às operações de baixo nível não invalida comportamento emergente. Seu cérebro \"só dispara neurônios\".\n\nO debate maduro não é \"entende ou não\". É: que função cognitiva ele executa? Como medir sem antropomorfizar? Menos slogan, mais epistemologia."
+    }
+  }
+}

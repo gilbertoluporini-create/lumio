@@ -1,0 +1,16 @@
+{
+  "id": "011-revisao-espacada",
+  "scheduled_for": "2026-06-06T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "educacional",
+  "title": "Revisão espaçada — SuperMemo, Anki, algoritmo",
+  "content": {
+    "instagram": {
+      "caption": "Em 1985, um polonês de 23 anos quebrou a curva do esquecimento.\n\nPiotr Wozniak (Universidade de Poznań) criou um algoritmo: SM-2.\n\nA ideia era simples: revisar um conceito EXATAMENTE no momento em que você ESTÁ prestes a esquecer. Nem antes (perda de tempo), nem depois (já esqueceu).\n\nO algoritmo ajusta o intervalo com base em quão fácil foi lembrar:\n→ Errou: revisa em 1 dia\n→ Acertou com dificuldade: 6 dias\n→ Acertou fácil: 15 dias\n→ Acertou MUITO fácil: 1 mês\n\nDepois de 3-4 revisões corretas, o intervalo cresce exponencialmente: 1 mês → 3 meses → 1 ano.\n\nSM-2 virou base do SuperMemo, depois Anki (open source, 2006), depois RemNote, Mochi, e dezenas de apps de flashcard.\n\nEstudos do Cepeda et al. (2008, Psychological Science) mostram: revisão espaçada retém 200% mais que estudo massed.\n\nO Lumi usa SM-2 modificado pros seus flashcards gerados automaticamente.\n\n— time Lumio",
+      "hashtags": ["revisaoespacada", "anki", "supermemo", "flashcards", "metodoestudo", "estudoeficiente", "neurociencia", "memoria", "lumio", "lumioapp", "estudante"]
+    },
+    "facebook": {
+      "caption": "Em 1985, Piotr Wozniak (Polônia) criou o SM-2: algoritmo que revisa cada conceito EXATAMENTE quando você está prestes a esquecer.\n\nVirou base do SuperMemo, Anki, RemNote. Cepeda et al. (2008): revisão espaçada retém 200% mais que estudo massed.\n\nO Lumi usa SM-2 modificado nos flashcards gerados automaticamente."
+    }
+  }
+}

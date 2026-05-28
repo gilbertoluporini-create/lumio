@@ -1,0 +1,16 @@
+{
+  "id": "005-anthropic-interpretability",
+  "scheduled_for": "2026-05-31T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "pesquisa",
+  "title": "Anthropic — Mechanistic Interpretability",
+  "content": {
+    "instagram": {
+      "caption": "A Anthropic publicou algo que pode mudar a IA pra sempre.\n\nPaper: \"Scaling Monosemanticity\" (2024).\n\nEles conseguiram, pela primeira vez, MAPEAR o que cada \"neurônio\" do Claude pensa.\n\nDescobriram, por exemplo:\n→ Um neurônio que ativa quando vê texto sobre San Francisco\n→ Outro que ativa em conceitos de \"bugs em código\"\n→ Um terceiro pra \"engano e manipulação\"\n\nIsso resolve um problema antigo: LLMs eram caixa preta. Você dava input, recebia output, mas não sabia O QUE estava pensando.\n\nAgora não só dá pra entender — dá pra EDITAR. Fortalecer um conceito, suprimir outro.\n\nImplicação prática: IAs mais seguras, menos alucinações, debugging real.\n\nE é open source. Qualquer um pode replicar com SAEs (Sparse Autoencoders).\n\n— time Lumio",
+      "hashtags": ["anthropic", "claude", "ia", "pesquisa", "interpretability", "machinelearning", "papers", "lumio", "lumioapp", "tecnologia", "ciencia"]
+    },
+    "facebook": {
+      "caption": "A Anthropic publicou \"Scaling Monosemanticity\" (2024): conseguiram mapear o que cada neurônio do Claude pensa.\n\nNeurônios específicos pra \"San Francisco\", \"bugs em código\", \"manipulação\". E não só entender — dá pra EDITAR.\n\nImplicação: IAs mais seguras, debugging real, menos alucinações. Open source via Sparse Autoencoders."
+    }
+  }
+}
