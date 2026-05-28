@@ -34,6 +34,7 @@ import {
   MoreVertical,
   Music,
   Palette,
+  PieChart,
   Pill,
   Play,
   Plus,
@@ -163,33 +164,60 @@ function getSubjectTone(name: string): { bg: string; text: string } {
 }
 
 /** Bar chart de 7 dias da semana com labels S T Q Q S S D. */
-function WeekBarChart({ data, unit = "min" }: { data: number[]; unit?: string }) {
+function WeekBarChart({
+  data,
+  unit = "min",
+  showLabels = false,
+}: {
+  data: number[];
+  unit?: string;
+  showLabels?: boolean;
+}) {
   const labels = ["S", "T", "Q", "Q", "S", "S", "D"];
   const max = Math.max(1, ...data);
   const todayIdx = (new Date().getDay() + 6) % 7;
 
   return (
-    <div className="flex items-end gap-1 h-10 w-full">
-      {data.map((v, i) => {
-        const pct = Math.max(8, (v / max) * 100);
-        const isToday = i === todayIdx;
-        return (
-          <div key={i} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+    <div className="w-full">
+      <div className={cn("flex items-end gap-1", showLabels ? "h-20" : "h-10")}>
+        {data.map((v, i) => {
+          const pct = Math.max(8, (v / max) * 100);
+          const isToday = i === todayIdx;
+          return (
+            <div key={i} className="flex-1 flex items-end min-w-0 h-full">
+              <div
+                className={cn(
+                  "w-full rounded-t-sm transition-colors",
+                  v === 0
+                    ? "bg-muted-foreground/15"
+                    : isToday
+                      ? "bg-primary"
+                      : "bg-primary/40",
+                )}
+                style={{ height: `${pct}%` }}
+                title={`${labels[i]}: ${v} ${unit}`}
+              />
+            </div>
+          );
+        })}
+      </div>
+      {showLabels && (
+        <div className="mt-1 flex gap-1">
+          {labels.map((l, i) => (
             <div
+              key={i}
               className={cn(
-                "w-full rounded-t-sm transition-colors",
-                v === 0
-                  ? "bg-muted-foreground/15"
-                  : isToday
-                    ? "bg-primary"
-                    : "bg-primary/40",
+                "flex-1 text-center text-[9px] font-mono tabular-nums",
+                i === todayIdx
+                  ? "text-primary font-semibold"
+                  : "text-muted-foreground",
               )}
-              style={{ height: `${pct}%` }}
-              title={`${labels[i]}: ${v} ${unit}`}
-            />
-          </div>
-        );
-      })}
+            >
+              {l}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -339,13 +367,120 @@ function getWeekActivity(
   return { byDay, total, trend };
 }
 
+// Features que o usuário usa (cada gasto de coin é categorizado pelo reason).
+const FEATURE_META: Record<string, { label: string; color: string }> = {
+  chat: { label: "Chat com a Lumi", color: "#6366f1" },
+  summary: { label: "Resumos", color: "#10b981" },
+  flashcards: { label: "Flashcards", color: "#0ea5e9" },
+  quiz: { label: "Quiz", color: "#f59e0b" },
+  mindmap: { label: "Mapas mentais", color: "#f43f5e" },
+  voice_reply: { label: "Resposta por voz", color: "#a855f7" },
+  slides: { label: "Slides", color: "#14b8a6" },
+  image_generation: { label: "Ilustrações", color: "#ec4899" },
+  transcript_refine: { label: "Transcrição", color: "#64748b" },
+};
+// reason (coin_transactions) → feature. summary_with_images cai em "summary".
+const REASON_TO_FEATURE: Record<string, string> = {
+  chat: "chat",
+  summary: "summary",
+  summary_with_images: "summary",
+  flashcards: "flashcards",
+  quiz: "quiz",
+  mindmap: "mindmap",
+  voice_reply: "voice_reply",
+  slides: "slides",
+  image_generation: "image_generation",
+  transcript_refine: "transcript_refine",
+};
+
+function getFeatureUsage(
+  transactions: { amount: number; reason: string }[],
+): { label: string; value: number; color: string }[] {
+  const counts: Record<string, number> = {};
+  for (const tx of transactions) {
+    if (tx.amount >= 0) continue; // só gastos = uso de feature
+    const feat = REASON_TO_FEATURE[tx.reason];
+    if (!feat) continue;
+    counts[feat] = (counts[feat] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([key, value]) => ({
+      label: FEATURE_META[key].label,
+      value,
+      color: FEATURE_META[key].color,
+    }))
+    .sort((a, b) => b.value - a.value);
+}
+
+/** Donut (conic-gradient) + legenda das features mais usadas. */
+function FeatureDonut({
+  data,
+}: {
+  data: { label: string; value: number; color: string }[];
+}) {
+  const total = data.reduce((a, b) => a + b.value, 0);
+  if (total === 0) {
+    return (
+      <div className="py-6 text-center">
+        <div className="text-sm text-muted-foreground">
+          Sem uso registrado ainda.
+        </div>
+        <div className="mt-1 text-[11px] text-muted-foreground">
+          Use o chat, gere resumos, quizzes… e veja aqui o que mais usa.
+        </div>
+      </div>
+    );
+  }
+  const stops = data.map((d, i) => {
+    const prior = data
+      .slice(0, i)
+      .reduce((sum, x) => sum + x.value, 0);
+    const start = (prior / total) * 100;
+    const end = ((prior + d.value) / total) * 100;
+    return `${d.color} ${start}% ${end}%`;
+  });
+  return (
+    <div className="flex items-center gap-4">
+      <div className="relative h-28 w-28 shrink-0">
+        <div
+          className="h-full w-full rounded-full"
+          style={{ background: `conic-gradient(${stops.join(", ")})` }}
+        />
+        <div className="absolute inset-[24%] rounded-full bg-card flex flex-col items-center justify-center">
+          <span className="text-lg font-semibold leading-none tabular-nums">
+            {total}
+          </span>
+          <span className="text-[9px] text-muted-foreground">ações</span>
+        </div>
+      </div>
+      <ul className="min-w-0 flex-1 space-y-1.5">
+        {data.map((d) => {
+          const pct = Math.round((d.value / total) * 100);
+          return (
+            <li key={d.label} className="flex items-center gap-2 text-xs">
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: d.color }}
+              />
+              <span className="flex-1 truncate">{d.label}</span>
+              <span className="font-mono tabular-nums text-muted-foreground">
+                {pct}%
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 function Dashboard({ user }: { user: User }) {
   const router = useRouter();
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [transactions, setTransactions] = useState<
-    { amount: number; created_at: string }[]
+    { amount: number; created_at: string; reason: string }[]
   >([]);
   const [newOpen, setNewOpen] = useState(false);
   const [lectureOpen, setLectureOpen] = useState(false);
@@ -390,9 +525,10 @@ function Dashboard({ user }: { user: User }) {
         if (Array.isArray(data.transactions)) {
           setTransactions(
             data.transactions.map(
-              (t: { amount: number; created_at: string }) => ({
+              (t: { amount: number; created_at: string; reason: string }) => ({
                 amount: t.amount,
                 created_at: t.created_at,
+                reason: t.reason,
               }),
             ),
           );
@@ -454,6 +590,11 @@ function Dashboard({ user }: { user: User }) {
 
   const activity = useMemo(
     () => getWeekActivity(transactions),
+    [transactions],
+  );
+
+  const featureUsage = useMemo(
+    () => getFeatureUsage(transactions),
     [transactions],
   );
 
@@ -647,6 +788,7 @@ function Dashboard({ user }: { user: User }) {
         <KPICard
           Icon={Activity}
           label="Atividade no app"
+          chartHero
           value={`${activity.total} ${activity.total === 1 ? "ação" : "ações"}`}
           sub={
             activity.total === 0
@@ -655,10 +797,10 @@ function Dashboard({ user }: { user: User }) {
                 ? `↑ ${activity.trend}% vs. semana passada`
                 : activity.trend < 0
                   ? `↓ ${Math.abs(activity.trend)}% vs. semana passada`
-                  : "Sem variação"
+                  : "esta semana"
           }
           subTone={activity.trend >= 0 ? "positive" : "negative"}
-          chart={<WeekBarChart data={activity.byDay} unit="ações" />}
+          chart={<WeekBarChart data={activity.byDay} unit="ações" showLabels />}
         />
 
         <KPICard
@@ -839,6 +981,13 @@ function Dashboard({ user }: { user: User }) {
         {/* Aside */}
         <aside className="space-y-4">
           <AgendaCard items={todayAgenda} />
+          <section className="rounded-2xl border border-border/60 bg-card p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="text-sm font-semibold">Features mais usadas</h3>
+              <PieChart className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <FeatureDonut data={featureUsage} />
+          </section>
           <LumiSuggestionsCard
             continueLecture={continueLecture}
             hasLectures={lectures.length > 0}
@@ -994,6 +1143,7 @@ function KPICard({
   subTone,
   href,
   chart,
+  chartHero,
   progress,
 }: {
   Icon: LucideIcon;
@@ -1003,6 +1153,7 @@ function KPICard({
   subTone?: "positive" | "negative" | "neutral";
   href?: string;
   chart?: React.ReactNode;
+  chartHero?: boolean;
   progress?: number;
 }) {
   const subColor =
@@ -1022,15 +1173,22 @@ function KPICard({
           <Icon className="h-4 w-4 text-primary" strokeWidth={2.2} />
         </div>
       </div>
-      <div className="display-num text-xl sm:text-2xl font-semibold leading-tight line-clamp-2 break-words">
-        {value}
-      </div>
+      {chartHero && chart ? (
+        <div className="mt-1 w-full">{chart}</div>
+      ) : (
+        <div className="display-num text-xl sm:text-2xl font-semibold leading-tight line-clamp-2 break-words">
+          {value}
+        </div>
+      )}
       {sub && (
         <div className={cn("mt-1.5 text-[11px] line-clamp-2 break-words", subColor)}>
+          {chartHero && (
+            <span className="font-semibold text-foreground">{value} · </span>
+          )}
           {sub}
         </div>
       )}
-      {chart && <div className="mt-3 h-10 w-full">{chart}</div>}
+      {!chartHero && chart && <div className="mt-3 h-10 w-full">{chart}</div>}
       {typeof progress === "number" && (
         <div className="mt-3 h-1.5 bg-secondary/60 rounded-full overflow-hidden">
           <div

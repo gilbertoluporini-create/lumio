@@ -148,7 +148,9 @@ export async function bulkCreateSubjectsAsync(
   // matérias (incidente de 2026-05-27).
   const { data: existing } = await supabase.from("subjects").select("name");
   const taken = new Set(
-    (existing ?? []).map((r) => String(r.name).trim().toLowerCase()),
+    ((existing ?? []) as { name: string }[]).map((r) =>
+      r.name.trim().toLowerCase(),
+    ),
   );
   const fresh = items.filter((i) => !taken.has(i.name.trim().toLowerCase()));
   if (fresh.length === 0) return [];
