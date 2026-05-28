@@ -433,14 +433,22 @@ function Favoritos({ user }: { user: User }) {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8">
       <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="min-w-0">
-          <div className="text-sm text-muted-foreground mb-2">
-            {greeting}, {firstName}
+        <div className="flex min-w-0 items-center gap-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/illustrations/lumi-trophy.png"
+            alt="Lumi"
+            className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"
+          />
+          <div className="min-w-0">
+            <div className="text-sm text-muted-foreground mb-2">
+              {greeting}, {firstName}
+            </div>
+            <h1 className="text-3xl heading-display">Favoritos</h1>
+            <p className="mt-1 text-sm text-muted-foreground max-w-xl">
+              Seus conteúdos salvos para revisar quando quiser.
+            </p>
           </div>
-          <h1 className="text-3xl heading-display">Favoritos</h1>
-          <p className="mt-1 text-sm text-muted-foreground max-w-xl">
-            Seus conteúdos salvos para revisar quando quiser.
-          </p>
         </div>
         <div className="flex gap-2 shrink-0">
           <Button variant="outline" onClick={() => setWizardOpen(true)}>

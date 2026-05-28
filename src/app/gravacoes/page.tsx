@@ -214,16 +214,24 @@ function GravacoesView({ user }: { user: User }) {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8">
       {/* Header */}
-      <div className="mb-8">
-        <div className="text-sm text-muted-foreground mb-1">
-          Suas aulas, organizadas e pesquisáveis
+      <div className="mb-8 flex items-center gap-4">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/illustrations/lumi-headset.png"
+          alt="Lumi"
+          className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"
+        />
+        <div className="min-w-0">
+          <div className="text-sm text-muted-foreground mb-1">
+            Suas aulas, organizadas e pesquisáveis
+          </div>
+          <h1 className="text-3xl md:text-4xl heading-display">
+            Minhas gravações
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground max-w-2xl">
+            Todas as aulas transcritas pelo Lumio com busca inteligente. Clique em qualquer aula pra abrir o conteúdo completo.
+          </p>
         </div>
-        <h1 className="text-3xl md:text-4xl heading-display">
-          Minhas gravações
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground max-w-2xl">
-          Todas as aulas transcritas pelo Lumio com busca inteligente. Clique em qualquer aula pra abrir o conteúdo completo.
-        </p>
       </div>
 
       {lectures.length === 0 ? (

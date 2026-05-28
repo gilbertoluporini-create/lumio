@@ -146,14 +146,22 @@ function DocumentosView({ user }: { user: User }) {
     <div className="mx-auto max-w-6xl px-5 py-8">
       {/* Header */}
       <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <div className="text-sm text-muted-foreground mb-1">
-            {subjects.length} matéria{subjects.length === 1 ? "" : "s"} ·{" "}
-            {totalAssetCount} item{totalAssetCount === 1 ? "" : "s"}
+        <div className="flex min-w-0 items-center gap-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/illustrations/lumi-notebook.png"
+            alt="Lumi"
+            className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"
+          />
+          <div>
+            <div className="text-sm text-muted-foreground mb-1">
+              {subjects.length} matéria{subjects.length === 1 ? "" : "s"} ·{" "}
+              {totalAssetCount} item{totalAssetCount === 1 ? "" : "s"}
+            </div>
+            <h1 className="text-3xl md:text-4xl heading-display">
+              Meus documentos
+            </h1>
           </div>
-          <h1 className="text-3xl md:text-4xl heading-display">
-            Meus documentos
-          </h1>
         </div>
         <Button asChild variant="outline" size="sm">
           <Link href="/dashboard">
