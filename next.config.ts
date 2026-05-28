@@ -65,6 +65,16 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    // Atalhos bonitos pras bios (ex: lumioapp.net/ig → /links?c=instagram).
+    // Mantêm o tracking de canal da página de links.
+    return [
+      { source: "/ig", destination: "/links?c=instagram", permanent: false },
+      { source: "/tt", destination: "/links?c=tiktok", permanent: false },
+      { source: "/in", destination: "/links?c=linkedin", permanent: false },
+      { source: "/x", destination: "/links?c=twitter", permanent: false },
+    ];
+  },
 };
 
 export default nextConfig;
