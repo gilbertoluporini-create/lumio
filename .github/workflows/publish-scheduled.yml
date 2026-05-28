@@ -1,8 +1,10 @@
 name: Publish scheduled marketing posts
 
 # Substitui o cron Vercel (plano Hobby não permite */5min nem 3 crons).
-# Dispara endpoint /api/cron/publish-scheduled a cada 5 minutos.
-# Custo GitHub Actions free tier: ~1440 min/mês (dentro dos 2000 grátis).
+# A cada 5 minutos: (1) sincroniza posts do filesystem pro banco, depois
+# (2) publica os que chegaram a hora.
+# Usa www.lumioapp.net (domínio canônico) — lumioapp.net redireciona 307 e o
+# curl dropa o header Authorization no redirect.
 
 on:
   schedule:
@@ -13,23 +15,43 @@ concurrency:
   group: publish-scheduled
   cancel-in-progress: false
 
+env:
+  BASE_URL: https://www.lumioapp.net
+
 jobs:
-  trigger:
+  run:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
-      - name: Trigger publish-scheduled endpoint
+      - name: Sync content (filesystem -> banco)
         run: |
           set -euo pipefail
           RESPONSE=$(curl -sS -w "\n%{http_code}" \
-            --max-time 120 \
+            --max-time 180 \
+            -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            "https://lumioapp.net/api/cron/publish-scheduled")
+            "${BASE_URL}/api/admin/marketing/content/sync")
           BODY=$(echo "$RESPONSE" | head -n -1)
           CODE=$(echo "$RESPONSE" | tail -n 1)
-          echo "HTTP $CODE"
+          echo "SYNC HTTP $CODE"
           echo "$BODY"
           if [ "$CODE" != "200" ]; then
-            echo "::error::cron endpoint returned HTTP $CODE"
+            echo "::error::sync endpoint returned HTTP $CODE"
+            exit 1
+          fi
+
+      - name: Publish due posts
+        run: |
+          set -euo pipefail
+          RESPONSE=$(curl -sS -w "\n%{http_code}" \
+            --max-time 180 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${BASE_URL}/api/cron/publish-scheduled")
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          CODE=$(echo "$RESPONSE" | tail -n 1)
+          echo "PUBLISH HTTP $CODE"
+          echo "$BODY"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::publish endpoint returned HTTP $CODE"
             exit 1
           fi

@@ -147,14 +147,39 @@ async function syncOnePost(
   const parsed = JSON.parse(rawMeta);
   const meta = validateMetadata(parsed, slug);
 
-  // upload das imagens que existirem
+  // busca draft existente ANTES — pra reusar imagens não-alteradas (evita
+  // re-upload das 21 imagens a cada tick do cron de sync)
+  const { data: existing } = await supabase
+    .from("content_drafts")
+    .select("id, status, images")
+    .eq("slug", slug)
+    .maybeSingle();
+
+  const existingImages =
+    (existing?.images as Record<
+      string,
+      { url: string; uploaded_at: string } | undefined
+    > | null) || {};
+
+  // upload das imagens que existirem (pula se não mudou desde o último upload)
   const images: Record<string, { url: string; uploaded_at: string }> = {};
   for (const { ratio, filename } of RATIO_FILES) {
     const imgPath = path.join(folder, filename);
+    let fileStat;
     try {
-      await stat(imgPath);
+      fileStat = await stat(imgPath);
     } catch {
       continue; // arquivo não existe, pula
+    }
+    const prev = existingImages[`ratio_${ratio}`];
+    if (
+      prev?.url &&
+      prev.uploaded_at &&
+      fileStat.mtime <= new Date(prev.uploaded_at)
+    ) {
+      // arquivo não mudou desde o último sync → reusa URL existente
+      images[`ratio_${ratio}`] = prev;
+      continue;
     }
     const url = await uploadImage(supabase, slug, ratio, imgPath);
     images[`ratio_${ratio}`] = {
@@ -166,13 +191,6 @@ async function syncOnePost(
   if (!images.ratio_1x1) {
     throw new Error("1x1.jpg obrigatório (todas as redes usam)");
   }
-
-  // upsert por slug
-  const { data: existing } = await supabase
-    .from("content_drafts")
-    .select("id, status")
-    .eq("slug", slug)
-    .maybeSingle();
 
   const networksJson = meta.networks.reduce<Record<string, unknown>>(
     (acc, net) => ({ ...acc, [net]: true }),
@@ -205,9 +223,18 @@ async function syncOnePost(
   }
 }
 
-export async function POST() {
-  const auth = await requireAdmin();
-  if (!auth.ok) return auth.response;
+export async function POST(req: Request) {
+  // Aceita 2 formas de auth: sessão admin (botão no painel) OU Bearer
+  // CRON_SECRET (automação via GitHub Actions). Assim o sync roda sozinho
+  // sem depender de clique manual.
+  const authHeader = req.headers.get("authorization") ?? "";
+  const cronSecret = process.env.CRON_SECRET;
+  const isCron = !!cronSecret && authHeader === `Bearer ${cronSecret}`;
+
+  if (!isCron) {
+    const auth = await requireAdmin();
+    if (!auth.ok) return auth.response;
+  }
 
   let entries: string[] = [];
   try {
