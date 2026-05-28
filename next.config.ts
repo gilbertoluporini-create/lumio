@@ -23,7 +23,9 @@ const csp = [
   "base-uri 'self'",
   "form-action 'self' https://checkout.stripe.com",
   "frame-ancestors 'none'",
-  "upgrade-insecure-requests",
+  // upgrade-insecure-requests só em prod: em dev (http) ele força sub-recursos
+  // pra https e quebra o carregamento (CSS/JS), inclusive no WKWebView do app iOS.
+  ...(isDev ? [] : ["upgrade-insecure-requests"]),
 ].join("; ");
 
 const nextConfig: NextConfig = {

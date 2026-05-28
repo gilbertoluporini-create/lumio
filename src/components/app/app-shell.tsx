@@ -288,7 +288,7 @@ export function AppShell({
         )}
       >
         {/* Logo + collapse button */}
-        <div className="flex items-center justify-between border-b border-border/60 px-3 py-3 h-[60px]">
+        <div className="flex items-center justify-between border-b border-border/60 px-3 py-3 h-[calc(60px_+_env(safe-area-inset-top))] pt-[calc(0.75rem_+_env(safe-area-inset-top))]">
           <Link href="/dashboard" className="flex items-center gap-2 min-w-0">
             <LumioMark className="h-8 w-8 shrink-0" />
             {!collapsed && (
@@ -351,7 +351,7 @@ export function AppShell({
         )}
       >
         {/* Top bar */}
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border/60 bg-background/80 backdrop-blur-xl px-4 h-[60px]">
+        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-border/60 bg-background/80 backdrop-blur-xl px-4 h-[calc(60px_+_env(safe-area-inset-top))] pt-[env(safe-area-inset-top)]">
           <button
             onClick={() => setMobileOpen(true)}
             className="lg:hidden flex h-9 w-9 items-center justify-center rounded-md hover:bg-secondary/60 transition-colors"
