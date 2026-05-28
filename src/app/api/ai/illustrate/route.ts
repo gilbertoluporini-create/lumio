@@ -50,29 +50,30 @@ const HAIKU_MODEL = "claude-haiku-4-5-20251001";
  */
 async function enhancePromptViaClaude(
   rawPrompt: string,
+  contextText: string,
   apiKey: string,
 ): Promise<string> {
   try {
     const client = new Anthropic({ apiKey });
+    const userMessage = contextText
+      ? `Pedido do usuário (em pt-BR):\n"${escapeForPrompt(rawPrompt).slice(0, 600)}"\n\nCONTEXTO (conteúdo de aula/resumo/documento que o user quer ilustrar):\n${escapeForPrompt(contextText).slice(0, 4000)}\n\nUse o CONTEXTO como base científica/temática e reescreva como descrição visual rica em inglês pro gpt-image-1.`
+      : `Conceito biomédico (em pt-BR):\n"${escapeForPrompt(rawPrompt).slice(0, 1200)}"\n\nReescreva como descrição visual rica em inglês pro gpt-image-1.`;
+
     const resp = await client.messages.create({
       model: HAIKU_MODEL,
-      max_tokens: 600,
-      system: `Você é um diretor de arte especializado em ilustração biomédica/acadêmica de alto nível. Recebe um conceito biomédico curto em pt-BR e o reescreve como descrição visual rica em INGLÊS pra alimentar um modelo de geração de imagem (gpt-image-1).
+      max_tokens: 700,
+      system: `Você é um diretor de arte especializado em ilustração biomédica/acadêmica de alto nível. Recebe um pedido curto em pt-BR (eventualmente com CONTEXTO de aula/resumo) e o reescreve como descrição visual rica em INGLÊS pra alimentar um modelo de geração de imagem (gpt-image-1).
 
 REGRAS:
 - Output é apenas a descrição em inglês. Sem preâmbulo, sem markdown, sem aspas.
+- Se receber CONTEXTO, EXTRAIA dele as estruturas/conceitos centrais a ilustrar (a primeira via metabólica, o órgão principal, a comparação-chave). Não tente desenhar TUDO — escolha 1 cena focal forte.
 - Foque em ELEMENTOS VISUAIS: estruturas anatômicas/celulares envolvidas, organelas-chave, posições espaciais, fluxos (setas), proporções, paleta sugerida (navy blue, soft teal, lilac on off-white).
 - Especifique a composição: o que vai no centro, o que orbita, qual a perspectiva.
-- Use cientificamente preciso: nomes corretos de organelas, compartimentos, vias.
+- Cientificamente preciso: nomes corretos de organelas, compartimentos, vias.
 - NUNCA peça pra desenhar texto/labels/legendas — a imagem é puramente visual; legendas virão depois em overlay HTML.
 - Limite: 6 frases curtas, no máximo.
 - Estilo de referência: ilustração biomédica 3D limpa estilo livro-texto premium, infografia editorial.`,
-      messages: [
-        {
-          role: "user",
-          content: `Conceito biomédico (em pt-BR):\n"${escapeForPrompt(rawPrompt).slice(0, 1200)}"\n\nReescreva como descrição visual rica em inglês pro gpt-image-1.`,
-        },
-      ],
+      messages: [{ role: "user", content: userMessage }],
     });
     const block = resp.content.find((b) => b.type === "text");
     if (!block || block.type !== "text") return rawPrompt;
@@ -109,7 +110,12 @@ export async function POST(req: Request) {
       );
     }
 
-    const body = (await req.json().catch(() => ({}))) as { prompt?: string };
+    const body = (await req.json().catch(() => ({}))) as {
+      prompt?: string;
+      lectureId?: string;
+      summaryId?: string;
+      documentId?: string;
+    };
     const rawPrompt = (body.prompt ?? "").trim();
     if (!rawPrompt || rawPrompt.length < 4) {
       return Response.json(
@@ -122,6 +128,50 @@ export async function POST(req: Request) {
         { error: "Prompt muito longo (máx 1500 chars)." },
         { status: 400 },
       );
+    }
+
+    // Carrega contexto se foi passado (lecture/summary/document do user).
+    // Permite Lumi gerar com "faça uma imagem sobre esse resumo" sem o user
+    // precisar descrever — o servidor pega o conteúdo real e enriquece.
+    let contextText = "";
+    if (body.lectureId || body.summaryId || body.documentId) {
+      const admin = createAdminClient();
+      if (body.lectureId) {
+        const { data } = await admin
+          .from("lectures")
+          .select("title, transcript, slides")
+          .eq("id", body.lectureId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (data) {
+          const transcript = (data.transcript ?? "").slice(0, 8000);
+          contextText = `Título da aula: ${data.title ?? ""}\n\nTranscrição (trecho):\n${transcript}`;
+        }
+      } else if (body.summaryId) {
+        const { data } = await admin
+          .from("summaries")
+          .select("title, content")
+          .eq("id", body.summaryId)
+          .eq("user_id", user.id)
+          .is("deleted_at", null)
+          .maybeSingle();
+        if (data) {
+          const md =
+            (data.content as { generalSummary?: string })?.generalSummary ??
+            "";
+          contextText = `Título: ${data.title ?? ""}\n\nResumo (markdown):\n${md.slice(0, 8000)}`;
+        }
+      } else if (body.documentId) {
+        const { data } = await admin
+          .from("documents")
+          .select("title, source_text")
+          .eq("id", body.documentId)
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (data) {
+          contextText = `Documento: ${data.title ?? ""}\n\nTexto (trecho):\n${(data.source_text ?? "").slice(0, 8000)}`;
+        }
+      }
     }
 
     // Charge ANTES (reembolsa se falhar)
@@ -143,10 +193,12 @@ export async function POST(req: Request) {
 
     let url: string;
     try {
-      // 1. Enhance via Haiku (prompt curto pt-BR → descrição visual rica em inglês)
+      // 1. Enhance via Haiku — se houver contextText (transcript/summary/doc),
+      //    o Haiku usa como base científica pra escolher a cena focal.
+      //    Sem contexto, opera só com rawPrompt.
       const anthropicKey = process.env.ANTHROPIC_API_KEY;
       const enhancedPrompt = anthropicKey
-        ? await enhancePromptViaClaude(rawPrompt, anthropicKey)
+        ? await enhancePromptViaClaude(rawPrompt, contextText, anthropicKey)
         : rawPrompt;
 
       // 2. Aplica wrapper (style anchors + ban total de texto na imagem)

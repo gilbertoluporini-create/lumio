@@ -203,14 +203,29 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "gerar_imagem",
     description:
-      "Gera UMA imagem educacional médico-acadêmica premium (estilo coleção: editorial, navy/verde-água/lilás, 16:9, 3D + infográfico). Use quando o user pedir 'me mostra em diagrama', 'desenha a via X', 'preciso de uma imagem da Y', 'visualiza isso pra mim'. Custa 30 coins (gpt-image-1 high quality + enhancement automático do prompt via Claude). Avise o custo ANTES de chamar. NÃO use pra fotos fotográficas — é só pra diagramas/infográficos científicos. IMPORTANTE: a imagem NÃO terá texto/labels (limitação técnica do modelo em pt-BR) — você deve descrever o conteúdo em texto separado na sua resposta, e usar a imagem como ilustração pura. Devolve URL da imagem (markdown ![](url) já formatada no campo `markdown`).",
+      "Gera UMA imagem educacional médico-acadêmica premium (estilo coleção: editorial, navy/verde-água/lilás, 16:9, 3D + infográfico). Use quando o user pedir 'faça uma imagem sobre esse resumo', 'me mostra em diagrama', 'desenha a via X', 'visualiza isso pra mim'. Custa 30 coins (gpt-image-1 high). Avise o custo ANTES de chamar. IMPORTANTE: a imagem vem SEM texto/labels (limitação técnica do modelo em pt-BR) — você deve narrar o conteúdo em texto separado na sua resposta. Pode passar APENAS um contexto (lectureId/summaryId/documentId) — o sistema busca o conteúdo automaticamente e gera. Devolve URL formatada como markdown ![](url).",
     input_schema: {
       type: "object",
       properties: {
         prompt: {
           type: "string",
           description:
-            "Descrição em PT-BR do que ilustrar. Seja específico: estrutura/órgão/molécula a mostrar, relações/setas, labels. Ex: 'Diagrama do ciclo da ureia no hepatócito, mostrando as 5 enzimas (CPS-1, OTC, ASS, ASL, arginase), fluxo do amônio até a ureia, com compartimento mitocondrial e citoplasmático bem separados.' O wrapper médico do servidor adiciona automaticamente os style anchors da identidade visual (paleta, tipografia, layout).",
+            "Descrição em PT-BR do que ilustrar. Pode ser CURTO ('faça uma imagem sobre esse resumo', 'mostra o ciclo da ureia'). Se vier junto com lectureId/summaryId/documentId, o servidor usa o conteúdo do asset como contexto pra enriquecer o prompt antes de gerar. Mín 4 chars, máx 1500.",
+        },
+        lectureId: {
+          type: "string",
+          description:
+            "Opcional. UUID de uma aula gravada. Se passado, o servidor lê transcript+slides e usa como contexto pro enhancement do prompt.",
+        },
+        summaryId: {
+          type: "string",
+          description:
+            "Opcional. UUID de um resumo. Se passado, o servidor lê o markdown e usa como contexto.",
+        },
+        documentId: {
+          type: "string",
+          description:
+            "Opcional. UUID de um document (PDF). Se passado, o servidor lê o sourceText e usa como contexto.",
         },
       },
       required: ["prompt"],
@@ -413,13 +428,18 @@ const handlers: Record<LumiToolName, ToolHandler> = {
     if (!prompt || prompt.length < 4) {
       return { error: "prompt obrigatório (mín 4 chars)" };
     }
+    // Contexto opcional: passa SOMENTE um dos 3 (a tool não força só um;
+    // o endpoint decide qual usar se múltiplos vierem).
+    const lectureId = str(input.lectureId) || undefined;
+    const summaryId = str(input.summaryId) || undefined;
+    const documentId = str(input.documentId) || undefined;
     const resp = await fetch(`${ctx.origin}/api/ai/illustrate`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
         cookie: ctx.sessionCookie,
       },
-      body: JSON.stringify({ prompt }),
+      body: JSON.stringify({ prompt, lectureId, summaryId, documentId }),
     });
     const json = (await resp.json()) as {
       url?: string;
