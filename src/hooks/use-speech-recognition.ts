@@ -1,6 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  isNativePlatform,
+  createNativeSpeechSession,
+  type NativeSpeechSession,
+} from "@/lib/native/speech";
 
 type SpeechRecognitionAlternative = { transcript: string; confidence: number };
 type SpeechRecognitionResult = {
@@ -37,6 +42,8 @@ export type SpeechState = "idle" | "listening" | "stopping";
 
 export function isSpeechRecognitionSupported(): boolean {
   if (typeof window === "undefined") return false;
+  // No app nativo (iOS/Android) usamos o plugin nativo, não o Web Speech API.
+  if (isNativePlatform()) return true;
   const g = window as unknown as GlobalWithSR;
   return Boolean(g.SpeechRecognition || g.webkitSpeechRecognition);
 }
@@ -51,6 +58,7 @@ export function useSpeechRecognition(opts: {
   const [state, setState] = useState<SpeechState>("idle");
   const [error, setError] = useState<string | null>(null);
   const recognitionRef = useRef<ISpeechRecognition | null>(null);
+  const nativeSessionRef = useRef<NativeSpeechSession | null>(null);
   const shouldListenRef = useRef(false);
   const onFinalRef = useRef(onFinal);
   const onInterimRef = useRef(onInterim);
@@ -69,6 +77,21 @@ export function useSpeechRecognition(opts: {
     if (!isSpeechRecognitionSupported()) {
       setSupported(false);
       setError("Seu navegador não suporta reconhecimento de voz. Use Chrome, Edge ou Safari.");
+      return;
+    }
+    // App nativo: usa o plugin de fala do dispositivo (Web Speech não roda no WKWebView).
+    if (isNativePlatform()) {
+      if (!nativeSessionRef.current) {
+        nativeSessionRef.current = createNativeSpeechSession({
+          lang,
+          onInterim: (t) => onInterimRef.current?.(t),
+          onFinal: (t) => onFinalRef.current?.(t),
+          onStateChange: (s) => setState(s),
+          onError: (msg) => setError(msg),
+        });
+      }
+      setError(null);
+      void nativeSessionRef.current.start();
       return;
     }
     if (recognitionRef.current) {
@@ -146,6 +169,11 @@ export function useSpeechRecognition(opts: {
 
   const stop = useCallback(() => {
     shouldListenRef.current = false;
+    if (nativeSessionRef.current) {
+      setState("stopping");
+      void nativeSessionRef.current.stop();
+      return;
+    }
     setState("stopping");
     const rec = recognitionRef.current;
     if (rec) {
@@ -158,6 +186,10 @@ export function useSpeechRecognition(opts: {
   useEffect(() => {
     return () => {
       shouldListenRef.current = false;
+      if (nativeSessionRef.current) {
+        void nativeSessionRef.current.stop();
+        nativeSessionRef.current = null;
+      }
       const rec = recognitionRef.current;
       if (rec) {
         try {
