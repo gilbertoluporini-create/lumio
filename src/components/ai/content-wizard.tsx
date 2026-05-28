@@ -619,6 +619,11 @@ export function ContentWizard({
         id: "wizard-generation",
         duration: 600,
       });
+      // Save completou → limpa pending pra o guard não oferecer recovery
+      // de algo que já foi salvo.
+      void import("@/lib/pending-generation").then((m) =>
+        m.clearPendingGeneration(),
+      );
     };
 
     // Monta sources
@@ -709,6 +714,52 @@ export function ContentWizard({
         return;
       }
       const title = suggestTitle(mode, json).slice(0, 200);
+
+      // Salva resultado em localStorage ANTES de tentar persistir no banco.
+      // Se o save falhar (navegação, Supabase pendurar, crash), o
+      // PendingGenerationGuard vai detectar no próximo mount e oferecer
+      // "Salvar agora" — evita perder coins gastos sem asset criado.
+      try {
+        const { markPendingGeneration } = await import(
+          "@/lib/pending-generation"
+        );
+        const firstLec = selectedLectures[0];
+        const firstUploadedPdf = uploadedPdfs[0];
+        const documentText = pdfTexts.join("\n\n---\n\n");
+        const sourceForPending =
+          mode === "summary"
+            ? firstLec
+              ? ({ kind: "lecture", lectureId: firstLec.id } as const)
+              : firstUploadedPdf
+                ? ({
+                    kind: "document",
+                    documentText,
+                    documentTitle: firstUploadedPdf.name.replace(/\.pdf$/i, ""),
+                    pageCount: uploadedPdfs.reduce(
+                      (acc, p) => acc + (p.pages ?? 0),
+                      0,
+                    ),
+                  } as const)
+                : undefined
+            : undefined;
+        markPendingGeneration({
+          mode,
+          subjectId,
+          userId,
+          title,
+          lectureId: firstLec?.id ?? null,
+          source: sourceForPending,
+          content: json.content,
+          imageUrls: Array.isArray(json.imageUrls)
+            ? (json.imageUrls.filter(
+                (u): u is string => typeof u === "string",
+              ) as string[])
+            : [],
+          coinsCharged: json.coinsCharged,
+        });
+      } catch {
+        /* localStorage cheio/desabilitado — segue sem persistência */
+      }
 
       if (mode === "summary") {
         const md = (json.content as { markdown?: string })?.markdown ?? "";
