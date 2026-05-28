@@ -19,7 +19,7 @@ create table if not exists subscriptions (
   user_id uuid not null references auth.users on delete cascade,
   stripe_customer_id text unique,
   stripe_subscription_id text unique,
-  plan text not null default 'free' check (plan in ('free', 'pro', 'annual')),
+  plan text not null default 'free' check (plan in ('free', 'starter', 'pro', 'power', 'annual')),
   status text not null default 'inactive' check (
     status in ('inactive', 'active', 'past_due', 'canceled', 'incomplete', 'trialing')
   ),
