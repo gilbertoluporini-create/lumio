@@ -110,17 +110,25 @@ function SettingsView({ user }: { user: User }) {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
-      <div className="mb-6">
-        <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/60 backdrop-blur px-3 py-1 text-xs mb-2">
-          <SettingsIcon className="h-3 w-3 text-primary" />
-          Configurações
+      <div className="mb-6 flex items-center gap-4">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="/illustrations/lumi-gear.png"
+          alt="Lumi com engrenagem"
+          className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"
+        />
+        <div className="min-w-0">
+          <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-background/60 backdrop-blur px-3 py-1 text-xs mb-2">
+            <SettingsIcon className="h-3 w-3 text-primary" />
+            Configurações
+          </div>
+          <h1 className="text-2xl md:text-3xl heading-display">
+            Como o Lumio se comporta
+          </h1>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Tema, notificações e privacidade da sua conta.
+          </p>
         </div>
-        <h1 className="text-2xl md:text-3xl heading-display">
-          Como o Lumio se comporta
-        </h1>
-        <p className="mt-1.5 text-sm text-muted-foreground">
-          Tema, notificações e privacidade da sua conta.
-        </p>
       </div>
 
       <div className="space-y-5">
