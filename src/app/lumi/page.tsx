@@ -64,6 +64,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -1186,12 +1188,24 @@ function LumiAssistant({ user }: { user: User }) {
                 />
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
-                    <AttachMenu
-                      onUploadComputer={handleAttachClick}
-                      onPickDocument={handleAttachDocuments}
-                      disabled={attachments.length >= MAX_ATTACHMENTS}
-                    />
-                    <GenerateMenu onPick={handleGenerateMenu} />
+                    {/* Mobile: anexar + gerar num "+" só */}
+                    <div className="md:hidden">
+                      <MobileComposerMenu
+                        onUploadComputer={handleAttachClick}
+                        onPickDocument={handleAttachDocuments}
+                        onGenerate={handleGenerateMenu}
+                        attachDisabled={attachments.length >= MAX_ATTACHMENTS}
+                      />
+                    </div>
+                    {/* Desktop (md+): menus separados, inalterado */}
+                    <div className="hidden items-center gap-1 md:flex">
+                      <AttachMenu
+                        onUploadComputer={handleAttachClick}
+                        onPickDocument={handleAttachDocuments}
+                        disabled={attachments.length >= MAX_ATTACHMENTS}
+                      />
+                      <GenerateMenu onPick={handleGenerateMenu} />
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <ModelPill />
@@ -1225,7 +1239,7 @@ function LumiAssistant({ user }: { user: User }) {
         </div>
       ) : (
         /* Empty state — ArchiMeds-style */
-        <div className="flex min-h-[calc(100vh-220px)] flex-col items-center justify-center">
+        <div className="flex min-h-[calc(100vh-220px)] flex-col items-center justify-end pb-[env(safe-area-inset-bottom)] md:justify-center md:pb-0">
           <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-6">
             {/* Heading row */}
             <div className="flex items-center gap-4">
@@ -1268,12 +1282,24 @@ function LumiAssistant({ user }: { user: User }) {
               />
               <div className="mt-3 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1">
-                  <AttachMenu
-                    onUploadComputer={handleAttachClick}
-                    onPickDocument={handleAttachDocuments}
-                    disabled={attachments.length >= MAX_ATTACHMENTS}
-                  />
-                  <GenerateMenu onPick={handleGenerateMenu} />
+                  {/* Mobile: anexar + gerar num "+" só */}
+                  <div className="md:hidden">
+                    <MobileComposerMenu
+                      onUploadComputer={handleAttachClick}
+                      onPickDocument={handleAttachDocuments}
+                      onGenerate={handleGenerateMenu}
+                      attachDisabled={attachments.length >= MAX_ATTACHMENTS}
+                    />
+                  </div>
+                  {/* Desktop (md+): menus separados, inalterado */}
+                  <div className="hidden items-center gap-1 md:flex">
+                    <AttachMenu
+                      onUploadComputer={handleAttachClick}
+                      onPickDocument={handleAttachDocuments}
+                      disabled={attachments.length >= MAX_ATTACHMENTS}
+                    />
+                    <GenerateMenu onPick={handleGenerateMenu} />
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <ModelPill />
@@ -1345,8 +1371,8 @@ function LumiAssistant({ user }: { user: User }) {
               ))}
             </div>
 
-            {/* Footer row */}
-            <div className="flex flex-wrap items-center justify-center gap-3 text-xs text-muted-foreground">
+            {/* Footer row — escondido no mobile pra deixar o chat mais clean */}
+            <div className="hidden flex-wrap items-center justify-center gap-3 text-xs text-muted-foreground md:flex">
               <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
                 <Flame className="h-3.5 w-3.5 text-primary" />
                 <span className="tabular-nums">{streakCount}</span> dias
@@ -1495,6 +1521,64 @@ function AttachMenu({
         <DropdownMenuItem onClick={onPickDocument}>
           <FolderOpen className="mr-2 h-4 w-4 text-primary" />
           Dos meus documentos
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+// Mobile: um "+" só agrupa anexar + gerar (composer mais clean no celular).
+// No desktop (md+) os menus separados continuam aparecendo (ver composer).
+function MobileComposerMenu({
+  onUploadComputer,
+  onPickDocument,
+  onGenerate,
+  attachDisabled,
+}: {
+  onUploadComputer: () => void;
+  onPickDocument: () => void;
+  onGenerate: (kind: LumiGenerateKind) => void;
+  attachDisabled?: boolean;
+}) {
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          title="Anexar e gerar"
+          aria-label="Anexar arquivo, documento ou gerar conteúdo"
+          className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+        >
+          <Plus className="h-4 w-4" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuLabel>Anexar</DropdownMenuLabel>
+        <DropdownMenuItem onClick={onUploadComputer} disabled={attachDisabled}>
+          <Upload className="mr-2 h-4 w-4 text-primary" />
+          Carregar do computador
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={onPickDocument} disabled={attachDisabled}>
+          <FolderOpen className="mr-2 h-4 w-4 text-primary" />
+          Dos meus documentos
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Gerar</DropdownMenuLabel>
+        <DropdownMenuItem onClick={() => onGenerate("summary")}>
+          <FileText className="mr-2 h-4 w-4 text-primary" />
+          Gerar resumo
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onGenerate("flashcards")}>
+          <Layers className="mr-2 h-4 w-4 text-primary" />
+          Criar flashcards
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onGenerate("quiz")}>
+          <HelpCircle className="mr-2 h-4 w-4 text-primary" />
+          Gerar quiz
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onGenerate("mindmap")}>
+          <Network className="mr-2 h-4 w-4 text-primary" />
+          Mapa mental
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
