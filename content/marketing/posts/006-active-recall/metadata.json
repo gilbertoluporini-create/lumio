@@ -6,18 +6,18 @@
     "facebook"
   ],
   "category": "educacional",
-  "title": "Active Recall — dobra retenção (Roediger 2006)",
+  "title": "3 técnicas que mudam como você estuda",
   "content": {
     "instagram": {
-      "caption": "Reler resumo 5x antes da prova ≠ estudar.\n\nÉ ILUSÃO de aprendizado.\n\nO estudo definitivo é de Roediger & Karpicke (Washington University, 2006):\n\nDuas turmas. Mesmo texto. Mesmo tempo de estudo.\n→ Grupo A: leu 4 vezes\n→ Grupo B: leu 1 vez + fez 3 testes (sem olhar o texto)\n\nResultado 1 semana depois:\n→ Grupo A: lembrava 40%\n→ Grupo B: lembrava 60%\n\n50% mais retenção. Só trocando releitura por TESTE.\n\nIsso se chama Active Recall. O esforço de \"tentar lembrar\" é exatamente o que cria a memória de longo prazo.\n\nReler é confortável e dá sensação de domínio. Mas é fake.\nFazer flashcard sem olhar a resposta dói, parece menos eficiente — mas é o que funciona.\n\nO Lumi gera os flashcards a partir da sua aula gravada. Você só precisa fazer.\n\n— time Lumio\n\n→ link na bio",
+      "caption": "3 técnicas com ciência por trás que mudam como você estuda:\n\n1. REVISÃO ESPAÇADA\nRevisar em intervalos crescentes (1d, 3d, 7d) ao invés de tudo de uma vez. Cepeda et al. (2008): retém 200% mais que estudar tudo junto.\n\n2. ACTIVE RECALL\nTentar lembrar SEM olhar a fonte. Roediger & Karpicke (2006): quem testa lembra 50% mais que quem relê. Reler é confortável e fake. Testar dói e funciona.\n\n3. POMODORO\n25min de foco total + 5min de pausa real. Atenção sustentada cai após 20-30min — trabalhar em ciclos curtos rende mais que 3h direto.\n\nA boa notícia: o Lumi automatiza as 3.\n→ Gera flashcards da sua aula (Active Recall)\n→ Organiza a revisão nos intervalos certos (Revisão Espaçada)\n→ Tem timer Pomodoro embutido\n\nVocê só precisa fazer.\n\n— time Lumio\n\n→ link na bio",
       "hashtags": [
         "activerecall",
+        "revisaoespacada",
+        "pomodoro",
         "metodoestudo",
-        "roediger",
-        "flashcards",
+        "tecnicasdeestudo",
         "estudoeficiente",
         "neurociencia",
-        "memoria",
         "faculdade",
         "estudante",
         "lumio",
@@ -25,7 +25,7 @@
       ]
     },
     "facebook": {
-      "caption": "Reler resumo 5x não é estudar — é ilusão de aprendizado. Roediger & Karpicke (Washington U., 2006) provaram: testar lembra 50% mais que reler.\n\nGrupo que fez 3 testes lembrava 60% após 1 semana. Grupo que releu 4x lembrava 40%.\n\nActive Recall: o esforço de tentar lembrar é o que cria memória de longo prazo. O Lumi gera os flashcards automaticamente."
+      "caption": "3 técnicas com ciência por trás:\n\n1. Revisão Espaçada — intervalos crescentes, retém 200% mais (Cepeda 2008)\n2. Active Recall — testar sem olhar, lembra 50% mais que reler (Roediger 2006)\n3. Pomodoro — 25min foco + 5min pausa, ciclos curtos rendem mais\n\nO Lumi automatiza as 3 a partir da sua aula gravada. Link na bio."
     }
   }
 }
