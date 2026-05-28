@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import {
   AlertCircle,
+  CalendarDays,
   CheckCircle2,
   Clock,
   Copy,
@@ -170,9 +171,9 @@ function CalendarioPanel() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [publishingId, setPublishingId] = useState<string | null>(null);
-  const [listTab, setListTab] = useState<"agendados" | "erro" | "publicados">(
-    "agendados",
-  );
+  const [view, setView] = useState<
+    "calendario" | "agendados" | "erro" | "publicados"
+  >("calendario");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -300,35 +301,41 @@ function CalendarioPanel() {
         </div>
       ) : (
         <>
-          <PlannerCalendar drafts={drafts} />
-
           <div className="space-y-3">
-            <div className="flex items-center gap-1 border-b border-border/60">
+            <div className="flex items-center gap-1 border-b border-border/60 flex-wrap">
+              <ListTab
+                label="Calendário"
+                active={view === "calendario"}
+                onClick={() => setView("calendario")}
+                icon={<CalendarDays className="h-3.5 w-3.5" />}
+              />
               <ListTab
                 label="Agendados"
                 count={upcoming.length}
-                active={listTab === "agendados"}
-                onClick={() => setListTab("agendados")}
+                active={view === "agendados"}
+                onClick={() => setView("agendados")}
                 icon={<Clock className="h-3.5 w-3.5" />}
               />
               <ListTab
                 label="Com erro"
                 count={errored.length}
                 danger
-                active={listTab === "erro"}
-                onClick={() => setListTab("erro")}
+                active={view === "erro"}
+                onClick={() => setView("erro")}
                 icon={<AlertCircle className="h-3.5 w-3.5" />}
               />
               <ListTab
                 label="Publicados"
                 count={published.length}
-                active={listTab === "publicados"}
-                onClick={() => setListTab("publicados")}
+                active={view === "publicados"}
+                onClick={() => setView("publicados")}
                 icon={<CheckCircle2 className="h-3.5 w-3.5" />}
               />
             </div>
 
-            {listTab === "agendados" &&
+            {view === "calendario" && <PlannerCalendar drafts={drafts} />}
+
+            {view === "agendados" &&
               (upcoming.length === 0 ? (
                 <CalEmptyState text="Nenhum post agendado. Crie pastas em content/marketing/posts/ e clique em Sincronizar." />
               ) : (
@@ -344,7 +351,7 @@ function CalendarioPanel() {
                 </div>
               ))}
 
-            {listTab === "erro" &&
+            {view === "erro" &&
               (errored.length === 0 ? (
                 <CalEmptyState text="Nenhum post com erro." />
               ) : (
@@ -360,7 +367,7 @@ function CalendarioPanel() {
                 </div>
               ))}
 
-            {listTab === "publicados" &&
+            {view === "publicados" &&
               (published.length === 0 ? (
                 <CalEmptyState text="Nenhum publicado ainda." />
               ) : (
@@ -668,13 +675,14 @@ function ListTab({
   onClick,
 }: {
   label: string;
-  count: number;
+  count?: number;
   active: boolean;
   danger?: boolean;
   icon?: React.ReactNode;
   onClick: () => void;
 }) {
-  const countCls = danger && count > 0 ? "text-rose-400" : "text-muted-foreground";
+  const countCls =
+    danger && (count ?? 0) > 0 ? "text-rose-400" : "text-muted-foreground";
   return (
     <button
       onClick={onClick}
@@ -685,9 +693,13 @@ function ListTab({
       }`}
     >
       {icon} {label}
-      <span className={`font-mono text-[10px] ${active ? "text-fuchsia-300" : countCls}`}>
-        {count}
-      </span>
+      {count !== undefined && (
+        <span
+          className={`font-mono text-[10px] ${active ? "text-fuchsia-300" : countCls}`}
+        >
+          {count}
+        </span>
+      )}
     </button>
   );
 }
