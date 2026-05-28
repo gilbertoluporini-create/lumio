@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { createElement, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2, Mic } from "lucide-react";
 import { toast } from "sonner";
+import { getSubjectIcon } from "@/lib/subject-icon";
 import {
   Dialog,
   DialogContent,
@@ -96,13 +97,14 @@ export function NewLectureDialog({
               <div className="flex flex-wrap gap-2">
                 {subjects.map((s) => {
                   const sel = s.id === subjectId;
+                  const Icon = getSubjectIcon(s.name);
                   return (
                     <button
                       key={s.id}
                       type="button"
                       onClick={() => setSubjectId(s.id)}
                       className={cn(
-                        "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-all",
+                        "inline-flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-sm transition-all",
                         sel
                           ? "border-primary bg-primary/10 text-foreground"
                           : "border-border bg-background hover:bg-secondary/40",
@@ -110,10 +112,15 @@ export function NewLectureDialog({
                     >
                       <span
                         className={cn(
-                          "h-2.5 w-2.5 rounded-full bg-gradient-to-br shrink-0",
+                          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br shadow-sm",
                           s.color,
                         )}
-                      />
+                      >
+                        {createElement(Icon, {
+                          className: "h-3.5 w-3.5 text-white",
+                          strokeWidth: 2.4,
+                        })}
+                      </span>
                       {s.name}
                     </button>
                   );

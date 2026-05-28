@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Check,
   Copy,
@@ -49,10 +50,28 @@ export default function EmbaixadorPage() {
     <AuthGuard>
       {(user) => (
         <AppShell user={user}>
-          <EmbaixadorView />
+          {user.isAmbassador ? <EmbaixadorView /> : <NotAmbassadorRedirect />}
         </AppShell>
       )}
     </AuthGuard>
+  );
+}
+
+// Acesso direto pela URL por quem não é embaixador → manda pro dashboard.
+function NotAmbassadorRedirect() {
+  const router = useRouter();
+  useEffect(() => {
+    const t = setTimeout(() => router.replace("/dashboard"), 1800);
+    return () => clearTimeout(t);
+  }, [router]);
+  return (
+    <div className="mx-auto max-w-md px-5 py-20 text-center">
+      <h1 className="text-lg font-semibold">Área exclusiva de embaixadores</h1>
+      <p className="mt-2 text-sm text-muted-foreground">
+        O programa de embaixadores é por convite. Redirecionando você pro
+        dashboard…
+      </p>
+    </div>
   );
 }
 

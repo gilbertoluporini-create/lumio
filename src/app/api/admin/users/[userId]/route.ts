@@ -16,10 +16,12 @@ const PatchSchema = z
       "deduct_coins",
       "ban",
       "unban",
+      "set_ambassador",
     ]),
     amount: z.number().int().positive().max(100000).optional(),
     reason: z.string().trim().max(500).optional(),
     durationHours: z.number().int().positive().max(24 * 365 * 100).optional(),
+    value: z.boolean().optional(),
   })
   .refine(
     (v) => {
@@ -43,7 +45,7 @@ export async function GET(
   const { data: profile } = await admin
     .from("profiles")
     .select(
-      "id, email, name, role, onboarded_at, created_at, coin_balance, subscriptions(plan, status, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id)",
+      "id, email, name, role, onboarded_at, created_at, coin_balance, is_ambassador, subscriptions(plan, status, current_period_end, cancel_at_period_end, stripe_customer_id, stripe_subscription_id)",
     )
     .eq("id", userId)
     .maybeSingle();
@@ -253,6 +255,29 @@ export async function PATCH(
         targetUserEmail: targetEmail,
       });
       return NextResponse.json({ ok: true });
+    }
+
+    if (action === "set_ambassador") {
+      const value = parsed.data.value ?? false;
+      const { error } = await admin
+        .from("profiles")
+        .update({ is_ambassador: value })
+        .eq("id", userId);
+      if (error) throw new Error(error.message);
+      await logAdminAction({
+        adminEmail: guard.admin.email,
+        action: "set_ambassador",
+        targetUserId: userId,
+        targetUserEmail: targetEmail,
+        metadata: { value },
+      });
+      return NextResponse.json({
+        ok: true,
+        is_ambassador: value,
+        message: value
+          ? "Marcado como embaixador."
+          : "Removido de embaixador.",
+      });
     }
 
     return NextResponse.json({ error: "Ação desconhecida." }, { status: 400 });

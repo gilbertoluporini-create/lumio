@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
+  Award,
   Coins,
   Copy,
   KeyRound,
@@ -39,6 +40,7 @@ type UserDetailResp = {
     name: string | null;
     coin_balance: number | null;
     created_at: string;
+    is_ambassador: boolean | null;
     subscriptions: Array<{
       plan: string | null;
       status: string | null;
@@ -405,6 +407,40 @@ export function UserDetailDrawer({
               </div>
             </Box>
           )}
+
+          {/* Programa embaixador */}
+          <Box title="Programa embaixador">
+            {detail?.profile.is_ambassador ? (
+              <button
+                onClick={() => doAction("set_ambassador", { value: false })}
+                disabled={actionPending !== null}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-md bg-amber-900/60 hover:bg-amber-900 text-amber-200 text-xs font-mono px-3 py-2 disabled:opacity-40"
+              >
+                {actionPending === "set_ambassador" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Award className="h-3.5 w-3.5" />
+                )}
+                É embaixador · remover
+              </button>
+            ) : (
+              <button
+                onClick={() => doAction("set_ambassador", { value: true })}
+                disabled={actionPending !== null}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-md border border-neutral-800 hover:border-neutral-700 hover:bg-neutral-900 text-xs px-3 py-2 disabled:opacity-40"
+              >
+                {actionPending === "set_ambassador" ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Award className="h-3.5 w-3.5 text-neutral-400" />
+                )}
+                Tornar embaixador
+              </button>
+            )}
+            <p className="mt-2 text-[10px] text-neutral-500 font-mono leading-relaxed">
+              Libera a aba/página de Embaixadores na conta do usuário.
+            </p>
+          </Box>
 
           {/* Ban controls */}
           <Box title="Suspensão">

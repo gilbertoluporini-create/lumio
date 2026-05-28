@@ -247,7 +247,16 @@ export function AppShell({
   ];
 
   const secondaryNavItems: SidebarNavItem[] = [
-    { href: "/account/embaixador", label: "Embaixadores", Icon: Users },
+    // Só embaixadores (marcados pelo admin) veem a aba.
+    ...(user.isAmbassador
+      ? [
+          {
+            href: "/account/embaixador",
+            label: "Embaixadores",
+            Icon: Users,
+          } as SidebarNavItem,
+        ]
+      : []),
     { href: "/account/settings", label: "Configurações", Icon: Settings },
     { href: "/help", label: "Ajuda", Icon: HelpCircle },
   ];

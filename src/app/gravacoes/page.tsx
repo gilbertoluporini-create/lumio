@@ -11,6 +11,7 @@ import {
   FileText,
   Filter,
   Loader2,
+  Mic,
   MoreVertical,
   Pause,
   Play,
@@ -25,6 +26,7 @@ import { LumiCharacter } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NewLectureDialog } from "@/components/documents/new-lecture-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -140,6 +142,7 @@ function GravacoesView({ user }: { user: User }) {
   const [loading, setLoading] = useState(true);
   const [filterSubject, setFilterSubject] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [newLectureOpen, setNewLectureOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -214,14 +217,14 @@ function GravacoesView({ user }: { user: User }) {
   return (
     <div className="mx-auto max-w-7xl px-5 py-8">
       {/* Header */}
-      <div className="mb-8 flex items-center gap-4">
+      <div className="mb-8 flex items-start gap-4">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src="/illustrations/lumi-headset.png"
           alt="Lumi"
           className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"
         />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="text-sm text-muted-foreground mb-1">
             Suas aulas, organizadas e pesquisáveis
           </div>
@@ -232,10 +235,17 @@ function GravacoesView({ user }: { user: User }) {
             Todas as aulas transcritas pelo Lumio com busca inteligente. Clique em qualquer aula pra abrir o conteúdo completo.
           </p>
         </div>
+        <Button
+          variant="gradient"
+          onClick={() => setNewLectureOpen(true)}
+          className="shrink-0"
+        >
+          <Mic className="h-4 w-4" /> Nova gravação
+        </Button>
       </div>
 
       {lectures.length === 0 ? (
-        <EmptyState />
+        <EmptyState onNew={() => setNewLectureOpen(true)} />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
           {/* Coluna esquerda (8 cols) */}
@@ -327,6 +337,13 @@ function GravacoesView({ user }: { user: User }) {
           </div>
         </div>
       )}
+
+      <NewLectureDialog
+        open={newLectureOpen}
+        onOpenChange={setNewLectureOpen}
+        userId={user.id}
+        subjects={subjects}
+      />
     </div>
   );
 }
@@ -720,7 +737,7 @@ function TipCard() {
   );
 }
 
-function EmptyState() {
+function EmptyState({ onNew }: { onNew: () => void }) {
   return (
     <div className="rounded-2xl border border-dashed border-border/60 bg-card/40 p-12 text-center">
       <div className="flex justify-center mb-3">
@@ -728,12 +745,11 @@ function EmptyState() {
       </div>
       <h3 className="text-lg font-semibold">Nenhuma gravação ainda</h3>
       <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
-        Suas aulas transcritas aparecem aqui. Cria a primeira no dashboard.
+        Suas aulas transcritas aparecem aqui. Grave a primeira agora — a
+        transcrição começa em segundos.
       </p>
-      <Button asChild variant="gradient" size="lg" className="mt-6">
-        <Link href="/dashboard">
-          <Play className="h-4 w-4" /> Ir pro dashboard
-        </Link>
+      <Button onClick={onNew} variant="gradient" size="lg" className="mt-6">
+        <Mic className="h-4 w-4" /> Gravar aula
       </Button>
     </div>
   );

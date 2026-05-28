@@ -1084,13 +1084,14 @@ function Dashboard({ user }: { user: User }) {
               <div className="flex flex-wrap gap-2">
                 {subjects.map((s) => {
                   const sel = s.id === lectureSubject;
+                  const Icon = getSubjectIcon(s.name);
                   return (
                     <button
                       key={s.id}
                       type="button"
                       onClick={() => setLectureSubject(s.id)}
                       className={cn(
-                        "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-all",
+                        "inline-flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-sm transition-all",
                         sel
                           ? "border-primary bg-primary/10 text-foreground"
                           : "border-border/60 bg-background hover:bg-secondary/40",
@@ -1098,10 +1099,15 @@ function Dashboard({ user }: { user: User }) {
                     >
                       <span
                         className={cn(
-                          "h-2.5 w-2.5 rounded-full bg-gradient-to-br shrink-0",
+                          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br shadow-sm",
                           s.color,
                         )}
-                      />
+                      >
+                        {createElement(Icon, {
+                          className: "h-3.5 w-3.5 text-white",
+                          strokeWidth: 2.4,
+                        })}
+                      </span>
                       {s.name}
                     </button>
                   );
@@ -1164,7 +1170,7 @@ function KPICard({
         : "text-muted-foreground";
 
   const content = (
-    <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 hover:border-primary/40 hover:shadow-md transition-all h-full">
+    <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 transition-all duration-200 ease-out will-change-transform hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg active:translate-y-0 active:scale-[0.99] h-full">
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="text-[11px] uppercase tracking-wider text-muted-foreground line-clamp-1">
           {label}
@@ -1323,7 +1329,7 @@ function SubjectMiniCard({
   const tone = getSubjectTone(subject.name);
 
   return (
-    <div className="group relative rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-md transition-all h-full flex flex-col">
+    <div className="group relative rounded-xl border border-border/60 bg-card transition-all duration-200 ease-out will-change-transform hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg active:translate-y-0 active:scale-[0.99] h-full flex flex-col">
       <Link href={`/subject/${subject.id}`} className="block p-3 flex-1 flex flex-col">
         <div className="flex items-center justify-between gap-2 mb-2">
           <div

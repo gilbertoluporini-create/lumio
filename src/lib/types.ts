@@ -4,6 +4,8 @@ export type User = {
   name: string;
   createdAt: string;
   onboardedAt: string | null;
+  /** Marcado pelo admin. Libera a aba/página de Embaixadores. */
+  isAmbassador?: boolean;
 };
 
 export type ScheduleSlot = {

@@ -25,11 +25,16 @@ export async function getCurrentUserAsync(): Promise<User | null> {
     // Fetch profile
     const { data: profile } = await supabase
       .from("profiles")
-      .select("name, onboarded_at, created_at")
+      .select("name, onboarded_at, created_at, is_ambassador")
       .eq("id", authUser.id)
       .single();
     const p = profile as
-      | { name: string | null; onboarded_at: string | null; created_at: string }
+      | {
+          name: string | null;
+          onboarded_at: string | null;
+          created_at: string;
+          is_ambassador: boolean | null;
+        }
       | null;
     return {
       id: authUser.id,
@@ -37,6 +42,7 @@ export async function getCurrentUserAsync(): Promise<User | null> {
       name: p?.name ?? authUser.email?.split("@")[0] ?? "Estudante",
       createdAt: p?.created_at ?? authUser.created_at,
       onboardedAt: p?.onboarded_at ?? null,
+      isAmbassador: p?.is_ambassador === true,
     };
   } catch (err) {
     console.error("[auth] getCurrentUserAsync failed", err);

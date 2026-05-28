@@ -39,7 +39,6 @@ function SettingsView({ user }: { user: User }) {
   void user;
   const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
   const [notifyEmail, setNotifyEmail] = useState(true);
-  const [notifyResumeReady, setNotifyResumeReady] = useState(true);
   const [language] = useState<"pt-BR">("pt-BR");
   const [password, setPassword] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
@@ -81,8 +80,6 @@ function SettingsView({ user }: { user: User }) {
     if (stored) setTheme(stored);
     const ne = localStorage.getItem("lumio.notify.email");
     if (ne) setNotifyEmail(ne === "1");
-    const nr = localStorage.getItem("lumio.notify.resume");
-    if (nr) setNotifyResumeReady(nr === "1");
   }, []);
 
   function applyTheme(t: "light" | "dark" | "system") {
@@ -97,14 +94,9 @@ function SettingsView({ user }: { user: User }) {
     }
   }
 
-  function toggleNotify(key: "email" | "resume", value: boolean) {
-    if (key === "email") {
-      setNotifyEmail(value);
-      localStorage.setItem("lumio.notify.email", value ? "1" : "0");
-    } else {
-      setNotifyResumeReady(value);
-      localStorage.setItem("lumio.notify.resume", value ? "1" : "0");
-    }
+  function toggleNotify(value: boolean) {
+    setNotifyEmail(value);
+    localStorage.setItem("lumio.notify.email", value ? "1" : "0");
     toast.success("Preferências atualizadas.");
   }
 
@@ -169,14 +161,9 @@ function SettingsView({ user }: { user: User }) {
         >
           <div className="space-y-2 mt-3">
             <Toggle
-              label="Receber resumos e novidades por email"
+              label="Receber novidades e dicas do Lumio por email"
               checked={notifyEmail}
-              onChange={(v) => toggleNotify("email", v)}
-            />
-            <Toggle
-              label="Quando o resumo de uma aula ficar pronto"
-              checked={notifyResumeReady}
-              onChange={(v) => toggleNotify("resume", v)}
+              onChange={(v) => toggleNotify(v)}
             />
           </div>
         </SettingsCard>
