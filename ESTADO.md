@@ -1,5 +1,52 @@
 # Lumio — ESTADO
 
+## 🛠️ ENGENHARIA/UX — sessão 2026-05-27→28 (bugs P0 + resiliência + coins)
+
+### PDF upload (Isabella não conseguia) — RESOLVIDO
+Dois bugs em sequência, ambos no servidor:
+1. `pdf-parse@2.4.5` usa `pdfjs-dist@5` internamente → precisa `DOMMatrix`/canvas (não existe no Node Vercel) → `ReferenceError: DOMMatrix`. **Fix: downgrade `pdf-parse@1.1.1`**.
+2. `pdf-parse@1.1.1` index.js roda código de debug (lê `test/data/05-versions-space.pdf` que não vai no bundle) → ENOENT. **Fix: importar `pdf-parse/lib/pdf-parse.js` direto** (`@ts-expect-error`, lib sem types).
+- Estratégia **SERVER-FIRST**: `extractPdfText()` em `src/lib/pdf-extract.ts` sempre POSTa pra `/api/pdf-extract` (pdfjs do client foi eliminado — falhava em iPad Safari).
+
+### Wizard / geração — travamento 95% + perda ao navegar
+- **Trava 95%**: etapas Supabase pós-API penduravam sem rejeitar. Fix: helper `withTimeout` em createDocument(20s)/storage.upload(30s)/createLecture(15s)/insert(15s) + safety timer 3min em `content-wizard.tsx`.
+- **Toast assimétrico**: `toast.custom()` próprio (sem closeButton fantasma do Sonner).
+- **Perda ao navegar (coins cobrados, asset não salvo)**: persistência via localStorage.
+  - `src/lib/pending-generation.ts` (storage, TTL 30min) · `src/lib/generation-save.ts` (save reusável) · `src/components/app/pending-generation-guard.tsx` (montado no AppShell, oferece "Salvar agora").
+  - `markPendingGeneration()` após `/api/ai/generate` retornar; `clearPendingGeneration()` em `finishProgress`.
+  - `beforeunload` warning + cap diário não cobre nav DURANTE o fetch (precisaria Service Worker — P2).
+- **Refund manual**: Giba recebeu 30 coins de volta (geração perdida). Via coin_transactions + profiles.coin_balance.
+
+### Imagens (gpt-image-1)
+- `wrapPromptForMedicalDiagram` em `src/lib/openai-image.ts` reescrito 2x: (a) vazava as seções do briefing como texto na imagem → prosa contínua; (b) **ban TOTAL de texto** ("ZERO text, NO words, NO labels") — gpt-image-1 corrompe pt-BR ("trransaminação"/"DIAGARMA"). **Limitação do modelo, sem fix por prompt** — imagem vem sem texto, Lumi narra em texto.
+- **Pipeline v2** (mimetiza ChatGPT web): enhancement via Haiku (prompt curto pt-BR → descrição visual rica em inglês) + quality `high` + 1536x1024.
+- **Endpoint novo** `/api/ai/illustrate` (30 coins, refund automático em falha, rate-limit 20/h).
+- **Tool `gerar_imagem`** no Lumi: aceita `prompt` + contexto opcional `lectureId`/`summaryId`/`documentId` → endpoint busca conteúdo e enriquece. User pode pedir "faça imagem sobre esse resumo".
+- **Refs canônicas**: `public/reference-images/medical-collection/` criado com README. ⬜ PENDENTE: founder salvar 4 PNGs (01-origem-destino / 02-transaminacao / 03-ciclo-ureia / 04-marcadores-clinicos) pra ativar `editImageWithReferences` (`/edits`).
+
+### Soft-delete (resumo deletado continuava aparecendo)
+- Migration 017 adicionou `deleted_at` mas as LEITURAS não filtravam. **Fix: `.is("deleted_at", null)` em 10 queries** (summaries lib + quiz/flashcards/subject/deck/quiz-banco/mapa/resumo + api/lectures/[id]/assets).
+- `/resumo/doc/[id]` deletado → redirect `/resumos` (sem tela intermediária).
+- `/resumo/[lectureId]`: se summary soft-deleted, Lumi mostra 3 botões (Recuperar / Gerar do zero / Deixa pra lá). Helper `getDeletedSummaryByLectureIdAsync`.
+
+### Assets nas páginas
+- Galeria `imageUrls` renderizada em `/deck` e `/quiz-banco` (payload já salvava, faltava exibir).
+- Mapa mental: `MindmapQuickDialog` (modal simples complexidade+foco) em vez do wizard cheio. Usa todas aulas+docs da matéria.
+
+### Lumi Coins
+- Histórico: colapsado (8 + "Ver mais") + perguntas de chat do mesmo dia agrupadas em 1 linha.
+- **Cap diário de chat por plano** (`src/lib/chat-cap.ts`): free 15 / starter 30 / pro 60 / power 120. Aplicado em `/api/chat` + `/api/lumi/agent`. Admin/founder bypass. Razão: chat 1 coin/msg roda Haiku (~R$0,06-0,15/msg), no Power coin = R$0,079 → conversa pesada fica negativa. `nearLimit` (80%) exposto pra aviso futuro.
+- Card de saldo: `public/coins/lumi-hero.png` (mascote 3D transparente) no canto, menor que mockup.
+
+### Pendências engenharia
+- ⬜ Founder: 4 refs canônicas de imagem médica → ativa `/edits`.
+- ⬜ Ícones de pacote de coins (100/500/1500) vieram com texto recortado da tela + fundo branco — inutilizáveis. Precisa versões limpas isoladas.
+- ⬜ Aviso antecipado de cap de chat no frontend (backend já tem `nearLimit`).
+- ⬜ Rodar `scripts/regenerate-article-covers.ts` (precisa ADMIN_COOKIE) pra regerar capas antigas dos help articles com prompt Lumi.
+- ⬜ P2: persistência de geração via Service Worker (cobrir nav DURANTE o fetch).
+
+
+
 ## 🟢🟢 2026-05-28 — PIPELINE DE PUBLICAÇÃO LIVE (go-live aprovado)
 
 **O sistema de publicação automática está LIGADO em produção.**
