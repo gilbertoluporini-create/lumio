@@ -3,7 +3,6 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  Book,
   BookOpen,
   Clock,
   CreditCard,
@@ -21,11 +20,10 @@ import {
 } from "lucide-react";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
-import { LumiCharacter, LumiScene } from "@/components/brand/lumi";
+import { LumiCharacter } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SupportDialog } from "@/components/support/support-dialog";
-import type { LumiSceneKey } from "@/components/brand/lumi";
 import type { User } from "@/lib/types";
 import {
   helpCategories,
@@ -50,7 +48,8 @@ type GuideCard = {
   description: string;
   badge: string;
   readTime: string;
-  scene: LumiSceneKey;
+  image: string;
+  alt: string;
   href: string;
 };
 
@@ -61,7 +60,8 @@ const GUIDES: GuideCard[] = [
     description: "Um guia rápido para você criar sua primeira aula e resumo.",
     badge: "Guia rápido",
     readTime: "5 min de leitura",
-    scene: "writing-notes",
+    image: "/illustrations/lumi-check.png",
+    alt: "Lumi com selo de concluído",
     href: "/help/primeiros-passos/primeira-aula",
   },
   {
@@ -70,7 +70,8 @@ const GUIDES: GuideCard[] = [
     description: "Aprenda a gravar, renomear e organizar suas aulas.",
     badge: "Passo a passo",
     readTime: "7 min de leitura",
-    scene: "calendar",
+    image: "/illustrations/lumi-study.png",
+    alt: "Lumi com livros, café e caderno",
     href: "/help/gravacoes/transcricao-ao-vivo",
   },
   {
@@ -80,7 +81,8 @@ const GUIDES: GuideCard[] = [
       "Descubra como a IA do Lumio transforma suas aulas em resumos de alta qualidade.",
     badge: "Tutorial",
     readTime: "6 min de leitura",
-    scene: "funnel-summary",
+    image: "/illustrations/lumi-ideia.png",
+    alt: "Lumi com uma lâmpada de ideia",
     href: "/help/resumos/resumo-ia",
   },
 ];
@@ -339,7 +341,12 @@ function HelpView({ user }: { user: User }) {
             >
               <div className="relative flex h-40 items-center justify-center bg-gradient-to-br from-primary/10 via-fuchsia-500/5 to-transparent rounded-t-2xl">
                 <div className="relative w-32 md:w-36 [mask-image:linear-gradient(180deg,black_60%,transparent_100%)]">
-                  <LumiScene scene={guide.scene} />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={guide.image}
+                    alt={guide.alt}
+                    className="w-full h-auto object-contain drop-shadow-xl"
+                  />
                 </div>
               </div>
               <div className="flex flex-1 flex-col p-5">
@@ -427,9 +434,12 @@ function HelpView({ user }: { user: User }) {
             onClick={() => scrollTo(faqRef)}
             className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-6 text-left transition-all hover:border-primary/40 hover:shadow-md hover:shadow-primary/5 hover:-translate-y-0.5"
           >
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Book className="h-5 w-5" aria-hidden="true" />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/illustrations/lumi-teclado.png"
+              alt="Lumi digitando"
+              className="h-16 w-16 object-contain drop-shadow-sm"
+            />
             <h3 className="mt-4 text-base font-semibold tracking-tight">
               Central de ajuda
             </h3>
@@ -450,9 +460,12 @@ function HelpView({ user }: { user: User }) {
             }}
             className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-6 text-left transition-all hover:border-primary/40 hover:shadow-md hover:shadow-primary/5 hover:-translate-y-0.5"
           >
-            <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <MessageSquare className="h-5 w-5" aria-hidden="true" />
-            </div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/illustrations/lumi-headset.png"
+              alt="Lumi com headset"
+              className="h-16 w-16 object-contain drop-shadow-sm"
+            />
             <h3 className="mt-4 text-base font-semibold tracking-tight">
               Enviar feedback
             </h3>
