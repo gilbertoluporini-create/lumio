@@ -13,9 +13,9 @@ import {
   Mail,
   Megaphone,
   Menu,
-  Send,
   Settings,
   ShieldAlert,
+  TrendingUp,
   UserPlus,
   Users,
   X,
@@ -38,53 +38,43 @@ type NavSection = {
 
 const NAV_SECTIONS: NavSection[] = [
   {
-    label: "Visão",
+    label: "Principal",
     items: [
-      { href: "/admin", label: "Dashboard", Icon: LayoutDashboard },
-      { href: "/admin/realtime", label: "Tempo real", Icon: Activity },
-    ],
-  },
-  {
-    label: "Operação",
-    items: [
+      { href: "/admin", label: "Visão geral", Icon: LayoutDashboard },
       {
-        href: "/admin/health",
-        label: "Saúde & Segurança",
-        Icon: HeartPulse,
-        accent: "emerald",
-      },
-      { href: "/admin/metrics", label: "Métricas", Icon: BarChart3 },
-      { href: "/admin/usage", label: "Uso & Margem", Icon: Coins },
-    ],
-  },
-  {
-    label: "Crescimento",
-    items: [
-      {
-        href: "/admin/marketing",
-        label: "Vendas & Funil",
+        href: "/admin/marketing/crescimento",
+        label: "Crescimento",
         Icon: Megaphone,
         accent: "fuchsia",
       },
-      {
-        href: "/admin/marketing/crescimento",
-        label: "Outbound & Embaixadores",
-        Icon: Send,
-        accent: "fuchsia",
-      },
-      { href: "/admin/leads", label: "Leads", Icon: UserPlus },
     ],
   },
   {
     label: "Pessoas",
     items: [
       { href: "/admin/users", label: "Usuários", Icon: Users },
+      { href: "/admin/leads", label: "Leads", Icon: UserPlus },
       { href: "/admin/tickets", label: "Tickets", Icon: Mail },
+    ],
+  },
+  {
+    label: "Analytics",
+    items: [
+      { href: "/admin/marketing", label: "Vendas & Funil", Icon: TrendingUp },
+      { href: "/admin/metrics", label: "Métricas", Icon: BarChart3 },
+      { href: "/admin/usage", label: "Uso & Margem", Icon: Coins },
+      { href: "/admin/realtime", label: "Tempo real", Icon: Activity },
     ],
   },
   {
     label: "Sistema",
     items: [
+      {
+        href: "/admin/health",
+        label: "Saúde & Custos",
+        Icon: HeartPulse,
+        accent: "emerald",
+      },
       { href: "/admin/settings", label: "Configurações", Icon: Settings },
     ],
   },
