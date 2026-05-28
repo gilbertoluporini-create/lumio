@@ -39,6 +39,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ContentWizard } from "@/components/ai/content-wizard";
+import { MindmapQuickDialog } from "@/components/ai/mindmap-quick-dialog";
 import {
   createLectureAsync,
   deleteLectureAsync,
@@ -105,9 +106,12 @@ function SubjectView({
   const [loading, setLoading] = useState(true);
   const [newOpen, setNewOpen] = useState(false);
   const [lectureTitle, setLectureTitle] = useState("");
+  // Mindmap usa dialog próprio (mais simples — só complexidade + foco).
+  // Outros modes continuam no ContentWizard cheio.
   const [wizardMode, setWizardMode] = useState<
-    "summary" | "flashcards" | "quiz" | "mindmap" | null
+    "summary" | "flashcards" | "quiz" | null
   >(null);
+  const [mindmapOpen, setMindmapOpen] = useState(false);
 
   async function refresh() {
     const [s, l, sm, d] = await Promise.all([
@@ -337,7 +341,7 @@ function SubjectView({
           label="Mapa mental"
           hint="Visualizar tópicos"
           color="rose"
-          onClick={() => setWizardMode("mindmap")}
+          onClick={() => setMindmapOpen(true)}
         />
       </div>
 
@@ -484,6 +488,30 @@ function SubjectView({
             // flashcards/quiz/mindmap: recarrega a tela pra mostrar o asset novo
             refresh();
           }
+        }}
+      />
+
+      {/* Mapa mental — dialog próprio simples (complexidade + foco opcional).
+          Usa TODAS as aulas + documentos da matéria como fonte. */}
+      <MindmapQuickDialog
+        open={mindmapOpen}
+        onOpenChange={setMindmapOpen}
+        userId={user.id}
+        subjectId={subjectId}
+        subjectName={subject.name}
+        source={{
+          lectureIds: lectures.map((l) => l.id),
+          documentIds: documents.map((d) => d.id),
+          transcripts: lectures
+            .map((l) => l.transcript?.trim() ?? "")
+            .filter((t) => t.length > 0),
+          pdfTexts: documents
+            .map((d) => d.sourceText?.trim() ?? "")
+            .filter((t) => t.length > 0),
+        }}
+        onCreated={() => {
+          setMindmapOpen(false);
+          refresh();
         }}
       />
     </div>

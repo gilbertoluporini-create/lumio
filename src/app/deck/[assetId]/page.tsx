@@ -93,6 +93,7 @@ type Flashcard = {
 type FlashcardsPayload = {
   generatedAt?: string;
   cards: Flashcard[];
+  imageUrls?: string[];
 };
 
 type DeckAsset = {
@@ -100,6 +101,7 @@ type DeckAsset = {
   lectureId: string;
   cards: Flashcard[];
   generatedAt: string;
+  imageUrls: string[];
 };
 
 type MobileTab = "summary" | "chat" | "stats" | "next";
@@ -154,11 +156,17 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
           created_at: string;
         };
         const cards = Array.isArray(row.payload?.cards) ? row.payload.cards : [];
+        const imageUrls = Array.isArray(row.payload?.imageUrls)
+          ? row.payload.imageUrls.filter(
+              (u): u is string => typeof u === "string" && u.length > 0,
+            )
+          : [];
         setDeck({
           assetId: row.id,
           lectureId: row.lecture_id,
           cards,
           generatedAt: row.payload?.generatedAt ?? row.created_at,
+          imageUrls,
         });
 
         // Load lecture + subject
@@ -472,6 +480,34 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
           <PanelLeft className="h-3.5 w-3.5" /> Cards
         </Button>
       </div>
+
+      {/* Galeria de imagens educacionais (geradas com o deck) */}
+      {deck.imageUrls.length > 0 && (
+        <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Imagens da aula
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {deck.imageUrls.map((url, i) => (
+              <a
+                key={url}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group relative aspect-video overflow-hidden rounded-lg border border-border/60 bg-muted"
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element -- Supabase Storage URL, sem next/image otimização */}
+                <img
+                  src={url}
+                  alt={`Ilustração ${i + 1}`}
+                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                  loading="lazy"
+                />
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Grid 3-col */}
       <div className="grid grid-cols-1 lg:grid-cols-[220px_minmax(0,1fr)_300px] gap-6">

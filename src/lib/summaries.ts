@@ -229,3 +229,32 @@ export async function restoreSummaryAsync(
   if (error) throw error;
   return data ? rowToSummary(data as SummaryRow) : null;
 }
+
+/**
+ * Busca summary SOFT-DELETED pra uma lecture. Usado quando a UI quer
+ * oferecer recuperação ao user ("você deletou esse resumo, quer recuperar
+ * ou regerar?").
+ *
+ * Não filtra deleted_at IS NULL — explicitamente busca DELETADOS.
+ */
+export async function getDeletedSummaryByLectureIdAsync(
+  userId: string,
+  lectureId: string,
+): Promise<Summary | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("summaries")
+      .select(SUMMARY_COLS)
+      .eq("lecture_id", lectureId)
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    return data ? rowToSummary(data as SummaryRow) : null;
+  } catch (err) {
+    console.error("[summaries] getDeleted failed", err);
+    return null;
+  }
+}

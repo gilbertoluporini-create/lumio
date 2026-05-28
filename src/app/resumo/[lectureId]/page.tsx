@@ -56,6 +56,7 @@ import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
+import { LumiCharacter } from "@/components/brand/lumi";
 import { ContentWizard } from "@/components/ai/content-wizard";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -74,8 +75,10 @@ import {
 } from "@/lib/db";
 import {
   deleteSummaryAsync,
+  getDeletedSummaryByLectureIdAsync,
   getSummaryByLectureIdAsync,
   listSummariesAsync,
+  restoreSummaryAsync,
 } from "@/lib/summaries";
 import {
   subscribeFavorites,
@@ -204,6 +207,9 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
   const [summary, setSummaryState] = useState<LectureSummary | undefined>(
     undefined,
   );
+  // Quando não há summary ativo, checamos se existe um soft-deleted pra
+  // oferecer recuperação ao user via Lumi (3 opções: regenerar/recuperar/nada).
+  const [deletedSummaryId, setDeletedSummaryId] = useState<string | null>(null);
   const [subject, setSubject] = useState<Subject | null>(null);
   const [related, setRelated] = useState<Lecture[]>([]);
   const [loading, setLoading] = useState(true);
@@ -267,6 +273,14 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
         if (!active) return;
         setLecture(lec);
         setSummaryState(sm?.content);
+        // Sem summary ativo? Checa se existe um soft-deleted pra oferecer
+        // recuperação ("você apagou esse resumo, quer recuperar?").
+        if (!sm) {
+          const del = await getDeletedSummaryByLectureIdAsync(user.id, lec.id);
+          if (active) setDeletedSummaryId(del?.id ?? null);
+        } else {
+          setDeletedSummaryId(null);
+        }
         const subj = await getSubjectAsync(user.id, lec.subjectId);
         if (active) setSubject(subj);
 
@@ -547,6 +561,71 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
   if (!lecture) return null;
 
   if (!summary) {
+    // Caso 1: existe um summary SOFT-DELETED pra essa lecture → Lumi
+    // pergunta o que fazer (regerar / recuperar / nada). Caso 2: nunca
+    // teve summary → mostra CTA padrão.
+    if (deletedSummaryId) {
+      return (
+        <div className="mx-auto max-w-2xl px-5 py-12">
+          <div className="rounded-2xl border border-border/60 bg-gradient-to-br from-violet-500/5 to-fuchsia-500/5 p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <LumiCharacter size="sm" />
+              <div className="flex-1 space-y-2">
+                <div className="text-sm font-medium">
+                  Você apagou esse resumo antes.
+                </div>
+                <div className="text-sm text-muted-foreground leading-relaxed">
+                  Posso recuperar o que existia, gerar um novo do zero (custa
+                  coins), ou você pode deixar pra lá.
+                </div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-2">
+              <Button
+                variant="gradient"
+                size="sm"
+                onClick={async () => {
+                  const t = toast.loading("Recuperando resumo...");
+                  try {
+                    const restored = await restoreSummaryAsync(
+                      user.id,
+                      deletedSummaryId,
+                    );
+                    if (restored) {
+                      setSummaryState(restored.content);
+                      setDeletedSummaryId(null);
+                      toast.success("Resumo recuperado!", { id: t });
+                    } else {
+                      toast.error("Não consegui recuperar.", { id: t });
+                    }
+                  } catch (err) {
+                    toast.error(`Falha: ${(err as Error).message}`, { id: t });
+                  }
+                }}
+              >
+                Recuperar
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                asChild
+              >
+                <Link href={`/lecture/${lecture.id}`}>
+                  Gerar do zero <ArrowRight className="h-3 w-3" />
+                </Link>
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                asChild
+              >
+                <Link href="/resumos">Deixa pra lá</Link>
+              </Button>
+            </div>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="mx-auto max-w-3xl px-5 py-12 text-center">
         <FileText className="mx-auto h-10 w-10 text-muted-foreground/60" />
