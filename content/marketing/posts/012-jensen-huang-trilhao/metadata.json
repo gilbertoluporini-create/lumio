@@ -1,13 +1,28 @@
 {
   "id": "012-jensen-huang-trilhao",
-  "scheduled_for": "2026-06-07T12:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "scheduled_for": "2026-06-09T12:00:00-03:00",
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "curiosidade",
   "title": "Jensen Huang — IA vai ser trilhão de dólares",
   "content": {
     "instagram": {
       "caption": "\"A indústria de IA vai gerar US$ 1 TRILHÃO em receita até 2030.\"\n\nJensen Huang, CEO da NVIDIA, no Computex Taipei 2024.\n\nE ele tem dado pra falar. Em 2 anos:\n→ NVIDIA saiu de US$ 400 bilhões pra US$ 3,4 TRILHÕES em market cap\n→ Virou a 2ª maior empresa do mundo (atrás só da Apple)\n→ Huang ficou bilionário (US$ 110B fortuna pessoal)\n\nQuem é Jensen Huang?\n→ Nasceu em Taiwan, 1963\n→ Imigrou pros EUA aos 9 anos\n→ Trabalhou de garçom no Denny's na adolescência\n→ Em 1993 fundou a NVIDIA num restaurante Denny's de San Jose\n→ Era pra fazer chips de videogame\n\nPor 25 anos a NVIDIA era \"empresa de gamer\". Em 2012 (AlexNet) ele percebeu que GPU paralelo era PERFEITO pra treinar redes neurais.\n\nApostou tudo. Reinvestiu lucro de games em IA.\n\nResultado: a maior aposta tech da história moderna.\n\nE ele ainda tá no jogo. CEO ativo aos 61 anos.\n\n— time Lumio",
-      "hashtags": ["nvidia", "jensenhuang", "ia", "tecnologia", "investimento", "curiosidade", "ceo", "negocios", "lumio", "lumioapp", "computex"]
+      "hashtags": [
+        "nvidia",
+        "jensenhuang",
+        "ia",
+        "tecnologia",
+        "investimento",
+        "curiosidade",
+        "ceo",
+        "negocios",
+        "lumio",
+        "lumioapp",
+        "computex"
+      ]
     },
     "facebook": {
       "caption": "\"A IA vai gerar US$ 1 trilhão até 2030\" — Jensen Huang, CEO NVIDIA, Computex 2024.\n\nNVIDIA: US$ 400B → US$ 3,4 TRILHÕES em 2 anos. Huang virou bilionário (US$ 110B).\n\nNasceu em Taiwan, imigrou aos 9 anos, garçom no Denny's adolescente, fundou NVIDIA num Denny's de San Jose em 1993. Apostou em GPU pra IA em 2012. Maior aposta tech moderna."

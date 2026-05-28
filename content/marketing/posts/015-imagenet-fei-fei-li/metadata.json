@@ -1,13 +1,28 @@
 {
   "id": "015-imagenet-fei-fei-li",
-  "scheduled_for": "2026-06-10T19:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "scheduled_for": "2026-06-15T12:00:00-03:00",
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "curiosidade",
   "title": "ImageNet — Fei-Fei Li mudou tudo",
   "content": {
     "instagram": {
       "caption": "Em 2006, uma professora de Stanford fez algo que ninguém entendia.\n\nFei-Fei Li, então professora-assistente, anunciou um projeto absurdo:\n→ Coletar 14 MILHÕES de imagens\n→ Categorizar cada uma em 20 mil classes\n→ Pra TREINAR redes neurais\n\nReação da academia: \"perda de tempo\". \"Pesquisa séria é em algoritmo, não em dado.\"\n\nO problema é que algoritmos de visão computacional de 2006 atingiam ~28% de erro em qualquer benchmark. Era considerado teto.\n\nFei-Fei contratou 49 mil pessoas no Amazon Mechanical Turk pra rotular imagens. Custo: US$ 2 mil. Tempo: 2,5 anos.\n\nEm 2010 lançou o ImageNet Challenge. 2 anos rodando, ninguém saía dos 25% de erro.\n\nEm 2012, três pesquisadores (Krizhevsky, Sutskever, Hinton — Universidade de Toronto) submeteram um modelo chamado AlexNet.\n\nResultado: 15,3% de erro. Quase 50% melhor que tudo que existia.\n\nE o segredo? Eles treinaram numa NVIDIA GPU. Em 2 GPUs. Por 1 semana.\n\nAquele momento, 30 de setembro de 2012, é considerado o nascimento da IA moderna.\n\nE tudo só foi possível porque Fei-Fei Li acreditou que DADO importava mais que algoritmo.\n\n— time Lumio",
-      "hashtags": ["imagenet", "feifeili", "ia", "historia", "alexnet", "hinton", "deeplearning", "tecnologia", "stanford", "lumio", "lumioapp"]
+      "hashtags": [
+        "imagenet",
+        "feifeili",
+        "ia",
+        "historia",
+        "alexnet",
+        "hinton",
+        "deeplearning",
+        "tecnologia",
+        "stanford",
+        "lumio",
+        "lumioapp"
+      ]
     },
     "facebook": {
       "caption": "Em 2006, Fei-Fei Li (Stanford) iniciou o ImageNet: 14M imagens categorizadas em 20 mil classes. Reação acadêmica: \"perda de tempo\".\n\nEm 30/09/2012, AlexNet (Krizhevsky, Sutskever, Hinton) usou ImageNet + NVIDIA GPU pra bater 15,3% de erro (vs 25% anterior).\n\nÉ considerado o nascimento da IA moderna. Tudo porque uma professora acreditou que dado importava mais que algoritmo."

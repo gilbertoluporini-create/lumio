@@ -1,13 +1,28 @@
 {
   "id": "010-nature-llm-teoria-mente",
-  "scheduled_for": "2026-06-05T12:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "scheduled_for": "2026-06-11T12:00:00-03:00",
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "pesquisa",
   "title": "Nature — LLMs e teoria da mente",
   "content": {
     "instagram": {
       "caption": "A revista Nature publicou em maio/2024 um estudo bombástico.\n\nTítulo: \"Testing theory of mind in large language models and humans\".\n\nAutores: James Strachan (Universidade de Hamburgo) + 11 coautores.\n\nO que é teoria da mente?\nÉ a capacidade de entender que outras pessoas têm crenças, desejos e intenções diferentes das suas. Crianças desenvolvem por volta dos 4 anos.\n\nO teste:\n→ Apresentaram 5 tarefas clássicas de teoria da mente (Sally-Anne, false belief, etc.)\n→ Testaram em humanos adultos vs GPT-4 vs Llama-3\n\nResultado:\n→ GPT-4 superou humanos em 4 das 5 tarefas\n→ Inclusive nas que envolvem detectar ironia, mentira, fé religiosa\n\nIsso NÃO prova que LLM \"pensa\". Mas mostra que o comportamento de modelagem mental emerge SEM treino específico.\n\nQuestão filosófica aberta: se anda como pato e quaca como pato...\n\n— time Lumio\n\nFonte: Nature Human Behaviour, vol. 8, 2024.",
-      "hashtags": ["nature", "ia", "teoriadamente", "pesquisa", "papers", "ciencia", "psicologia", "machinelearning", "gpt4", "lumio", "lumioapp"]
+      "hashtags": [
+        "nature",
+        "ia",
+        "teoriadamente",
+        "pesquisa",
+        "papers",
+        "ciencia",
+        "psicologia",
+        "machinelearning",
+        "gpt4",
+        "lumio",
+        "lumioapp"
+      ]
     },
     "facebook": {
       "caption": "Nature (maio/2024) publicou: GPT-4 superou humanos em 4 das 5 tarefas clássicas de teoria da mente (Sally-Anne, false belief, ironia).\n\nTeoria da mente = capacidade de entender que outros têm crenças/intenções diferentes. Crianças desenvolvem aos 4 anos.\n\nNão prova que LLM \"pensa\". Mas o comportamento emerge sem treino específico."

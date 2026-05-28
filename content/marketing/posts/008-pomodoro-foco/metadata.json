@@ -1,13 +1,28 @@
 {
   "id": "008-pomodoro-foco",
-  "scheduled_for": "2026-06-03T12:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "scheduled_for": "2026-06-08T19:00:00-03:00",
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "educacional",
   "title": "Pomodoro — por que 25min funciona",
   "content": {
     "instagram": {
       "caption": "Por que 25 minutos? Por que não 50? Ou 90?\n\nA técnica Pomodoro foi criada em 1987 por Francesco Cirillo (estudante italiano usando um timer em forma de tomate — \"pomodoro\").\n\nMas o número 25 não é arbitrário. É baseado em pesquisa real de neurociência:\n\n→ Atenção sustentada de adultos cai significativamente após 20-30min\n→ Córtex pré-frontal (foco) consome 20% da energia cerebral\n→ Pausas de 5min permitem reset de dopamina e clearance metabólico\n\nEstudos do Ericsson (1993, expertise research) mostram: períodos de deep work funcionam em ciclos curtos com pausa GENUÍNA (não scroll do TikTok).\n\nProtocolo otimizado:\n1. 25min foco total — celular em outro cômodo\n2. 5min pausa REAL — alongar, água, olhar pra longe\n3. A cada 4 ciclos: pausa longa de 15-30min\n\nFazer 4 pomodoros em 2h rende mais que 3h direto.\n\nO Lumi tem timer Pomodoro embutido. Sem ad de \"pomodoro pro premium\".\n\n— time Lumio",
-      "hashtags": ["pomodoro", "foco", "produtividade", "metodoestudo", "neurociencia", "deepwork", "estudante", "faculdade", "lumio", "lumioapp", "estudoeficiente"]
+      "hashtags": [
+        "pomodoro",
+        "foco",
+        "produtividade",
+        "metodoestudo",
+        "neurociencia",
+        "deepwork",
+        "estudante",
+        "faculdade",
+        "lumio",
+        "lumioapp",
+        "estudoeficiente"
+      ]
     },
     "facebook": {
       "caption": "Pomodoro (25min foco + 5min pausa) foi criado em 1987 por Francesco Cirillo. Mas o número 25 vem de neurociência: atenção cai após 20-30min, córtex pré-frontal consome 20% da energia cerebral.\n\nFazer 4 pomodoros em 2h rende mais que 3h direto. Pausa REAL, não scroll do TikTok.\n\nO Lumi tem timer Pomodoro embutido."

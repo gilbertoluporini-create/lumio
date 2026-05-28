@@ -1,0 +1,16 @@
+{
+  "id": "018-prod-voice-mode",
+  "scheduled_for": "2026-06-04T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "bts",
+  "title": "PRODUTO: pergunta no meio da aula, o Lumi responde",
+  "content": {
+    "instagram": {
+      "caption": "Nasceu uma dúvida no meio da aula?\n\nVocê não precisa parar de ouvir o professor pra pesquisar no Google.\n\nO Lumi tá ouvindo junto. Você pergunta — por voz, de fone — e ele responde com base no que o professor ACABOU de dizer.\n\nTipo um colega que prestou MUITA atenção na aula e nunca esquece de nada.\n\n\"O que ele quis dizer com aquele conceito?\" → resposta na hora.\n\"Não entendi essa parte\" → ele reexplica.\n\nSem tirar o olho do professor. Sem perder o fio da aula.\n\n→ Experimenta na próxima aula. Link na bio.\n\n— time Lumio",
+      "hashtags": ["estudocomia", "aulaonline", "faculdade", "estudante", "voicemode", "transcricaodeaula", "anotacoesdeaula", "lumio", "lumioapp", "universidade", "ia"]
+    },
+    "facebook": {
+      "caption": "Dúvida no meio da aula? O Lumi tá ouvindo junto. Você pergunta por voz, de fone, e ele responde com base no que o professor acabou de dizer.\n\nTipo um colega que prestou muita atenção e nunca esquece. Sem parar de ouvir a aula pra pesquisar.\n\nExperimenta na próxima aula — link na bio."
+    }
+  }
+}

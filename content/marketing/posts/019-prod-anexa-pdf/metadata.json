@@ -1,0 +1,16 @@
+{
+  "id": "019-prod-anexa-pdf",
+  "scheduled_for": "2026-06-07T12:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "bts",
+  "title": "PRODUTO: apostila + aula = 1 material só",
+  "content": {
+    "instagram": {
+      "caption": "Anexa a apostila no Lumi. Ele liga sozinho com a aula gravada.\n\nPDF + áudio da aula = um material só, organizado por matéria.\n\n↳ Lê a aula com o capítulo certo da apostila do lado\n↳ Faz quiz cruzando a pergunta do livro com a resposta do professor\n↳ Resumo que junta as duas fontes\n\nAcabou aquele vai-e-volta de copiar trecho do PDF e procurar a parte certa da aula gravada.\n\nTudo conversa entre si. Como deveria ser desde sempre.\n\n→ Testa: link na bio.\n\n— time Lumio",
+      "hashtags": ["apostiladigital", "pdfdeaula", "estudante", "faculdade", "materialdeestudo", "organizacao", "estudocomia", "lumio", "lumioapp", "estudoeficiente", "universidade"]
+    },
+    "facebook": {
+      "caption": "Anexa a apostila no Lumi e ele liga sozinho com a aula gravada. PDF + áudio = um material só.\n\nLê a aula com o capítulo certo do lado, faz quiz cruzando livro e professor, resumo das duas fontes.\n\nAcabou o vai-e-volta de copiar trecho do PDF. Testa: link na bio."
+    }
+  }
+}

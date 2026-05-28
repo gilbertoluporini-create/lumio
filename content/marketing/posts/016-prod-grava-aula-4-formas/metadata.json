@@ -1,0 +1,16 @@
+{
+  "id": "016-prod-grava-aula-4-formas",
+  "scheduled_for": "2026-05-29T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "bts",
+  "title": "PRODUTO: 1 aula gravada = 4 formas de revisar",
+  "content": {
+    "instagram": {
+      "caption": "Você grava a aula UMA vez. O Lumi te devolve 4 formas de revisar:\n\n📄 Resumo — pra ler antes da prova\n🎴 Flashcards — pra fixar com repetição espaçada\n❓ Quiz — pra testar o que você lembra\n🧠 Mapa mental — pra ver as conexões\n\nVocê não anota nada. Não digita nada. Só grava e escolhe como quer revisar.\n\nDe 2 horas de aula pra um material organizado em minutos.\n\n→ 50 coins grátis pra testar. Link na bio.\n\n— time Lumio",
+      "hashtags": ["estudante", "faculdade", "flashcards", "resumosdeaula", "mapamental", "quiz", "estudocomia", "lumio", "lumioapp", "estudoeficiente", "produtividadenosestudos"]
+    },
+    "facebook": {
+      "caption": "Você grava a aula UMA vez. O Lumi devolve 4 formas de revisar: resumo, flashcards, quiz e mapa mental.\n\nVocê não anota nem digita nada. De 2h de aula pra material organizado em minutos.\n\n50 coins grátis pra testar — link na bio."
+    }
+  }
+}

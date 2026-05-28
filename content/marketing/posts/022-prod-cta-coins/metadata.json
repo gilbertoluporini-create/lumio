@@ -1,0 +1,16 @@
+{
+  "id": "022-prod-cta-coins",
+  "scheduled_for": "2026-06-17T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "bts",
+  "title": "PRODUTO: 50 coins grátis, sem cartão",
+  "content": {
+    "instagram": {
+      "caption": "50 coins de graça, só pra você testar. Sem cartão. Sem assinatura forçada.\n\nOs 50 coins dão pra:\n↳ transcrever uma aula completa\n↳ gerar resumo + 10 flashcards\n↳ fazer 1 quiz de revisão\n\nSuficiente pra você ver, na prática, se faz diferença na sua próxima prova.\n\nNão é trial de 7 dias que te cobra escondido depois. É você usar de verdade e decidir.\n\nSe funcionar pra você (e a gente acha que vai), aí sim você assina.\n\n→ Link na bio. Começa agora, em pt-BR.\n\n— time Lumio",
+      "hashtags": ["gratis", "estudante", "faculdade", "experimentar", "estudocomia", "50coinsgratis", "lumio", "lumioapp", "ferramentadeestudo", "vidauniversitaria", "semcartao"]
+    },
+    "facebook": {
+      "caption": "50 coins de graça pra testar. Sem cartão, sem assinatura forçada.\n\nDá pra transcrever uma aula completa, gerar resumo + 10 flashcards e fazer 1 quiz. Suficiente pra ver se faz diferença na sua prova.\n\nNão é trial que cobra escondido — é você usar de verdade e decidir. Link na bio."
+    }
+  }
+}

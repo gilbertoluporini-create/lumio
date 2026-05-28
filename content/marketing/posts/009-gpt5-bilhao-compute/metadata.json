@@ -1,13 +1,28 @@
 {
   "id": "009-gpt5-bilhao-compute",
-  "scheduled_for": "2026-06-04T19:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "scheduled_for": "2026-06-06T19:00:00-03:00",
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "curiosidade",
   "title": "GPT-5 estimado em US$ 1 bilhão",
   "content": {
     "instagram": {
       "caption": "GPT-5 vai custar US$ 1 BILHÃO pra treinar.\n\nSam Altman não confirma o valor exato, mas analistas (SemiAnalysis, Epoch AI) estimam entre US$ 700 milhões e US$ 1,5 bilhão.\n\nPra dar dimensão:\n→ Cada \"GPT-X\" custa ~10x o anterior\n→ GPT-3: US$ 5 milhões (2020)\n→ GPT-4: US$ 100 milhões (2023)\n→ GPT-5: US$ 1 bilhão (2025)\n\nA OpenAI estima precisar de US$ 100 BILHÕES até 2030 só pra continuar competindo em fronteira.\n\nE quem paga? Microsoft (US$ 13B), SoftBank (US$ 40B no Stargate), Oracle, fundos soberanos.\n\nOu seja: a IA generativa virou uma corrida de capital, não só de pesquisa.\n\nE a pergunta que ninguém faz: a US$ 100 bilhões cumulativos, esse modelo precisa gerar QUANTO de receita pra fazer sentido?\n\nOpenAI fez US$ 3,7B em receita em 2024. Precisaria multiplicar por 30x pra ROI fazer sentido.\n\n— time Lumio",
-      "hashtags": ["gpt5", "openai", "ia", "samaltman", "tecnologia", "investimento", "machinelearning", "curiosidade", "lumio", "lumioapp", "negocios"]
+      "hashtags": [
+        "gpt5",
+        "openai",
+        "ia",
+        "samaltman",
+        "tecnologia",
+        "investimento",
+        "machinelearning",
+        "curiosidade",
+        "lumio",
+        "lumioapp",
+        "negocios"
+      ]
     },
     "facebook": {
       "caption": "GPT-5 estimado em US$ 1 bilhão pra treinar. GPT-3 custou US$ 5M, GPT-4 US$ 100M, GPT-5 US$ 1B — fator 10x por geração.\n\nOpenAI estima precisar US$ 100 bilhões até 2030. Microsoft, SoftBank (Stargate US$ 40B), Oracle financiam.\n\nReceita 2024: US$ 3,7B. Precisaria multiplicar por 30x pra ROI fazer sentido."

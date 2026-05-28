@@ -1,13 +1,28 @@
 {
   "id": "007-deepseek-r1-china",
-  "scheduled_for": "2026-06-02T19:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "scheduled_for": "2026-06-03T12:00:00-03:00",
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "curiosidade",
   "title": "DeepSeek R1 — China alcança GPT-4 com 1/10 do compute",
   "content": {
     "instagram": {
       "caption": "Em janeiro de 2025, a China derrubou Wall Street.\n\nA DeepSeek (laboratório chinês) lançou o R1: um modelo de IA equivalente ao GPT-4o e o3 da OpenAI.\n\nO detalhe: treinaram com US$ 5,5 milhões.\nO GPT-4 custou US$ 100 milhões.\n\n18x mais barato. Mesma performance.\n\nA ação da NVIDIA caiu 17% num único dia. US$ 600 bilhões em market cap evaporaram em 8 horas — a maior queda da história de uma empresa.\n\nComo eles conseguiram?\n→ Mixture-of-Experts (só ativa parte do modelo por query)\n→ Multi-Head Latent Attention (compressão extrema do contexto)\n→ FP8 mixed precision (menor precisão, menos compute)\n→ Engenharia chinesa apertando cada token\n\nMoral: a próxima fronteira da IA não é hardware mais caro — é arquitetura mais inteligente.\n\nE o R1 é open source. Qualquer um pode rodar.\n\n— time Lumio",
-      "hashtags": ["deepseek", "ia", "china", "nvidia", "openai", "tecnologia", "curiosidade", "machinelearning", "opensource", "lumio", "lumioapp"]
+      "hashtags": [
+        "deepseek",
+        "ia",
+        "china",
+        "nvidia",
+        "openai",
+        "tecnologia",
+        "curiosidade",
+        "machinelearning",
+        "opensource",
+        "lumio",
+        "lumioapp"
+      ]
     },
     "facebook": {
       "caption": "Em janeiro de 2025, a DeepSeek (China) lançou o R1: equivalente ao GPT-4o, treinado com US$ 5,5 milhões (vs US$ 100 milhões do GPT-4).\n\nA NVIDIA perdeu US$ 600 bilhões em market cap em 1 dia — maior queda da história.\n\nComo? Mixture-of-Experts + FP8 + arquitetura otimizada. E é open source.\n\nA próxima fronteira da IA é arquitetura, não hardware."

@@ -1,220 +1,136 @@
-# Prompts de imagem — 14 posts (2 semanas iniciais)
+# Cenas de imagem — 14 posts (lógica de marketing)
 
-**Como usar:**
-1. Abre ChatGPT Plus (ou Gemini) no modo imagem
-2. Pra cada post, cola o prompt da seção correspondente
-3. Salva como JPG (sips comprime se passar de 500KB)
-4. Coloca como `1x1.jpg` dentro da pasta `content/marketing/posts/<slug>/`
-5. Dropa no `content/marketing/posts/<slug>/1x1.jpg`
+**Como usar:** seu ChatGPT já tem o Lumi e a identidade visual no contexto. Então aqui é só a **cena criativa** — cola, ele faz no padrão. Cada cena foi pensada pra **parar o scroll** e reforçar a mensagem do post.
 
-**Brand master (aplicado em todos):** Lumi 3D premium, paleta `#21113f #7c3aed #c026d3 #f3ecff #fff8e7 #f5c542 #22c55e`, formato 1:1 (1024×1024), SEM texto na imagem, espaço pra overlay de texto depois.
+Pede sempre **formato quadrado 1:1, sem nenhum texto na imagem** (texto a gente põe depois no Canva se quiser).
 
 ---
 
 ## 002 — GPT-4 custou US$100M
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: Lumi (cute 3D desk lamp mascot, cream color, purple eyes, articulated metallic neck) standing on a stack of US$100 dollar bills arranged like a podium. Behind Lumi, floating 3D coins with a small "GPT" engraving and giant abstract chip/CPU silhouettes glowing in deep purple. One pile of bills is taller (labeled vaguely "GPT-4"), another smaller pile next to it. Empty negative space in the top-left for text overlay.
-
-LUMI MASCOT (exact):
-- Small cute friendly 3D desk lamp character
-- Rounded dome lamp head in warm cream (#fff8e7) with soft purple glow inside bulb
-- Two big rounded symmetric purple eyes with small white highlights, tiny smile
-- Articulated copper/gray metallic neck with circular joints
-- Cream rounded base with small purple button on top, NO logo
-- Chibi proportions, premium NOT clay/plasticine
-
-VISUAL STYLE: premium 3D render, soft studio lighting, modern editorial, plenty of breathing room.
-
-PALETTE: #21113f deep purple, #7c3aed lumio purple, #c026d3 fuchsia, #f3ecff lavender bg, #fff8e7 cream, #f5c542 yellow accents (on coins).
-
-TEXT POLICY: NO TEXT on image. Leave empty space for overlay later.
-
-NEGATIVE: no text, no gibberish, no extra mascot, no human arms, no claymation, no scary face, no Disney eyelashes, no random brand names.
-```
+**Gancho visual:** escala. O Lumi minúsculo faz o dinheiro parecer ainda mais absurdo.
+> Lumi pequenininho em pé na frente de uma pilha GIGANTE de notas de dólar e moedas que sobe até sair do quadro, com silhuetas de chips de computador brilhando ao fundo. Sensação de "isso é absurdamente caro". Lumi olhando pra cima, impressionado.
 
 ---
 
 ## 003 — NVIDIA H100 domina IA
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: Lumi sitting next to a giant glowing 3D GPU chip (stylized, NOT real NVIDIA logo — abstract green-purple gradient circuit board) emanating purple/fuchsia light beams in a radial pattern. Around them, floating small abstract data cubes/blocks in cream and purple. Lumi looking up at the chip with curious/awed expression. Bottom-right composition. Top-left negative space.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE do prompt 002]
-```
+**Gancho visual:** poder/troféu. Chip como monumento.
+> Lumi olhando pra cima admirado pra um chip de GPU gigante posicionado como um monólito/troféu sobre um pedestal, emanando raios de luz roxa e magenta. O chip domina a cena. Lumi pequeno na base.
 
 ---
 
-## 004 — Curva de Ebbinghaus
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: Lumi standing at the base of a translucent 3D descending curve (the forgetting curve) that arcs down across the image. Below the curve, scattered cream-colored notebook pages and tiny purple flashcards seem to be "fading away" — some sharp, others becoming transparent. Lumi holds a tiny notebook open showing abstract page lines (NO text). The curve has 3 markers along it (small dots, no text) suggesting time points. Empty space top-right for overlay.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 004 — Curva do esquecimento (perdemos 70%)
+**Gancho visual:** perda/urgência. Conhecimento escapando.
+> Lumi tentando segurar com as duas "mãozinhas" (braço articulado) vários papéis e cartões de estudo que estão voando/escorrendo pra longe e ficando transparentes, como se evaporassem no ar. Expressão preocupada. Comunica "você está perdendo o que estudou".
 
 ---
 
-## 005 — Anthropic Mechanistic Interpretability
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: Lumi looking through a 3D magnifying glass at a glowing translucent brain-like network of interconnected nodes floating in mid-air. The network has hundreds of small purple/fuchsia "neuron" spheres connected by thin glowing lines — like a beautiful constellation. Some neurons highlighted in yellow accent. Center-bottom composition with Lumi, network spans upper half. Negative space minimal — it's a busy beautiful scene.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 005 — Anthropic: mapearam o cérebro da IA
+**Gancho visual:** descoberta/investigação. Curiosidade científica.
+> Lumi segurando uma lupa grande e olhando dentro de um cérebro translúcido flutuante, cheio de pequenas esferas roxas conectadas por linhas de luz (como uma constelação de neurônios). Algumas esferas acesas em amarelo. Clima de descoberta.
 
 ---
 
-## 006 — Active Recall
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: Lumi holding a 3D flashcard (cream colored, no text, with a small purple star icon on it) face-up. Behind Lumi, a stack of identical flashcards arranged in a fan/spread pattern. On one side of the image, a closed cream textbook (NO text) lying flat with a dotted line showing it being "set aside" — visually contrasted with the active flashcards being engaged. Right side composition, left side negative space for overlay.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 006 — Active Recall (testar > reler)
+**Gancho visual:** esforço = resultado. Contraste academia vs sofá.
+> Lumi "se esforçando" levantando um flashcard pesado como se fosse um haltere de academia, com gotinhas de esforço, enquanto ao lado um livro fechado está jogado de canto com poeira. Comunica "o esforço de testar é o que funciona".
 
 ---
 
-## 007 — DeepSeek R1 China
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: Two abstract 3D rocket/spaceship silhouettes side by side — one large purple rocket (much taller, more elaborate), one smaller fuchsia rocket (compact, sleek, glowing brighter). Both pointing upward. Lumi standing between them, gesturing toward the smaller one with a small admiring expression. Below, abstract cream-colored "compute clouds" or data wisps. Top space available for overlay.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 007 — DeepSeek: China com 1/10 do custo
+**Gancho visual:** Davi vs Golias. Underdog que ganha.
+> Dois foguetes lado a lado: um GIGANTE e pesado (roxo), e um pequeno e elegante (magenta) que está voando MAIS ALTO que o gigante, brilhando mais forte. Lumi embaixo torcendo/apontando pro foguete pequeno. Comunica "o menor venceu".
 
 ---
 
-## 008 — Pomodoro
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: Lumi sitting next to a stylized 3D vintage kitchen timer (round, cream colored body, purple twist knob on top, small clock face showing abstract marks — NO numbers). The timer has a soft purple glow around it. Behind, a cream notebook open with abstract focus marks. A few small "concentration" purple particles floating around Lumi's head. Center-bottom composition.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 008 — Pomodoro (foco de 25min)
+**Gancho visual:** bolha de foco vs caos lá fora.
+> Lumi superconcentrado dentro de uma bolha/redoma de luz suave roxa, ao lado de um timer de cozinha em formato de tomate. Fora da bolha, um celular com notificações tentando entrar mas bloqueado. Comunica "foco protegido".
 
 ---
 
-## 009 — GPT-5 US$1 bilhão
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: A 3D ascending bar chart with 3 columns growing exponentially (small → medium → giant), all in purple/fuchsia gradient. The giant column on the right glows intensely. Lumi standing at the base of the chart looking up at the tallest bar with mild surprise. Floating dollar-sign-like abstract symbols (NO actual $ glyph, just abstract coin/currency shapes in cream/yellow). Bottom-left composition.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 009 — GPT-5 vai custar US$1 bilhão
+**Gancho visual:** crescimento exponencial assustador.
+> Um gráfico de barras 3D com 3 colunas: pequena, média e uma GIGANTE que fura o topo do quadro e brilha intensamente. Lumi minúsculo na base olhando pra cima pra barra gigante, boquiaberto. Comunica "isso está explodindo".
 
 ---
 
-## 010 — Nature paper teoria da mente
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: Two stylized 3D heads side by side — one human silhouette (cream colored, smooth, faceless), one robotic/AI silhouette (purple, geometric, faceless). Between them, two translucent thought-bubble shapes intersecting in the middle, forming a Venn diagram effect with shared overlap zone glowing fuchsia. Lumi standing below the heads in the foreground, looking up curiously. Center composition.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 010 — Nature: IA passou no teste de "teoria da mente"
+**Gancho visual:** humano vs máquina, mentes se encontrando.
+> Uma cabeça humana estilizada (cor creme) e uma cabeça de robô (roxa) frente a frente, com dois balões de pensamento translúcidos se sobrepondo no meio (formando um Venn que brilha). Lumi embaixo observando curioso. Comunica "a máquina entende a mente?".
 
 ---
 
-## 011 — Revisão espaçada SM-2
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: A 3D timeline arrow stretching horizontally across the image, with 4-5 flashcard milestones along it (cream colored cards floating above the timeline). Each card progressively further apart (showing spaced intervals — 1 day, 6 days, 15 days, 1 month). Lumi standing at the start of the timeline, gesturing toward the future cards. Cards have small purple star icons but NO text. Lower composition, upper space free for overlay.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 011 — Revisão espaçada (algoritmo SM-2)
+**Gancho visual:** progressão no tempo, intervalos crescentes.
+> Lumi caminhando sobre uma linha do tempo com vários checkpoints (cartões de estudo flutuando), cada um mais distante do anterior. Setinhas mostrando os intervalos aumentando. Comunica "revisar no momento certo".
 
 ---
 
-## 012 — Jensen Huang trilhão
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: A 3D abstract globe (planet earth simplified, no continents visible — just spherical purple/fuchsia gradient with subtle latitude lines), surrounded by orbital rings of glowing GPU chips (abstract green-purple shapes). One ring more prominent than others. Lumi floating in the foreground (small) looking at the globe. Cosmic/space feeling but premium minimalist, not sci-fi cluttered. Right-center composition.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 012 — Jensen Huang: "IA será trilhão"
+**Gancho visual:** escala global/cósmica.
+> Lumi flutuando no espaço olhando um globo terrestre estilizado (roxo/magenta) cercado por anéis orbitais de pequenos chips de computador girando ao redor, como satélites. Clima cósmico premium e minimalista. Comunica "isso é planetário".
 
 ---
 
-## 013 — LLMs entendem? Opinião
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: Lumi sitting in a "thinker" pose (mascot version of Rodin's The Thinker — head slightly tilted, one little articulated arm of the lamp resting near where chin would be). Around Lumi, floating translucent question-mark shapes (NO actual "?" character — use abstract curved-with-dot shapes). The whole scene has a philosophical/contemplative feel. Soft purple haze in the background. Center composition.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 013 — "LLM não entende"? (opinião)
+**Gancho visual:** filosofia/reflexão. Pose icônica.
+> Lumi na pose do "Pensador" de Rodin (cabeça levemente inclinada, braço articulado perto do "queixo"), cercado de pontos de interrogação flutuantes translúcidos e uma névoa roxa suave ao fundo. Clima contemplativo. Comunica "vamos pensar com profundidade".
 
 ---
 
-## 014 — Como o Lumio nasceu (BTS)
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: A cozy stylized 3D student room interior — small desk with an open laptop (screen showing abstract blue/purple glow, NO UI text), a cream notebook, a coffee cup, and Lumi sitting on the desk corner. Window in the background showing dusk/night sky with stars. Warm lamp light from Lumi illuminating the scene with purple glow. Premium illustration feel, like a Pixar interior. Wide composition with breathing space top.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 014 — Como o Lumio nasceu (bastidores)
+**Gancho visual:** intimidade/origem. Aconchego de quarto de estudante.
+> Quarto de estudante aconchegante à noite: mesa com laptop aberto (tela com brilho roxo, sem texto), um caderno, uma xícara de café, e o Lumi sentado no canto da mesa iluminando tudo com sua luz roxa. Janela ao fundo com céu estrelado. Clima Pixar, acolhedor. Comunica "começou pequeno, como você".
 
 ---
 
-## 015 — ImageNet Fei-Fei Li
-
-```
-Premium 3D editorial render for Lumio brand. ASPECT RATIO: square 1:1.
-
-SCENE: A 3D grid/mosaic of tiny abstract image thumbnails (cream and purple squares, like a wall of pixelated/blurred photos — NO recognizable images, just abstract patterns). The grid covers most of the upper half of the canvas. In the foreground, Lumi pointing at one square in the grid that's highlighted/glowing fuchsia. Suggests "the moment everything changed". Bottom-center composition.
-
-[Mesmo bloco LUMI MASCOT + VISUAL STYLE + PALETTE + TEXT POLICY + NEGATIVE]
-```
+## 015 — ImageNet: o momento que mudou a IA
+**Gancho visual:** "o ponto de virada", uma peça que brilha no meio do caos.
+> Uma parede/mosaico gigante de milhares de quadradinhos abstratos (creme e roxo, como fotos pixeladas), e no meio UM quadradinho aceso/brilhando em magenta. Lumi na frente apontando pra ele. Comunica "este foi o momento que mudou tudo".
 
 ---
 
-## Workflow rápido
+---
 
-```bash
-# Pra cada imagem gerada:
-# 1. Salva como JPG na pasta do post (ex: ~/Downloads/imagem.jpg)
-# 2. Move + renomeia:
-mv ~/Downloads/imagem.jpg content/marketing/posts/002-gpt4-custo-treino/1x1.jpg
+# POSTS DE PRODUTO (os que vendem o app)
 
-# 3. Se passar de 500KB, comprime:
-sips -s format jpeg -s formatOptions 85 content/marketing/posts/002-gpt4-custo-treino/1x1.jpg --out content/marketing/posts/002-gpt4-custo-treino/1x1.jpg
+Mesma lógica, mas aqui o Lumi está **resolvendo a dor** ou **mostrando o benefício**. Imagem com vibe positiva, solução, alívio.
 
-# 4. Quando todos os 14 estiverem prontos, vai no painel:
-# /admin/marketing/crescimento → Calendário → Sincronizar pasta
-# Cron já cuida do resto.
-```
+## 016 — 1 aula = 4 formas de revisar
+**Gancho visual:** o Lumi no centro como "fábrica" que multiplica.
+> Lumi no centro, sorrindo, e ao redor dele 4 ícones 3D flutuando em círculo, conectados a ele por linhas de luz roxa: um documento (resumo), um cartão (flashcard), um balão de pergunta (quiz) e um mapa mental ramificado. Sensação de "uma coisa vira quatro". Limpo, organizado.
 
-## Cronograma de geração sugerido
+## 017 — 8 matérias, 1 semana, 0 pânico
+**Gancho visual:** ordem e calma no meio do que seria caos.
+> Lumi calmo e confiante organizando pastas/fichários 3D coloridos flutuando em ordem ao redor dele (cada um de uma cor da paleta), como se estivesse no controle de tudo. Expressão tranquila. Comunica "tá tudo sob controle".
 
-Não precisa fazer os 14 de uma vez. Sugiro:
-- **Hoje (27/05)**: gera 002, 003, 004 (3 imagens, ~15min no ChatGPT)
-- **Amanhã**: gera 005, 006, 007
-- **Quinta**: gera 008, 009, 010, 011
-- **Sexta**: gera 012, 013, 014, 015
+## 018 — Pergunte na aula, o Lumi responde
+**Gancho visual:** interação por voz, resposta instantânea.
+> Lumi com fones de ouvido pequenos, ondas sonoras suaves saindo dele, e um balão de fala/resposta 3D surgindo ao lado com um pequeno check ou lâmpada de ideia. Comunica "você fala, ele responde na hora".
 
-Os 3 primeiros já são suficientes pra começar a publicação no dia 28/05.
+## 019 — Apostila + aula = 1 material
+**Gancho visual:** duas coisas se conectando/fundindo.
+> Lumi no meio conectando com as mãozinhas (braço articulado) um PDF 3D de um lado e um ícone de áudio/onda sonora do outro, com um fio de luz roxa unindo os dois numa única peça brilhante no centro. Comunica "tudo conversa".
+
+## 020 — Do caos à organização (antes/depois)
+**Gancho visual:** split screen, transformação visível.
+> Imagem dividida: lado esquerdo bagunçado e acinzentado (pilha de ícones de áudio embaralhados, sem ordem), lado direito limpo e colorido (Lumi com pastas organizadas por matéria, tudo arrumado e brilhando). Seta ou transição no meio. Comunica "antes vs depois".
+
+## 021 — Feito pra faculdade brasileira
+**Gancho visual:** identidade nacional, orgulho local.
+> Lumi segurando/ao lado de um caderno 3D aberto com um pequeno detalhe verde-amarelo sutil (sem bandeira literal — só um toque de cor brasileira), com elementos de faculdade ao redor (capelo de formatura, livros). Clima acolhedor e nacional. Comunica "feito pra você, brasileiro".
+
+## 022 — 50 coins grátis, sem cartão
+**Gancho visual:** presente/oferta, generosidade.
+> Lumi entregando/oferecendo com as mãozinhas um punhado de moedas roxas 3D com símbolo de estrela, que brilham e flutuam. Expressão simpática e convidativa. Algumas moedas caindo suavemente. Comunica "isso é um presente pra você".
+
+---
+
+## Dica de marketing pra cada cena
+
+Todas seguem 3 regras de scroll-stopper:
+1. **Contraste de escala** (Lumi pequeno vs algo gigante) → cria impacto e curiosidade
+2. **Uma emoção clara** (impressão, esforço, descoberta, foco) → conecta
+3. **Espaço vazio** num canto → pra você pôr o título/gancho por cima no Canva depois
+
+Quando gerar, salva como JPG e me avisa — eu coloco na pasta certa pra você.
