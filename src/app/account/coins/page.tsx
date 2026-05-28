@@ -85,11 +85,16 @@ const REASON_META: Record<string, { label: string; icon: ReasonIcon }> = {
   admin_grant: { label: "Crédito do suporte", icon: Sparkles },
 };
 
+const HISTORY_PAGE = 8;
+
 function CoinsView({ user }: { user: User }) {
   void user;
   const [balance, setBalance] = useState<number | null>(null);
   const [transactions, setTransactions] = useState<Tx[]>([]);
   const [loading, setLoading] = useState(true);
+  // Histórico colapsado por padrão — mostra só os mais recentes pra não
+  // empurrar a página inteira com dezenas de linhas. "Ver mais" expande.
+  const [visibleCount, setVisibleCount] = useState(HISTORY_PAGE);
 
   useEffect(() => {
     let active = true;
@@ -314,7 +319,7 @@ function CoinsView({ user }: { user: User }) {
         ) : (
           <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
             <div className="divide-y divide-border/50">
-              {transactions.map((tx) => {
+              {transactions.slice(0, visibleCount).map((tx) => {
                 const meta = REASON_META[tx.reason] ?? {
                   label: tx.reason,
                   icon: CoinFallbackIcon,
@@ -368,6 +373,33 @@ function CoinsView({ user }: { user: User }) {
                 );
               })}
             </div>
+            {/* Controles de paginação client-side */}
+            {transactions.length > HISTORY_PAGE && (
+              <div className="flex items-center justify-center gap-3 border-t border-border/50 px-4 py-3">
+                {visibleCount < transactions.length && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() =>
+                      setVisibleCount((c) =>
+                        Math.min(c + HISTORY_PAGE * 2, transactions.length),
+                      )
+                    }
+                  >
+                    Ver mais ({transactions.length - visibleCount} restantes)
+                  </Button>
+                )}
+                {visibleCount > HISTORY_PAGE && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setVisibleCount(HISTORY_PAGE)}
+                  >
+                    Recolher
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
