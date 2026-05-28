@@ -56,9 +56,24 @@ const COSTS = [
 ];
 
 const TOPUPS = [
-  { coins: 100, price: 12, perCoin: 0.12 },
-  { coins: 500, price: 50, perCoin: 0.1, discount: "−17%", popular: true },
-  { coins: 1500, price: 120, perCoin: 0.08, discount: "−33%" },
+  { coins: 100, price: 12, perCoin: 0.12, img: "/coins/pack_100.png", iconMaxH: "max-h-12" },
+  {
+    coins: 500,
+    price: 50,
+    perCoin: 0.1,
+    discount: "−17%",
+    popular: true,
+    img: "/coins/pack_500.png",
+    iconMaxH: "max-h-[72px]",
+  },
+  {
+    coins: 1500,
+    price: 120,
+    perCoin: 0.08,
+    discount: "−33%",
+    img: "/coins/pack_1500.png",
+    iconMaxH: "max-h-24",
+  },
 ];
 
 type ReasonIcon = React.ComponentType<{ className?: string }>;
@@ -212,14 +227,13 @@ function CoinsView({ user }: { user: User }) {
       {/* Saldo + ações */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
         <div className="relative lg:col-span-2 overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-fuchsia-500/5 p-6 shadow-lg shadow-primary/10">
-          {/* Lumi mascote + moedas — decorativo, canto direito. Menor que o
-              mockup pra não competir com o número do saldo. Escondido em
-              telas estreitas pra não cobrir o conteúdo. */}
+          {/* Lumi + baú de moedas — herói do card, lado direito, centralizado
+              na altura. Escondido em telas estreitas pra não cobrir o saldo. */}
           <img
             src="/coins/lumi-hero.png"
             alt=""
             aria-hidden="true"
-            className="pointer-events-none select-none absolute -right-2 bottom-0 hidden sm:block w-32 md:w-40 opacity-95 drop-shadow-md"
+            className="pointer-events-none select-none absolute right-2 top-1/2 -translate-y-1/2 hidden sm:block w-36 md:w-48 lg:w-56 drop-shadow-md"
           />
           <div className="relative flex items-start justify-between">
             <div>
@@ -341,12 +355,25 @@ function CoinsView({ user }: { user: User }) {
               )}
             >
               {pack.popular && (
-                <Badge variant="default" className="absolute -top-2 right-4 text-[10px]">
+                <Badge variant="default" className="absolute -top-2 right-4 text-[10px] z-10">
                   Mais vendido
                 </Badge>
               )}
-              <div className="flex items-center gap-2">
-                <LumioCoin size={22} />
+              {/* Palco do ícone: altura fixa do stage; cada pacote tem seu
+                  tamanho (baú maior que as pilhas de moeda) pra criar
+                  hierarquia de valor. */}
+              <div className="flex h-24 items-center justify-center">
+                <img
+                  src={pack.img}
+                  alt=""
+                  aria-hidden="true"
+                  className={cn(
+                    "pointer-events-none select-none w-auto object-contain drop-shadow-md",
+                    pack.iconMaxH,
+                  )}
+                />
+              </div>
+              <div className="mt-1 flex items-baseline gap-1.5">
                 <span className="text-2xl font-bold font-mono tabular-nums">
                   {pack.coins}
                 </span>
