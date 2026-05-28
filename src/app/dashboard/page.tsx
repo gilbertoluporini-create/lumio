@@ -59,6 +59,7 @@ import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CountUp } from "@/components/ui/count-up";
 import {
   subscribeFavorites,
   toggleFavorite,
@@ -769,7 +770,7 @@ function Dashboard({ user }: { user: User }) {
       </div>
 
       {/* 4 KPI cards */}
-      <div className="mb-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="stagger-in mb-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KPICard
           Icon={CalendarDays}
           label="Próxima aula"
@@ -806,7 +807,7 @@ function Dashboard({ user }: { user: User }) {
         <KPICard
           Icon={FileText}
           label="Resumos gerados"
-          value={String(stats.withSummary)}
+          value={<CountUp value={stats.withSummary} />}
           sub={
             trends.summariesTrend > 0
               ? `↑ ${trends.summariesTrend}% vs. semana passada`
@@ -821,7 +822,7 @@ function Dashboard({ user }: { user: User }) {
         <KPICard
           Icon={Star}
           label="Progresso geral"
-          value={`${stats.progressPct}%`}
+          value={<CountUp value={stats.progressPct} suffix="%" />}
           sub={
             stats.progressPct >= 70
               ? "Continue assim!"
@@ -906,7 +907,7 @@ function Dashboard({ user }: { user: User }) {
             {subjects.length === 0 ? (
               <SubjectsEmpty onCreate={() => setNewOpen(true)} />
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 auto-rows-fr">
+              <div className="stagger-in grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3 auto-rows-fr">
                 {subjects.slice(0, 10).map((s) => {
                   const subjectLectures = lecturesBySubject[s.id] ?? [];
                   const subjectSummaries = summaries.filter(
@@ -1154,7 +1155,7 @@ function KPICard({
 }: {
   Icon: LucideIcon;
   label: string;
-  value: string;
+  value: React.ReactNode;
   sub?: string;
   subTone?: "positive" | "negative" | "neutral";
   href?: string;
@@ -1170,7 +1171,7 @@ function KPICard({
         : "text-muted-foreground";
 
   const content = (
-    <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 transition-all duration-200 ease-out will-change-transform hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg active:translate-y-0 active:scale-[0.99] h-full">
+    <div className="lift-card relative overflow-hidden rounded-2xl border border-border/60 bg-card p-4 hover:border-primary/40 h-full">
       <div className="flex items-start justify-between gap-2 mb-3">
         <div className="text-[11px] uppercase tracking-wider text-muted-foreground line-clamp-1">
           {label}
@@ -1329,7 +1330,7 @@ function SubjectMiniCard({
   const tone = getSubjectTone(subject.name);
 
   return (
-    <div className="group relative rounded-xl border border-border/60 bg-card transition-all duration-200 ease-out will-change-transform hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg active:translate-y-0 active:scale-[0.99] h-full flex flex-col">
+    <div className="group lift-card relative rounded-xl border border-border/60 bg-card hover:border-primary/40 h-full flex flex-col">
       <Link href={`/subject/${subject.id}`} className="block p-3 flex-1 flex flex-col">
         <div className="flex items-center justify-between gap-2 mb-2">
           <div
@@ -1337,7 +1338,7 @@ function SubjectMiniCard({
             style={{ backgroundColor: tone.bg, color: tone.text }}
           >
             {createElement(subjectIcon, {
-              className: "h-4 w-4",
+              className: "icon-pop h-4 w-4",
               strokeWidth: 2.2,
             })}
           </div>

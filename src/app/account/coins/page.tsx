@@ -24,6 +24,7 @@ import { LumiCharacter } from "@/components/brand/lumi";
 import { LumioCoin } from "@/components/brand/lumio-coin";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { CountUp } from "@/components/ui/count-up";
 import type { User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -258,9 +259,10 @@ function CoinsView({ user }: { user: User }) {
                   <Loader2 className="h-8 w-8 animate-spin text-primary" />
                 ) : (
                   <>
-                    <span className="text-5xl md:text-6xl font-bold font-mono tabular-nums">
-                      {balance ?? 0}
-                    </span>
+                    <CountUp
+                      value={balance ?? 0}
+                      className="text-5xl md:text-6xl font-bold font-mono tabular-nums"
+                    />
                     <span className="text-xl text-muted-foreground font-medium">
                       coins
                     </span>

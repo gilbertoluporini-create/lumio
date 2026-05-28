@@ -737,7 +737,7 @@ function FlashcardsHubView({ user }: { user: User }) {
         </div>
 
         {/* 4 stat cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-7">
+        <div className="stagger-in grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-7">
           <ProgressDonutCard
             value={stats.masteryPct}
             hasData={cardStates.length > 0}
@@ -1526,7 +1526,7 @@ function DueTodayCard({
     <button
       type="button"
       onClick={onClick}
-      className="w-full text-left block rounded-2xl border border-border/60 bg-card p-4 hover:border-primary/40 hover:bg-primary/5 transition-colors group"
+      className="lift-card w-full text-left block rounded-2xl border border-border/60 bg-card p-4 hover:border-primary/40 hover:bg-primary/5 group"
     >
       <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-2">
         Devido hoje
@@ -1584,7 +1584,7 @@ function DeckTable({
         <div>Nível</div>
         <div />
       </div>
-      <div className="divide-y divide-border/40">
+      <div className="stagger-in divide-y divide-border/40">
         {decks.map((d) => (
           <DeckRow
             key={d.assetId}

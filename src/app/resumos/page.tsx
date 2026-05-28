@@ -715,7 +715,7 @@ function ResumosView({ user }: { user: User }) {
                   : "Nenhum resumo encontrado com esses filtros."}
               </div>
             ) : (
-              <div className="divide-y divide-border/40">
+              <div className="stagger-in divide-y divide-border/40">
                 {tableItems.map((item) => (
                   <SummaryTableRow
                     key={item.summary.id}

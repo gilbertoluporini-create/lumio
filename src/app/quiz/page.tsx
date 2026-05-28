@@ -735,7 +735,7 @@ function QuizView({ user }: { user: User }) {
       />
 
       {/* KPI cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="stagger-in grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {/* 1. Desempenho geral */}
         <div className="rounded-2xl border border-border/60 bg-card p-5">
           <div className="text-[11px] uppercase tracking-wider text-muted-foreground mb-3">
@@ -1056,7 +1056,7 @@ function QuizView({ user }: { user: User }) {
               </Button>
             </div>
           ) : (
-            <div className="space-y-2.5">
+            <div className="stagger-in space-y-2.5">
               {filteredQuizzes.map((quiz) => {
                 const lec = lectureById.get(quiz.lecture_id);
                 const sub = lec ? subjectById.get(lec.subjectId) : null;

@@ -806,7 +806,7 @@ function FavoritesTable({
         <div className="text-right">Ações</div>
       </div>
 
-      <ul className="divide-y divide-border/50">
+      <ul className="stagger-in divide-y divide-border/50">
         {items.map((it) => (
           <FavoriteRow
             key={it.key}

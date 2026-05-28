@@ -158,6 +158,7 @@ function SettingsView({ user }: { user: User }) {
           icon={Bell}
           title="Notificações"
           description="O que o Lumi pode te avisar por email."
+          iconClass="icon-wiggle"
         >
           <div className="space-y-2 mt-3">
             <Toggle
@@ -270,17 +271,19 @@ function SettingsCard({
   description,
   children,
   variant,
+  iconClass,
 }: {
   icon: typeof Bell;
   title: string;
   description: string;
   children: React.ReactNode;
   variant?: "danger";
+  iconClass?: string;
 }) {
   return (
     <div
       className={cn(
-        "rounded-2xl border bg-card p-5",
+        "group rounded-2xl border bg-card p-5",
         variant === "danger" ? "border-amber-500/30" : "border-border/60",
       )}
     >
@@ -293,7 +296,7 @@ function SettingsCard({
               : "bg-primary/10 text-primary",
           )}
         >
-          <Icon className="h-4 w-4" />
+          <Icon className={cn("h-4 w-4", iconClass)} />
         </div>
         <div className="flex-1 min-w-0">
           <h3 className="text-sm font-semibold">{title}</h3>

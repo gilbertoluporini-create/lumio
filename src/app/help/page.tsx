@@ -231,7 +231,7 @@ function HelpView({ user }: { user: User }) {
                 <Link
                   key={`${hit.category.slug}-${hit.article.slug}`}
                   href={`/help/${hit.category.slug}/${hit.article.slug}`}
-                  className="group flex flex-col rounded-xl border border-border/60 bg-card p-4 transition-all hover:border-primary/40 hover:shadow-md hover:shadow-primary/5"
+                  className="group flex flex-col rounded-xl border border-border/60 bg-card p-4 lift-card hover:border-primary/40"
                 >
                   <span className="text-[11px] uppercase tracking-wide text-muted-foreground">
                     {hit.category.title}
@@ -295,10 +295,10 @@ function HelpView({ user }: { user: User }) {
                 <Link
                   key={cat.slug}
                   href={`/help/${cat.slug}`}
-                  className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-5 text-left transition-all hover:border-primary/40 hover:shadow-md hover:shadow-primary/5 hover:-translate-y-0.5"
+                  className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-5 text-left lift-card hover:border-primary/40"
                 >
                   <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
-                    <Icon className="h-5 w-5" aria-hidden="true" />
+                    <Icon className="icon-pop h-5 w-5" aria-hidden="true" />
                   </div>
                   <h3 className="mt-4 text-base font-semibold tracking-tight">
                     {cat.title}
@@ -337,7 +337,7 @@ function HelpView({ user }: { user: User }) {
             <Link
               key={guide.id}
               href={guide.href}
-              className="group flex h-full flex-col rounded-2xl border border-border/60 bg-card text-left transition-all hover:border-primary/40 hover:shadow-md hover:shadow-primary/5 hover:-translate-y-0.5"
+              className="group flex h-full flex-col rounded-2xl border border-border/60 bg-card text-left lift-card hover:border-primary/40"
             >
               <div className="relative flex h-40 items-center justify-center bg-gradient-to-br from-primary/10 via-fuchsia-500/5 to-transparent rounded-t-2xl">
                 <div className="relative w-32 md:w-36 [mask-image:linear-gradient(180deg,black_60%,transparent_100%)]">
@@ -432,7 +432,7 @@ function HelpView({ user }: { user: User }) {
           <button
             type="button"
             onClick={() => scrollTo(faqRef)}
-            className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-6 text-left transition-all hover:border-primary/40 hover:shadow-md hover:shadow-primary/5 hover:-translate-y-0.5"
+            className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-6 text-left lift-card hover:border-primary/40"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
@@ -458,7 +458,7 @@ function HelpView({ user }: { user: User }) {
               setSupportSubject("Feedback Lumio");
               setSupportOpen(true);
             }}
-            className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-6 text-left transition-all hover:border-primary/40 hover:shadow-md hover:shadow-primary/5 hover:-translate-y-0.5"
+            className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-6 text-left lift-card hover:border-primary/40"
           >
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img

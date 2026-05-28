@@ -185,7 +185,7 @@ function DocumentosView({ user }: { user: User }) {
       )}
 
       {/* Grid de matérias */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr">
+      <div className="stagger-in grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 auto-rows-fr">
         {filteredSubjects.map((s) => {
           const stats = statsBySubject[s.id] ?? {
             lectures: 0,
@@ -293,12 +293,12 @@ function SubjectCard({
   return (
     <Link
       href={`/subject/${subject.id}`}
-      className="group h-full flex flex-col rounded-2xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-md transition-all p-5"
+      className="group lift-card h-full flex flex-col rounded-2xl border border-border/60 bg-card hover:border-primary/40 p-5"
     >
       <div className="flex items-start gap-3 mb-4">
         <div className="h-12 w-12 shrink-0 rounded-xl bg-primary/10 dark:bg-primary/15 flex items-center justify-center group-hover:bg-primary/20 transition-colors">
           {createElement(Icon, {
-            className: "h-6 w-6 text-primary",
+            className: "icon-pop h-6 w-6 text-primary",
             strokeWidth: 2.2,
           })}
         </div>

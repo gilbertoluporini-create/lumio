@@ -313,7 +313,7 @@ function GravacoesView({ user }: { user: User }) {
                   Nenhuma gravação encontrada com esse filtro.
                 </div>
               ) : (
-                <div className="divide-y divide-border/40">
+                <div className="stagger-in divide-y divide-border/40">
                   {filteredLectures.map((l) => (
                     <LectureTableRow
                       key={l.id}
