@@ -32,7 +32,54 @@ export type PublishResult = { id: string; permalink: string | null };
 export type NetworkResults = Partial<Record<Network, PublishResult>>;
 export type NetworkErrors = Partial<Record<Network, string>>;
 
+// Lista ordenada de imagens pro carrossel: capa (1x1) + slides 2..10 contíguos.
+// 1 url = post simples; 2+ = carrossel.
+function carouselImageUrls(draft: DraftForPublish): string[] {
+  const urls: string[] = [];
+  const cover = draft.images.ratio_1x1?.url;
+  if (cover) urls.push(cover);
+  for (let n = 2; n <= 10; n++) {
+    const s = draft.images[`slide_${n}`];
+    if (s?.url) urls.push(s.url);
+    else break;
+  }
+  return urls;
+}
+
 // --- Instagram --------------------------------------------------------------
+
+async function igCreateContainer(
+  igId: string,
+  token: string,
+  params: Record<string, string>,
+): Promise<string> {
+  const res = await fetch(
+    `${GRAPH}/${igId}/media?${new URLSearchParams({ ...params, access_token: token }).toString()}`,
+    { method: "POST" },
+  );
+  const json = await res.json();
+  if (!res.ok || !json.id) {
+    throw new Error(
+      `IG container falhou: ${JSON.stringify(json.error || json).slice(0, 300)}`,
+    );
+  }
+  return json.id as string;
+}
+
+async function igWaitFinished(containerId: string, token: string): Promise<void> {
+  for (let i = 0; i < 12; i++) {
+    await new Promise((r) => setTimeout(r, 2500));
+    const sRes = await fetch(
+      `${GRAPH}/${containerId}?fields=status_code&access_token=${token}`,
+    );
+    const sj = await sRes.json();
+    if (sj.status_code === "FINISHED") return;
+    if (sj.status_code === "ERROR" || sj.status_code === "EXPIRED") {
+      throw new Error(`IG container status=${sj.status_code}`);
+    }
+  }
+  throw new Error("IG container demorou >30s");
+}
 
 async function publishInstagram(
   draft: DraftForPublish,
@@ -44,46 +91,43 @@ async function publishInstagram(
     | undefined;
   if (!ig?.caption) throw new Error("instagram caption ausente");
 
-  const img = draft.images.ratio_1x1?.url;
-  if (!img) throw new Error("imagem 1:1 ausente");
+  const urls = carouselImageUrls(draft);
+  if (urls.length === 0) throw new Error("imagem 1:1 ausente");
 
   const hashtags = Array.isArray(ig.hashtags)
     ? ig.hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ")
     : "";
   const fullCaption = `${ig.caption}\n\n${hashtags}`.trim();
 
-  const createRes = await fetch(
-    `${GRAPH}/${igId}/media?${new URLSearchParams({
-      image_url: img,
+  let creationId: string;
+  if (urls.length === 1) {
+    creationId = await igCreateContainer(igId, token, {
+      image_url: urls[0],
       caption: fullCaption,
-      access_token: token,
-    }).toString()}`,
-    { method: "POST" },
-  );
-  const createJson = await createRes.json();
-  if (!createRes.ok || !createJson.id) {
-    throw new Error(
-      `IG container falhou: ${JSON.stringify(createJson.error || createJson).slice(0, 300)}`,
-    );
-  }
-  const containerId = createJson.id as string;
-
-  for (let i = 0; i < 12; i++) {
-    await new Promise((r) => setTimeout(r, 2500));
-    const sRes = await fetch(
-      `${GRAPH}/${containerId}?fields=status_code&access_token=${token}`,
-    );
-    const sj = await sRes.json();
-    if (sj.status_code === "FINISHED") break;
-    if (sj.status_code === "ERROR" || sj.status_code === "EXPIRED") {
-      throw new Error(`IG container status=${sj.status_code}`);
+    });
+    await igWaitFinished(creationId, token);
+  } else {
+    // carrossel: 1 container por imagem (is_carousel_item) + container CAROUSEL
+    const children: string[] = [];
+    for (const url of urls) {
+      const childId = await igCreateContainer(igId, token, {
+        image_url: url,
+        is_carousel_item: "true",
+      });
+      await igWaitFinished(childId, token);
+      children.push(childId);
     }
-    if (i === 11) throw new Error("IG container demorou >30s");
+    creationId = await igCreateContainer(igId, token, {
+      media_type: "CAROUSEL",
+      children: children.join(","),
+      caption: fullCaption,
+    });
+    await igWaitFinished(creationId, token);
   }
 
   const pubRes = await fetch(
     `${GRAPH}/${igId}/media_publish?${new URLSearchParams({
-      creation_id: containerId,
+      creation_id: creationId,
       access_token: token,
     }).toString()}`,
     { method: "POST" },
@@ -120,6 +164,23 @@ async function getPageToken(pageId: string, userToken: string): Promise<string> 
   return j.access_token as string;
 }
 
+async function fbPermalink(
+  postId: string,
+  pageToken: string,
+): Promise<PublishResult> {
+  let permalink: string | null = null;
+  try {
+    const r = await fetch(
+      `${GRAPH}/${postId}?fields=permalink_url&access_token=${pageToken}`,
+    );
+    const j = await r.json();
+    permalink = j.permalink_url || null;
+  } catch {
+    /* ignore */
+  }
+  return { id: postId, permalink };
+}
+
 async function publishFacebook(
   draft: DraftForPublish,
   userToken: string,
@@ -133,8 +194,9 @@ async function publishFacebook(
     | undefined;
   // FB usa caption própria se existir, senão herda da IG
   const captionRaw = fb?.caption ?? ig?.caption;
-  const img = draft.images.ratio_1x1?.url;
-  if (!captionRaw || !img) throw new Error("FB: caption ou imagem 1:1 ausente");
+  const urls = carouselImageUrls(draft);
+  if (!captionRaw || urls.length === 0)
+    throw new Error("FB: caption ou imagem 1:1 ausente");
 
   const hashtags = !fb?.caption && Array.isArray(ig?.hashtags)
     ? ig!.hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ")
@@ -143,33 +205,55 @@ async function publishFacebook(
 
   const pageToken = await getPageToken(pageId, userToken);
 
-  const res = await fetch(
-    `${GRAPH}/${pageId}/photos?${new URLSearchParams({
-      url: img,
-      message,
-      access_token: pageToken,
-    }).toString()}`,
-    { method: "POST" },
+  // 1 imagem → foto direta; 2+ → álbum (fotos unpublished + post no feed)
+  if (urls.length === 1) {
+    const res = await fetch(
+      `${GRAPH}/${pageId}/photos?${new URLSearchParams({
+        url: urls[0],
+        message,
+        access_token: pageToken,
+      }).toString()}`,
+      { method: "POST" },
+    );
+    const json = await res.json();
+    if (!res.ok || !json.id) {
+      throw new Error(
+        `FB publish falhou: ${JSON.stringify(json.error || json).slice(0, 300)}`,
+      );
+    }
+    return fbPermalink(json.post_id || json.id, pageToken);
+  }
+
+  const mediaFbids: string[] = [];
+  for (const url of urls) {
+    const r = await fetch(
+      `${GRAPH}/${pageId}/photos?${new URLSearchParams({
+        url,
+        published: "false",
+        access_token: pageToken,
+      }).toString()}`,
+      { method: "POST" },
+    );
+    const j = await r.json();
+    if (!r.ok || !j.id) {
+      throw new Error(
+        `FB foto (álbum) falhou: ${JSON.stringify(j.error || j).slice(0, 300)}`,
+      );
+    }
+    mediaFbids.push(j.id as string);
+  }
+  const body = new URLSearchParams({ message, access_token: pageToken });
+  mediaFbids.forEach((id, i) =>
+    body.append(`attached_media[${i}]`, JSON.stringify({ media_fbid: id })),
   );
+  const res = await fetch(`${GRAPH}/${pageId}/feed`, { method: "POST", body });
   const json = await res.json();
   if (!res.ok || !json.id) {
     throw new Error(
-      `FB publish falhou: ${JSON.stringify(json.error || json).slice(0, 300)}`,
+      `FB álbum falhou: ${JSON.stringify(json.error || json).slice(0, 300)}`,
     );
   }
-
-  let permalink: string | null = null;
-  try {
-    const r = await fetch(
-      `${GRAPH}/${json.post_id || json.id}?fields=permalink_url&access_token=${pageToken}`,
-    );
-    const j = await r.json();
-    permalink = j.permalink_url || null;
-  } catch {
-    /* ignore */
-  }
-
-  return { id: json.post_id || json.id, permalink };
+  return fbPermalink(json.id, pageToken);
 }
 
 // --- Stubs Fase 2 -----------------------------------------------------------

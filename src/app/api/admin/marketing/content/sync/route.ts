@@ -188,6 +188,31 @@ async function syncOnePost(
     };
   }
 
+  // slides extras do carrossel (slide-2.jpg, slide-3.jpg, ...) — opcionais e
+  // contíguos a partir de 2. A capa é o 1x1.jpg (slide 1). Se houver slides,
+  // o publish monta carrossel [1x1, slide_2, slide_3, ...].
+  for (let n = 2; n <= 10; n++) {
+    const imgPath = path.join(folder, `slide-${n}.jpg`);
+    let fileStat;
+    try {
+      fileStat = await stat(imgPath);
+    } catch {
+      break; // sem esse slide → para (slides são contíguos)
+    }
+    const keyName = `slide_${n}`;
+    const prev = existingImages[keyName];
+    if (
+      prev?.url &&
+      prev.uploaded_at &&
+      fileStat.mtime <= new Date(prev.uploaded_at)
+    ) {
+      images[keyName] = prev;
+      continue;
+    }
+    const url = await uploadImage(supabase, slug, `slide-${n}`, imgPath);
+    images[keyName] = { url, uploaded_at: new Date().toISOString() };
+  }
+
   if (!images.ratio_1x1) {
     throw new Error("1x1.jpg obrigatório (todas as redes usam)");
   }
