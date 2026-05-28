@@ -1,5 +1,46 @@
 # Lumio — ESTADO
 
+## 🟢🟢 2026-05-28 — PIPELINE DE PUBLICAÇÃO LIVE (go-live aprovado)
+
+**O sistema de publicação automática está LIGADO em produção.**
+
+### Como funciona (100% automático)
+1. Posts vivem em `content/marketing/posts/<slug>/` (metadata.json + 1x1.jpg)
+2. GitHub Actions `.github/workflows/publish-scheduled.yml` roda a cada 5min:
+   - **sync**: lê filesystem → sobe imagens pro Supabase Storage → upserta content_drafts (via Bearer CRON_SECRET)
+   - **publish**: publica os posts com scheduled_for <= now() no IG + FB Page
+3. Posts SEM imagem (1x1.jpg) são recusados pelo sync → não entram no banco → não publicam (sem buraco fantasma)
+
+### Correções críticas dessa sessão (estavam travando tudo)
+- **Domínio**: workflow usava `lumioapp.net` que redireciona 307 → `www.lumioapp.net`, e curl dropa Authorization no redirect (401). Fix: usar www direto.
+- **Sync automático**: endpoint `/api/admin/marketing/content/sync` agora aceita Bearer CRON_SECRET (além de sessão admin). Antes dependia de clique manual no painel.
+- **Otimização**: sync pula re-upload de imagem se mtime <= uploaded_at (não re-sobe 21 imagens por tick).
+- `CRON_SECRET` está nos GitHub repo secrets (via `gh secret set`).
+
+### Cronograma LIVE (6 posts prontos, 29/05→03/06)
+| Data | Post | Status |
+|------|------|--------|
+| 29/05 19h | 016 "Estude do seu jeito" | 🟢 publica automático (PRIMEIRO) |
+| 30/05 12h | 006 "3 técnicas" | 🟢 |
+| 31/05 19h | 017 "Semana organizada" | 🟢 |
+| 01/06 12h | 018 "Pergunte na hora" | 🟢 |
+| 02/06 19h | 022 "50 coins" | 🟢 |
+| 03/06 12h | 002 "GPT-4" | ⚠️ imagem SEM TEXTO — regenerar antes |
+| 04/06→18/06 | 15 posts restantes | ⬜ entram conforme gerar imagem |
+
+### Pendências user-side
+- **Regenerar 002 com texto** antes de 03/06 (briefing em content/marketing/BRIEFING_VISUAL.md)
+- **Gerar imagens dos 15 restantes** (prompts prontos em BRIEFING_VISUAL.md). Salvar como 1x1.jpg na pasta do post, commitar/push → entra automático no próximo sync
+- Decisões pendentes (anotadas): TikTok (resolver integração técnica primeiro), impulsionar (mix produto + melhor curiosidade)
+
+### Docs de marketing
+- `content/marketing/README.md` — schema metadata.json
+- `content/marketing/BRIEFING_VISUAL.md` — textos prontos de cada imagem (modelo com texto embutido)
+- `content/marketing/IMAGE_PROMPTS.md` — cenas criativas
+- `content/marketing/OVERLAY_TEXTOS.md` — títulos estilo número de impacto
+
+
+
 ## 🟢 SESSÃO 2026-05-27 noite — X PUBLISH + GITHUB ACTIONS CRON
 
 ### Mudanças críticas
