@@ -239,13 +239,14 @@ function CoinsView({ user }: { user: User }) {
       {/* Saldo + ações */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
         <div className="relative lg:col-span-2 overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-fuchsia-500/5 p-6 shadow-lg shadow-primary/10">
-          {/* Lumi + baú de moedas — herói do card, lado direito, centralizado
-              na altura. Escondido em telas estreitas pra não cobrir o saldo. */}
+          {/* Lumi + baú de moedas — herói do card. Mobile: pequeno no canto
+              superior direito (não cobre o saldo). sm+/desktop: grande e
+              centralizado na altura à direita (layout original inalterado). */}
           <img
             src="/coins/lumi-hero.png"
             alt=""
             aria-hidden="true"
-            className="pointer-events-none select-none absolute right-2 top-1/2 -translate-y-1/2 hidden sm:block w-36 md:w-48 lg:w-56 drop-shadow-md"
+            className="pointer-events-none select-none absolute right-3 top-3 w-20 sm:right-2 sm:top-1/2 sm:-translate-y-1/2 sm:w-36 md:w-48 lg:w-56 drop-shadow-md"
           />
           <div className="relative flex items-start justify-between">
             <div>
