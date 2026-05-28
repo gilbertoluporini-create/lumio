@@ -14,6 +14,7 @@ import {
   Mic,
   Network,
   Plus,
+  Receipt,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
@@ -78,10 +79,6 @@ const TOPUPS = [
 
 type ReasonIcon = React.ComponentType<{ className?: string }>;
 
-function CoinFallbackIcon({ className }: { className?: string }) {
-  return <LumioCoin size={16} className={className} />;
-}
-
 const REASON_META: Record<string, { label: string; icon: ReasonIcon }> = {
   welcome_bonus: { label: "Bônus de boas-vindas", icon: Sparkles },
   subscription_renew: { label: "Renovação de assinatura", icon: TrendingUp },
@@ -99,6 +96,21 @@ const REASON_META: Record<string, { label: string; icon: ReasonIcon }> = {
   refund: { label: "Reembolso (erro)", icon: ArrowRight },
   admin_grant: { label: "Crédito do suporte", icon: Sparkles },
 };
+
+// Motivos não mapeados (ex: "refund_failed_summary") caíam num ícone de
+// moeda genérico, poluindo o histórico. Resolve pra ícone neutro + rótulo
+// legível em vez do nome cru do reason.
+function resolveReasonMeta(reason: string): { label: string; icon: ReasonIcon } {
+  const known = REASON_META[reason];
+  if (known) return known;
+  if (reason.startsWith("refund")) {
+    return { label: "Reembolso", icon: ArrowRight };
+  }
+  const label = reason
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+  return { label, icon: Receipt };
+}
 
 const HISTORY_PAGE = 8;
 
@@ -455,10 +467,7 @@ function CoinsView({ user }: { user: User }) {
                 }
                 // Transação única
                 const { tx } = item;
-                const meta = REASON_META[tx.reason] ?? {
-                  label: tx.reason,
-                  icon: CoinFallbackIcon,
-                };
+                const meta = resolveReasonMeta(tx.reason);
                 const Icon = meta.icon;
                 const positive = tx.amount > 0;
                 const date = new Date(tx.created_at);

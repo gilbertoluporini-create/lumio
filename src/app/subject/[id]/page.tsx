@@ -48,7 +48,7 @@ import {
   listLecturesAsync,
 } from "@/lib/db";
 import { listSummariesAsync } from "@/lib/summaries";
-import { listDocumentsAsync } from "@/lib/documents";
+import { deleteDocumentAsync, listDocumentsAsync } from "@/lib/documents";
 import {
   DAY_LABELS_LONG,
   type Document as LumioDocument,
@@ -72,6 +72,15 @@ type SubjectAsset = {
   created_at: string;
   updated_at: string;
 };
+
+type FilterKey =
+  | "all"
+  | "lectures"
+  | "summaries"
+  | "flashcards"
+  | "quiz"
+  | "mindmap"
+  | "documents";
 
 export default function SubjectPage({
   params,
@@ -112,6 +121,12 @@ function SubjectView({
     "summary" | "flashcards" | "quiz" | null
   >(null);
   const [mindmapOpen, setMindmapOpen] = useState(false);
+  // Documento aberto no modal de info (PDFs da matéria). Clicar num PDF abre
+  // esse modal em vez de navegar pra tela de texto extraído.
+  const [docDialog, setDocDialog] = useState<LumioDocument | null>(null);
+  const [deletingDoc, setDeletingDoc] = useState(false);
+  // Filtro da pasta: "all" mostra tudo; senão isola uma categoria.
+  const [filter, setFilter] = useState<FilterKey>("all");
 
   async function refresh() {
     const [s, l, sm, d] = await Promise.all([
@@ -182,6 +197,26 @@ function SubjectView({
     }
   }
 
+  async function handleDeleteDocument(d: LumioDocument) {
+    if (
+      !confirm(
+        `Excluir o documento "${d.title}"? O resumo gerado a partir dele também será removido. Não dá pra desfazer.`,
+      )
+    )
+      return;
+    setDeletingDoc(true);
+    try {
+      await deleteDocumentAsync(user.id, d.id);
+      setDocDialog(null);
+      await refresh();
+      toast.success("Documento excluído.");
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setDeletingDoc(false);
+    }
+  }
+
   async function handleDeleteSubject() {
     if (!subject) return;
     if (
@@ -233,6 +268,57 @@ function SubjectView({
       }),
     [lectures],
   );
+
+  // Assets separados por tipo pra cada categoria virar sua própria seção
+  // (antes "Materiais gerados" misturava flashcards/quiz/mapas).
+  const flashcards = useMemo(
+    () => assets.filter((a) => a.kind === "flashcards"),
+    [assets],
+  );
+  const quizzes = useMemo(
+    () => assets.filter((a) => a.kind === "quiz"),
+    [assets],
+  );
+  const mindmaps = useMemo(
+    () => assets.filter((a) => a.kind === "mindmap"),
+    [assets],
+  );
+
+  // Categorias com conteúdo, na ordem da barra de filtros.
+  const categories = useMemo(
+    () =>
+      (
+        [
+          { key: "lectures", label: "Aulas", count: realLectures.length },
+          { key: "summaries", label: "Resumos", count: summaries.length },
+          { key: "flashcards", label: "Flashcards", count: flashcards.length },
+          { key: "quiz", label: "Quiz", count: quizzes.length },
+          { key: "mindmap", label: "Mapas", count: mindmaps.length },
+          { key: "documents", label: "PDFs", count: documents.length },
+        ] as Array<{ key: FilterKey; label: string; count: number }>
+      ).filter((c) => c.count > 0),
+    [
+      realLectures.length,
+      summaries.length,
+      flashcards.length,
+      quizzes.length,
+      mindmaps.length,
+      documents.length,
+    ],
+  );
+
+  const totalCount = useMemo(
+    () => categories.reduce((acc, c) => acc + c.count, 0),
+    [categories],
+  );
+
+  // Se o filtro ativo ficou sem itens (ex: após excluir), volta pra "all".
+  const effectiveFilter: FilterKey =
+    filter === "all" || categories.some((c) => c.key === filter)
+      ? filter
+      : "all";
+  const showSection = (key: FilterKey) =>
+    effectiveFilter === "all" || effectiveFilter === key;
 
   if (loading) {
     return (
@@ -375,64 +461,120 @@ function SubjectView({
         </div>
       )}
 
-      {/* Lista de aulas como subpastas */}
+      {/* Barra de filtros + conteúdo da pasta */}
       {realLectures.length === 0 &&
       documents.length === 0 &&
-      assets.length === 0 ? (
+      assets.length === 0 &&
+      summaries.length === 0 ? (
         <EmptyState onCreate={() => setNewOpen(true)} />
       ) : (
         <>
-          {realLectures.length > 0 && (
-            <div className="mb-6">
-              <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
-                Aulas gravadas · {realLectures.length}
-              </h2>
-              <div className="space-y-3">
-                {realLectures.map((l) => (
-                  <LectureFolder
-                    key={l.id}
-                    lecture={l}
-                    subjectColor={subject.color}
-                    hasSummary={lectureIdsWithSummary.has(l.id)}
-                    onDelete={() => handleDeleteLecture(l)}
-                  />
-                ))}
-              </div>
+          {categories.length > 1 && (
+            <div className="mb-6 flex flex-wrap gap-2">
+              <FilterChip
+                active={effectiveFilter === "all"}
+                label="Tudo"
+                count={totalCount}
+                onClick={() => setFilter("all")}
+              />
+              {categories.map((c) => (
+                <FilterChip
+                  key={c.key}
+                  active={effectiveFilter === c.key}
+                  label={c.label}
+                  count={c.count}
+                  onClick={() => setFilter(c.key)}
+                />
+              ))}
             </div>
           )}
 
-          {assets.length > 0 && (
-            <div className="mb-6">
-              <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
-                Materiais gerados · {assets.length}
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                {assets.map((a) => (
-                  <AssetCard key={a.id} asset={a} />
-                ))}
+          <div className="space-y-6">
+            {showSection("lectures") && realLectures.length > 0 && (
+              <div>
+                <SectionHeading label="Aulas gravadas" count={realLectures.length} />
+                <div className="space-y-3">
+                  {realLectures.map((l) => (
+                    <LectureFolder
+                      key={l.id}
+                      lecture={l}
+                      subjectColor={subject.color}
+                      hasSummary={lectureIdsWithSummary.has(l.id)}
+                      onDelete={() => handleDeleteLecture(l)}
+                    />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {documents.length > 0 && (
-            <div>
-              <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
-                Documentos · {documents.length}
-              </h2>
-              <div className="space-y-2">
-                {documents.map((d) => {
-                  const sm = summaries.find(
-                    (s) =>
-                      s.source.kind === "document" &&
-                      s.source.documentId === d.id,
-                  );
-                  return (
-                    <DocumentRow key={d.id} document={d} summary={sm} />
-                  );
-                })}
+            {showSection("summaries") && summaries.length > 0 && (
+              <div>
+                <SectionHeading label="Resumos" count={summaries.length} />
+                <div className="space-y-2">
+                  {summaries.map((sm) => (
+                    <SummaryRow key={sm.id} summary={sm} />
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
+            )}
+
+            {showSection("flashcards") && flashcards.length > 0 && (
+              <div>
+                <SectionHeading label="Flashcards" count={flashcards.length} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {flashcards.map((a) => (
+                    <AssetCard key={a.id} asset={a} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {showSection("quiz") && quizzes.length > 0 && (
+              <div>
+                <SectionHeading label="Quiz" count={quizzes.length} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {quizzes.map((a) => (
+                    <AssetCard key={a.id} asset={a} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {showSection("mindmap") && mindmaps.length > 0 && (
+              <div>
+                <SectionHeading label="Mapas mentais" count={mindmaps.length} />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  {mindmaps.map((a) => (
+                    <AssetCard key={a.id} asset={a} />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {showSection("documents") && documents.length > 0 && (
+              <div>
+                <SectionHeading label="Documentos (PDF)" count={documents.length} />
+                <div className="space-y-2">
+                  {documents.map((d) => {
+                    const sm = summaries.find(
+                      (s) =>
+                        s.source.kind === "document" &&
+                        s.source.documentId === d.id,
+                    );
+                    return (
+                      <DocumentRow
+                        key={d.id}
+                        document={d}
+                        summary={sm}
+                        onOpen={setDocDialog}
+                        onDelete={handleDeleteDocument}
+                      />
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </>
       )}
 
@@ -514,7 +656,94 @@ function SubjectView({
           refresh();
         }}
       />
+
+      {/* Modal de info do documento (PDF) */}
+      <DocumentInfoDialog
+        doc={docDialog}
+        subjectName={subject.name}
+        summary={
+          docDialog
+            ? summaries.find(
+                (s) =>
+                  s.source.kind === "document" &&
+                  s.source.documentId === docDialog.id,
+              )
+            : undefined
+        }
+        deleting={deletingDoc}
+        onClose={() => setDocDialog(null)}
+        onDelete={handleDeleteDocument}
+      />
     </div>
+  );
+}
+
+function FilterChip({
+  active,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+        active
+          ? "border-primary bg-primary text-primary-foreground"
+          : "border-border/60 bg-card text-muted-foreground hover:text-foreground hover:border-primary/40",
+      )}
+    >
+      {label}
+      <span
+        className={cn(
+          "font-mono tabular-nums",
+          active ? "text-primary-foreground/80" : "text-muted-foreground/70",
+        )}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+function SectionHeading({ label, count }: { label: string; count: number }) {
+  return (
+    <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
+      {label} · {count}
+    </h2>
+  );
+}
+
+function SummaryRow({ summary }: { summary: Summary }) {
+  const href =
+    summary.source.kind === "lecture"
+      ? `/resumo/${summary.source.lectureId}`
+      : `/resumo/doc/${summary.id}`;
+  return (
+    <Link
+      href={href}
+      className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-sm transition-all p-4"
+    >
+      <div className="h-10 w-10 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center shrink-0">
+        <Sparkles className="h-4 w-4 text-primary" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-sm font-semibold tracking-tight truncate group-hover:text-primary transition-colors">
+          {summary.title ?? "Resumo"}
+        </div>
+        <div className="text-xs text-muted-foreground mt-0.5">
+          Resumo · {formatRelativeTime(summary.updatedAt ?? summary.createdAt)}
+        </div>
+      </div>
+      <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
+    </Link>
   );
 }
 
@@ -720,41 +949,140 @@ function FeatureTab({
 function DocumentRow({
   document,
   summary,
+  onOpen,
+  onDelete,
 }: {
   document: LumioDocument;
   summary?: Summary;
+  onOpen: (d: LumioDocument) => void;
+  onDelete: (d: LumioDocument) => void;
 }) {
-  // Click sempre vai pra tela do documento. De lá, o user pode abrir
-  // o resumo gerado (se houver) ou gerar um novo.
-  const href = `/document/${document.id}`;
+  // Clicar abre o modal de info (não navega pra tela de texto extraído).
+  // A lixeira aparece no hover pra exclusão rápida.
   return (
-    <Link
-      href={href}
-      className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-sm transition-all p-4"
-    >
-      <div className="h-10 w-10 rounded-lg bg-sky-500/10 dark:bg-sky-500/15 flex items-center justify-center shrink-0">
-        <FileText className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-semibold tracking-tight truncate group-hover:text-primary transition-colors">
-          {document.title}
+    <div className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-sm transition-all p-4">
+      <button
+        type="button"
+        onClick={() => onOpen(document)}
+        className="flex items-center gap-3 min-w-0 flex-1 text-left"
+      >
+        <div className="h-10 w-10 rounded-lg bg-sky-500/10 dark:bg-sky-500/15 flex items-center justify-center shrink-0">
+          <FileText className="h-4 w-4 text-sky-600 dark:text-sky-400" />
         </div>
-        <div className="text-xs text-muted-foreground mt-0.5 inline-flex items-center gap-2">
-          <span>
-            PDF
-            {document.pageCount
-              ? ` · ${document.pageCount} ${document.pageCount === 1 ? "página" : "páginas"}`
-              : ""}
-          </span>
-          {summary && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-1.5 py-px text-[9px] font-mono uppercase tracking-wider">
-              <Sparkles className="h-2.5 w-2.5" /> Com resumo
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-semibold tracking-tight truncate group-hover:text-primary transition-colors">
+            {document.title}
+          </div>
+          <div className="text-xs text-muted-foreground mt-0.5 inline-flex items-center gap-2">
+            <span>
+              PDF
+              {document.pageCount
+                ? ` · ${document.pageCount} ${document.pageCount === 1 ? "página" : "páginas"}`
+                : ""}
             </span>
-          )}
+            {summary && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 text-primary px-1.5 py-px text-[9px] font-mono uppercase tracking-wider">
+                <Sparkles className="h-2.5 w-2.5" /> Com resumo
+              </span>
+            )}
+          </div>
         </div>
-      </div>
-      <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
-    </Link>
+      </button>
+      <button
+        type="button"
+        onClick={() => onDelete(document)}
+        aria-label={`Excluir ${document.title}`}
+        className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+function DocumentInfoDialog({
+  doc,
+  subjectName,
+  summary,
+  deleting,
+  onClose,
+  onDelete,
+}: {
+  doc: LumioDocument | null;
+  subjectName: string | null;
+  summary?: Summary;
+  deleting: boolean;
+  onClose: () => void;
+  onDelete: (d: LumioDocument) => void;
+}) {
+  return (
+    <Dialog
+      open={!!doc}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
+      <DialogContent className="max-w-md">
+        {doc && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 pr-6">
+                <span className="h-9 w-9 shrink-0 rounded-lg bg-sky-500/10 dark:bg-sky-500/15 flex items-center justify-center">
+                  <FileText className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+                </span>
+                <span className="min-w-0 break-words">{doc.title}</span>
+              </DialogTitle>
+              <DialogDescription>Documento PDF</DialogDescription>
+            </DialogHeader>
+
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-sm">
+              <dt className="text-muted-foreground">Tipo</dt>
+              <dd className="font-medium">
+                {doc.sourceKind === "pdf" ? "PDF" : "Texto"}
+              </dd>
+              {doc.pageCount ? (
+                <>
+                  <dt className="text-muted-foreground">Páginas</dt>
+                  <dd className="font-medium">{doc.pageCount}</dd>
+                </>
+              ) : null}
+              <dt className="text-muted-foreground">Matéria</dt>
+              <dd className="font-medium">{subjectName ?? "Sem matéria"}</dd>
+              <dt className="text-muted-foreground">Origem</dt>
+              <dd className="font-medium">Upload</dd>
+              <dt className="text-muted-foreground">Adicionado</dt>
+              <dd className="font-medium">{formatRelativeTime(doc.createdAt)}</dd>
+              <dt className="text-muted-foreground">Resumo</dt>
+              <dd className="font-medium">{summary ? "Gerado" : "Ainda não"}</dd>
+            </dl>
+
+            <DialogFooter className="flex-col-reverse sm:flex-row sm:justify-between gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => onDelete(doc)}
+                disabled={deleting}
+                className="text-red-600 hover:text-red-700 hover:bg-red-500/10"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deleting ? "Excluindo…" : "Excluir"}
+              </Button>
+              <div className="flex gap-2">
+                {summary && (
+                  <Button asChild variant="outline">
+                    <Link href={`/resumo/doc/${summary.id}`}>
+                      <Sparkles className="h-4 w-4" /> Abrir resumo
+                    </Link>
+                  </Button>
+                )}
+                <Button asChild variant="gradient">
+                  <Link href={`/document/${doc.id}`}>Abrir PDF</Link>
+                </Button>
+              </div>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
