@@ -1229,9 +1229,12 @@ function LumiAssistant({ user }: { user: User }) {
           <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-6">
             {/* Heading row */}
             <div className="flex items-center gap-4">
-              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
-                <Sparkles className="h-6 w-6 text-primary" />
-              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/illustrations/lumi-desk.png"
+                alt="Lumi"
+                className="h-24 w-24 shrink-0 object-contain drop-shadow-sm md:h-28 md:w-28"
+              />
               <div>
                 <h1 className="text-3xl heading-display text-foreground md:text-4xl">
                   Como o Lumi pode te ajudar?
