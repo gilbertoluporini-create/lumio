@@ -11,6 +11,7 @@ import { SmoothScroll } from "@/components/landing/smooth-scroll";
 import { AnalyticsScripts } from "@/components/analytics/analytics-scripts";
 import { AuthTracker } from "@/components/analytics/auth-tracker";
 import { UtmCapture } from "@/components/analytics/utm-capture";
+import { NativeViewportLock } from "@/components/app/native-viewport-lock";
 import { Suspense } from "react";
 import { ogImage, SITE_URL } from "@/lib/seo";
 
@@ -204,6 +205,7 @@ export default function RootLayout({
           // eslint-disable-next-line react/no-danger -- structured data
           dangerouslySetInnerHTML={{ __html: JSON.stringify(ROOT_JSON_LD) }}
         />
+        <NativeViewportLock />
         <SmoothScroll>{children}</SmoothScroll>
         <Toaster
           position="bottom-right"
