@@ -1,0 +1,35 @@
+name: Publish scheduled marketing posts
+
+# Substitui o cron Vercel (plano Hobby não permite */5min nem 3 crons).
+# Dispara endpoint /api/cron/publish-scheduled a cada 5 minutos.
+# Custo GitHub Actions free tier: ~1440 min/mês (dentro dos 2000 grátis).
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: publish-scheduled
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Trigger publish-scheduled endpoint
+        run: |
+          set -euo pipefail
+          RESPONSE=$(curl -sS -w "\n%{http_code}" \
+            --max-time 120 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://lumioapp.net/api/cron/publish-scheduled")
+          BODY=$(echo "$RESPONSE" | head -n -1)
+          CODE=$(echo "$RESPONSE" | tail -n 1)
+          echo "HTTP $CODE"
+          echo "$BODY"
+          if [ "$CODE" != "200" ]; then
+            echo "::error::cron endpoint returned HTTP $CODE"
+            exit 1
+          fi

@@ -1,5 +1,43 @@
 # Lumio — ESTADO
 
+## 🟢 SESSÃO 2026-05-27 noite — X PUBLISH + GITHUB ACTIONS CRON
+
+### Mudanças críticas
+
+**1. X (Twitter) publish ATIVO** (esperando env vars do user)
+- `marketing-publish.ts` agora chama `publish-x.ts` direto. Suporta thread (preferido) ou tweet único + imagem (landscape > 1x1).
+- Hashtags vão no último tweet da thread (não nos primeiros, pra evitar truncate).
+- Username default `lumioapp_br` (override via `X_USERNAME`).
+- **User precisa**: criar app developer.x.com + setar 4 env vars no Vercel: `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_TOKEN_SECRET`.
+
+**2. Cron migrado pro GitHub Actions** (Lumio é Vercel Hobby)
+- Hobby = max 2 crons + schedules daily-only. Lumio já tinha 2 (health-check + email-onboarding).
+- Solução: `.github/workflows/publish-scheduled.yml` dispara `*/5 * * * *` chamando `https://lumioapp.net/api/cron/publish-scheduled` com Bearer CRON_SECRET.
+- `vercel.json` voltou a ter só 2 crons (removido publish-scheduled).
+- Secret `CRON_SECRET` adicionado no GitHub repo via `gh secret set` (mesmo valor do Vercel env).
+- Custo: ~1440 min/mês de Actions (dentro dos 2000 grátis).
+
+### Schema metadata.json — content.x atualizado
+
+Suporta 2 formatos:
+```jsonc
+// Thread (preferido):
+"x": {
+  "thread": ["tweet1", "tweet2", "tweet3"],
+  "hashtags": ["ia", "tech"]
+}
+
+// Tweet único:
+"x": {
+  "tweet": "Texto único até 280 chars",
+  "hashtags": ["..."]
+}
+```
+
+Imagem usada: `landscape.jpg` (preferido) ou `1x1.jpg` (fallback). Hashtags concatenadas no último tweet.
+
+---
+
 ## 🟢 SESSÃO 2026-05-27 tarde — CALENDÁRIO + CRON DE PUBLICAÇÃO
 
 ### Pivô estratégico: removida geração via IA

@@ -7,7 +7,15 @@
  * Fase 2 stub: x + linkedin (env vars ausentes hoje, retornam erro claro)
  */
 
+import {
+  getXConfigFromEnv,
+  postThread,
+  postTweet,
+  uploadImageToX,
+} from "@/lib/publish-x";
+
 const GRAPH = "https://graph.facebook.com/v21.0";
+const X_USERNAME = process.env.X_USERNAME || "lumioapp_br";
 
 export type Network = "instagram" | "facebook" | "x" | "linkedin";
 export const ALL_NETWORKS: Network[] = ["instagram", "facebook", "x", "linkedin"];
@@ -166,20 +174,58 @@ async function publishFacebook(
 
 // --- Stubs Fase 2 -----------------------------------------------------------
 
-async function publishX(_draft: DraftForPublish): Promise<PublishResult> {
-  // src/lib/publish-x.ts existe mas requer env vars X_API_KEY etc.
-  // Quando user criar app developer.x.com e setar env, plugar aqui.
-  if (
-    !process.env.X_API_KEY ||
-    !process.env.X_API_SECRET ||
-    !process.env.X_ACCESS_TOKEN ||
-    !process.env.X_ACCESS_TOKEN_SECRET
-  ) {
+async function publishX(draft: DraftForPublish): Promise<PublishResult> {
+  const cfg = getXConfigFromEnv();
+  if (!cfg) {
     throw new Error(
       "X não configurado — faltam X_API_KEY/X_API_SECRET/X_ACCESS_TOKEN/X_ACCESS_TOKEN_SECRET",
     );
   }
-  throw new Error("X publish ainda não plugado (publish-x.ts disponível, integração pendente)");
+
+  const x = draft.content_per_network.x as
+    | { thread?: string[]; tweet?: string; hashtags?: string[] }
+    | undefined;
+  if (!x) throw new Error("X content ausente no metadata");
+
+  // Prefere imagem landscape (16:9); cai pra 1x1 se não tiver
+  const imageUrl =
+    draft.images.ratio_landscape?.url || draft.images.ratio_1x1?.url;
+
+  const hashtagsStr = Array.isArray(x.hashtags)
+    ? " " + x.hashtags.map((h) => (h.startsWith("#") ? h : `#${h}`)).join(" ")
+    : "";
+
+  // Modo thread (preferido) ou tweet único
+  if (Array.isArray(x.thread) && x.thread.length > 0) {
+    const texts = x.thread.map((t, i) =>
+      i === x.thread!.length - 1 ? `${t}${hashtagsStr}`.slice(0, 280) : t.slice(0, 280),
+    );
+    const result = await postThread({
+      texts,
+      imageUrl,
+      username: X_USERNAME,
+      cfg,
+    });
+    return { id: result.tweets[0].id, permalink: result.firstTweetUrl };
+  }
+
+  if (typeof x.tweet === "string" && x.tweet.trim()) {
+    let mediaIds: string[] | undefined;
+    if (imageUrl) {
+      const mediaId = await uploadImageToX(imageUrl, cfg);
+      mediaIds = [mediaId];
+    }
+    const t = await postTweet(
+      { text: `${x.tweet}${hashtagsStr}`.slice(0, 280), mediaIds },
+      cfg,
+    );
+    return {
+      id: t.id,
+      permalink: `https://x.com/${X_USERNAME}/status/${t.id}`,
+    };
+  }
+
+  throw new Error("X content sem thread[] nem tweet — verifique metadata.json");
 }
 
 async function publishLinkedIn(_draft: DraftForPublish): Promise<PublishResult> {
