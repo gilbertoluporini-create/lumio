@@ -23,6 +23,7 @@ import {
   MoreHorizontal,
   Play,
   Plus,
+  Search,
   Share2,
   Sparkles,
   Star,
@@ -47,6 +48,7 @@ import { LumiCharacter } from "@/components/brand/lumi";
 import {
   useAllDocuments,
   type DocumentItem,
+  type DocumentKind,
 } from "@/hooks/use-all-documents";
 import {
   removeFavorite,
@@ -69,7 +71,24 @@ export default function FavoritosPage() {
   );
 }
 
-type FavKind = "lecture" | "summary" | "flashcards" | "quiz" | "mindmap" | "subject";
+type FavKind =
+  | "lecture"
+  | "summary"
+  | "flashcards"
+  | "quiz"
+  | "mindmap"
+  | "subject"
+  | "document";
+
+// DocumentItem.kind (página da matéria) → FavKind (display nos favoritos).
+const DOC_KIND_TO_FAV: Record<DocumentKind, FavKind> = {
+  transcription: "lecture",
+  summary: "summary",
+  flashcards: "flashcards",
+  quiz: "quiz",
+  mindmap: "mindmap",
+  "pdf-upload": "document",
+};
 
 type FavoriteItem = {
   key: string;
@@ -86,7 +105,14 @@ type FavoriteItem = {
 };
 
 type SortMode = "recent" | "oldest" | "az" | "za";
-type TabId = "all" | "lecture" | "summary" | "flashcards" | "quiz";
+type TabId =
+  | "all"
+  | "lecture"
+  | "summary"
+  | "flashcards"
+  | "quiz"
+  | "mindmap"
+  | "document";
 
 const KIND_META: Record<FavKind, {
   label: string;
@@ -144,6 +170,14 @@ const KIND_META: Record<FavKind, {
     cta: "Abrir matéria",
     estimateMin: 0,
   },
+  document: {
+    label: "PDF",
+    icon: FileText,
+    iconBg: "bg-sky-500/10",
+    iconColor: "text-sky-600 dark:text-sky-400",
+    cta: "Abrir PDF",
+    estimateMin: 5,
+  },
 };
 
 const SORT_OPTIONS: Array<{ value: SortMode; label: string }> = [
@@ -159,6 +193,8 @@ const TABS: Array<{ id: TabId; label: string; match: FavKind[] }> = [
   { id: "summary", label: "Resumos", match: ["summary"] },
   { id: "flashcards", label: "Flashcards", match: ["flashcards"] },
   { id: "quiz", label: "Questões", match: ["quiz"] },
+  { id: "mindmap", label: "Mapas", match: ["mindmap"] },
+  { id: "document", label: "PDFs", match: ["document"] },
 ];
 
 const PAGE_SIZE = 8;
@@ -188,6 +224,7 @@ function Favoritos({ user }: { user: User }) {
   }, [summaries]);
   const [tab, setTab] = useState<TabId>("all");
   const [sort, setSort] = useState<SortMode>("recent");
+  const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [page, setPage] = useState(1);
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -210,8 +247,10 @@ function Favoritos({ user }: { user: User }) {
     const subjectById = new Map(subjects.map((s) => [s.id, s]));
     const lectureById = new Map(lectures.map((l) => [l.id, l]));
     const docByLectureKind = new Map<string, DocumentItem>();
+    const documentById = new Map<string, DocumentItem>();
     for (const d of documents) {
       docByLectureKind.set(`${d.kind}:${d.lectureId}`, d);
+      documentById.set(d.id, d);
     }
 
     const out: FavoriteItem[] = [];
@@ -286,6 +325,25 @@ function Favoritos({ user }: { user: User }) {
           description: desc ? desc.slice(0, 140) : "Resumo gerado pelo Lumio.",
           tags: ["Gerado pelo Lumio"],
         });
+      } else if (entry.kind === "document") {
+        // Arquivo da página da matéria (PDF, flashcards, quiz, mapa, resumo).
+        // Resolve pelo id unificado contra a lista do useAllDocuments.
+        const doc = documentById.get(entry.id);
+        if (!doc) continue;
+        const subject = doc.subjectId ? subjectById.get(doc.subjectId) : null;
+        out.push({
+          key: `document:${entry.id}`,
+          kind: DOC_KIND_TO_FAV[doc.kind],
+          storeKind: "document",
+          storeId: entry.id,
+          title: doc.title,
+          subjectName: doc.subjectName,
+          subjectColor: subject?.color ?? null,
+          addedAt: entry.addedAt,
+          href: doc.href,
+          description: doc.meta ?? null,
+          tags: [doc.origin === "lumio" ? "Gerado pelo Lumio" : "Upload"],
+        });
       }
     }
 
@@ -299,22 +357,41 @@ function Favoritos({ user }: { user: User }) {
       summary: 0,
       flashcards: 0,
       quiz: 0,
+      mindmap: 0,
+      document: 0,
     } as Record<TabId, number>;
     for (const it of items) {
       if (it.kind === "lecture") c.lecture++;
       else if (it.kind === "summary") c.summary++;
       else if (it.kind === "flashcards") c.flashcards++;
       else if (it.kind === "quiz") c.quiz++;
+      else if (it.kind === "mindmap") c.mindmap++;
+      else if (it.kind === "document") c.document++;
     }
     return c;
   }, [items]);
 
   const filtered = useMemo(() => {
     const tabDef = TABS.find((t) => t.id === tab);
-    const base =
+    let base =
       tabDef && tabDef.match.length > 0
         ? items.filter((it) => tabDef.match.includes(it.kind))
         : items;
+    const q = query.trim().toLowerCase();
+    if (q) {
+      base = base.filter((it) =>
+        [
+          it.title,
+          it.subjectName ?? "",
+          it.description ?? "",
+          KIND_META[it.kind].label,
+          ...it.tags,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(q),
+      );
+    }
     const sorted = [...base];
     sorted.sort((a, b) => {
       if (sort === "recent") {
@@ -331,12 +408,12 @@ function Favoritos({ user }: { user: User }) {
       return b.title.localeCompare(a.title, "pt-BR");
     });
     return sorted;
-  }, [items, tab, sort]);
+  }, [items, tab, sort, query]);
 
   useEffect(() => {
     setPage(1);
     setSelected(new Set());
-  }, [tab, sort]);
+  }, [tab, sort, query]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
@@ -499,24 +576,38 @@ function Favoritos({ user }: { user: User }) {
           })}
         </div>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="outline" size="sm" className="h-9 gap-1.5">
-              {SORT_OPTIONS.find((o) => o.value === sort)?.label}
-              <ChevronDown className="h-3.5 w-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            {SORT_OPTIONS.map((o) => (
-              <DropdownMenuItem
-                key={o.value}
-                onClick={() => setSort(o.value)}
-              >
-                {o.label}
-              </DropdownMenuItem>
-            ))}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex items-center gap-2">
+          <div className="relative w-full sm:w-60">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar nos favoritos..."
+              aria-label="Buscar nos favoritos"
+              className="h-9 w-full rounded-full border border-border bg-card pl-9 pr-3 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-primary/40 focus:ring-1 focus:ring-primary/40"
+            />
+          </div>
+
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-9 gap-1.5 shrink-0">
+                {SORT_OPTIONS.find((o) => o.value === sort)?.label}
+                <ChevronDown className="h-3.5 w-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {SORT_OPTIONS.map((o) => (
+                <DropdownMenuItem
+                  key={o.value}
+                  onClick={() => setSort(o.value)}
+                >
+                  {o.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
@@ -528,7 +619,7 @@ function Favoritos({ user }: { user: User }) {
             />
           ) : (
             <>
-              {featured && (
+              {featured && !query.trim() && (
                 <FeaturedCard
                   item={featured}
                   onOpen={() => router.push(featured.href)}
@@ -538,6 +629,11 @@ function Favoritos({ user }: { user: User }) {
               <FavoritesTable
                 items={pageItems}
                 selected={selected}
+                emptyMessage={
+                  query.trim()
+                    ? `Nenhum favorito encontrado para "${query.trim()}".`
+                    : "Nenhum favorito nesta categoria ainda."
+                }
                 onToggleAll={toggleSelectAll}
                 onToggleOne={toggleSelectOne}
                 onRemove={handleRemove}
@@ -667,6 +763,7 @@ function FeaturedCard({
 function FavoritesTable({
   items,
   selected,
+  emptyMessage,
   onToggleAll,
   onToggleOne,
   onRemove,
@@ -674,6 +771,7 @@ function FavoritesTable({
 }: {
   items: FavoriteItem[];
   selected: Set<string>;
+  emptyMessage: string;
   onToggleAll: () => void;
   onToggleOne: (key: string) => void;
   onRemove: (item: FavoriteItem) => void;
@@ -685,7 +783,7 @@ function FavoritesTable({
   if (items.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-border/60 bg-card/50 p-8 text-center text-sm text-muted-foreground">
-        Nenhum favorito nesta categoria ainda.
+        {emptyMessage}
       </div>
     );
   }

@@ -17,6 +17,7 @@ import {
   Network,
   Plus,
   Sparkles,
+  Star,
   Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -49,6 +50,7 @@ import {
 } from "@/lib/db";
 import { listSummariesAsync } from "@/lib/summaries";
 import { deleteDocumentAsync, listDocumentsAsync } from "@/lib/documents";
+import { subscribeFavorites, toggleFavorite } from "@/lib/favorites";
 import {
   DAY_LABELS_LONG,
   type Document as LumioDocument,
@@ -127,6 +129,24 @@ function SubjectView({
   const [deletingDoc, setDeletingDoc] = useState(false);
   // Filtro da pasta: "all" mostra tudo; senão isola uma categoria.
   const [filter, setFilter] = useState<FilterKey>("all");
+  // Favoritos de arquivos — ids unificados (ex.: "asset:uuid", "document:uuid",
+  // "summary:uuid"), os mesmos resolvidos pela aba Favoritos.
+  const [favIds, setFavIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    return subscribeFavorites(user.id, (entries) => {
+      setFavIds(
+        new Set(
+          entries.filter((e) => e.kind === "document").map((e) => e.id),
+        ),
+      );
+    });
+  }, [user.id]);
+
+  const toggleFav = (id: string) => {
+    const nowFav = toggleFavorite(user.id, "document", id);
+    toast.success(nowFav ? "Adicionado aos favoritos." : "Removido dos favoritos.");
+  };
 
   async function refresh() {
     const [s, l, sm, d] = await Promise.all([
@@ -512,7 +532,12 @@ function SubjectView({
                 <SectionHeading label="Resumos" count={summaries.length} />
                 <div className="space-y-2">
                   {summaries.map((sm) => (
-                    <SummaryRow key={sm.id} summary={sm} />
+                    <SummaryRow
+                      key={sm.id}
+                      summary={sm}
+                      favorited={favIds.has(`summary:${sm.id}`)}
+                      onToggleFav={() => toggleFav(`summary:${sm.id}`)}
+                    />
                   ))}
                 </div>
               </div>
@@ -523,7 +548,12 @@ function SubjectView({
                 <SectionHeading label="Flashcards" count={flashcards.length} />
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {flashcards.map((a) => (
-                    <AssetCard key={a.id} asset={a} />
+                    <AssetCard
+                      key={a.id}
+                      asset={a}
+                      favorited={favIds.has(`asset:${a.id}`)}
+                      onToggleFav={() => toggleFav(`asset:${a.id}`)}
+                    />
                   ))}
                 </div>
               </div>
@@ -534,7 +564,12 @@ function SubjectView({
                 <SectionHeading label="Quiz" count={quizzes.length} />
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {quizzes.map((a) => (
-                    <AssetCard key={a.id} asset={a} />
+                    <AssetCard
+                      key={a.id}
+                      asset={a}
+                      favorited={favIds.has(`asset:${a.id}`)}
+                      onToggleFav={() => toggleFav(`asset:${a.id}`)}
+                    />
                   ))}
                 </div>
               </div>
@@ -545,7 +580,12 @@ function SubjectView({
                 <SectionHeading label="Mapas mentais" count={mindmaps.length} />
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                   {mindmaps.map((a) => (
-                    <AssetCard key={a.id} asset={a} />
+                    <AssetCard
+                      key={a.id}
+                      asset={a}
+                      favorited={favIds.has(`asset:${a.id}`)}
+                      onToggleFav={() => toggleFav(`asset:${a.id}`)}
+                    />
                   ))}
                 </div>
               </div>
@@ -566,6 +606,8 @@ function SubjectView({
                         key={d.id}
                         document={d}
                         summary={sm}
+                        favorited={favIds.has(`document:${d.id}`)}
+                        onToggleFav={() => toggleFav(`document:${d.id}`)}
                         onOpen={setDocDialog}
                         onDelete={handleDeleteDocument}
                       />
@@ -721,7 +763,44 @@ function SectionHeading({ label, count }: { label: string; count: number }) {
   );
 }
 
-function SummaryRow({ summary }: { summary: Summary }) {
+function FavStar({
+  active,
+  onToggle,
+}: {
+  active: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onToggle();
+      }}
+      aria-label={active ? "Remover dos favoritos" : "Adicionar aos favoritos"}
+      title={active ? "Remover dos favoritos" : "Favoritar"}
+      className={cn(
+        "shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md transition-colors",
+        active
+          ? "text-amber-500 hover:bg-amber-500/10"
+          : "text-muted-foreground hover:bg-secondary hover:text-foreground opacity-0 group-hover:opacity-100 focus:opacity-100",
+      )}
+    >
+      <Star className={cn("h-4 w-4", active && "fill-current")} />
+    </button>
+  );
+}
+
+function SummaryRow({
+  summary,
+  favorited,
+  onToggleFav,
+}: {
+  summary: Summary;
+  favorited: boolean;
+  onToggleFav: () => void;
+}) {
   const href =
     summary.source.kind === "lecture"
       ? `/resumo/${summary.source.lectureId}`
@@ -742,6 +821,7 @@ function SummaryRow({ summary }: { summary: Summary }) {
           Resumo · {formatRelativeTime(summary.updatedAt ?? summary.createdAt)}
         </div>
       </div>
+      <FavStar active={favorited} onToggle={onToggleFav} />
       <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
     </Link>
   );
@@ -949,11 +1029,15 @@ function FeatureTab({
 function DocumentRow({
   document,
   summary,
+  favorited,
+  onToggleFav,
   onOpen,
   onDelete,
 }: {
   document: LumioDocument;
   summary?: Summary;
+  favorited: boolean;
+  onToggleFav: () => void;
   onOpen: (d: LumioDocument) => void;
   onDelete: (d: LumioDocument) => void;
 }) {
@@ -988,6 +1072,7 @@ function DocumentRow({
           </div>
         </div>
       </button>
+      <FavStar active={favorited} onToggle={onToggleFav} />
       <button
         type="button"
         onClick={() => onDelete(document)}
@@ -1086,7 +1171,15 @@ function DocumentInfoDialog({
   );
 }
 
-function AssetCard({ asset }: { asset: SubjectAsset }) {
+function AssetCard({
+  asset,
+  favorited,
+  onToggleFav,
+}: {
+  asset: SubjectAsset;
+  favorited: boolean;
+  onToggleFav: () => void;
+}) {
   // Mapeia kind → rota + ícone + descrição visível
   const meta = (() => {
     if (asset.kind === "flashcards") {
@@ -1145,6 +1238,7 @@ function AssetCard({ asset }: { asset: SubjectAsset }) {
           {meta.detail}
         </div>
       </div>
+      <FavStar active={favorited} onToggle={onToggleFav} />
       <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0 mt-1" />
     </Link>
   );

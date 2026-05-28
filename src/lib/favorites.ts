@@ -12,7 +12,11 @@
  * podemos plugar aqui sem mexer nos componentes.
  */
 
-export type FavoriteKind = "lecture" | "summary" | "subject";
+// "document" = qualquer arquivo da página da matéria (PDF, flashcards, quiz,
+// mapa, resumo, transcrição). O `id` é o id unificado do DocumentItem
+// (ex.: "asset:uuid", "document:uuid", "summary:uuid"), resolvido contra a
+// lista de useAllDocuments na aba Favoritos.
+export type FavoriteKind = "lecture" | "summary" | "subject" | "document";
 
 export type FavoriteEntry = {
   kind: FavoriteKind;
@@ -41,7 +45,8 @@ function read(userId: string): FavoriteEntry[] {
         typeof (x as FavoriteEntry).kind === "string" &&
         ((x as FavoriteEntry).kind === "lecture" ||
           (x as FavoriteEntry).kind === "summary" ||
-          (x as FavoriteEntry).kind === "subject") &&
+          (x as FavoriteEntry).kind === "subject" ||
+          (x as FavoriteEntry).kind === "document") &&
         typeof (x as FavoriteEntry).addedAt === "string",
     );
   } catch {

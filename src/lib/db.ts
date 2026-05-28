@@ -143,10 +143,19 @@ export async function bulkCreateSubjectsAsync(
     );
   }
   const supabase = createClient();
+  // Idempotente: pula matérias cujo nome já existe (RLS escopa ao user, igual
+  // listSubjectsAsync). Sem isso, rodar o onboarding 2x duplicava TODAS as
+  // matérias (incidente de 2026-05-27).
+  const { data: existing } = await supabase.from("subjects").select("name");
+  const taken = new Set(
+    (existing ?? []).map((r) => String(r.name).trim().toLowerCase()),
+  );
+  const fresh = items.filter((i) => !taken.has(i.name.trim().toLowerCase()));
+  if (fresh.length === 0) return [];
   const { data, error } = await supabase
     .from("subjects")
     .insert(
-      items.map((i) => ({
+      fresh.map((i) => ({
         user_id: userId,
         name: i.name,
         color: i.color,

@@ -35,6 +35,7 @@ import { NotificationsButton } from "@/components/app/notifications-button";
 import { JobsTray } from "@/components/jobs/jobs-tray";
 import { PlanPremiumCard } from "@/components/app/plan-premium-card";
 import { PendingGenerationGuard } from "@/components/app/pending-generation-guard";
+import { CreatePasswordPrompt } from "@/components/app/create-password-prompt";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -474,6 +475,9 @@ export function AppShell({
       {/* Detecta geração que ficou pela metade (coins cobrados mas asset
           não salvo) e oferece "Salvar agora" via toast. Roda 1x por sessão. */}
       <PendingGenerationGuard userId={user.id} />
+      {/* Usuários que entram com Google não têm senha — oferece criar uma
+          de fallback após o login (pulável, reaparece até criar). */}
+      <CreatePasswordPrompt />
     </div>
   );
 }

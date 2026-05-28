@@ -532,9 +532,10 @@ export function ContentWizard({
         ? withImages && imagesAvailable
           ? 90_000
           : 45_000
-        : mode === "mindmap"
-          ? 25_000
-          : 35_000;
+        : // flashcards/quiz/mapa rodam no Haiku agora (~3-4x mais rápido)
+          mode === "mindmap"
+          ? 12_000
+          : 18_000;
     const startTs = Date.now();
     let currentPct = 0;
     let currentStage = "Lendo fontes...";
@@ -574,15 +575,18 @@ export function ContentWizard({
 
     const progressTimer = setInterval(() => {
       const elapsed = Date.now() - startTs;
-      // Curva quase-linear que satura em 95%. Nunca passa de 95 antes do resp.
-      currentPct = Math.min(95, (elapsed / estMs) * 92);
-      if (currentPct > 75) currentStage = "Finalizando...";
-      else if (currentPct > 40)
+      // Aproximação assintótica de 99%: sobe rápido no começo e desacelera
+      // perto do fim, mas NUNCA congela. Atinge ~90% em estMs e segue
+      // rastejando enquanto a API + os saves pós-resposta terminam — assim
+      // não fica aquela sensação de "travado em 95%".
+      currentPct = Math.min(99, 99 * (1 - Math.exp(-elapsed / (estMs / 2.4))));
+      if (currentPct > 90) currentStage = "Finalizando...";
+      else if (currentPct > 45)
         currentStage =
           withImages && imagesAvailable
             ? "Gerando imagens..."
             : "Estruturando...";
-      else if (currentPct > 12) currentStage = "Pensando...";
+      else if (currentPct > 15) currentStage = "Pensando...";
       toast.custom(() => renderProgress(currentPct, currentStage), {
         id: "wizard-generation",
         duration: Infinity,

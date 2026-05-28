@@ -30,7 +30,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 240;
 
-const MODEL = "claude-sonnet-4-5-20250929";
+// Resumo usa Sonnet (qualidade da prosa). Flashcards/quiz/mapa são saídas
+// estruturadas (JSON) — Haiku faz bem e é ~3-4x mais rápido.
+const MODEL_SUMMARY = "claude-sonnet-4-5-20250929";
+const MODEL_FAST = "claude-haiku-4-5";
 
 type Sources = {
   transcripts?: string[];
@@ -668,8 +671,10 @@ export async function POST(req: Request) {
             ? 7000
             : 5000;
 
+    const model = mode === "summary" ? MODEL_SUMMARY : MODEL_FAST;
+
     const resp = await client.messages.create({
-      model: MODEL,
+      model,
       max_tokens: maxTokens,
       system: [
         {
@@ -820,7 +825,7 @@ export async function POST(req: Request) {
     await logAiUsage({
       userId,
       endpoint: "generate",
-      model: MODEL,
+      model,
       inputTokens: resp.usage?.input_tokens ?? 0,
       outputTokens: resp.usage?.output_tokens ?? 0,
       coinsCharged: cost,

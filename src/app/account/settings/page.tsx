@@ -5,6 +5,8 @@ import {
   AlertTriangle,
   Bell,
   Globe,
+  KeyRound,
+  Loader2,
   Moon,
   Palette,
   Settings as SettingsIcon,
@@ -15,6 +17,9 @@ import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { createClient } from "@/lib/supabase/client";
 import type { User } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -36,6 +41,36 @@ function SettingsView({ user }: { user: User }) {
   const [notifyEmail, setNotifyEmail] = useState(true);
   const [notifyResumeReady, setNotifyResumeReady] = useState(true);
   const [language] = useState<"pt-BR">("pt-BR");
+  const [password, setPassword] = useState("");
+  const [confirmPw, setConfirmPw] = useState("");
+  const [savingPw, setSavingPw] = useState(false);
+
+  async function savePassword() {
+    if (password.length < 8) {
+      toast.error("A senha precisa de pelo menos 8 caracteres.");
+      return;
+    }
+    if (password !== confirmPw) {
+      toast.error("As senhas não conferem.");
+      return;
+    }
+    setSavingPw(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.updateUser({
+        password,
+        data: { has_password: true },
+      });
+      if (error) throw error;
+      setPassword("");
+      setConfirmPw("");
+      toast.success("Senha salva. Você já pode entrar com email + senha.");
+    } catch (err) {
+      toast.error(`Não deu pra salvar: ${(err as Error).message}`);
+    } finally {
+      setSavingPw(false);
+    }
+  }
 
   useEffect(() => {
     const stored = localStorage.getItem("lumio.theme") as
@@ -154,6 +189,48 @@ function SettingsView({ user }: { user: User }) {
             <span className="text-[11px] text-muted-foreground">
               Mais idiomas em breve
             </span>
+          </div>
+        </SettingsCard>
+
+        {/* Senha de acesso */}
+        <SettingsCard
+          icon={KeyRound}
+          title="Senha de acesso"
+          description="Crie ou troque uma senha pra entrar com email + senha (útil pra quem entra com Google)."
+        >
+          <div className="mt-3 space-y-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-password">Nova senha</Label>
+              <Input
+                id="settings-password"
+                type="password"
+                autoComplete="new-password"
+                placeholder="mín. 8 caracteres"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={savingPw}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="settings-confirm">Confirmar senha</Label>
+              <Input
+                id="settings-confirm"
+                type="password"
+                autoComplete="new-password"
+                placeholder="repita a senha"
+                value={confirmPw}
+                onChange={(e) => setConfirmPw(e.target.value)}
+                disabled={savingPw}
+              />
+            </div>
+            <Button
+              variant="gradient"
+              onClick={savePassword}
+              disabled={savingPw || !password}
+            >
+              {savingPw ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Salvar senha
+            </Button>
           </div>
         </SettingsCard>
 

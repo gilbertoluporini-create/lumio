@@ -162,16 +162,8 @@ function getSubjectTone(name: string): { bg: string; text: string } {
   return { bg: palette.soft, text: palette.text };
 }
 
-function formatHoursMinutes(min: number): string {
-  if (min <= 0) return "0min";
-  if (min < 60) return `${min}min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m > 0 ? `${h}h ${m}min` : `${h}h`;
-}
-
 /** Bar chart de 7 dias da semana com labels S T Q Q S S D. */
-function WeekBarChart({ data }: { data: number[] }) {
+function WeekBarChart({ data, unit = "min" }: { data: number[]; unit?: string }) {
   const labels = ["S", "T", "Q", "Q", "S", "S", "D"];
   const max = Math.max(1, ...data);
   const todayIdx = (new Date().getDay() + 6) % 7;
@@ -193,7 +185,7 @@ function WeekBarChart({ data }: { data: number[] }) {
                     : "bg-primary/40",
               )}
               style={{ height: `${pct}%` }}
-              title={`${labels[i]}: ${v}min`}
+              title={`${labels[i]}: ${v} ${unit}`}
             />
           </div>
         );
@@ -303,22 +295,48 @@ function computeWeekTrends(lectures: Lecture[], summaries: Summary[]) {
   };
 }
 
-function getWeekMinutesByDay(lectures: Lecture[]): number[] {
-  const counts = Array(7).fill(0);
+/**
+ * Atividade no app por dia da semana. Cada gasto de coin (amount < 0) é uma
+ * interação (chat, resumo, quiz, flashcards, etc.) — proxy de "tempo no app"
+ * sem precisar de tracking de sessão. byDay segue a semana-calendário (seg→dom);
+ * o trend compara janelas móveis de 7d (igual aos outros KPIs).
+ */
+function getWeekActivity(
+  transactions: { amount: number; created_at: string }[],
+): { byDay: number[]; total: number; trend: number } {
+  const byDay = Array(7).fill(0);
   const now = new Date();
   const startOfWeek = new Date(now);
   startOfWeek.setHours(0, 0, 0, 0);
   const dayOffset = (now.getDay() + 6) % 7;
   startOfWeek.setDate(now.getDate() - dayOffset);
+  const weekStartMs = startOfWeek.getTime();
 
-  for (const l of lectures) {
-    const created = new Date(l.createdAt);
-    if (created >= startOfWeek) {
-      const idx = (created.getDay() + 6) % 7;
-      counts[idx] += Math.round(l.durationSec / 60);
+  const dayMs = 24 * 60 * 60 * 1000;
+  const nowMs = Date.now();
+  const cur7Start = nowMs - 7 * dayMs;
+  const prev7Start = nowMs - 14 * dayMs;
+
+  let cur7 = 0;
+  let prev7 = 0;
+  for (const tx of transactions) {
+    if (tx.amount >= 0) continue; // só gastos = interações do usuário
+    const t = new Date(tx.created_at).getTime();
+    if (t >= weekStartMs) {
+      const idx = (new Date(tx.created_at).getDay() + 6) % 7;
+      byDay[idx] += 1;
     }
+    if (t >= cur7Start) cur7 += 1;
+    else if (t >= prev7Start) prev7 += 1;
   }
-  return counts;
+  const total = byDay.reduce((a, b) => a + b, 0);
+  const trend =
+    prev7 > 0
+      ? Math.round(((cur7 - prev7) / prev7) * 100)
+      : cur7 > 0
+        ? 100
+        : 0;
+  return { byDay, total, trend };
 }
 
 function Dashboard({ user }: { user: User }) {
@@ -326,6 +344,9 @@ function Dashboard({ user }: { user: User }) {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [summaries, setSummaries] = useState<Summary[]>([]);
+  const [transactions, setTransactions] = useState<
+    { amount: number; created_at: string }[]
+  >([]);
   const [newOpen, setNewOpen] = useState(false);
   const [lectureOpen, setLectureOpen] = useState(false);
   const [lectureTitle, setLectureTitle] = useState("");
@@ -360,6 +381,26 @@ function Dashboard({ user }: { user: User }) {
     setSubjects(s);
     setLectures(nonEmpty);
     setSummaries(sm);
+
+    // Atividade no app: transações de coin (cada gasto = uma interação).
+    try {
+      const res = await fetch("/api/coins?history=1", { cache: "no-store" });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.transactions)) {
+          setTransactions(
+            data.transactions.map(
+              (t: { amount: number; created_at: string }) => ({
+                amount: t.amount,
+                created_at: t.created_at,
+              }),
+            ),
+          );
+        }
+      }
+    } catch {
+      /* atividade é best-effort; ignora falha */
+    }
   }
 
   useEffect(() => {
@@ -400,8 +441,6 @@ function Dashboard({ user }: { user: User }) {
   const stats = useMemo(() => {
     const totalLectures = lectures.length;
     const summariesCount = summaries.length;
-    const weekMinutesByDay = getWeekMinutesByDay(lectures);
-    const weekMinutesTotal = weekMinutesByDay.reduce((a, b) => a + b, 0);
     const progressPct =
       totalLectures > 0
         ? Math.round((summariesCount / totalLectures) * 100)
@@ -409,11 +448,14 @@ function Dashboard({ user }: { user: User }) {
     return {
       totalLectures,
       withSummary: summariesCount,
-      weekMinutesByDay,
-      weekMinutesTotal,
       progressPct,
     };
   }, [lectures, summaries]);
+
+  const activity = useMemo(
+    () => getWeekActivity(transactions),
+    [transactions],
+  );
 
   const trends = useMemo(
     () => computeWeekTrends(lectures, summaries),
@@ -603,18 +645,20 @@ function Dashboard({ user }: { user: User }) {
         />
 
         <KPICard
-          Icon={TrendingUp}
-          label="Tempo de estudo da semana"
-          value={formatHoursMinutes(stats.weekMinutesTotal)}
+          Icon={Activity}
+          label="Atividade no app"
+          value={`${activity.total} ${activity.total === 1 ? "ação" : "ações"}`}
           sub={
-            trends.minutesTrend > 0
-              ? `↑ ${trends.minutesTrend}% vs. semana passada`
-              : trends.minutesTrend < 0
-                ? `↓ ${Math.abs(trends.minutesTrend)}% vs. semana passada`
-                : "Sem variação"
+            activity.total === 0
+              ? "Sem atividade essa semana"
+              : activity.trend > 0
+                ? `↑ ${activity.trend}% vs. semana passada`
+                : activity.trend < 0
+                  ? `↓ ${Math.abs(activity.trend)}% vs. semana passada`
+                  : "Sem variação"
           }
-          subTone={trends.minutesTrend >= 0 ? "positive" : "negative"}
-          chart={<WeekBarChart data={stats.weekMinutesByDay} />}
+          subTone={activity.trend >= 0 ? "positive" : "negative"}
+          chart={<WeekBarChart data={activity.byDay} unit="ações" />}
         />
 
         <KPICard
