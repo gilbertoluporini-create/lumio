@@ -277,7 +277,14 @@ function LumiChatsHub({ user }: { user: User }) {
     <div className="mx-auto flex h-[calc(100vh-60px)] w-full max-w-7xl flex-col overflow-hidden px-4 py-4 lg:px-8">
       {/* Header compacto */}
       <div className="flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-3">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/illustrations/lumi-default.png"
+            alt="Lumi"
+            className="hidden h-12 w-12 shrink-0 object-contain drop-shadow-sm sm:block"
+          />
+          <div className="min-w-0">
           <h1 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
             Meus chats
           </h1>
@@ -294,6 +301,7 @@ function LumiChatsHub({ user }: { user: User }) {
             <span className="inline-flex items-center gap-1">
               <BookOpen className="h-3 w-3" /> {stats.subjectsCount} matérias
             </span>
+          </div>
           </div>
         </div>
         <Button
@@ -426,7 +434,12 @@ function LumiChatsHub({ user }: { user: User }) {
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
             {visible.length === 0 && (
               <div className="rounded-2xl border border-dashed border-border/60 bg-card p-10 text-center">
-                <MessageSquare className="mx-auto h-8 w-8 text-muted-foreground/40" />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/illustrations/lumi-waving.png"
+                  alt="Lumi acenando"
+                  className="mx-auto h-28 w-28 object-contain drop-shadow-sm"
+                />
                 <h3 className="mt-3 text-sm font-semibold text-foreground">
                   Nenhuma conversa encontrada
                 </h3>
@@ -478,7 +491,12 @@ function LumiChatsHub({ user }: { user: User }) {
             />
           ) : (
             <div className="rounded-2xl border border-dashed border-border/60 bg-card p-10 text-center">
-              <Sparkles className="mx-auto h-8 w-8 text-muted-foreground/40" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/illustrations/lumi-thinking.png"
+                alt="Lumi pensando"
+                className="mx-auto h-24 w-24 object-contain drop-shadow-sm"
+              />
               <p className="mt-3 text-xs text-muted-foreground">
                 Selecione uma conversa pra ver o preview.
               </p>

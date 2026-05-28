@@ -558,13 +558,21 @@ function Dashboard({ user }: { user: User }) {
     <div className="mx-auto max-w-7xl px-5 py-8">
       {/* Header */}
       <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-display text-3xl sm:text-4xl font-semibold leading-[1.05]">
-            Bom te ver, {firstName}.
-          </h1>
-          <p className="text-display mt-1 text-2xl sm:text-3xl font-semibold leading-[1.05] text-primary">
-            Bora estudar com clareza.
-          </p>
+        <div className="flex min-w-0 items-center gap-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/illustrations/lumi-dashboard.png"
+            alt="Lumi com gráficos"
+            className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"
+          />
+          <div className="min-w-0">
+            <h1 className="text-display text-3xl sm:text-4xl font-semibold leading-[1.05]">
+              Bom te ver, {firstName}.
+            </h1>
+            <p className="text-display mt-1 text-2xl sm:text-3xl font-semibold leading-[1.05] text-primary">
+              Bora estudar com clareza.
+            </p>
+          </div>
         </div>
 
         <div className="flex gap-2 shrink-0">

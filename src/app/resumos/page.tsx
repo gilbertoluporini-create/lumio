@@ -512,16 +512,24 @@ function ResumosView({ user }: { user: User }) {
     <div className="mx-auto max-w-7xl px-5 py-8">
       {/* Header */}
       <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between mb-8">
-        <div className="min-w-0">
-          <div className="text-sm text-muted-foreground mb-1">
-            {greeting}, {firstName}
+        <div className="flex min-w-0 items-center gap-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/illustrations/lumi-books.png"
+            alt="Lumi com livros"
+            className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"
+          />
+          <div className="min-w-0">
+            <div className="text-sm text-muted-foreground mb-1">
+              {greeting}, {firstName}
+            </div>
+            <h1 className="text-3xl md:text-4xl heading-display">
+              Biblioteca de resumos
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground max-w-2xl">
+              Organize, revise e aprofunde seus estudos com resumos inteligentes.
+            </p>
           </div>
-          <h1 className="text-3xl md:text-4xl heading-display">
-            Biblioteca de resumos
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground max-w-2xl">
-            Organize, revise e aprofunde seus estudos com resumos inteligentes.
-          </p>
         </div>
         <div className="flex gap-2 shrink-0">
           <Button asChild variant="outline">

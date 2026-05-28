@@ -625,7 +625,14 @@ function ScheduleView({ user }: { user: User }) {
     <div className="mx-auto max-w-7xl px-4 py-5">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-        <div>
+        <div className="flex items-center gap-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/illustrations/lumi-calendar.png"
+            alt="Lumi com calendário"
+            className="hidden h-16 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-20"
+          />
+          <div>
           <p className="text-xs text-muted-foreground mb-1">
             {greetingPrefix()}, {firstName}
           </p>
@@ -635,6 +642,7 @@ function ScheduleView({ user }: { user: User }) {
           <p className="mt-1.5 text-sm text-muted-foreground">
             Organize suas aulas, sessões de estudo e prazos importantes.
           </p>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button asChild variant="outline" size="sm">
@@ -835,6 +843,12 @@ function ScheduleView({ user }: { user: User }) {
 
             {agendaGroups.length === 0 ? (
               <div className="text-xs text-muted-foreground py-6 text-center">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src="/illustrations/lumi-sleeping.png"
+                  alt="Lumi descansando"
+                  className="mx-auto mb-2 h-16 w-16 object-contain opacity-90 drop-shadow-sm"
+                />
                 Nenhum compromisso nos próximos dias.
               </div>
             ) : (
@@ -1648,6 +1662,12 @@ function SidebarEventItem({
 function PlaceholderView({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-10 text-center">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/illustrations/lumi-sleeping.png"
+        alt="Lumi descansando"
+        className="mx-auto mb-3 h-24 w-24 object-contain drop-shadow-sm"
+      />
       <h3 className="text-base font-semibold">{title}</h3>
       <p className="mt-1 text-sm text-muted-foreground max-w-md mx-auto">{hint}</p>
     </div>
