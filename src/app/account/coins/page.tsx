@@ -87,6 +87,64 @@ const REASON_META: Record<string, { label: string; icon: ReasonIcon }> = {
 
 const HISTORY_PAGE = 8;
 
+// Item do histórico — pode ser uma transação única OU um grupo de
+// perguntas de chat do mesmo dia (agregadas pra não poluir).
+type HistoryItem =
+  | { kind: "single"; tx: Tx }
+  | {
+      kind: "chat-group";
+      id: string;
+      count: number;
+      totalAmount: number;
+      lastAt: string;
+    };
+
+/**
+ * Colapsa runs de transações reason="chat" do MESMO dia-calendário em um
+ * único item agregado. Outras transações ficam intactas. Preserva a ordem
+ * cronológica (entrada já vem desc por created_at).
+ */
+function buildHistoryItems(transactions: Tx[]): HistoryItem[] {
+  const items: HistoryItem[] = [];
+  let i = 0;
+  while (i < transactions.length) {
+    const tx = transactions[i];
+    if (tx.reason !== "chat") {
+      items.push({ kind: "single", tx });
+      i++;
+      continue;
+    }
+    // Acumula chats do mesmo dia
+    const day = tx.created_at.slice(0, 10);
+    let count = 0;
+    let total = 0;
+    const lastAt = tx.created_at;
+    let j = i;
+    while (
+      j < transactions.length &&
+      transactions[j].reason === "chat" &&
+      transactions[j].created_at.slice(0, 10) === day
+    ) {
+      count++;
+      total += transactions[j].amount;
+      j++;
+    }
+    if (count === 1) {
+      items.push({ kind: "single", tx });
+    } else {
+      items.push({
+        kind: "chat-group",
+        id: `chat-${day}-${tx.id}`,
+        count,
+        totalAmount: total,
+        lastAt,
+      });
+    }
+    i = j;
+  }
+  return items;
+}
+
 function CoinsView({ user }: { user: User }) {
   void user;
   const [balance, setBalance] = useState<number | null>(null);
@@ -126,6 +184,12 @@ function CoinsView({ user }: { user: User }) {
       transactions
         .filter((t) => t.amount > 0)
         .reduce((acc, t) => acc + t.amount, 0),
+    [transactions],
+  );
+
+  // Histórico com chat agrupado por dia (menos poluição visual).
+  const historyItems = useMemo(
+    () => buildHistoryItems(transactions),
     [transactions],
   );
 
@@ -319,7 +383,42 @@ function CoinsView({ user }: { user: User }) {
         ) : (
           <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
             <div className="divide-y divide-border/50">
-              {transactions.slice(0, visibleCount).map((tx) => {
+              {historyItems.slice(0, visibleCount).map((item) => {
+                // Grupo de perguntas de chat do mesmo dia
+                if (item.kind === "chat-group") {
+                  const date = new Date(item.lastAt);
+                  return (
+                    <div
+                      key={item.id}
+                      className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/30 transition-colors"
+                    >
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400">
+                        <Bot className="h-4 w-4" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          {item.count} perguntas no chat
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {date.toLocaleDateString("pt-BR", {
+                            day: "2-digit",
+                            month: "short",
+                          })}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-sm font-mono font-semibold tabular-nums text-rose-600 dark:text-rose-400">
+                          {item.totalAmount}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          agrupado
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                // Transação única
+                const { tx } = item;
                 const meta = REASON_META[tx.reason] ?? {
                   label: tx.reason,
                   icon: CoinFallbackIcon,
@@ -374,19 +473,19 @@ function CoinsView({ user }: { user: User }) {
               })}
             </div>
             {/* Controles de paginação client-side */}
-            {transactions.length > HISTORY_PAGE && (
+            {historyItems.length > HISTORY_PAGE && (
               <div className="flex items-center justify-center gap-3 border-t border-border/50 px-4 py-3">
-                {visibleCount < transactions.length && (
+                {visibleCount < historyItems.length && (
                   <Button
                     variant="ghost"
                     size="sm"
                     onClick={() =>
                       setVisibleCount((c) =>
-                        Math.min(c + HISTORY_PAGE * 2, transactions.length),
+                        Math.min(c + HISTORY_PAGE * 2, historyItems.length),
                       )
                     }
                   >
-                    Ver mais ({transactions.length - visibleCount} restantes)
+                    Ver mais ({historyItems.length - visibleCount} restantes)
                   </Button>
                 )}
                 {visibleCount > HISTORY_PAGE && (

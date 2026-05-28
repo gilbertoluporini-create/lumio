@@ -3,6 +3,7 @@ import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
+import { checkChatDailyCap, chatCapResponse } from "@/lib/chat-cap";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -175,6 +176,13 @@ export async function POST(req: Request) {
     // Rate limit por user logado (mais restritivo)
     const userLimit = limitOrThrow(`chat:user:${userId}`, 60, 60_000); // 60 msgs/min/user
     if (userLimit) return userLimit;
+
+    // Cap diário de chat por plano — protege margem no pico (chat barato
+    // por coin pode ficar negativo em conversa pesada).
+    const cap = await checkChatDailyCap(user.id);
+    if (!cap.ok) {
+      return chatCapResponse(cap);
+    }
 
     const charge = await chargeCoins(user.id, COIN_COSTS.chat_message, "chat", {
       lecture_title: body.context.lectureTitle,

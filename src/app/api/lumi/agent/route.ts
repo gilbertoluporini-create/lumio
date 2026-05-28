@@ -23,6 +23,7 @@ import { LIMITS, logAndSanitize } from "@/lib/api-security";
 import { chargeCoins, creditCoins } from "@/lib/coins";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
+import { checkChatDailyCap, chatCapResponse } from "@/lib/chat-cap";
 import { logAiUsage } from "@/lib/ai-usage";
 import {
   LUMI_TOOLS,
@@ -104,6 +105,12 @@ export async function POST(req: Request) {
 
   const userLimit = limitOrThrow(`lumi-agent:user:${user.id}`, 20, 60_000);
   if (userLimit) return userLimit;
+
+  // Cap diário de chat por plano (mesma conta do /api/chat — reason="chat").
+  const cap = await checkChatDailyCap(user.id);
+  if (!cap.ok) {
+    return chatCapResponse(cap);
+  }
 
   const charge = await chargeCoins(user.id, AGENT_COST, "chat", {
     scope: "lumi-agent",
