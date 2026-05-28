@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { AnalyticsTabs } from "../_components/analytics-tabs";
 import {
   Activity,
   DollarSign,
@@ -56,6 +57,7 @@ export default function AdminMetricsPage() {
 
   return (
     <div className="mx-auto max-w-7xl">
+      <AnalyticsTabs />
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Métricas</h1>

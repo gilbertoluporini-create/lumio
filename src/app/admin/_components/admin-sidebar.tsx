@@ -4,9 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  Activity,
   BarChart3,
-  Coins,
   HeartPulse,
   LayoutDashboard,
   LogOut,
@@ -15,7 +13,6 @@ import {
   Menu,
   Settings,
   ShieldAlert,
-  TrendingUp,
   UserPlus,
   Users,
   X,
@@ -29,6 +26,9 @@ type NavItem = {
   /** Cor de destaque opcional (tom emerald/fuchsia/etc) pra distinguir áreas
    *  importantes que antes eram CTAs no topo do dashboard. */
   accent?: "emerald" | "fuchsia";
+  /** Rotas (match exato) que mantêm este item destacado — usado pelo item
+   *  Analytics, que agrupa 4 telas (marketing/metrics/usage/realtime). */
+  matchPaths?: string[];
 };
 
 type NavSection = {
@@ -47,6 +47,17 @@ const NAV_SECTIONS: NavSection[] = [
         Icon: Megaphone,
         accent: "fuchsia",
       },
+      {
+        href: "/admin/marketing",
+        label: "Analytics",
+        Icon: BarChart3,
+        matchPaths: [
+          "/admin/marketing",
+          "/admin/metrics",
+          "/admin/usage",
+          "/admin/realtime",
+        ],
+      },
     ],
   },
   {
@@ -55,15 +66,6 @@ const NAV_SECTIONS: NavSection[] = [
       { href: "/admin/users", label: "Usuários", Icon: Users },
       { href: "/admin/leads", label: "Leads", Icon: UserPlus },
       { href: "/admin/tickets", label: "Tickets", Icon: Mail },
-    ],
-  },
-  {
-    label: "Analytics",
-    items: [
-      { href: "/admin/marketing", label: "Vendas & Funil", Icon: TrendingUp },
-      { href: "/admin/metrics", label: "Métricas", Icon: BarChart3 },
-      { href: "/admin/usage", label: "Uso & Margem", Icon: Coins },
-      { href: "/admin/realtime", label: "Tempo real", Icon: Activity },
     ],
   },
   {
@@ -153,8 +155,9 @@ export function AdminSidebar({ adminEmail }: { adminEmail: string }) {
                 {section.label}
               </p>
               {section.items.map((item) => {
-                const active =
-                  item.href === "/admin"
+                const active = item.matchPaths
+                  ? item.matchPaths.includes(pathname ?? "")
+                  : item.href === "/admin"
                     ? pathname === "/admin"
                     : pathname?.startsWith(item.href);
                 const accent = item.accent ? ACCENT_CLASSES[item.accent] : null;

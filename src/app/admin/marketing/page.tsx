@@ -13,6 +13,7 @@
  */
 
 import { MarketingDashboard } from "./client";
+import { AnalyticsTabs } from "../_components/analytics-tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -21,5 +22,10 @@ export const metadata = {
 };
 
 export default function MarketingPage() {
-  return <MarketingDashboard />;
+  return (
+    <div className="mx-auto max-w-6xl">
+      <AnalyticsTabs />
+      <MarketingDashboard />
+    </div>
+  );
 }

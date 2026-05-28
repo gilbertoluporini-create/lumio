@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import { requireAdmin } from "@/lib/admin";
 import { createAdminClient } from "@/lib/supabase/server";
+import { AnalyticsTabs } from "../_components/analytics-tabs";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +72,7 @@ export default async function AdminUsagePage(props: { searchParams: SearchParams
 
   return (
     <div className="mx-auto max-w-7xl">
+      <AnalyticsTabs />
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Uso & Margem</h1>
         <p className="text-sm text-neutral-400 mt-1">

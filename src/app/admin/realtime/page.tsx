@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnalyticsTabs } from "../_components/analytics-tabs";
 import {
   Activity,
   DollarSign,
@@ -105,6 +106,7 @@ export default function AdminRealtimePage() {
 
   return (
     <div className="mx-auto max-w-7xl">
+      <AnalyticsTabs />
       <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Tempo real</h1>
