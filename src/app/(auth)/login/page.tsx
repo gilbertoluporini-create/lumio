@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -37,6 +37,32 @@ function LoginInner() {
   const [sent, setSent] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [remember, setRemember] = useState(true);
+
+  // Carrega preferência + email lembrado (pra não redigitar no retorno).
+  useEffect(() => {
+    try {
+      const flag = localStorage.getItem("lumio.remember");
+      const savedEmail = localStorage.getItem("lumio.remember.email");
+      if (flag === "0") setRemember(false);
+      if (savedEmail && flag !== "0") setEmail(savedEmail);
+    } catch {
+      /* localStorage indisponível (modo privado) — ignora */
+    }
+  }, []);
+
+  function persistRemember(value: boolean, emailValue: string) {
+    try {
+      localStorage.setItem("lumio.remember", value ? "1" : "0");
+      if (value && emailValue.trim()) {
+        localStorage.setItem("lumio.remember.email", emailValue.trim());
+      } else {
+        localStorage.removeItem("lumio.remember.email");
+      }
+    } catch {
+      /* ignora */
+    }
+  }
 
   // No subdomain admin.* o default vira /admin (não /dashboard) pra não cair
   // num path que será redirecionado pro apex.
@@ -49,6 +75,7 @@ function LoginInner() {
   async function onGoogle() {
     if (googleLoading || !supaOn) return;
     setGoogleLoading(true);
+    persistRemember(remember, email);
     try {
       const supabase = createClient();
       const origin = window.location.origin;
@@ -88,6 +115,7 @@ function LoginInner() {
           const data = await res.json().catch(() => ({}));
           throw new Error(data?.error || "Não foi possível enviar o link.");
         }
+        persistRemember(remember, email);
         setSent(true);
         toast.success("Link de acesso enviado pro seu email.");
         return;
@@ -117,6 +145,7 @@ function LoginInner() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.error || "Email ou senha incorretos.");
 
+      persistRemember(remember, email);
       toast.success("Bem-vindo de volta!");
       Analytics.logIn("password");
       router.push(nextPath);
@@ -226,6 +255,17 @@ function LoginInner() {
                 />
               </div>
             </div>
+          )}
+          {(supaOn ? mode === "password" : true) && (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => setRemember(e.target.checked)}
+                className="h-4 w-4 rounded border-border accent-primary"
+              />
+              Lembrar de mim neste dispositivo
+            </label>
           )}
           <Button type="submit" variant="gradient" size="lg" className="w-full" disabled={loading || googleLoading}>
             {loading ? (

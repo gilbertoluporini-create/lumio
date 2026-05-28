@@ -15,39 +15,52 @@ import {
 
 export async function getCurrentUserAsync(): Promise<User | null> {
   if (!isSupabaseConfigured()) return getLocalUser();
-  try {
-    const supabase = createClient();
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
-    if (!authUser) return null;
+  const supabase = createClient();
 
-    // Fetch profile
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("name, onboarded_at, created_at, is_ambassador")
-      .eq("id", authUser.id)
-      .single();
-    const p = profile as
-      | {
-          name: string | null;
-          onboarded_at: string | null;
-          created_at: string;
-          is_ambassador: boolean | null;
-        }
-      | null;
-    return {
-      id: authUser.id,
-      email: authUser.email ?? "",
-      name: p?.name ?? authUser.email?.split("@")[0] ?? "Estudante",
-      createdAt: p?.created_at ?? authUser.created_at,
-      onboardedAt: p?.onboarded_at ?? null,
-      isAmbassador: p?.is_ambassador === true,
-    };
-  } catch (err) {
-    console.error("[auth] getCurrentUserAsync failed", err);
-    return getLocalUser();
+  // getUser() faz chamada de rede e, com rotação de refresh token ligada, pode
+  // falhar momentaneamente numa corrida de refresh. Um único retry evita
+  // deslogar o usuário (= bounce pro /login) por causa de um tropeço transitório.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const {
+        data: { user: authUser },
+        error,
+      } = await supabase.auth.getUser();
+      if (error) throw error;
+      // Sem usuário e sem erro = sessão genuinamente ausente → manda pro login.
+      if (!authUser) return null;
+
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("name, onboarded_at, created_at, is_ambassador")
+        .eq("id", authUser.id)
+        .single();
+      const p = profile as
+        | {
+            name: string | null;
+            onboarded_at: string | null;
+            created_at: string;
+            is_ambassador: boolean | null;
+          }
+        | null;
+      return {
+        id: authUser.id,
+        email: authUser.email ?? "",
+        name: p?.name ?? authUser.email?.split("@")[0] ?? "Estudante",
+        createdAt: p?.created_at ?? authUser.created_at,
+        onboardedAt: p?.onboarded_at ?? null,
+        isAmbassador: p?.is_ambassador === true,
+      };
+    } catch (err) {
+      if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 350));
+        continue;
+      }
+      console.error("[auth] getCurrentUserAsync falhou após retry", err);
+      return getLocalUser();
+    }
   }
+  return getLocalUser();
 }
 
 export async function markOnboardedAsync(): Promise<void> {
