@@ -19,13 +19,36 @@ export const metadata = {
 
 const USD_TO_BRL = 5.5;
 
+// Fallback (preços mensais reais em BRL) usado só quando a linha ainda não tem
+// amount_cents — ex: assinaturas antigas pré-backfill ou pagamento único.
+// Fonte da verdade é o amount_cents gravado pelo webhook a partir do Stripe.
 const PLAN_PRICE_BRL: Record<string, number> = {
   free: 0,
-  starter: 20,
-  pro: 100,
-  power: 999,
-  annual: 100,
+  starter: 39,
+  pro: 69,
+  power: 119,
+  annual: 69,
 };
+
+type RevenueSub = {
+  plan: string;
+  status: string;
+  amount_cents: number | null;
+  currency: string | null;
+  billing_interval: string | null;
+};
+
+// Receita mensal recorrente em BRL. Usa o valor real do Stripe (amount_cents)
+// e normaliza anual → mensal (÷12). Só conta assinatura active/trialing.
+function monthlyRevenueBRL(sub: RevenueSub | null | undefined): number {
+  if (!sub) return 0;
+  if (sub.status !== "active" && sub.status !== "trialing") return 0;
+  if (typeof sub.amount_cents === "number" && sub.amount_cents > 0) {
+    const base = sub.amount_cents / 100; // preços do Lumio são todos em BRL
+    return sub.billing_interval === "year" ? base / 12 : base;
+  }
+  return PLAN_PRICE_BRL[sub.plan] ?? 0;
+}
 
 type SearchParams = Promise<{
   q?: string;
@@ -49,6 +72,9 @@ type SubRow = {
   plan: string;
   status: string;
   current_period_end: string | null;
+  amount_cents: number | null;
+  currency: string | null;
+  billing_interval: string | null;
 };
 
 function startOfMonthISO(): string {
@@ -114,7 +140,10 @@ async function KpiRow() {
   const since = startOfMonthISO();
 
   const [activeSubsRes, usageRes, activeUsersRes] = await Promise.all([
-    admin.from("subscriptions").select("plan, status").in("status", ["active", "trialing"]),
+    admin
+      .from("subscriptions")
+      .select("plan, status, amount_cents, currency, billing_interval")
+      .in("status", ["active", "trialing"]),
     admin
       .from("ai_usage_log")
       .select("user_id, cost_usd")
@@ -126,10 +155,10 @@ async function KpiRow() {
       .not("user_id", "is", null),
   ]);
 
-  const subs = (activeSubsRes.data as Array<{ plan: string; status: string }> | null) ?? [];
+  const subs = (activeSubsRes.data as RevenueSub[] | null) ?? [];
   let mrrBRL = 0;
   for (const s of subs) {
-    mrrBRL += PLAN_PRICE_BRL[s.plan] ?? 0;
+    mrrBRL += monthlyRevenueBRL(s);
   }
 
   const usage = (usageRes.data as UsageRow[] | null) ?? [];
@@ -218,7 +247,7 @@ async function UsersTable({ query, page }: { query: string; page: number }) {
     profilesQuery,
     admin
       .from("subscriptions")
-      .select("user_id, plan, status, current_period_end")
+      .select("user_id, plan, status, current_period_end, amount_cents, currency, billing_interval")
       .in("user_id", userIds),
   ]);
 
@@ -248,10 +277,7 @@ async function UsersTable({ query, page }: { query: string; page: number }) {
     const sub = subMap.get(p.id);
     const plan = sub?.plan ?? "free";
     const status = sub?.status ?? "inactive";
-    const revenueBRL =
-      sub && (status === "active" || status === "trialing")
-        ? (PLAN_PRICE_BRL[plan] ?? 0)
-        : 0;
+    const revenueBRL = monthlyRevenueBRL(sub);
     const costBRL = usage.cost * USD_TO_BRL;
     return {
       id: p.id,

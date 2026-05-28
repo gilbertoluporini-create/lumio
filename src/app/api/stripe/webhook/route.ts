@@ -314,8 +314,15 @@ async function upsertSubscriptionFromStripe(
 ) {
   const admin = createAdminClient();
 
-  const priceId = sub.items.data[0]?.price.id;
+  const price = sub.items.data[0]?.price;
+  const priceId = price?.id;
   const plan = priceId && PLAN_PRICE_TO_NAME[priceId] ? PLAN_PRICE_TO_NAME[priceId] : "pro";
+
+  // Valor real cobrado, direto do price do Stripe. Guardamos amount + interval
+  // porque o mesmo `plan` cobre mensal e anual (ver migration 022).
+  const amountCents = typeof price?.unit_amount === "number" ? price.unit_amount : null;
+  const currency = price?.currency ?? null;
+  const billingInterval = price?.recurring?.interval ?? null;
 
   // current_period_end existe em DOIS lugares dependendo da Stripe API version:
   // - API < 2025-03: root da Subscription
@@ -336,6 +343,9 @@ async function upsertSubscriptionFromStripe(
         ? new Date(periodEnd * 1000).toISOString()
         : null,
       cancel_at_period_end: sub.cancel_at_period_end,
+      amount_cents: amountCents,
+      currency,
+      billing_interval: billingInterval,
     },
     { onConflict: "user_id" },
   );
