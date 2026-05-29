@@ -8,6 +8,7 @@ import {
   ArrowRight,
   Calendar,
   ChevronRight,
+  FolderInput,
   Clock,
   FileText,
   HelpCircle,
@@ -47,10 +48,15 @@ import {
   deleteSubjectAsync,
   getSubjectAsync,
   listLecturesAsync,
+  listSubjectsAsync,
 } from "@/lib/db";
 import { listSummariesAsync } from "@/lib/summaries";
 import { deleteDocumentAsync, listDocumentsAsync } from "@/lib/documents";
 import { subscribeFavorites, toggleFavorite } from "@/lib/favorites";
+import {
+  MoveToFolderDialog,
+  type MoveTarget,
+} from "@/components/documents/move-to-folder-dialog";
 import {
   DAY_LABELS_LONG,
   type Document as LumioDocument,
@@ -132,6 +138,9 @@ function SubjectView({
   // Favoritos de arquivos — ids unificados (ex.: "asset:uuid", "document:uuid",
   // "summary:uuid"), os mesmos resolvidos pela aba Favoritos.
   const [favIds, setFavIds] = useState<Set<string>>(new Set());
+  // Todas as matérias (pra mover arquivos entre pastas) + alvo do mover.
+  const [allSubjects, setAllSubjects] = useState<Subject[]>([]);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
 
   useEffect(() => {
     return subscribeFavorites(user.id, (entries) => {
@@ -148,17 +157,47 @@ function SubjectView({
     toast.success(nowFav ? "Adicionado aos favoritos." : "Removido dos favoritos.");
   };
 
+  const moveSummary = (sm: Summary) =>
+    setMoveTarget({
+      kind: "summary",
+      id: sm.id,
+      title: sm.title ?? "Resumo",
+      currentSubjectId: subjectId,
+    });
+  const moveDocument = (d: LumioDocument) =>
+    setMoveTarget({
+      kind: "document",
+      id: d.id,
+      title: d.title,
+      currentSubjectId: subjectId,
+    });
+  const moveAsset = (a: SubjectAsset) =>
+    setMoveTarget({
+      kind: "lecture",
+      id: a.lecture_id,
+      title:
+        a.kind === "flashcards"
+          ? "Flashcards"
+          : a.kind === "quiz"
+            ? "Quiz"
+            : "Mapa mental",
+      currentSubjectId: subjectId,
+      note: "Isso move a aula inteira deste material (transcrição, resumo e outros materiais gerados) pra nova pasta.",
+    });
+
   async function refresh() {
-    const [s, l, sm, d] = await Promise.all([
+    const [s, l, sm, d, all] = await Promise.all([
       getSubjectAsync(user.id, subjectId),
       listLecturesAsync(user.id, subjectId),
       listSummariesAsync(user.id, subjectId),
       listDocumentsAsync(user.id, subjectId),
+      listSubjectsAsync(user.id),
     ]);
     setSubject(s);
     setLectures(l);
     setSummaries(sm);
     setDocuments(d);
+    setAllSubjects(all);
 
     // Busca todos os assets (flashcards/quiz/mindmap) das aulas dessa matéria
     // pra que apareçam na pasta — antes o user gerava um quiz e ele "sumia"
@@ -537,6 +576,7 @@ function SubjectView({
                       summary={sm}
                       favorited={favIds.has(`summary:${sm.id}`)}
                       onToggleFav={() => toggleFav(`summary:${sm.id}`)}
+                      onMove={() => moveSummary(sm)}
                     />
                   ))}
                 </div>
@@ -553,6 +593,7 @@ function SubjectView({
                       asset={a}
                       favorited={favIds.has(`asset:${a.id}`)}
                       onToggleFav={() => toggleFav(`asset:${a.id}`)}
+                      onMove={() => moveAsset(a)}
                     />
                   ))}
                 </div>
@@ -569,6 +610,7 @@ function SubjectView({
                       asset={a}
                       favorited={favIds.has(`asset:${a.id}`)}
                       onToggleFav={() => toggleFav(`asset:${a.id}`)}
+                      onMove={() => moveAsset(a)}
                     />
                   ))}
                 </div>
@@ -585,6 +627,7 @@ function SubjectView({
                       asset={a}
                       favorited={favIds.has(`asset:${a.id}`)}
                       onToggleFav={() => toggleFav(`asset:${a.id}`)}
+                      onMove={() => moveAsset(a)}
                     />
                   ))}
                 </div>
@@ -608,6 +651,7 @@ function SubjectView({
                         summary={sm}
                         favorited={favIds.has(`document:${d.id}`)}
                         onToggleFav={() => toggleFav(`document:${d.id}`)}
+                        onMove={() => moveDocument(d)}
                         onOpen={setDocDialog}
                         onDelete={handleDeleteDocument}
                       />
@@ -716,6 +760,21 @@ function SubjectView({
         onClose={() => setDocDialog(null)}
         onDelete={handleDeleteDocument}
       />
+
+      {/* Mover arquivo/asset entre pastas (matérias) */}
+      <MoveToFolderDialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null);
+        }}
+        userId={user.id}
+        subjects={allSubjects}
+        target={moveTarget}
+        onMoved={() => {
+          setMoveTarget(null);
+          refresh();
+        }}
+      />
     </div>
   );
 }
@@ -792,14 +851,34 @@ function FavStar({
   );
 }
 
+function MoveButton({ onMove }: { onMove: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onMove();
+      }}
+      aria-label="Mover para outra pasta"
+      title="Mover para pasta"
+      className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 transition-colors"
+    >
+      <FolderInput className="h-4 w-4" />
+    </button>
+  );
+}
+
 function SummaryRow({
   summary,
   favorited,
   onToggleFav,
+  onMove,
 }: {
   summary: Summary;
   favorited: boolean;
   onToggleFav: () => void;
+  onMove: () => void;
 }) {
   const href =
     summary.source.kind === "lecture"
@@ -821,6 +900,7 @@ function SummaryRow({
           Resumo · {formatRelativeTime(summary.updatedAt ?? summary.createdAt)}
         </div>
       </div>
+      <MoveButton onMove={onMove} />
       <FavStar active={favorited} onToggle={onToggleFav} />
       <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0" />
     </Link>
@@ -1031,6 +1111,7 @@ function DocumentRow({
   summary,
   favorited,
   onToggleFav,
+  onMove,
   onOpen,
   onDelete,
 }: {
@@ -1038,6 +1119,7 @@ function DocumentRow({
   summary?: Summary;
   favorited: boolean;
   onToggleFav: () => void;
+  onMove: () => void;
   onOpen: (d: LumioDocument) => void;
   onDelete: (d: LumioDocument) => void;
 }) {
@@ -1072,6 +1154,7 @@ function DocumentRow({
           </div>
         </div>
       </button>
+      <MoveButton onMove={onMove} />
       <FavStar active={favorited} onToggle={onToggleFav} />
       <button
         type="button"
@@ -1175,10 +1258,12 @@ function AssetCard({
   asset,
   favorited,
   onToggleFav,
+  onMove,
 }: {
   asset: SubjectAsset;
   favorited: boolean;
   onToggleFav: () => void;
+  onMove: () => void;
 }) {
   // Mapeia kind → rota + ícone + descrição visível
   const meta = (() => {
@@ -1238,6 +1323,7 @@ function AssetCard({
           {meta.detail}
         </div>
       </div>
+      <MoveButton onMove={onMove} />
       <FavStar active={favorited} onToggle={onToggleFav} />
       <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0 mt-1" />
     </Link>

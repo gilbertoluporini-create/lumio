@@ -177,6 +177,7 @@ export async function updateSummaryAsync(
     title: string;
     content: LectureSummary;
     images: LectureSummaryImage[] | null;
+    subjectId: string | null;
   }>,
 ): Promise<Summary | null> {
   if (!isSupabaseConfigured()) return null;
@@ -185,6 +186,7 @@ export async function updateSummaryAsync(
   if ("title" in patch) dbPatch.title = patch.title ?? null;
   if ("content" in patch) dbPatch.content = patch.content;
   if ("images" in patch) dbPatch.images = patch.images ?? null;
+  if ("subjectId" in patch) dbPatch.subject_id = patch.subjectId ?? null;
   if (Object.keys(dbPatch).length === 0) return getSummaryAsync(userId, id);
   const { data, error } = await supabase
     .from("summaries")

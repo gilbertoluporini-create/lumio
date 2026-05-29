@@ -12,7 +12,6 @@
  */
 
 import {
-  Fragment,
   use,
   useCallback,
   useEffect,
@@ -653,7 +652,9 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
 
   const SubjectIcon = subject ? getSubjectIcon(subject.name) : FileText;
   const dateLabel = formatDateBR(new Date(lecture.updatedAt));
-  const tags = summary.highlights?.slice(0, 4) ?? [];
+  const tags = (summary.highlights?.slice(0, 4) ?? []).map(
+    stripMarkdownToPlainText,
+  );
 
   return (
     <>
@@ -1310,7 +1311,7 @@ function SummaryContent({
               <li key={i} className="flex gap-2.5 text-sm leading-relaxed">
                 <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
                 <span className="text-foreground/90">
-                  <InlineMarkdown content={h} />
+                  {stripMarkdownToPlainText(h)}
                 </span>
               </li>
             ))}
@@ -1353,6 +1354,17 @@ function SummaryContent({
                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
                   {cleanSummaryMarkdown(sec.spokenContent)}
                 </ReactMarkdown>
+              </div>
+            )}
+
+            {/* Ilustrações IA ancoradas nesta seção (intercaladas, não agrupadas) */}
+            {(summary.images ?? []).some((im) => im.sectionIndex === idx) && (
+              <div className="mt-4">
+                <SummaryImageGallery
+                  images={(summary.images ?? []).filter(
+                    (im) => im.sectionIndex === idx,
+                  )}
+                />
               </div>
             )}
 
@@ -1487,8 +1499,13 @@ function SummaryImagesBlock({
     }
   }, [lectureId, onImagesUpdated]);
 
+  // Imagens com seção (sectionIndex) são intercaladas inline nas seções do
+  // resumo. Aqui só mostramos as "órfãs" (sem seção / resumos antigos).
   if (images && images.length > 0) {
-    return <SummaryImageGallery images={images} />;
+    const orphans = images.filter(
+      (im) => im.sectionIndex === null || im.sectionIndex === undefined,
+    );
+    return orphans.length > 0 ? <SummaryImageGallery images={orphans} /> : null;
   }
 
   return (
@@ -1501,8 +1518,8 @@ function SummaryImagesBlock({
           Gere ilustrações pra esse resumo
         </div>
         <div className="mt-1 text-xs text-muted-foreground max-w-md">
-          A IA identifica 3 conceitos visuais e desenha diagramas educacionais
-          com a Imagen 3. Aparecem aqui depois.
+          A IA identifica os conceitos visuais da aula e desenha diagramas
+          educacionais com labels, distribuídos nas seções do resumo.
         </div>
       </div>
       <Button
@@ -1618,7 +1635,7 @@ function SummaryImageGallery({
                   src={img.url}
                   alt={img.alt}
                   loading="lazy"
-                  className="w-full aspect-video object-cover transition-transform group-hover:scale-[1.02]"
+                  className="w-full h-auto object-contain bg-muted/20 transition-transform group-hover:scale-[1.02]"
                 />
                 <span className="absolute inset-0 flex items-end justify-end p-2 opacity-0 group-hover:opacity-100 transition-opacity">
                   <span className="rounded-md bg-background/90 px-2 py-1 text-[10px] font-medium shadow-sm">
@@ -1736,40 +1753,6 @@ function SummaryImageGallery({
       )}
     </>
   );
-}
-
-function InlineMarkdown({ content }: { content: string }) {
-  // Versão inline simples: bold/italic/code só.
-  const parts: React.ReactNode[] = [];
-  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g;
-  let last = 0;
-  let match: RegExpExecArray | null;
-  let i = 0;
-  while ((match = regex.exec(content)) !== null) {
-    if (match.index > last) {
-      parts.push(<Fragment key={`t-${i++}`}>{content.slice(last, match.index)}</Fragment>);
-    }
-    const tok = match[0];
-    if (tok.startsWith("**")) {
-      parts.push(<strong key={`b-${i++}`}>{tok.slice(2, -2)}</strong>);
-    } else if (tok.startsWith("`")) {
-      parts.push(
-        <code
-          key={`c-${i++}`}
-          className="px-1 py-0.5 rounded bg-secondary text-[12px] font-mono"
-        >
-          {tok.slice(1, -1)}
-        </code>,
-      );
-    } else {
-      parts.push(<em key={`i-${i++}`}>{tok.slice(1, -1)}</em>);
-    }
-    last = match.index + tok.length;
-  }
-  if (last < content.length) {
-    parts.push(<Fragment key={`t-${i++}`}>{content.slice(last)}</Fragment>);
-  }
-  return <>{parts}</>;
 }
 
 function CtaCard({

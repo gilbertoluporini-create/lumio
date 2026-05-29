@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@/lib/utils";
+import { cn, stripMarkdownToPlainText } from "@/lib/utils";
 
 const PALETTE = [
   "bg-violet-500/10 text-violet-700 dark:text-violet-300 border-violet-500/20",
@@ -39,7 +39,7 @@ export function KeyPointsCard({
                 activeTerm === t && "ring-2 ring-offset-1 ring-offset-card ring-current",
               )}
             >
-              {t}
+              {stripMarkdownToPlainText(t)}
             </button>
           ))}
         </div>

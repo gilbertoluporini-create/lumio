@@ -253,7 +253,9 @@ function ResumoDocView({
 
   const content = summary.content;
   const dateLabel = formatDateBR(new Date(summary.updatedAt));
-  const tags = content.highlights?.slice(0, 4) ?? [];
+  const tags = (content.highlights?.slice(0, 4) ?? []).map(
+    stripMarkdownToPlainText,
+  );
 
   return (
     <>
@@ -428,7 +430,9 @@ function ResumoDocView({
                 {content.highlights.map((h, i) => (
                   <li key={i} className="flex items-start gap-2 text-sm">
                     <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary shrink-0" />
-                    <span className="text-foreground/85">{h}</span>
+                    <span className="text-foreground/85">
+                      {stripMarkdownToPlainText(h)}
+                    </span>
                   </li>
                 ))}
               </ul>
