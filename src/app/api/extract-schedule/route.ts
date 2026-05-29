@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import { LIMITS, logAndSanitize, sniffMagic } from "@/lib/api-security";
 
 export const runtime = "nodejs";
@@ -189,8 +190,6 @@ export async function POST(req: Request) {
     );
   }
 
-  const client = new Anthropic({ apiKey });
-
   const isPdf = mime === "application/pdf";
 
   try {
@@ -222,7 +221,7 @@ export async function POST(req: Request) {
       },
     ];
 
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 4000,
       system: [

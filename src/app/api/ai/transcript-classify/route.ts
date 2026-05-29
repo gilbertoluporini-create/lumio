@@ -10,7 +10,7 @@
  * Fallback (sem ANTHROPIC_API_KEY): heurística por palavras-chave.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import { logAndSanitize } from "@/lib/api-security";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
@@ -87,8 +87,7 @@ Sem markdown, sem prosa.`;
   });
 
   try {
-    const client = new Anthropic({ apiKey });
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-haiku-4-5",
       max_tokens: 800,
       system,

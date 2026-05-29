@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
@@ -95,8 +95,7 @@ export async function POST(req: Request) {
     .replace("{{TITLE}}", escapeForPrompt(body.lectureTitle));
 
   try {
-    const client = new Anthropic({ apiKey });
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-haiku-4-5", // Haiku é suficiente pra cleanup
       max_tokens: 8000,
       system: [

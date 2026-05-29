@@ -8,7 +8,7 @@
  * Resp:  { keyTerms: string[], topics: { title, startSec, color }[] }
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import { escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
@@ -89,8 +89,7 @@ ${escapeForPrompt(sliced)}
 </untrusted_transcript>`;
 
   try {
-    const client = new Anthropic({ apiKey });
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-haiku-4-5",
       max_tokens: 700,
       system,

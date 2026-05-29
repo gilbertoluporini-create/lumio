@@ -11,7 +11,7 @@
  * (Graph API requer App Review pra DM proativa; copy/paste é caminho mais seguro).
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import { NextResponse, type NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/admin";
 import { escapeForPrompt } from "@/lib/api-security";
@@ -91,8 +91,7 @@ ${profileHint || "(sem contexto — perfil ainda não pesquisado, gere DM genér
 Gere o JSON conforme schema do system prompt.`;
 
   try {
-    const client = new Anthropic({ apiKey });
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-haiku-4-5",
       max_tokens: 600,
       system: SYSTEM_PROMPT,

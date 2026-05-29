@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import type {
   ChatMessage,
   LectureSummary,
@@ -258,8 +258,6 @@ export async function POST(req: Request) {
     return Response.json({ summary: demo, demo: true });
   }
 
-  const client = new Anthropic({ apiKey });
-
   const userMessage = `MATÉRIA: ${body.subject}
 TÍTULO DA AULA: ${body.lectureTitle}
 
@@ -275,7 +273,7 @@ ${chatBlock}
 Gere o resumo estruturado conforme o formato JSON especificado. Responda APENAS com o JSON.`;
 
   try {
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 8000,
       system: [

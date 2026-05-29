@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { streamText } from "@/lib/llm-fallback";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { createClient } from "@/lib/supabase/server";
@@ -200,38 +200,33 @@ export async function POST(req: Request) {
     }
   }
 
-  const client = new Anthropic({ apiKey });
-
   try {
-    const stream = await client.messages.create({
-      // Haiku 4.5: 10x mais barato que Sonnet, suficiente pra Q&A sobre transcrição
-      model: "claude-haiku-4-5",
-      max_tokens: 1500,
-      system: [
-        {
-          type: "text",
-          text: system,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      stream: true,
-      messages: body.messages.map((m) => ({
-        role: m.role,
-        content: m.content,
-      })),
-    });
+    const textStream = streamText(
+      {
+        // Haiku 4.5: 10x mais barato que Sonnet, suficiente pra Q&A sobre transcrição
+        model: "claude-haiku-4-5",
+        max_tokens: 1500,
+        system: [
+          {
+            type: "text",
+            text: system,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        messages: body.messages.map((m) => ({
+          role: m.role,
+          content: m.content,
+        })),
+      },
+      { anthropicKey: apiKey },
+    );
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
-          for await (const event of stream) {
-            if (
-              event.type === "content_block_delta" &&
-              event.delta.type === "text_delta"
-            ) {
-              controller.enqueue(encoder.encode(event.delta.text));
-            }
+          for await (const piece of textStream) {
+            controller.enqueue(encoder.encode(piece));
           }
           controller.close();
         } catch (err) {

@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import { createClient } from "@/lib/supabase/server";
 import { logAndSanitize, escapeForPrompt } from "@/lib/api-security";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
@@ -255,14 +255,13 @@ export async function POST(req: Request) {
     });
   }
 
-  const client = new Anthropic({ apiKey });
   const currentYear = new Date().getFullYear();
   const sliced = text.slice(0, TEXT_SLICE_LIMIT);
   const subjectList =
     subjectNames.length > 0 ? subjectNames.join(", ") : "(nenhuma)";
 
   try {
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 4000,
       system: [

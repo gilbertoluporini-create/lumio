@@ -9,7 +9,7 @@
  * Resp: { reply: string, coinsCharged: number, balanceAfter?: number }
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage, streamText } from "@/lib/llm-fallback";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { chargeCoins, creditCoins } from "@/lib/coins";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
@@ -476,7 +476,6 @@ export async function POST(req: Request) {
     { role: "user" as const, content: lastUserContent },
   ];
 
-  const client = new Anthropic({ apiKey });
   const wantsStream = body.stream === true;
 
   // ---------- Streaming mode (SSE) ----------
@@ -487,34 +486,27 @@ export async function POST(req: Request) {
         const send = (obj: unknown) =>
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
         let accumulated = "";
-        let inputTokens = 0;
-        let outputTokens = 0;
+        const inputTokens = 0;
+        const outputTokens = 0;
         try {
-          const sdkStream = client.messages.stream({
-            model: "claude-haiku-4-5",
-            max_tokens: 900,
-            system: [
-              {
-                type: "text",
-                text: system,
-                cache_control: { type: "ephemeral" },
-              },
-            ],
-            messages: claudeMessages,
-          });
-          for await (const event of sdkStream) {
-            if (
-              event.type === "content_block_delta" &&
-              event.delta.type === "text_delta"
-            ) {
-              const chunk = event.delta.text;
-              accumulated += chunk;
-              send({ delta: chunk });
-            } else if (event.type === "message_delta" && event.usage) {
-              outputTokens = event.usage.output_tokens ?? outputTokens;
-            } else if (event.type === "message_start" && event.message.usage) {
-              inputTokens = event.message.usage.input_tokens ?? 0;
-            }
+          const sdkStream = streamText(
+            {
+              model: "claude-haiku-4-5",
+              max_tokens: 900,
+              system: [
+                {
+                  type: "text",
+                  text: system,
+                  cache_control: { type: "ephemeral" },
+                },
+              ],
+              messages: claudeMessages,
+            },
+            { anthropicKey: apiKey },
+          );
+          for await (const chunk of sdkStream) {
+            accumulated += chunk;
+            send({ delta: chunk });
           }
           const final = accumulated.trim();
           if (!final) {
@@ -580,7 +572,7 @@ export async function POST(req: Request) {
 
   // ---------- Non-streaming (legacy: voice mode, etc.) ----------
   try {
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-haiku-4-5",
       max_tokens: 900,
       system: [

@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import type { ChatMessage, Slide } from "@/lib/types";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
@@ -224,8 +224,7 @@ ${chatBlock}
 Gere ${count} questões de múltipla escolha no JSON especificado. APENAS JSON.`;
 
   try {
-    const client = new Anthropic({ apiKey });
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 7000,
       system: [

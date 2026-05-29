@@ -19,6 +19,7 @@
  */
 
 import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import { LIMITS, logAndSanitize } from "@/lib/api-security";
 import { chargeCoins, creditCoins } from "@/lib/coins";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
@@ -185,7 +186,6 @@ export async function POST(req: Request) {
     .map((h) => ({ role: h.role, content: h.content }));
   history.push({ role: "user", content: message });
 
-  const client = new Anthropic({ apiKey });
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({
@@ -210,19 +210,22 @@ export async function POST(req: Request) {
         while (iterations < MAX_ITERATIONS) {
           iterations++;
 
-          const resp = await client.messages.create({
-            model: MODEL,
-            max_tokens: 1500,
-            system: [
-              {
-                type: "text",
-                text: SYSTEM_PROMPT + contextHint,
-                cache_control: { type: "ephemeral" },
-              },
-            ],
-            messages: history,
-            tools: LUMI_TOOLS,
-          });
+          const resp = await createMessage(
+            {
+              model: MODEL,
+              max_tokens: 1500,
+              system: [
+                {
+                  type: "text",
+                  text: SYSTEM_PROMPT + contextHint,
+                  cache_control: { type: "ephemeral" },
+                },
+              ],
+              messages: history,
+              tools: LUMI_TOOLS,
+            },
+            { anthropicKey: apiKey },
+          );
 
           totalInputTok += resp.usage?.input_tokens ?? 0;
           totalOutputTok += resp.usage?.output_tokens ?? 0;

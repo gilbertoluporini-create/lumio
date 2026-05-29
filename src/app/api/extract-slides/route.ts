@@ -1,4 +1,4 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import {
   LIMITS,
   PDF_VISION_LIMIT_MB,
@@ -183,10 +183,8 @@ export async function POST(req: Request) {
     }
   }
 
-  const client = new Anthropic({ apiKey });
-
   try {
-    const resp = await client.messages.create({
+    const resp = await createMessage({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 8000,
       system: [
