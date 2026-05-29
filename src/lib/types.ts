@@ -55,6 +55,9 @@ export type LectureSummaryImage = {
   url: string;
   alt: string;
   caption?: string;
+  // Índice da seção do resumo a que a imagem pertence (intercalação inline).
+  // null/undefined = imagem sem seção → cai na galeria de fallback.
+  sectionIndex?: number | null;
 };
 
 export type LectureSummary = {
