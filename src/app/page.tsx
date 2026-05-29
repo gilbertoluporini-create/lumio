@@ -38,6 +38,7 @@ import { SubjectsMarquee } from "@/components/landing/subjects-marquee";
 import { ProductsTabs } from "@/components/landing/products-tabs";
 import { BeforeAfter } from "@/components/landing/before-after";
 import { LumiChatMock } from "@/components/landing/lumi-chat-mock";
+import { Analytics } from "@/lib/analytics";
 
 export default function LandingPage() {
   return (
@@ -68,7 +69,10 @@ export default function LandingPage() {
             </Button>
             <Magnetic strength={0.18}>
               <Button asChild variant="gradient" size="sm">
-                <Link href="/signup">
+                <Link
+                  href="/signup"
+                  onClick={() => Analytics.landingCtaClick("nav")}
+                >
                   Começar grátis <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </Button>
@@ -135,7 +139,10 @@ export default function LandingPage() {
                   size="xl"
                   className="min-w-[220px]"
                 >
-                  <Link href="/signup">
+                  <Link
+                    href="/signup"
+                    onClick={() => Analytics.landingCtaClick("hero")}
+                  >
                     Começar grátis <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
@@ -382,6 +389,7 @@ export default function LandingPage() {
       <Reveal className="relative z-10 mx-auto max-w-3xl px-6 pt-8">
         <Link
           href="/embaixador"
+          onClick={() => Analytics.landingCtaClick("embaixador_banner")}
           className="group flex items-center gap-4 rounded-2xl border border-primary/30 bg-primary/5 hover:bg-primary/10 px-5 py-4 transition-colors"
         >
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15">
@@ -430,7 +438,10 @@ export default function LandingPage() {
                   size="xl"
                   className="min-w-[260px]"
                 >
-                  <Link href="/signup">
+                  <Link
+                    href="/signup"
+                    onClick={() => Analytics.landingCtaClick("final_cta")}
+                  >
                     Começar grátis <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>

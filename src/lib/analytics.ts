@@ -127,4 +127,28 @@ export const Analytics = {
   viewItem(item: string) {
     trackEvent("view_item", { item });
   },
+  /** Clique no CTA principal de signup. location = onde do site o CTA está. */
+  landingCtaClick(location: "hero" | "final_cta" | "pricing" | "nav" | "embaixador_banner") {
+    trackEvent("landing_cta_click", { location });
+  },
+  /** Usuário entrou no /onboarding (após signup). */
+  onboardingStarted() {
+    trackEvent("onboarding_started");
+  },
+  /** Usuário concluiu onboarding (criou matérias, foi pro dashboard). */
+  onboardingCompleted(subjectCount: number, viaSkip: boolean = false) {
+    trackEvent("onboarding_completed", { subjectCount, viaSkip });
+  },
+  /** Aha moment: primeira aula gravada/criada de um user. */
+  firstLectureRecorded() {
+    trackEvent("first_lecture_recorded");
+  },
+  /** Paywall apareceu pro user (sem coins ou bateu limite do plano). */
+  paywallView(reason: "no_coins" | "plan_limit" | "premium_feature", blockedAction?: string) {
+    trackEvent("paywall_view", { reason, blockedAction: blockedAction ?? null });
+  },
+  /** Clique em "Upgrade" / "Assinar" a partir de algum gatilho. */
+  upgradeClicked(from: "paywall" | "dashboard_banner" | "coins_page" | "nav" | "other", targetPlan?: string) {
+    trackEvent("upgrade_clicked", { from, targetPlan: targetPlan ?? null });
+  },
 };

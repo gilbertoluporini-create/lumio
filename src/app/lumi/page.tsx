@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Analytics } from "@/lib/analytics";
 import { AppShell } from "@/components/app/app-shell";
 import { AuthGuard } from "@/components/app/auth-guard";
 import {
@@ -553,10 +554,14 @@ function LumiAssistant({ user }: { user: User }) {
             const errMsg = json.error ?? "Falha na geração.";
             if (resp.status === 402 && json.upgrade) {
               const upgrade = json.upgrade;
+              Analytics.paywallView("no_coins", "asset_generation");
               toast.error(errMsg, {
                 action: {
                   label: "Comprar coins",
-                  onClick: () => router.push(upgrade),
+                  onClick: () => {
+                    Analytics.upgradeClicked("paywall");
+                    router.push(upgrade);
+                  },
                 },
               });
             } else if (resp.status === 422 && json.code === "INSUFFICIENT_SOURCE") {

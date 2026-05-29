@@ -1,6 +1,7 @@
 "use client";
 
 import { isSupabaseConfigured, createClient } from "./supabase/client";
+import { Analytics } from "./analytics";
 import {
   bulkCreateSubjects as localBulkSubjects,
   createSubject as localCreateSubject,
@@ -311,15 +312,30 @@ export async function getLectureAsync(
   }
 }
 
+/** Dispara firstLectureRecorded() só na 1ª aula daquele user nesse browser. */
+function fireFirstLectureOnce(userId: string): void {
+  if (typeof window === "undefined") return;
+  const key = `lumio.first_lecture_fired:${userId}`;
+  try {
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+    Analytics.firstLectureRecorded();
+  } catch {
+    /* localStorage indisponível */
+  }
+}
+
 export async function createLectureAsync(
   userId: string,
   data: { subjectId: string; title: string },
 ): Promise<Lecture> {
   if (!isSupabaseConfigured()) {
-    return localCreateLecture(userId, {
+    const lec = localCreateLecture(userId, {
       subjectId: data.subjectId,
       title: data.title,
     });
+    fireFirstLectureOnce(userId);
+    return lec;
   }
   // Usa endpoint server-side que aplica gate de limite mensal de aulas + cria
   const res = await fetch("/api/lectures/create", {
@@ -342,9 +358,11 @@ export async function createLectureAsync(
         limit: json?.limit,
         plan: json?.plan,
       };
+      Analytics.paywallView("plan_limit", "create_lecture");
     }
     throw err;
   }
+  fireFirstLectureOnce(userId);
   return rowToLecture(json.lecture as LectureRow);
 }
 

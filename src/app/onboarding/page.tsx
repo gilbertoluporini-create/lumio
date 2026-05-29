@@ -29,6 +29,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { ColorPicker } from "@/components/app/emoji-color-picker";
 import { getCurrentUserAsync, markOnboardedAsync } from "@/lib/auth";
 import { bulkCreateSubjectsAsync } from "@/lib/db";
+import { Analytics } from "@/lib/analytics";
 import { SUBJECT_PALETTE, type ScheduleSlot } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +62,7 @@ export default function OnboardingPage() {
         return;
       }
       setUserName(user.name.split(" ")[0]);
+      Analytics.onboardingStarted();
     });
   }, [router]);
 
@@ -200,6 +202,7 @@ export default function OnboardingPage() {
       }
       await bulkCreateSubjectsAsync(user.id, subjects);
       await markOnboardedAsync();
+      Analytics.onboardingCompleted(subjects.length);
       toast.success("Pronto! Bem-vindo ao Lumio.");
       setTimeout(() => router.push("/dashboard"), 400);
     } catch (err) {

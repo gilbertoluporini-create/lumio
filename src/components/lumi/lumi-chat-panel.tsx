@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { Analytics } from "@/lib/analytics";
 
 export type ChatTurn = {
   id: string;
@@ -162,10 +163,12 @@ export function LumiChatPanel({
             /* ignore */
           }
           if (res.status === 402 && upgrade) {
+            Analytics.paywallView("no_coins", "lumi_chat");
             toast.error(errMsg, {
               action: {
                 label: "Comprar coins",
                 onClick: () => {
+                  Analytics.upgradeClicked("paywall");
                   window.location.href = upgrade;
                 },
               },

@@ -18,6 +18,7 @@ import {
   type LumiChatMessage,
 } from "@/lib/lumi-chats";
 import { cn, stripChatFormatting } from "@/lib/utils";
+import { Analytics } from "@/lib/analytics";
 
 type Props = {
   userId: string;
@@ -229,6 +230,7 @@ export function LumiVoiceMode({
         });
         if (!resp.ok) {
           if (resp.status === 402) {
+            Analytics.paywallView("no_coins", "voice_tts");
             try {
               const j = (await resp.json()) as { upgrade?: string };
               toast.error("Sem coins pra voz premium — usando voz padrão.", {
@@ -236,6 +238,7 @@ export function LumiVoiceMode({
                   ? {
                       label: "Comprar",
                       onClick: () => {
+                        Analytics.upgradeClicked("paywall");
                         window.location.href = j.upgrade!;
                       },
                     }
