@@ -20,6 +20,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { createMessage } from "@/lib/llm-fallback";
+import { tryAcquireLock, releaseLock } from "@/lib/inflight-locks";
 import { LIMITS, logAndSanitize } from "@/lib/api-security";
 import { chargeCoins, creditCoins } from "@/lib/coins";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
@@ -123,10 +124,25 @@ export async function POST(req: Request) {
     return chatCapResponse(cap);
   }
 
+  // Trava in-flight: enquanto uma mensagem do user está rodando, rejeita
+  // segundo POST. Evita cobrar coin + gerar assets em duplicata se o user
+  // clicar 2x ou abrir 2 tabs (na mesma instância serverless).
+  const lockKey = `lumi-agent:${user.id}`;
+  if (!tryAcquireLock(lockKey)) {
+    return Response.json(
+      {
+        error:
+          "Já tem uma mensagem sua rodando. Aguarda a resposta antes de mandar outra.",
+      },
+      { status: 429 },
+    );
+  }
+
   const charge = await chargeCoins(user.id, AGENT_COST, "chat", {
     scope: "lumi-agent",
   });
   if (!charge.ok) {
+    releaseLock(lockKey);
     return Response.json(
       {
         error: `Saldo insuficiente. Mensagem custa ${charge.required} coin, você tem ${charge.balance}.`,
@@ -146,6 +162,7 @@ export async function POST(req: Request) {
     } catch {
       /* ignore */
     }
+    releaseLock(lockKey);
     return Response.json(
       { error: "Configuração de servidor incompleta (faltam chaves IA)." },
       { status: 503 },
@@ -319,6 +336,8 @@ export async function POST(req: Request) {
         const sanitized = logAndSanitize("api/lumi/agent", err);
         send({ error: sanitized.error ?? "Falha no agente." });
         controller.close();
+      } finally {
+        releaseLock(lockKey);
       }
     },
   });

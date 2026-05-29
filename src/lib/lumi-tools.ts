@@ -234,7 +234,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "iniciar_modo_prova",
     description:
-      "MODO PROVA — orquestrador composto. Use SEMPRE que o user disser 'tenho prova', 'amanhã tem prova', 'preciso me preparar pra prova de X', ou similar. Em UMA chamada, isso: (1) lista material da matéria, (2) busca tópicos críticos via RAG, (3) GERA EM PARALELO resumo + flashcards + quiz focados na prova, (4) monta cronograma de estudo. Custa ~26 coins (resumo 10 + cards 8 + quiz 8). Avise o user do custo ANTES de chamar.",
+      "MODO PROVA — gera EM PARALELO resumo (10) + flashcards (8) + quiz (8) focados na prova + monta cronograma. Custo total ~26 coins. NUNCA dispare só porque o user disse 'tenho prova' — isso é pedido VAGO. Primeiro OFEREÇA explicitamente no chat ('quer rodar o Modo Prova? Gera resumo + flashcards + quiz da matéria, custa 26 coins') e só chame depois do 'sim' claro. Se o user disser que quer só 1 asset (só resumo OU só quiz OU só flashcards), NÃO use esta tool — use a tool individual correspondente. Em 1 chamada faz: (1) lista material, (2) busca tópicos via RAG, (3) gera os 3 assets, (4) monta cronograma.",
     input_schema: {
       type: "object",
       properties: {
