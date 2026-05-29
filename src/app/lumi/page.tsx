@@ -8,16 +8,14 @@ import {
   useState,
   useSyncExternalStore,
   type ChangeEvent,
+  type ClipboardEvent,
   type KeyboardEvent,
 } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowUp,
-  Calendar,
-  CheckCircle2,
   ChevronDown,
-  Clock,
   Coins,
   File as FileIcon,
   FileText,
@@ -118,6 +116,7 @@ const SUGGESTION_CHIPS: SuggestionChip[] = [
 
 const EMBASSADOR_KEY = "lumio.lumi.embassador-dismissed";
 const MAX_ATTACHMENTS = 5;
+const MAX_IMAGES = 3; // Limite por mensagem pra imagens (paste/upload)
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 
 const KIND_ROUTE: Record<LumiGenerateKind, string> = {
@@ -952,6 +951,13 @@ function LumiAssistant({ user }: { user: User }) {
             toast.error("Imagem maior que 5MB. Comprima e tente de novo.");
             return;
           }
+          const currentImages = attachments.filter((a) =>
+            (a.contentType ?? "").startsWith("image/"),
+          ).length;
+          if (currentImages >= MAX_IMAGES) {
+            toast.error(`Máximo ${MAX_IMAGES} imagens por mensagem.`);
+            return;
+          }
           const base64 = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => {
@@ -984,7 +990,83 @@ function LumiAssistant({ user }: { user: User }) {
         toast.error(`Falha ao processar "${file.name}": ${(err as Error).message}`);
       }
     },
-    [handleAddAttachment],
+    [handleAddAttachment, attachments],
+  );
+
+  /**
+   * Paste de imagem direto no textarea (Ctrl/Cmd+V). Aceita PNG/JPEG,
+   * limita a MAX_IMAGES por mensagem e respeita MAX_ATTACHMENTS no total.
+   * Mantém qualquer texto colado junto: só preventDefault se houve imagem.
+   */
+  const handlePaste = useCallback(
+    async (e: ClipboardEvent<HTMLTextAreaElement>) => {
+      const items = e.clipboardData?.items;
+      if (!items || items.length === 0) return;
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        if (it.kind === "file") {
+          const f = it.getAsFile();
+          if (f && (f.type === "image/png" || f.type === "image/jpeg")) {
+            imageFiles.push(f);
+          }
+        }
+      }
+      if (imageFiles.length === 0) return;
+      e.preventDefault();
+      const currentImages = attachments.filter((a) =>
+        (a.contentType ?? "").startsWith("image/"),
+      ).length;
+      const slotsImg = Math.max(0, MAX_IMAGES - currentImages);
+      const slotsTotal = Math.max(0, MAX_ATTACHMENTS - attachments.length);
+      const slots = Math.min(slotsImg, slotsTotal);
+      if (slots <= 0) {
+        toast.error(`Máximo ${MAX_IMAGES} imagens por mensagem.`);
+        return;
+      }
+      if (imageFiles.length > slots) {
+        toast.info(
+          `Colei só ${slots} imagem${slots === 1 ? "" : "ns"} (limite ${MAX_IMAGES}).`,
+        );
+      }
+      const toAdd = imageFiles.slice(0, slots);
+      for (const f of toAdd) {
+        if (f.size > 5 * 1024 * 1024) {
+          toast.error(`"${f.name || "imagem"}" passa de 5MB.`);
+          continue;
+        }
+        try {
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+              const result = String(reader.result ?? "");
+              const idx = result.indexOf(",");
+              resolve(idx >= 0 ? result.slice(idx + 1) : "");
+            };
+            reader.onerror = () => reject(new Error("Falha ao ler imagem"));
+            reader.readAsDataURL(f);
+          });
+          if (!base64) continue;
+          const mediaType = f.type === "image/jpeg" ? "image/jpeg" : "image/png";
+          const sizeKb = Math.max(1, Math.round(f.size / 1024));
+          const name =
+            f.name && f.name.trim()
+              ? f.name
+              : `colada-${new Date().toISOString().slice(11, 19)}.${mediaType === "image/jpeg" ? "jpg" : "png"}`;
+          handleAddAttachment({
+            id: newAttachmentId(),
+            kind: "file",
+            name,
+            sizeKb,
+            content: base64,
+            contentType: mediaType,
+          });
+        } catch (err) {
+          toast.error(`Falha ao ler imagem colada: ${(err as Error).message}`);
+        }
+      }
+    },
+    [attachments, handleAddAttachment],
   );
 
   const handleSpeechToggle = useCallback(() => {
@@ -1087,43 +1169,6 @@ function LumiAssistant({ user }: { user: User }) {
 
           {/* Right cluster */}
           <div className="flex items-center gap-1.5">
-            <Link
-              href="/lumi/chats"
-              title="Histórico de chats"
-              aria-label="Histórico de chats"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
-            >
-              <Clock className="h-4 w-4" />
-            </Link>
-            <button
-              type="button"
-              title="Tarefas"
-              aria-label="Tarefas"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
-            >
-              <CheckCircle2 className="h-4 w-4" />
-            </button>
-            <Link
-              href="/schedule"
-              title="Planejador"
-              aria-label="Planejador"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
-            >
-              <Calendar className="h-4 w-4" />
-            </Link>
-            <button
-              type="button"
-              onClick={() => {
-                const subj = context.subjectName ?? "essa matéria";
-                const prompt = `Modo Prova: tenho prova de ${subj} amanhã. Prepara o kit (resumo + flashcards + quiz) focado nos tópicos críticos, com cronograma pra 3h de estudo. Pode cobrar ~26 coins.`;
-                setInput(prompt);
-              }}
-              title="Modo Prova"
-              className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 bg-gradient-to-r from-primary/10 to-fuchsia-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-fuchsia-500/20"
-            >
-              <Sparkles className="h-3.5 w-3.5 text-fuchsia-500" />
-              Modo Prova
-            </button>
             <div className="hidden sm:inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/40 px-2.5 py-1 text-[11px] font-medium text-foreground">
               <Flame className="h-3 w-3 text-primary" />
               <span className="tabular-nums">{streakCount}</span>
@@ -1230,6 +1275,7 @@ function LumiAssistant({ user }: { user: User }) {
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKey}
+                  onPaste={handlePaste}
                   placeholder="Pergunte algo ao Lumi…"
                   rows={1}
                   disabled={sending}
@@ -1256,7 +1302,7 @@ function LumiAssistant({ user }: { user: User }) {
                         <SquarePen className="h-4 w-4" />
                       </Link>
                     </div>
-                    {/* Desktop (md+): menus separados, inalterado */}
+                    {/* Desktop (md+): menus separados + Modo Prova */}
                     <div className="hidden items-center gap-1 md:flex">
                       <AttachMenu
                         onUploadComputer={handleAttachClick}
@@ -1264,6 +1310,16 @@ function LumiAssistant({ user }: { user: User }) {
                         disabled={attachments.length >= MAX_ATTACHMENTS}
                       />
                       <GenerateMenu onPick={handleGenerateMenu} />
+                      <button
+                        type="button"
+                        onClick={handleExamMode}
+                        disabled={sending}
+                        title="Modo Prova"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 bg-gradient-to-r from-primary/10 to-fuchsia-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-fuchsia-500/20 disabled:opacity-50"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 text-fuchsia-500" />
+                        Modo Prova
+                      </button>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1334,6 +1390,7 @@ function LumiAssistant({ user }: { user: User }) {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKey}
+                onPaste={handlePaste}
                 placeholder="Pergunte algo ao Lumi…"
                 rows={3}
                 disabled={sending}
@@ -1360,7 +1417,7 @@ function LumiAssistant({ user }: { user: User }) {
                       <SquarePen className="h-4 w-4" />
                     </Link>
                   </div>
-                  {/* Desktop (md+): menus separados, inalterado */}
+                  {/* Desktop (md+): menus separados + Modo Prova */}
                   <div className="hidden items-center gap-1 md:flex">
                     <AttachMenu
                       onUploadComputer={handleAttachClick}
@@ -1368,6 +1425,16 @@ function LumiAssistant({ user }: { user: User }) {
                       disabled={attachments.length >= MAX_ATTACHMENTS}
                     />
                     <GenerateMenu onPick={handleGenerateMenu} />
+                    <button
+                      type="button"
+                      onClick={handleExamMode}
+                      disabled={sending}
+                      title="Modo Prova"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 bg-gradient-to-r from-primary/10 to-fuchsia-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-fuchsia-500/20 disabled:opacity-50"
+                    >
+                      <Sparkles className="h-3.5 w-3.5 text-fuchsia-500" />
+                      Modo Prova
+                    </button>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
