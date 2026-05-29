@@ -177,7 +177,7 @@ export function ContentWizard({
   const [repairingDocId, setRepairingDocId] = useState<string | null>(null);
 
   // Step 2 state — específicas
-  // Imagens ligadas por padrão: o resumo já vem ilustrado (gpt-image-1).
+  // Imagens ligadas por padrão: o resumo já vem ilustrado (OpenAI GPT Image).
   const [withImages, setWithImages] = useState(true);
   const [depth, setDepth] = useState<Depth>("standard");
   const [count, setCount] = useState<number>(
@@ -737,6 +737,7 @@ export function ContentWizard({
         const firstLec = selectedLectures[0];
         const firstUploadedPdf = uploadedPdfs[0];
         const documentText = pdfTexts.join("\n\n---\n\n");
+        const firstSelectedDoc = selectedDocuments[0];
         const sourceForPending =
           mode === "summary"
             ? firstLec
@@ -751,7 +752,12 @@ export function ContentWizard({
                       0,
                     ),
                   } as const)
-                : undefined
+                : firstSelectedDoc
+                  ? ({
+                      kind: "existing-document",
+                      documentId: firstSelectedDoc.id,
+                    } as const)
+                  : undefined
             : undefined;
         markPendingGeneration({
           mode,
@@ -808,8 +814,8 @@ export function ContentWizard({
             body: JSON.stringify({ lectureId: baseLecture.id, count: 3 }),
             keepalive: true,
           }).catch(() => {});
-        } else {
-          // PDF/texto puro — cria Document + Summary, sem Lecture
+        } else if (uploadedPdfs.length > 0) {
+          // PDF recém-subido — cria Document + Summary, sem Lecture
           const pageCount = uploadedPdfs.reduce(
             (acc, p) => acc + (p.pages ?? 0),
             0,
@@ -888,6 +894,30 @@ export function ContentWizard({
           fireConfetti();
           onCreated?.({
             documentId: doc.id,
+            summaryId: sm?.id,
+            mode,
+          });
+        } else {
+          // Sem PDF novo: resumo de documento(s) JÁ existente(s) na pasta.
+          // Reusa o primeiro documento como fonte — NÃO duplica o PDF.
+          const sourceDoc = selectedDocuments[0];
+          if (!sourceDoc) {
+            cancelProgress();
+            toast.error("Selecione uma fonte pro resumo.");
+            return;
+          }
+          const sm = await createSummaryAsync({
+            userId,
+            subjectId,
+            source: { kind: "document", documentId: sourceDoc.id },
+            title,
+            content: summaryContent,
+          });
+          finishProgress("Pronto!");
+          toast.success("Resumo pronto!");
+          fireConfetti();
+          onCreated?.({
+            documentId: sourceDoc.id,
             summaryId: sm?.id,
             mode,
           });
@@ -1736,7 +1766,7 @@ function Step2Options({
               </div>
               <div className="text-[11px] text-muted-foreground mt-0.5">
                 {mode === "summary"
-                  ? "3-4 ilustrações geradas por IA (Imagen 3)"
+                  ? "3-4 ilustrações premium geradas por OpenAI GPT Image"
                   : "Imagens em alguns cards/questões-chave"}
               </div>
             </div>

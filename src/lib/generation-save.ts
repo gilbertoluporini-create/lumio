@@ -90,6 +90,21 @@ export async function savePendingGeneration(
         };
       }
 
+      // Caso 2b: summary de Document JÁ existente — reusa o id, não duplica.
+      if (pending.source?.kind === "existing-document") {
+        const sm = await createSummaryAsync({
+          userId: pending.userId,
+          subjectId: pending.subjectId,
+          source: { kind: "document", documentId: pending.source.documentId },
+          title: pending.title,
+          content: summaryContent,
+        });
+        return {
+          ok: true,
+          route: sm?.id ? `/resumo/doc/${sm.id}` : "/resumos",
+        };
+      }
+
       // Caso 2: summary de Document (PDF puro, sem aula gravada)
       if (pending.source?.kind === "document") {
         const doc = await createDocumentAsync({

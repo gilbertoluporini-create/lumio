@@ -37,10 +37,12 @@ export type PendingGenerationContent = {
   // Document + Summary (no caso de mode=summary com só PDF).
   lectureId?: string | null;
 
-  // Source kind pra mode=summary: lecture-linked vs document-only
+  // Source kind pra mode=summary: lecture-linked, doc novo (PDF subido) ou
+  // doc já existente na pasta (reusa o id, não duplica).
   source?:
     | { kind: "lecture"; lectureId: string }
-    | { kind: "document"; documentText: string; documentTitle: string; pageCount?: number };
+    | { kind: "document"; documentText: string; documentTitle: string; pageCount?: number }
+    | { kind: "existing-document"; documentId: string };
 
   // Resultado bruto do /api/ai/generate
   content: unknown; // { markdown? } | { cards? } | { questions? } | { centralTopic?, branches? }
