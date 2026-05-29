@@ -66,6 +66,7 @@ import {
   type DetailsEvent,
 } from "@/components/calendar/event-details-dialog";
 import { ExamPdfUpload } from "@/components/calendar/exam-pdf-upload";
+import { SchedulePdfUpload } from "@/components/calendar/schedule-pdf-upload";
 import { listSubjectsAsync } from "@/lib/db";
 import {
   EVENT_TYPE_META,
@@ -358,6 +359,7 @@ function ScheduleView({ user }: { user: User }) {
 
   /* Exam PDF upload dialog */
   const [pdfUploadOpen, setPdfUploadOpen] = useState(false);
+  const [scheduleUploadOpen, setScheduleUploadOpen] = useState(false);
 
   /* Week view navigation cursor (independente do month cursor) */
   const [weekAnchor, setWeekAnchor] = useState<Date>(() => {
@@ -385,6 +387,10 @@ function ScheduleView({ user }: { user: User }) {
 
   const reloadCustomEvents = useCallback(() => {
     listEventsAsync(user.id).then((evs) => setCustomEvents(evs));
+  }, [user.id]);
+
+  const reloadSubjects = useCallback(() => {
+    listSubjectsAsync(user.id).then((subs) => setSubjects(subs));
   }, [user.id]);
 
   /* Combina aulas + custom events para uma janela ampla (12 semanas), depois filtra por view. */
@@ -645,6 +651,14 @@ function ScheduleView({ user }: { user: User }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setScheduleUploadOpen(true)}
+          >
+            <Upload className="h-4 w-4" />
+            Subir agenda
+          </Button>
           <Button asChild variant="outline" size="sm">
             <Link href="/dashboard">
               <Plus className="h-4 w-4" />
@@ -917,6 +931,14 @@ function ScheduleView({ user }: { user: User }) {
         userId={user.id}
         subjects={subjects}
         onCreated={() => reloadCustomEvents()}
+      />
+
+      <SchedulePdfUpload
+        open={scheduleUploadOpen}
+        onOpenChange={setScheduleUploadOpen}
+        userId={user.id}
+        subjects={subjects}
+        onSaved={() => reloadSubjects()}
       />
     </div>
   );

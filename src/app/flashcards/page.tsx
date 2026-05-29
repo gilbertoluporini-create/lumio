@@ -620,22 +620,51 @@ function FlashcardsHubView({ user }: { user: User }) {
   if (decks.length === 0) {
     return (
       <>
-        <div className="mx-auto max-w-2xl px-5 py-16 text-center">
-          <div className="flex justify-center mb-3">
-            <LumiCharacter mood="sleeping" size="lg" float />
+        <div className="mx-auto max-w-7xl px-5 py-8">
+          {/* Header */}
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-7">
+            <div className="flex min-w-0 items-center gap-4">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/illustrations/lumi-book-open.png"
+                alt="Lumi"
+                className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"
+              />
+              <div className="min-w-0">
+                <div className="text-sm text-muted-foreground mb-1">
+                  {greeting}, {firstName}
+                </div>
+                <h1 className="text-3xl md:text-4xl heading-display">
+                  Flashcards
+                </h1>
+                <p className="mt-2 text-sm text-muted-foreground max-w-xl">
+                  Reforce sua memória com repetição espaçada e estude com
+                  eficiência.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 shrink-0">
+              <Button variant="gradient" onClick={() => setNewDeckOpen(true)}>
+                <Plus className="h-4 w-4" /> Novo deck
+              </Button>
+            </div>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">
-            Nenhum deck por enquanto
-          </h1>
-          <p className="mt-3 text-sm text-muted-foreground max-w-md mx-auto">
-            Os flash cards são gerados a partir das suas aulas. Abra uma aula
-            com transcrição e clique em &quot;Gerar flash cards&quot; pra criar
-            seu primeiro deck.
-          </p>
-          <div className="mt-6 flex justify-center gap-2">
+
+          {/* Empty state */}
+          <div className="rounded-2xl border border-dashed border-border/60 bg-card/40 p-10 text-center">
+            <div className="flex justify-center mb-3">
+              <LumiCharacter mood="sleeping" size="lg" float />
+            </div>
+            <h3 className="text-lg font-semibold">Nenhum deck por enquanto</h3>
+            <p className="text-sm text-muted-foreground mt-2 max-w-md mx-auto">
+              Os flash cards são gerados a partir das suas aulas. Crie um deck
+              agora ou abra uma aula com transcrição e clique em &quot;Gerar
+              flash cards&quot;.
+            </p>
             <Button
               variant="gradient"
               size="lg"
+              className="mt-6"
               onClick={() => setNewDeckOpen(true)}
             >
               <Plus className="h-4 w-4" /> Criar primeiro deck
