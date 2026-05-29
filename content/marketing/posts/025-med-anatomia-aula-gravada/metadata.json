@@ -1,0 +1,16 @@
+{
+  "id": "025-med-anatomia-aula-gravada",
+  "scheduled_for": "2026-06-23T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "produto",
+  "title": "PRODUTO: grava a prática de anatomia, o Lumi devolve flashcards",
+  "content": {
+    "instagram": {
+      "caption": "Na prática de anatomia você está de luva, com as mãos ocupadas na peça, o professor falando o nome de 15 estruturas por minuto — e você não consegue anotar nada. 🦴\n\nResultado: sai do laboratório com a cabeça cheia e o caderno vazio. Na semana seguinte, esqueceu metade.\n\nCom o Lumi:\n↳ Grava o áudio da prática (celular no bolso, mãos livres)\n↳ Ele transcreve e separa por estrutura citada\n↳ Vira flashcard de cada uma: nome, localização, relações\n↳ Quiz pra você se testar antes da prova prática\n\nA matéria-prima da sua prova prática é a aula. Faltava transformar isso em material de estudo sem você precisar parar pra digitar.\n\n→ Testa na próxima prática. Link na bio.\n\n— time Lumio",
+      "hashtags": ["medicina", "anatomia", "estudamedicina", "anatomiahumana", "faculdadedemedicina", "estudantedemedicina", "provapratica", "flashcards", "Lumio"]
+    },
+    "facebook": {
+      "caption": "Na prática de anatomia suas mãos estão ocupadas e o professor cita dezenas de estruturas por minuto. Grava o áudio no Lumio: ele transcreve, separa por estrutura e vira flashcard (nome, localização, relações) + quiz pra prova prática. A aula vira material de estudo sem você parar pra digitar."
+    }
+  }
+}

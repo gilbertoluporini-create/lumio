@@ -1,0 +1,16 @@
+{
+  "id": "027-med-revisao-prova",
+  "scheduled_for": "2026-06-27T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "educacional",
+  "title": "Revisão espaçada pra semana de prova de medicina",
+  "content": {
+    "instagram": {
+      "caption": "8 matérias. Anatomia na segunda, fisio na quarta, bioquímica na sexta. E você na véspera tentando enfiar tudo na cabeça de uma vez. 📚\n\nO problema não é falta de esforço. É o método.\n\nEstudar tudo na véspera (massed practice) enche a memória de curto prazo e esvazia em 48h. Por isso você \"sabia\" no domingo e travou na prova de segunda.\n\nA revisão espaçada faz o oposto:\n↳ Distribui as 8 matérias ao longo da semana\n↳ Revisa cada conteúdo no momento em que você está prestes a esquecer\n↳ Intervalos crescentes: 1 dia → 3 dias → 1 semana\n↳ Estudos (Cepeda, 2008) mostram retenção até 200% maior\n\nNa prática de medicina, onde o volume é absurdo, isso é a diferença entre decorar e aprender.\n\nO Lumi monta isso pra você: transforma a aula em flashcard, agenda a revisão no intervalo certo e te lembra. Você só estuda o que precisa, no dia certo.\n\n→ Link na bio.\n\n— time Lumio",
+      "hashtags": ["medicina", "estudamedicina", "revisaoespacada", "semanadeprova", "faculdadedemedicina", "estudantedemedicina", "tecnicasdeestudo", "flashcards", "Lumio"]
+    },
+    "facebook": {
+      "caption": "8 matérias na semana de prova e você tentando estudar tudo na véspera? O método está errado. A revisão espaçada distribui o conteúdo ao longo da semana e revisa no momento de esquecer — retenção até 200% maior (Cepeda, 2008). O Lumio transforma suas aulas em flashcards, agenda a revisão no intervalo certo e te lembra. Feito pra quem estuda medicina."
+    }
+  }
+}

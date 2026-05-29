@@ -1,0 +1,16 @@
+{
+  "id": "023-med-nervos-cranianos",
+  "scheduled_for": "2026-06-19T19:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "educacional",
+  "title": "Os 12 nervos cranianos — sem decoreba",
+  "content": {
+    "instagram": {
+      "caption": "Os 12 nervos cranianos são o primeiro pesadelo de quem entra em medicina. 🧠\n\nA ordem (I a XII):\nI. Olfatório\nII. Óptico\nIII. Oculomotor\nIV. Troclear\nV. Trigêmeo\nVI. Abducente\nVII. Facial\nVIII. Vestibulococlear\nIX. Glossofaríngeo\nX. Vago\nXI. Acessório\nXII. Hipoglosso\n\nE não basta a ordem — cai na prova se cada um é Sensitivo, Motor ou Misto:\nSensitivos: I, II, VIII\nMotores: III, IV, VI, XI, XII\nMistos: V, VII, IX, X\n\nMacete pra função: \"alguns são puro sentido, alguns puro movimento, e os do meio fazem as duas\".\n\nGrava a aula de neuroanatomia no Lumi: ele vira flashcard de cada par craniano (função, núcleo, forame de saída) e te faz quiz até fixar de verdade.\n\n→ Estudo de medicina em pt-BR. Link na bio.\n\n— time Lumio",
+      "hashtags": ["medicina", "estudamedicina", "neuroanatomia", "nervoscranianos", "faculdadedemedicina", "anatomia", "estudantedemedicina", "flashcards", "Lumio"]
+    },
+    "facebook": {
+      "caption": "Os 12 nervos cranianos em ordem, com a classificação Sensitivo/Motor/Misto que sempre cai na prova de neuroanatomia. Grava a aula no Lumio e ele transforma cada par craniano em flashcard com função, núcleo e forame de saída. Estudo de medicina em pt-BR."
+    }
+  }
+}

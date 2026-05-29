@@ -1,0 +1,16 @@
+{
+  "id": "026-med-penicilina-acaso",
+  "scheduled_for": "2026-06-25T12:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "curiosidade",
+  "title": "A penicilina foi descoberta por um erro de laboratório",
+  "content": {
+    "instagram": {
+      "caption": "O antibiótico que mudou a história da medicina nasceu de uma bagunça de laboratório. 🧫\n\nSetembro de 1928. Alexander Fleming volta de férias e encontra suas placas de Petri com Staphylococcus esquecidas e contaminadas por um mofo (Penicillium notatum).\n\nO detalhe que ele quase jogou no lixo: ao redor do mofo, as bactérias estavam MORTAS. Havia um halo sem crescimento.\n\nFleming percebeu que o fungo produzia uma substância que matava bactérias. Chamou de penicilina.\n\nMas a história quase parou aí. Fleming não conseguiu isolar a substância em quantidade útil e abandonou o projeto por anos.\n\nFoi só em 1940 que Howard Florey e Ernst Chain (Oxford) conseguiram purificar e produzir penicilina em escala — bem a tempo de salvar milhares de feridos na Segunda Guerra.\n\nOs três dividiram o Nobel de Medicina em 1945.\n\nMoral: a descoberta foi um acaso. Transformar acaso em remédio que salva vidas foi trabalho de muita gente, por anos.\n\n— time Lumio",
+      "hashtags": ["medicina", "historiadamedicina", "penicilina", "microbiologia", "antibioticos", "estudamedicina", "curiosidades", "ciencia", "Lumio"]
+    },
+    "facebook": {
+      "caption": "Em 1928, Alexander Fleming voltou de férias e encontrou suas placas de Staphylococcus contaminadas por um mofo — e ao redor dele as bactérias estavam mortas. Era a penicilina. Mas só em 1940 Florey e Chain conseguiram produzi-la em escala, a tempo da Segunda Guerra. Nobel de Medicina em 1945. A maior arma contra infecções nasceu de um acaso de laboratório."
+    }
+  }
+}

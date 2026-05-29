@@ -1,0 +1,16 @@
+{
+  "id": "024-med-ciclo-krebs",
+  "scheduled_for": "2026-06-21T12:00:00-03:00",
+  "networks": ["instagram", "facebook"],
+  "category": "educacional",
+  "title": "Ciclo de Krebs — o que ninguém te explicou direito",
+  "content": {
+    "instagram": {
+      "caption": "O Ciclo de Krebs derruba mais gente em bioquímica do que qualquer outra via. Mas a lógica é simples. 🔬\n\nOnde acontece: matriz mitocondrial.\nPra que serve: extrair elétrons (NADH e FADH2) que vão alimentar a cadeia respiratória e gerar ATP.\n\nA entrada:\nAcetil-CoA (2C) + Oxaloacetato (4C) → Citrato (6C)\n\nA volta completa (intermediários):\nCitrato → Isocitrato → α-cetoglutarato → Succinil-CoA → Succinato → Fumarato → Malato → Oxaloacetato\n\nO que cada volta produz (por Acetil-CoA):\n→ 3 NADH\n→ 1 FADH2\n→ 1 GTP (≈ 1 ATP)\n→ 2 CO2 liberados\n\nA glicose vira 2 Acetil-CoA, então dobra tudo por molécula de glicose.\n\nMacete: você não precisa decorar 8 nomes soltos — precisa entender o que ENTRA, o que SAI e por quê. Grava a aula de bioquímica no Lumi e ele vira flashcard de cada intermediário + quiz dos produtos.\n\n→ Link na bio.\n\n— time Lumio",
+      "hashtags": ["medicina", "bioquimica", "ciclodekrebs", "estudamedicina", "metabolismo", "faculdadedemedicina", "estudantedemedicina", "flashcards", "Lumio"]
+    },
+    "facebook": {
+      "caption": "O Ciclo de Krebs sem decoreba: onde acontece (matriz mitocondrial), a entrada (Acetil-CoA + Oxaloacetato → Citrato), os intermediários em ordem e o que cada volta produz (3 NADH, 1 FADH2, 1 GTP, 2 CO2). Grava a aula de bioquímica no Lumio e ele vira flashcard de cada intermediário."
+    }
+  }
+}
