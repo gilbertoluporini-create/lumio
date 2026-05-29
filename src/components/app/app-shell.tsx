@@ -176,6 +176,41 @@ export function AppShell({
     setMobileOpen(false);
   }, [pathname]);
 
+  // Swipe horizontal abre/fecha o menu lateral no mobile: começar na borda
+  // esquerda (<24px) e arrastar pra direita abre; com o menu aberto, arrastar
+  // pra esquerda fecha. Só < lg, onde o sidebar fica escondido por padrão.
+  useEffect(() => {
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+
+    const onStart = (e: TouchEvent) => {
+      if (window.innerWidth >= 1024) return;
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      tracking = mobileOpen || startX <= 24;
+    };
+
+    const onEnd = (e: TouchEvent) => {
+      if (!tracking) return;
+      tracking = false;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - startX;
+      const dy = t.clientY - startY;
+      if (Math.abs(dx) < 60 || Math.abs(dy) > Math.abs(dx)) return;
+      if (dx > 0 && !mobileOpen) setMobileOpen(true);
+      else if (dx < 0 && mobileOpen) setMobileOpen(false);
+    };
+
+    document.addEventListener("touchstart", onStart, { passive: true });
+    document.addEventListener("touchend", onEnd, { passive: true });
+    return () => {
+      document.removeEventListener("touchstart", onStart);
+      document.removeEventListener("touchend", onEnd);
+    };
+  }, [mobileOpen]);
+
   // Fetch coin balance
   useEffect(() => {
     let active = true;
