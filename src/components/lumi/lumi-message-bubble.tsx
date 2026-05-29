@@ -19,6 +19,7 @@ import remarkGfm from "remark-gfm";
 import Link from "next/link";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
 import type { LumiChatMessage } from "@/lib/lumi-chats";
 
 type Props = {
@@ -135,6 +136,19 @@ export function LumiMessageBubble({ message, isStreaming }: Props) {
             {isStreaming ? `${message.content}▍` : message.content}
           </ReactMarkdown>
         </div>
+
+        {message.tools && message.tools.length > 0 && (
+          <div className="mt-3 space-y-2">
+            {message.tools.map((t, i) => (
+              <LumiToolCard
+                key={i}
+                name={t.name}
+                status={t.status}
+                output={t.output}
+              />
+            ))}
+          </div>
+        )}
 
         {message.attachment && AttachmentIcon && (() => {
           const att = message.attachment;

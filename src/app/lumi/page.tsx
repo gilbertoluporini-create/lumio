@@ -168,9 +168,11 @@ function LumiAssistant({ user }: { user: User }) {
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   const [attachmentPickerOpen, setAttachmentPickerOpen] = useState(false);
   const [voiceMode, setVoiceMode] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const englishMode = useRef(false);
   const interimRef = useRef("");
+  const restoreAttempted = useRef(false);
 
   const messages = chat?.messages ?? [];
 
@@ -247,7 +249,9 @@ function LumiAssistant({ user }: { user: User }) {
         setLectures(l);
       },
     );
-    void hydrateFromServer(user.id);
+    void hydrateFromServer(user.id).finally(() => {
+      if (active) setHydrated(true);
+    });
     return () => {
       active = false;
     };
@@ -278,7 +282,9 @@ function LumiAssistant({ user }: { user: User }) {
   useEffect(() => {
     if (chatIdParam) {
       const existing = getChat(user.id, chatIdParam);
-      if (existing) {
+      // getChat NÃO filtra deletedAt — ignora chat na lixeira pra não ressuscitar.
+      if (existing && !existing.deletedAt) {
+        restoreAttempted.current = true;
         setChat(existing);
         if (existing.subjectId || existing.subjectName) {
           setContext({
@@ -290,37 +296,43 @@ function LumiAssistant({ user }: { user: User }) {
       }
     }
     if (isNew) {
+      restoreAttempted.current = true;
       setChat(null);
       return;
     }
-    // App nativo: ao abrir /lumi sem chat, retoma a ÚLTIMA conversa (estilo
-    // ChatGPT — "não perder a conversa ao sair da tela"). Na web fica como está
-    // (estado inicial vazio) pra não mudar o site.
-    if (!chatIdParam) {
-      const isNative =
-        typeof window !== "undefined" &&
-        (
-          window as unknown as {
-            Capacitor?: { isNativePlatform?: () => boolean };
-          }
-        ).Capacitor?.isNativePlatform?.();
-      if (isNative) {
-        const recent = [...listChats(user.id)].sort((a, b) =>
-          b.updatedAt.localeCompare(a.updatedAt),
-        )[0];
-        if (recent) {
-          setChat(recent);
-          if (recent.subjectId || recent.subjectName) {
-            setContext({
-              subjectId: recent.subjectId,
-              subjectName: recent.subjectName,
-            });
-          }
-          router.replace(`/lumi?id=${recent.id}`);
-        }
+    // Sem ?chatId e sem ?new (ex.: entrou pelo menu lateral): retoma a ÚLTIMA
+    // conversa aberta — ou a mais recente — pra não perder a conversa ao sair
+    // e voltar (web E nativo). Roda uma vez; re-tenta quando a hidratação do
+    // servidor concluir. Ignora chat na lixeira (getChat não filtra deletedAt).
+    if (restoreAttempted.current) return;
+    const lastId =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem(`lumio.lumi.lastChat.${user.id}`)
+        : null;
+    const byLast = lastId ? getChat(user.id, lastId) : null;
+    const restored =
+      (byLast && !byLast.deletedAt ? byLast : null) ??
+      listChats(user.id)[0] ??
+      null;
+    if (restored) {
+      restoreAttempted.current = true;
+      setChat(restored);
+      if (restored.subjectId || restored.subjectName) {
+        setContext({
+          subjectId: restored.subjectId,
+          subjectName: restored.subjectName,
+        });
       }
+      router.replace(`/lumi?id=${restored.id}`);
     }
-  }, [chatIdParam, isNew, user.id, router]);
+  }, [chatIdParam, isNew, user.id, hydrated, router]);
+
+  // Lembra o último chat aberto pra restaurar quando o user voltar pra /lumi.
+  useEffect(() => {
+    if (chat?.id && typeof window !== "undefined") {
+      window.localStorage.setItem(`lumio.lumi.lastChat.${user.id}`, chat.id);
+    }
+  }, [chat?.id, user.id]);
 
   useEffect(() => {
     const box = scrollRef.current;

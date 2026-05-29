@@ -150,7 +150,17 @@ function GravacoesView({ user }: { user: User }) {
       .then(([s, l]) => {
         if (!active) return;
         setSubjects(s);
-        setLectures(l);
+        // Só gravações REAIS aparecem aqui. Ao gerar flashcards/quiz/mapa pelo
+        // Lumi, criamos uma aula-wrapper vazia (sem áudio/transcrição) só pra
+        // hospedar o asset — ela não é uma gravação e não deve poluir esta aba.
+        setLectures(
+          l.filter(
+            (lec) =>
+              !!lec.audioUrl ||
+              (lec.transcript?.trim().length ?? 0) > 0 ||
+              lec.durationSec > 0,
+          ),
+        );
       })
       .finally(() => {
         if (active) setLoading(false);

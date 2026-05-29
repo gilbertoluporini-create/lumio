@@ -211,12 +211,39 @@ async function runStream(state: StreamState, opts: StartOpts): Promise<void> {
       return;
     }
 
+    // Persiste os cards de tools ACIONÁVEIS (asset gerado com url, ou navegação)
+    // na própria mensagem — assim os botões "Abrir →" sobrevivem a reload/saída
+    // da tela. Guardamos só o output enxuto (url/titulo/navegacao) pra não inchar
+    // o localStorage com os trechos de busca etc.
+    const persistedTools = state.tools
+      .filter((t) => {
+        const o = t.output as Record<string, unknown> | undefined;
+        return (
+          !!o &&
+          typeof o === "object" &&
+          ("url" in o || "navegacao" in o)
+        );
+      })
+      .map((t) => {
+        const o = t.output as Record<string, unknown>;
+        return {
+          name: t.name,
+          status: t.status,
+          output: {
+            url: o.url,
+            titulo: o.titulo,
+            navegacao: o.navegacao,
+          },
+        };
+      });
+
     // Persiste a mensagem final no chat (mesmo se user navegou pra fora)
     const assistantMsg: LumiChatMessage = {
       id: `a_${Date.now()}`,
       role: "assistant",
       content: stripChatFormatting(finalReply) || "(Sem resposta)",
       createdAt: new Date().toISOString(),
+      ...(persistedTools.length > 0 ? { tools: persistedTools } : {}),
     };
     try {
       appendMessage(opts.userId, opts.chatId, assistantMsg);

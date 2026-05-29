@@ -203,7 +203,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "gerar_imagem",
     description:
-      "Gera UMA imagem educacional médico-acadêmica premium (estilo coleção: editorial, navy/verde-água/lilás, 16:9, 3D + infográfico). Use quando o user pedir 'faça uma imagem sobre esse resumo', 'me mostra em diagrama', 'desenha a via X', 'visualiza isso pra mim'. Custa 30 coins (gpt-image-1 high). Avise o custo ANTES de chamar. IMPORTANTE: a imagem vem SEM texto/labels (limitação técnica do modelo em pt-BR) — você deve narrar o conteúdo em texto separado na sua resposta. Pode passar APENAS um contexto (lectureId/summaryId/documentId) — o sistema busca o conteúdo automaticamente e gera. Devolve URL formatada como markdown ![](url).",
+      "Gera UMA imagem educacional (diagrama, esquema, ilustração anotada) com labels e título, no estilo de uma figura de livro-texto — como o ChatGPT faz quando alguém pede um diagrama. O formato e o estilo se adaptam ao pedido. Use quando o user pedir 'faça uma imagem sobre esse resumo', 'me mostra em diagrama', 'desenha a via X', 'visualiza isso pra mim'. Custa 30 coins (gpt-image-1 high). Avise o custo ANTES de chamar. A imagem JÁ inclui os labels/texto na própria figura — você não precisa redesenhar em texto, mas pode complementar com uma explicação curta. Pode passar APENAS um contexto (lectureId/summaryId/documentId) — o sistema busca o conteúdo automaticamente e gera. Devolve URL formatada como markdown ![](url).",
     input_schema: {
       type: "object",
       properties: {
@@ -524,19 +524,104 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       page_count: number | null;
     };
 
-    const lectures = ((lecRes.data ?? []) as LecRow[]).filter(
+    let lectures = ((lecRes.data ?? []) as LecRow[]).filter(
       (l) => l.transcript && l.transcript.length > 80,
     );
-    const documents = ((docRes.data ?? []) as DocRow[]).filter(
+    let documents = ((docRes.data ?? []) as DocRow[]).filter(
       (d) => d.source_text && d.source_text.length > 80,
     );
-    const subjectName =
+    let subjectName =
       (subjRes.data as { name?: string } | null)?.name ?? "Matéria";
+    let effectiveSubjectId = subjectId;
+
+    // REDE DE SEGURANÇA: com contexto "Livre" o Lumi às vezes mira a matéria
+    // errada e essa fica vazia. Em vez de falar "sem material / grave de novo"
+    // (errado), buscamos o conteúdo por embeddings em TODAS as matérias e
+    // corrigimos pra onde o material realmente está.
+    if (lectures.length === 0 && documents.length === 0) {
+      const probe =
+        topicosFoco.length > 0 ? topicosFoco.join(" ") : subjectName;
+      const chunks = await searchRelevantChunks({
+        userId: ctx.userId,
+        query: probe,
+        subjectId: null,
+        limit: 8,
+        supabaseAdmin: ctx.supabaseAdmin,
+        apiKey: ctx.openaiKey,
+      }).catch(() => []);
+      const foundDocIds = [
+        ...new Set(
+          chunks
+            .filter((c) => c.source_kind === "document")
+            .map((c) => c.source_id),
+        ),
+      ];
+      const foundLecIds = [
+        ...new Set(
+          chunks
+            .filter((c) => c.source_kind === "lecture")
+            .map((c) => c.source_id),
+        ),
+      ];
+      if (foundDocIds.length > 0 || foundLecIds.length > 0) {
+        type DocRowS = DocRow & { subject_id: string | null };
+        type LecRowS = LecRow & { subject_id: string | null };
+        const [d2, l2] = await Promise.all([
+          foundDocIds.length
+            ? ctx.supabaseAdmin
+                .from("documents")
+                .select("id, title, source_text, page_count, subject_id")
+                .eq("user_id", ctx.userId)
+                .in("id", foundDocIds)
+            : Promise.resolve({ data: [] as DocRowS[] }),
+          foundLecIds.length
+            ? ctx.supabaseAdmin
+                .from("lectures")
+                .select("id, title, transcript, slides, duration_sec, subject_id")
+                .eq("user_id", ctx.userId)
+                .in("id", foundLecIds)
+            : Promise.resolve({ data: [] as LecRowS[] }),
+        ]);
+        const foundDocs = ((d2.data ?? []) as DocRowS[]).filter(
+          (d) => d.source_text && d.source_text.length > 80,
+        );
+        const foundLecs = ((l2.data ?? []) as LecRowS[]).filter(
+          (l) => l.transcript && l.transcript.length > 80,
+        );
+        // Vota na matéria dominante entre o material achado e corrige.
+        const votes = new Map<string, number>();
+        for (const d of foundDocs)
+          if (d.subject_id)
+            votes.set(d.subject_id, (votes.get(d.subject_id) ?? 0) + 1);
+        for (const l of foundLecs)
+          if (l.subject_id)
+            votes.set(l.subject_id, (votes.get(l.subject_id) ?? 0) + 1);
+        const corrected = [...votes.entries()].sort(
+          (a, b) => b[1] - a[1],
+        )[0]?.[0];
+        if (corrected) {
+          effectiveSubjectId = corrected;
+          const { data: sj } = await ctx.supabaseAdmin
+            .from("subjects")
+            .select("name")
+            .eq("id", corrected)
+            .maybeSingle();
+          subjectName =
+            (sj as { name?: string } | null)?.name ?? subjectName;
+        }
+        documents = foundDocs.filter(
+          (d) => !d.subject_id || d.subject_id === effectiveSubjectId,
+        );
+        lectures = foundLecs.filter(
+          (l) => !l.subject_id || l.subject_id === effectiveSubjectId,
+        );
+      }
+    }
 
     if (lectures.length === 0 && documents.length === 0) {
       return {
         error:
-          "Sem material indexado nessa matéria. Sugira o user gravar aula ou anexar PDF antes.",
+          "Não achei material com texto sobre isso em nenhuma matéria do user. Sugira ANEXAR um PDF ou GRAVAR uma aula sobre o tema — nunca peça pra 'regravar' algo que já existe.",
         materia: subjectName,
       };
     }
@@ -557,7 +642,7 @@ const handlers: Record<LumiToolName, ToolHandler> = {
           searchRelevantChunks({
             userId: ctx.userId,
             query: q,
-            subjectId,
+            subjectId: effectiveSubjectId,
             limit: 3,
             supabaseAdmin: ctx.supabaseAdmin,
             apiKey: ctx.openaiKey,
@@ -585,7 +670,7 @@ const handlers: Record<LumiToolName, ToolHandler> = {
 
     // 4. Gera 3 assets em paralelo via callGenerateEndpoint
     const sharedInput = {
-      subjectId,
+      subjectId: effectiveSubjectId,
       lectureIds,
       documentIds,
       focoCustom: focoComum,
@@ -911,20 +996,29 @@ async function callGenerateEndpoint(
           branches: c.branches ?? [],
         };
       }
-      await ctx.supabaseAdmin.from("lecture_assets").insert({
-        lecture_id: lec.id,
-        user_id: ctx.userId,
-        kind: mode,
-        payload,
-        coins_spent: json.coinsCharged ?? 0,
-      });
-      assetId = lec.id;
-      assetUrl =
-        mode === "flashcards"
-          ? `/deck/${lec.id}`
+      // IMPORTANTE: as rotas /deck/[id], /quiz-banco/[id] e /mapa/[id] buscam
+      // lecture_assets POR id do asset — não da aula. Capturamos o id da linha
+      // inserida; usar lec.id aqui fazia o card abrir em "não encontrado".
+      const { data: assetRow } = await ctx.supabaseAdmin
+        .from("lecture_assets")
+        .insert({
+          lecture_id: lec.id,
+          user_id: ctx.userId,
+          kind: mode,
+          payload,
+          coins_spent: json.coinsCharged ?? 0,
+        })
+        .select("id")
+        .single();
+      const newAssetId = assetRow?.id as string | undefined;
+      assetId = newAssetId;
+      assetUrl = newAssetId
+        ? mode === "flashcards"
+          ? `/deck/${newAssetId}`
           : mode === "quiz"
-            ? `/quiz-banco/${lec.id}`
-            : `/mapa/${lec.id}`;
+            ? `/quiz-banco/${newAssetId}`
+            : `/mapa/${newAssetId}`
+        : undefined;
     }
   }
 

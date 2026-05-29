@@ -17,6 +17,16 @@ export type LumiChatMessage = {
     href?: string;
     preview?: string;
   };
+  /**
+   * Cards de tools acionáveis do agente Lumi (asset gerado / navegação),
+   * persistidos pra sobreviver a reload/navegação — sem isso os botões
+   * "Abrir →" que o agente solta na conversa sumiam ao sair e voltar.
+   */
+  tools?: {
+    name: string;
+    status: "running" | "done" | "error";
+    output?: unknown;
+  }[];
 };
 
 export type ChatAttachmentKind = "file" | "document";

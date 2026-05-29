@@ -177,7 +177,8 @@ export function ContentWizard({
   const [repairingDocId, setRepairingDocId] = useState<string | null>(null);
 
   // Step 2 state — específicas
-  const [withImages, setWithImages] = useState(false);
+  // Imagens ligadas por padrão: o resumo já vem ilustrado (gpt-image-1).
+  const [withImages, setWithImages] = useState(true);
   const [depth, setDepth] = useState<Depth>("standard");
   const [count, setCount] = useState<number>(
     mode === "flashcards" ? 15 : mode === "quiz" ? 10 : 10,
@@ -624,6 +625,11 @@ export function ContentWizard({
         id: "wizard-generation",
         duration: 600,
       });
+      // Fecha explicitamente: o Sonner não re-arma o timer de auto-dismiss ao
+      // atualizar um toast criado com duration:Infinity pra uma duração finita,
+      // então o box ficava preso em 100% mesmo com o resumo já gerado. O
+      // dismiss é global e funciona mesmo após o wizard navegar/desmontar.
+      setTimeout(() => toast.dismiss("wizard-generation"), 650);
       // Save completou → limpa pending pra o guard não oferecer recovery
       // de algo que já foi salvo.
       void import("@/lib/pending-generation").then((m) =>
