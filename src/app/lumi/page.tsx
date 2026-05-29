@@ -35,6 +35,7 @@ import {
   Network,
   Plus,
   Sparkles,
+  SquarePen,
   Upload,
   X,
 } from "lucide-react";
@@ -87,6 +88,7 @@ import {
   createChat,
   getChat,
   hydrateFromServer,
+  listChats,
   type ChatAttachment,
   type LumiChat,
   type LumiChatCategory,
@@ -289,8 +291,36 @@ function LumiAssistant({ user }: { user: User }) {
     }
     if (isNew) {
       setChat(null);
+      return;
     }
-  }, [chatIdParam, isNew, user.id]);
+    // App nativo: ao abrir /lumi sem chat, retoma a ÚLTIMA conversa (estilo
+    // ChatGPT — "não perder a conversa ao sair da tela"). Na web fica como está
+    // (estado inicial vazio) pra não mudar o site.
+    if (!chatIdParam) {
+      const isNative =
+        typeof window !== "undefined" &&
+        (
+          window as unknown as {
+            Capacitor?: { isNativePlatform?: () => boolean };
+          }
+        ).Capacitor?.isNativePlatform?.();
+      if (isNative) {
+        const recent = [...listChats(user.id)].sort((a, b) =>
+          b.updatedAt.localeCompare(a.updatedAt),
+        )[0];
+        if (recent) {
+          setChat(recent);
+          if (recent.subjectId || recent.subjectName) {
+            setContext({
+              subjectId: recent.subjectId,
+              subjectName: recent.subjectName,
+            });
+          }
+          router.replace(`/lumi?id=${recent.id}`);
+        }
+      }
+    }
+  }, [chatIdParam, isNew, user.id, router]);
 
   useEffect(() => {
     const box = scrollRef.current;
@@ -1037,6 +1067,16 @@ function LumiAssistant({ user }: { user: User }) {
 
           {/* Right cluster */}
           <div className="flex items-center gap-1.5">
+            {/* Nova conversa — mobile only (no app o /lumi retoma a última
+                conversa; este botão começa do zero). Desktop inalterado. */}
+            <Link
+              href="/lumi?new=1"
+              title="Nova conversa"
+              aria-label="Nova conversa"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground md:hidden"
+            >
+              <SquarePen className="h-4 w-4" />
+            </Link>
             <Link
               href="/lumi/chats"
               title="Histórico de chats"
@@ -1326,8 +1366,8 @@ function LumiAssistant({ user }: { user: User }) {
               </div>
             </div>
 
-            {/* Balance row */}
-            <div className="flex w-full items-center justify-between px-1 text-[11px] text-muted-foreground">
+            {/* Balance row — escondido no mobile (chat mais clean) */}
+            <div className="hidden w-full items-center justify-between px-1 text-[11px] text-muted-foreground md:flex">
               <span className="inline-flex items-center gap-1.5">
                 <Coins className="h-3.5 w-3.5 text-amber-500" />
                 <span>
@@ -1392,9 +1432,9 @@ function LumiAssistant({ user }: { user: User }) {
               </Link>
             </div>
 
-            {/* Embassador banner */}
+            {/* Embassador banner — escondido no mobile (chat mais clean) */}
             {!embassadorDismissed && (
-              <div className="relative flex w-full items-center justify-between gap-3 rounded-xl border border-border/60 bg-secondary/40 px-4 py-3 text-xs">
+              <div className="relative hidden w-full items-center justify-between gap-3 rounded-xl border border-border/60 bg-secondary/40 px-4 py-3 text-xs md:flex">
                 <div className="flex items-center gap-2 text-muted-foreground">
                   <Gift className="h-3.5 w-3.5 text-primary" />
                   Quer acesso ao plano Pro? Vire embaixador
