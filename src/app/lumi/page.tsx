@@ -1001,6 +1001,13 @@ function LumiAssistant({ user }: { user: User }) {
     setVoiceMode(false);
   }, []);
 
+  const handleExamMode = useCallback(() => {
+    const subj = context.subjectName ?? "essa matéria";
+    setInput(
+      `Modo Prova: tenho prova de ${subj} amanhã. Prepara o kit (resumo + flashcards + quiz) focado nos tópicos críticos, com cronograma pra 3h de estudo. Pode cobrar ~26 coins.`,
+    );
+  }, [context.subjectName]);
+
   const dismissEmbassador = useCallback(() => {
     setEmbassadorDismissed(true);
     if (typeof window !== "undefined") {
@@ -1024,7 +1031,39 @@ function LumiAssistant({ user }: { user: User }) {
 
       {/* Sticky header (toggle + actions) */}
       <div className="sticky top-[60px] z-20 -mx-4 lg:-mx-8 mb-4 border-b border-border/40 bg-background/85 px-4 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-        <div className="flex items-center justify-between gap-3">
+        {/* Mobile: barra limpa estilo ChatGPT (Lumi + nome + voz). Substitui o
+            menu de ações, que vira desktop-only logo abaixo. */}
+        <div className="flex md:hidden items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/illustrations/lumi-desk.png"
+              alt="Lumi"
+              className="h-7 w-7 shrink-0 object-contain"
+            />
+            <span className="text-sm font-semibold text-foreground">Lumi</span>
+          </div>
+          <button
+            type="button"
+            onClick={voiceMode ? handleChatModeToggle : handleVoiceModeToggle}
+            title={voiceMode ? "Voltar ao chat" : "Modo de Voz"}
+            aria-label={voiceMode ? "Voltar ao chat" : "Modo de Voz"}
+            className={
+              voiceMode
+                ? "inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors"
+                : "inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+            }
+          >
+            {voiceMode ? (
+              <MessageSquare className="h-4 w-4" />
+            ) : (
+              <Mic className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+
+        {/* Desktop (md+): menu de ações completo, inalterado */}
+        <div className="hidden md:flex items-center justify-between gap-3">
           {/* Left: context picker (kept) */}
           <div className="hidden md:flex">
             <LumiContextPicker
@@ -1067,16 +1106,6 @@ function LumiAssistant({ user }: { user: User }) {
 
           {/* Right cluster */}
           <div className="flex items-center gap-1.5">
-            {/* Nova conversa — mobile only (no app o /lumi retoma a última
-                conversa; este botão começa do zero). Desktop inalterado. */}
-            <Link
-              href="/lumi?new=1"
-              title="Nova conversa"
-              aria-label="Nova conversa"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground md:hidden"
-            >
-              <SquarePen className="h-4 w-4" />
-            </Link>
             <Link
               href="/lumi/chats"
               title="Histórico de chats"
@@ -1229,13 +1258,22 @@ function LumiAssistant({ user }: { user: User }) {
                 <div className="mt-2 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-1">
                     {/* Mobile: anexar + gerar num "+" só */}
-                    <div className="md:hidden">
+                    <div className="flex items-center gap-1 md:hidden">
                       <MobileComposerMenu
                         onUploadComputer={handleAttachClick}
                         onPickDocument={handleAttachDocuments}
                         onGenerate={handleGenerateMenu}
+                        onExamMode={handleExamMode}
                         attachDisabled={attachments.length >= MAX_ATTACHMENTS}
                       />
+                      <Link
+                        href="/lumi?new=1"
+                        title="Nova conversa"
+                        aria-label="Nova conversa"
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+                      >
+                        <SquarePen className="h-4 w-4" />
+                      </Link>
                     </div>
                     {/* Desktop (md+): menus separados, inalterado */}
                     <div className="hidden items-center gap-1 md:flex">
@@ -1323,13 +1361,22 @@ function LumiAssistant({ user }: { user: User }) {
               <div className="mt-3 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1">
                   {/* Mobile: anexar + gerar num "+" só */}
-                  <div className="md:hidden">
+                  <div className="flex items-center gap-1 md:hidden">
                     <MobileComposerMenu
                       onUploadComputer={handleAttachClick}
                       onPickDocument={handleAttachDocuments}
                       onGenerate={handleGenerateMenu}
+                      onExamMode={handleExamMode}
                       attachDisabled={attachments.length >= MAX_ATTACHMENTS}
                     />
+                    <Link
+                      href="/lumi?new=1"
+                      title="Nova conversa"
+                      aria-label="Nova conversa"
+                      className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+                    >
+                      <SquarePen className="h-4 w-4" />
+                    </Link>
                   </div>
                   {/* Desktop (md+): menus separados, inalterado */}
                   <div className="hidden items-center gap-1 md:flex">
@@ -1386,8 +1433,8 @@ function LumiAssistant({ user }: { user: User }) {
               </Link>
             </div>
 
-            {/* Suggestion chips */}
-            <div className="-mx-1 flex w-full gap-2 overflow-x-auto px-1 pb-2">
+            {/* Suggestion chips — escondidos no mobile (chat mais clean) */}
+            <div className="-mx-1 hidden w-full gap-2 overflow-x-auto px-1 pb-2 md:flex">
               {SUGGESTION_CHIPS.map((chip) => (
                 <button
                   key={chip.id}
@@ -1573,11 +1620,13 @@ function MobileComposerMenu({
   onUploadComputer,
   onPickDocument,
   onGenerate,
+  onExamMode,
   attachDisabled,
 }: {
   onUploadComputer: () => void;
   onPickDocument: () => void;
   onGenerate: (kind: LumiGenerateKind) => void;
+  onExamMode: () => void;
   attachDisabled?: boolean;
 }) {
   return (
@@ -1593,6 +1642,11 @@ function MobileComposerMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem onClick={onExamMode}>
+          <Sparkles className="mr-2 h-4 w-4 text-fuchsia-500" />
+          Modo Prova
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuLabel>Anexar</DropdownMenuLabel>
         <DropdownMenuItem onClick={onUploadComputer} disabled={attachDisabled}>
           <Upload className="mr-2 h-4 w-4 text-primary" />

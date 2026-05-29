@@ -382,7 +382,7 @@ export function AppShell({
         </nav>
 
         {/* Plan Premium upsell — footer */}
-        <div className="border-t border-border/60 p-2">
+        <div className="border-t border-border/60 p-2 pb-[calc(0.5rem_+_env(safe-area-inset-bottom))]">
           <PlanPremiumCard collapsed={collapsed} />
         </div>
       </aside>
