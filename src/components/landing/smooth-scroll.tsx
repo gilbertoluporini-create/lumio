@@ -25,7 +25,8 @@ export function SmoothScroll({ children }: { children: React.ReactNode }) {
       options={{
         // Time-based easing (expo-out) — padrão "buttery" do Lenis.
         // Mais suave que o lerp linear, que dá sensação de catch-up/travado.
-        duration: 1.2,
+        // duration mais alta = mais glide/suavidade.
+        duration: 1.45,
         easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
         smoothWheel: true,
         syncTouch: false,
