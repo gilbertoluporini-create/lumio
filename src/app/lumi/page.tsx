@@ -1020,7 +1020,7 @@ function LumiAssistant({ user }: { user: User }) {
   const isListening = speechState === "listening";
 
   return (
-    <div className="relative mx-auto flex w-full max-w-[1200px] flex-col px-4 py-4 lg:px-8">
+    <div className="relative mx-auto flex w-full max-w-[1200px] flex-col px-4 lg:px-8 h-[calc(100dvh_-_60px_-_env(safe-area-inset-top))] overflow-hidden md:h-auto md:overflow-visible md:py-4">
       <input
         ref={fileInputRef}
         type="file"
@@ -1029,41 +1029,10 @@ function LumiAssistant({ user }: { user: User }) {
         onChange={handleFileChange}
       />
 
-      {/* Sticky header (toggle + actions) */}
-      <div className="sticky top-[60px] z-20 -mx-4 lg:-mx-8 mb-4 border-b border-border/40 bg-background/85 px-4 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-        {/* Mobile: barra limpa estilo ChatGPT (Lumi + nome + voz). Substitui o
-            menu de ações, que vira desktop-only logo abaixo. */}
-        <div className="flex md:hidden items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/illustrations/lumi-desk.png"
-              alt="Lumi"
-              className="h-7 w-7 shrink-0 object-contain"
-            />
-            <span className="text-sm font-semibold text-foreground">Lumi</span>
-          </div>
-          <button
-            type="button"
-            onClick={voiceMode ? handleChatModeToggle : handleVoiceModeToggle}
-            title={voiceMode ? "Voltar ao chat" : "Modo de Voz"}
-            aria-label={voiceMode ? "Voltar ao chat" : "Modo de Voz"}
-            className={
-              voiceMode
-                ? "inline-flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary transition-colors"
-                : "inline-flex h-9 w-9 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
-            }
-          >
-            {voiceMode ? (
-              <MessageSquare className="h-4 w-4" />
-            ) : (
-              <Mic className="h-4 w-4" />
-            )}
-          </button>
-        </div>
-
-        {/* Desktop (md+): menu de ações completo, inalterado */}
-        <div className="hidden md:flex items-center justify-between gap-3">
+      {/* Header de ações — desktop only. No mobile o único cabeçalho é o do
+          app-shell (topo global); o chat ocupa a tela toda, só as mensagens rolam. */}
+      <div className="hidden md:block sticky top-[60px] z-20 -mx-4 lg:-mx-8 mb-4 border-b border-border/40 bg-background/85 px-4 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <div className="flex items-center justify-between gap-3">
           {/* Left: context picker (kept) */}
           <div className="hidden md:flex">
             <LumiContextPicker
@@ -1172,11 +1141,10 @@ function LumiAssistant({ user }: { user: User }) {
         />
       ) : hasMessages ? (
         /* Chat view */
-        <div className="flex min-h-[600px] flex-col rounded-2xl border border-border/60 bg-card">
+        <div className="flex flex-1 min-h-0 flex-col bg-card md:flex-none md:min-h-[600px] md:rounded-2xl md:border md:border-border/60">
           <div
             ref={scrollRef}
-            className="flex-1 overflow-y-auto px-4 py-6 md:px-10"
-            style={{ maxHeight: "calc(100vh - 280px)" }}
+            className="flex-1 min-h-0 overflow-y-auto px-4 py-6 md:px-10 md:max-h-[calc(100vh_-_280px)]"
           >
             <div className="mx-auto flex max-w-3xl flex-col gap-6">
               {messages.map((m) => (
@@ -1236,7 +1204,7 @@ function LumiAssistant({ user }: { user: User }) {
           </div>
 
           {/* Bottom input */}
-          <div className="border-t border-border/60 bg-card/80 p-3 md:p-4">
+          <div className="border-t border-border/60 bg-card/80 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] md:p-4">
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
               {attachments.length > 0 && (
                 <AttachmentChips
@@ -1264,6 +1232,7 @@ function LumiAssistant({ user }: { user: User }) {
                         onPickDocument={handleAttachDocuments}
                         onGenerate={handleGenerateMenu}
                         onExamMode={handleExamMode}
+                        onVoiceMode={handleVoiceModeToggle}
                         attachDisabled={attachments.length >= MAX_ATTACHMENTS}
                       />
                       <Link
@@ -1317,7 +1286,7 @@ function LumiAssistant({ user }: { user: User }) {
         </div>
       ) : (
         /* Empty state — ArchiMeds-style */
-        <div className="flex min-h-[calc(100vh-220px)] flex-col items-center justify-end pb-[env(safe-area-inset-bottom)] md:justify-center md:pb-0">
+        <div className="flex flex-1 min-h-0 flex-col items-center justify-end overflow-y-auto pb-[env(safe-area-inset-bottom)] md:flex-none md:min-h-[calc(100vh_-_220px)] md:justify-center md:pb-0">
           <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-6">
             {/* Heading row */}
             <div className="flex items-center gap-4">
@@ -1367,6 +1336,7 @@ function LumiAssistant({ user }: { user: User }) {
                       onPickDocument={handleAttachDocuments}
                       onGenerate={handleGenerateMenu}
                       onExamMode={handleExamMode}
+                      onVoiceMode={handleVoiceModeToggle}
                       attachDisabled={attachments.length >= MAX_ATTACHMENTS}
                     />
                     <Link
@@ -1621,12 +1591,14 @@ function MobileComposerMenu({
   onPickDocument,
   onGenerate,
   onExamMode,
+  onVoiceMode,
   attachDisabled,
 }: {
   onUploadComputer: () => void;
   onPickDocument: () => void;
   onGenerate: (kind: LumiGenerateKind) => void;
   onExamMode: () => void;
+  onVoiceMode: () => void;
   attachDisabled?: boolean;
 }) {
   return (
@@ -1642,6 +1614,10 @@ function MobileComposerMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuItem onClick={onVoiceMode}>
+          <Mic className="mr-2 h-4 w-4 text-primary" />
+          Modo de Voz
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={onExamMode}>
           <Sparkles className="mr-2 h-4 w-4 text-fuchsia-500" />
           Modo Prova
