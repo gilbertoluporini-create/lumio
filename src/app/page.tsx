@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ChevronRight,
   CreditCard,
+  Gift,
   Infinity as InfinityIcon,
   Languages,
   Mail,
@@ -57,6 +58,7 @@ export default function LandingPage() {
             <NavLink href="#products">Produtos</NavLink>
             <NavLink href="#for-who">Pra quem é</NavLink>
             <NavLink href="#pricing">Planos</NavLink>
+            <NavLink href="/embaixador">Embaixador</NavLink>
             <NavLink href="#faq">FAQ</NavLink>
           </div>
           <div className="flex items-center gap-1.5">
@@ -376,6 +378,27 @@ export default function LandingPage() {
         </Stagger>
       </section>
 
+      {/* EMBAIXADOR — gancho de indicação acima do pricing */}
+      <Reveal className="relative z-10 mx-auto max-w-3xl px-6 pt-8">
+        <Link
+          href="/embaixador"
+          className="group flex items-center gap-4 rounded-2xl border border-primary/30 bg-primary/5 hover:bg-primary/10 px-5 py-4 transition-colors"
+        >
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/15">
+            <Gift className="h-5 w-5 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">
+              Ou ganhe Pro de graça indicando amigos.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              1 mês Pro por amigo que assina · top embaixador ganha Power vitalício.
+            </p>
+          </div>
+          <ArrowRight className="h-4 w-4 text-primary shrink-0 transition-transform group-hover:translate-x-1" />
+        </Link>
+      </Reveal>
+
       {/* PRICING */}
       <PricingSection />
 
@@ -450,6 +473,7 @@ export default function LandingPage() {
                 <FooterLink href="#how">Como funciona</FooterLink>
                 <FooterLink href="#products">Produtos gerados</FooterLink>
                 <FooterLink href="#pricing">Planos</FooterLink>
+                <FooterLink href="/embaixador">Programa Embaixador</FooterLink>
                 <FooterLink href="/signup">Criar conta</FooterLink>
               </ul>
             </div>

@@ -11,6 +11,7 @@ import {
   CreditCard,
   FileText,
   FolderOpen,
+  Gift,
   HelpCircle,
   Layers,
   LayoutDashboard,
@@ -282,16 +283,18 @@ export function AppShell({
   ];
 
   const secondaryNavItems: SidebarNavItem[] = [
-    // Só embaixadores (marcados pelo admin) veem a aba.
-    ...(user.isAmbassador
-      ? [
-          {
-            href: "/account/embaixador",
-            label: "Embaixadores",
-            Icon: Users,
-          } as SidebarNavItem,
-        ]
-      : []),
+    // Embaixador confirmado vê a aba de gestão; quem ainda não é vê o convite.
+    user.isAmbassador
+      ? ({
+          href: "/account/embaixador",
+          label: "Embaixadores",
+          Icon: Users,
+        } as SidebarNavItem)
+      : ({
+          href: "/embaixador",
+          label: "Indique e ganhe",
+          Icon: Gift,
+        } as SidebarNavItem),
     { href: "/account/settings", label: "Configurações", Icon: Settings },
     { href: "/help", label: "Ajuda", Icon: HelpCircle },
   ];
