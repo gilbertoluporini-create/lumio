@@ -431,3 +431,55 @@ body {
     inset 0 0 0 1px color-mix(in oklab, oklch(0.85 0.18 90) 55%, transparent),
     0 1px 6px color-mix(in oklab, var(--foreground) 8%, transparent);
 }
+
+/* ── Toque nativo (só dentro do app Capacitor: html.native-app) ──
+   Faz o WebView parecer um app de verdade. Não toca no site (desktop nem
+   web mobile), porque a classe `native-app` só é adicionada pelo
+   NativeViewportLock quando Capacitor.isNativePlatform() === true. */
+
+/* Sem o flash cinza ao tocar e sem o menu de long-press (callout). */
+html.native-app {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Sem o efeito elástico/bounce de overscroll que entrega que é WebView. */
+html.native-app,
+html.native-app body {
+  overscroll-behavior: none;
+}
+
+/* Não selecionar/abrir lupa ao segurar elementos de UI. Texto de conteúdo
+   (mensagens, inputs) continua selecionável — regra abaixo restaura. */
+html.native-app button,
+html.native-app a,
+html.native-app [role="button"],
+html.native-app label,
+html.native-app .lucide,
+html.native-app img {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Conteúdo de chat e campos de texto ficam selecionáveis (copiar resposta,
+   editar input) — sobrescreve o none herdado. */
+html.native-app input,
+html.native-app textarea,
+html.native-app [contenteditable="true"],
+html.native-app [data-selectable] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
+/* Feedback instantâneo ao tocar: botões/links reagem na hora (sem os ~100ms
+   de delay visual do hover-only). Sutil, não mexe no layout. */
+@media (hover: none) {
+  html.native-app button:active,
+  html.native-app a:active,
+  html.native-app [role="button"]:active {
+    opacity: 0.55;
+    transition: opacity 0.04s ease-out;
+  }
+}
