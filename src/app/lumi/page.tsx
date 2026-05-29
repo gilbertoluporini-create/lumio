@@ -1089,7 +1089,7 @@ function LumiAssistant({ user }: { user: User }) {
               type="button"
               title="Tarefas"
               aria-label="Tarefas"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+              className="hidden md:inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
             >
               <CheckCircle2 className="h-4 w-4" />
             </button>
@@ -1097,7 +1097,7 @@ function LumiAssistant({ user }: { user: User }) {
               href="/schedule"
               title="Planejador"
               aria-label="Planejador"
-              className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+              className="hidden md:inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
             >
               <Calendar className="h-4 w-4" />
             </Link>
@@ -1109,7 +1109,7 @@ function LumiAssistant({ user }: { user: User }) {
                 setInput(prompt);
               }}
               title="Modo Prova"
-              className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 bg-gradient-to-r from-primary/10 to-fuchsia-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-fuchsia-500/20"
+              className="hidden md:inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 bg-gradient-to-r from-primary/10 to-fuchsia-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-fuchsia-500/20"
             >
               <Sparkles className="h-3.5 w-3.5 text-fuchsia-500" />
               Modo Prova
@@ -1120,7 +1120,7 @@ function LumiAssistant({ user }: { user: User }) {
             </div>
             <Link
               href="/account/billing"
-              className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary/60"
+              className="hidden md:inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary/60"
             >
               <Gift className="h-3.5 w-3.5 text-primary" />
               Lumi Pro
