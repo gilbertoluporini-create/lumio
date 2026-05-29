@@ -29,6 +29,7 @@ export type LumiToolName =
   | "criar_mapa_mental"
   | "gerar_imagem"
   | "iniciar_modo_prova"
+  | "gerar_rotina_estudo"
   | "abrir_rota";
 
 export type ToolContext = {
@@ -263,6 +264,46 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "gerar_rotina_estudo",
+    description:
+      "Gera um PDF padrão Lumio com a ROTINA DE ESTUDO SEMANAL pra uma matéria — calcula sozinho os horários livres do user (07:00-23:00 menos as aulas agendadas) e distribui blocos de estudo focados nos tópicos/aulas que ele te passou. O PDF é salvo automaticamente na pasta daquela matéria (vira um Document). Custo: 12 coins. Use quando o user pedir 'monta um plano/rotina/cronograma' OU quando ele mandar foto/texto com tópicos de prova/aulas e você ofereceu rotina e ele confirmou. Antes de chamar: descubra a matéria-alvo (subjectId via listar_materias se preciso). NÃO chame se o user só mandou conteúdo sem confirmar geração — primeiro ofereça 'quer que eu monte uma rotina semanal? São 12 coins'.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: {
+          type: "string",
+          description: "UUID da matéria-alvo (obrigatório). O PDF vai pra pasta dela.",
+        },
+        conteudo: {
+          type: "string",
+          description:
+            "Texto com os tópicos da prova / conteúdo a estudar (extraído da imagem que o user mandou, ou que ele digitou).",
+        },
+        nomesAulas: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Opcional: lista de nomes das aulas que vão cair na prova (alternativa/complemento ao conteúdo).",
+        },
+        dataProva: {
+          type: "string",
+          description:
+            "Opcional: data da prova em formato livre ('amanhã', '12/jun', '2026-06-12') — usado só como contexto.",
+        },
+        horasSemanais: {
+          type: "number",
+          description:
+            "Opcional: quantas horas/semana o user quer dedicar (6-30). Se não passar, Lumi decide entre 6 e 18.",
+        },
+        titulo: {
+          type: "string",
+          description: "Opcional: título do PDF. Default: 'Rotina — {matéria}'.",
+        },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
     name: "abrir_rota",
     description:
       "Devolve uma instrução pro frontend navegar pra uma rota interna. Use quando o user pedir explicitamente 'me leva pra X' ou quando faz sentido abrir um asset gerado. Não executa nada server-side.",
@@ -476,6 +517,71 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       navegacao: { path, motivo },
       instrucao_pro_client:
         "Renderize um card clicável com este path. Não navegue automaticamente.",
+    };
+  },
+
+  async gerar_rotina_estudo(input, ctx) {
+    const subjectId = str(input.subjectId);
+    if (!subjectId) return { error: "subjectId obrigatório" };
+    const conteudo = str(input.conteudo).trim();
+    const nomesAulas = arr(input.nomesAulas);
+    if (!conteudo && nomesAulas.length === 0) {
+      return {
+        error:
+          "Forneça `conteudo` (tópicos da prova) OU `nomesAulas` (lista de aulas). Sem isso não dá pra montar plano.",
+      };
+    }
+    const dataProva = str(input.dataProva) || undefined;
+    const horasSemanais =
+      typeof input.horasSemanais === "number" ? input.horasSemanais : undefined;
+    const titulo = str(input.titulo) || undefined;
+
+    const resp = await fetch(`${ctx.origin}/api/lumi/routine`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: ctx.sessionCookie,
+      },
+      body: JSON.stringify({
+        subjectId,
+        conteudo: conteudo || undefined,
+        nomesAulas: nomesAulas.length > 0 ? nomesAulas : undefined,
+        dataProva,
+        horasSemanais,
+        titulo,
+      }),
+    });
+    const json = (await resp.json()) as {
+      documentId?: string;
+      url?: string;
+      publicUrl?: string;
+      title?: string;
+      subjectId?: string;
+      coinsCharged?: number;
+      balanceAfter?: number;
+      error?: string;
+      required?: number;
+      balance?: number;
+    };
+    if (!resp.ok || !json.documentId) {
+      return {
+        error: json.error ?? "Falha ao gerar rotina.",
+        saldo_atual: json.balance,
+        custo_necessario: json.required,
+      };
+    }
+    return {
+      titulo: json.title,
+      url: json.url,
+      navegacao: {
+        path: json.url,
+        motivo: `Abrir rotina — ${json.title ?? "rotina de estudo"}`,
+      },
+      pdf_publico: json.publicUrl,
+      coins_gastos: json.coinsCharged,
+      saldo_apos: json.balanceAfter,
+      observacao:
+        "Rotina salva como PDF na pasta da matéria. Avise o user que o PDF pode ser baixado/aberto pelo card.",
     };
   },
 

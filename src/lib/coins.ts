@@ -28,6 +28,7 @@ export const COIN_COSTS = {
   flashcards: 8,            // alinhado com coins-pricing.ts
   quiz: 8,                  // alinhado com coins-pricing.ts
   mindmap: 6,               // alinhado com coins-pricing.ts
+  routine: 12,              // rotina de estudo semanal em PDF (Lumio brand)
 } as const;
 
 export type CoinReason =
@@ -40,6 +41,7 @@ export type CoinReason =
   | "flashcards"
   | "quiz"
   | "mindmap"
+  | "routine"
   | "voice_reply"
   | "image_generation"
   | "transcript_refine"
