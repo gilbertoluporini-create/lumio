@@ -5,8 +5,13 @@ import {
   ArrowRight,
   CheckCircle2,
   ChevronRight,
+  CreditCard,
+  Infinity as InfinityIcon,
+  Languages,
   Mail,
+  ShieldCheck,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { LumioWordmark } from "@/components/brand/logo";
@@ -23,7 +28,6 @@ import {
 import { LiveDemo } from "@/components/landing/live-demo";
 import { Highlighter, PencilUnderline } from "@/components/landing/highlighter";
 import { Magnetic } from "@/components/landing/magnetic";
-import { LogosRow } from "@/components/landing/logos-row";
 import { PricingSection } from "@/components/landing/pricing-section";
 import { Testimonials } from "@/components/landing/testimonials";
 import { HowItWorks } from "@/components/landing/how-it-works";
@@ -162,6 +166,13 @@ export default function LandingPage() {
                   <span className="text-foreground font-medium">50 coins</span> ao criar conta
                 </span>
               </div>
+              <div className="hidden sm:block h-4 w-px bg-border" />
+              <div className="inline-flex items-center gap-1.5 text-muted-foreground">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
+                <span>
+                  <span className="text-foreground font-medium">Áudio no navegador</span> · zero upload
+                </span>
+              </div>
             </motion.div>
           </div>
 
@@ -192,13 +203,8 @@ export default function LandingPage() {
         />
       </section>
 
-      {/* LOGOS */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 py-16">
-        <LogosRow />
-      </section>
-
       {/* SUBJECTS MARQUEE */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 pb-12 -mt-4">
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-16">
         <Reveal className="text-center mb-6">
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium">
             — Já passou aqui —
@@ -341,6 +347,34 @@ export default function LandingPage() {
 
       {/* PERSONAS */}
       <Personas />
+
+      {/* TRUST / CONFIANÇA */}
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-16">
+        <Reveal className="text-center mb-10 max-w-2xl mx-auto">
+          <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-3">
+            — Confiança —
+          </p>
+          <h2 className="text-3xl md:text-4xl font-semibold text-display">
+            Transparente do{" "}
+            <span className="gradient-text">áudio ao preço</span>.
+          </h2>
+        </Reveal>
+        <Stagger className="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
+          {TRUST.map((t) => (
+            <StaggerItem key={t.title}>
+              <div className="h-full rounded-2xl border border-border/60 bg-card p-5 md:p-6">
+                <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-primary/10">
+                  <t.Icon className="h-5 w-5 text-primary" strokeWidth={2.2} />
+                </div>
+                <p className="font-semibold text-sm md:text-base">{t.title}</p>
+                <p className="mt-1.5 text-xs md:text-sm text-muted-foreground leading-relaxed">
+                  {t.sub}
+                </p>
+              </div>
+            </StaggerItem>
+          ))}
+        </Stagger>
+      </section>
 
       {/* PRICING */}
       <PricingSection />
@@ -506,4 +540,27 @@ const BULLETS = [
   "50 coins grátis",
   "Chat IA com PDFs",
   "Funciona no celular",
+];
+
+const TRUST: Array<{ Icon: LucideIcon; title: string; sub: string }> = [
+  {
+    Icon: ShieldCheck,
+    title: "Privacidade por padrão",
+    sub: "O áudio é transcrito no seu navegador — nada de upload da gravação pra nuvem.",
+  },
+  {
+    Icon: Languages,
+    title: "Português de verdade",
+    sub: "Reconhecimento de voz nativo em PT-BR, pensado pra aula brasileira.",
+  },
+  {
+    Icon: CreditCard,
+    title: "Sem cartão pra começar",
+    sub: "Ganha 50 coins ao criar conta e cancela quando quiser. Sem fidelidade.",
+  },
+  {
+    Icon: InfinityIcon,
+    title: "Histórico ilimitado",
+    sub: "Seus resumos, flash cards e quizzes ficam salvos e não expiram.",
+  },
 ];

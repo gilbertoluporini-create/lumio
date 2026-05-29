@@ -18,10 +18,10 @@ export function Highlighter({
   return (
     <span ref={ref} className={cn("relative inline-block whitespace-nowrap", className)}>
       <motion.span
-        className="absolute inset-x-0 bottom-[8%] h-[42%] -z-0 rounded-[2px]"
+        className="absolute inset-x-[-0.12em] inset-y-[6%] -z-0 rounded-[3px]"
         style={{
           background:
-            "linear-gradient(120deg, oklch(0.88 0.18 90 / 0.7), oklch(0.82 0.18 70 / 0.7))",
+            "linear-gradient(120deg, oklch(0.9 0.19 92 / 0.95), oklch(0.84 0.19 72 / 0.95))",
           transformOrigin: "left center",
         }}
         initial={{ scaleX: 0 }}
@@ -51,7 +51,7 @@ export function Highlighter({
           ))}
         </span>
       )}
-      <span className="relative z-10">{children}</span>
+      <span className="relative z-10 text-zinc-900">{children}</span>
     </span>
   );
 }

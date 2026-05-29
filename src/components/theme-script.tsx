@@ -3,7 +3,8 @@ export function ThemeScript() {
     (function() {
       try {
         var stored = localStorage.getItem('lumio-theme');
-        var theme = stored || 'system';
+        var theme = 'system';
+        if (stored) { try { theme = JSON.parse(stored); } catch (e) { theme = stored; } }
         var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
         var resolved = theme === 'system' ? (prefersDark ? 'dark' : 'light') : theme;
         if (resolved === 'dark') document.documentElement.classList.add('dark');
