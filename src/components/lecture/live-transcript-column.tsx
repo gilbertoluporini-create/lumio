@@ -22,6 +22,41 @@ const FILTERS: { id: MarkerFilter; label: string; dot: string }[] = [
 ];
 
 const CHUNK_FALLBACK_SEC = 600; // 10 min por capítulo sintético quando não há topics
+const RAW_PARAGRAPH_SEC = 60; // 1 min por parágrafo na vista "Transcrição crua"
+
+type RawParagraph = {
+  startSec: number;
+  text: string;
+};
+
+function groupIntoParagraphs(entries: TranscriptEntry[]): RawParagraph[] {
+  if (entries.length === 0) return [];
+  const groups: RawParagraph[] = [];
+  let bucket: TranscriptEntry[] = [];
+  let bucketStart = entries[0].startSec;
+  const flush = () => {
+    if (bucket.length === 0) return;
+    groups.push({
+      startSec: bucketStart,
+      text: bucket.map((e) => e.text).join(" ").replace(/\s+/g, " ").trim(),
+    });
+    bucket = [];
+  };
+  for (const e of entries) {
+    if (bucket.length === 0) {
+      bucketStart = e.startSec;
+      bucket.push(e);
+      continue;
+    }
+    if (e.startSec - bucketStart >= RAW_PARAGRAPH_SEC) {
+      flush();
+      bucketStart = e.startSec;
+    }
+    bucket.push(e);
+  }
+  flush();
+  return groups;
+}
 
 function formatTs(sec: number): string {
   const total = Math.max(0, Math.floor(sec));
@@ -133,12 +168,11 @@ export function LiveTranscriptColumn({
   onAddMarker?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Pra aulas longas: força "chapters" como padrão (flat estoura o renderer)
-  const heavyMode = entries.length > 200;
+  // Default sempre "chapters" (revisada). Usuário pode alternar pra "flat" (crua).
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    if (typeof window === "undefined") return heavyMode ? "chapters" : "flat";
+    if (typeof window === "undefined") return "chapters";
     const saved = window.localStorage.getItem("lumio.transcript.view") as ViewMode | null;
-    return saved || (heavyMode ? "chapters" : "flat");
+    return saved || "chapters";
   });
   // Capítulos abertos: inicialmente todos abertos. Map<id, bool>.
   const [openChapters, setOpenChapters] = useState<Record<string, boolean>>({});
@@ -203,17 +237,6 @@ export function LiveTranscriptColumn({
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-1 rounded-lg bg-secondary/60 p-1">
             <button
-              onClick={() => setViewModePersisted("flat")}
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                viewMode === "flat"
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Transcrição
-            </button>
-            <button
               onClick={() => setViewModePersisted("chapters")}
               className={cn(
                 "rounded-md px-3 py-1 text-xs font-medium transition-colors",
@@ -222,12 +245,23 @@ export function LiveTranscriptColumn({
                   : "text-muted-foreground hover:text-foreground",
               )}
             >
-              Capítulos
+              Transcrição revisada
               {chapters.length > 0 && (
                 <span className="ml-1.5 text-[9px] text-muted-foreground">
                   {chapters.length}
                 </span>
               )}
+            </button>
+            <button
+              onClick={() => setViewModePersisted("flat")}
+              className={cn(
+                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                viewMode === "flat"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Transcrição crua
             </button>
           </div>
           {isLive && (
@@ -377,34 +411,48 @@ export function LiveTranscriptColumn({
             })}
           </div>
         ) : (
-          <div className="space-y-1">
+          <div className="px-2 py-1">
             {(() => {
-              // No flat view, durante live mostra TUDO (pra ver hot updates).
-              // Pra aulas longas paradas, pagina pra evitar OOM do renderer.
+              // Modo "Transcrição crua": modo leitura — parágrafos por minuto,
+              // timestamp clicável no início, sem speaker/markers/highlights.
+              // Pra aulas longas, pagina por parágrafos (não por entries).
+              const paragraphs = groupIntoParagraphs(filtered);
+              const PAR_PAGE = 30;
               const sliced =
-                isLive || filtered.length <= flatLimit
-                  ? filtered
-                  : filtered.slice(0, flatLimit);
-              const remaining = filtered.length - sliced.length;
+                isLive || paragraphs.length <= flatLimit
+                  ? paragraphs
+                  : paragraphs.slice(0, Math.max(PAR_PAGE, Math.floor(flatLimit / 4)));
+              const remaining = paragraphs.length - sliced.length;
               return (
                 <>
-                  {sliced.map((e) => (
-                    <TranscriptEntryRow
-                      key={e.id}
-                      entry={e}
-                      isActive={e.id === lastEntryId && isLive}
-                      keyTerms={cappedKeyTerms}
-                      hasAudio={hasAudio}
-                      onPlay={onPlay}
-                      onJumpToSlide={onJumpToSlide}
-                    />
-                  ))}
+                  <div className="space-y-4">
+                    {sliced.map((p) => (
+                      <div key={p.startSec} className="flex gap-3">
+                        <button
+                          onClick={() => onPlay?.(p.startSec)}
+                          disabled={!hasAudio || !onPlay}
+                          className={cn(
+                            "shrink-0 font-mono text-[11px] tabular-nums pt-0.5",
+                            hasAudio && onPlay
+                              ? "text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                              : "text-muted-foreground/60 cursor-default",
+                          )}
+                          aria-label={hasAudio ? "Tocar a partir daqui" : undefined}
+                        >
+                          {formatTs(p.startSec)}
+                        </button>
+                        <p className="text-sm leading-relaxed text-foreground/90 min-w-0">
+                          {p.text}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                   {remaining > 0 && (
                     <button
-                      onClick={() => setFlatLimit((n) => n + FLAT_PAGE * 2)}
-                      className="w-full mt-2 rounded-md border border-dashed border-border/60 bg-card/40 px-3 py-2.5 text-xs font-medium text-muted-foreground hover:bg-secondary/40 hover:text-foreground transition-colors"
+                      onClick={() => setFlatLimit((n) => n + PAR_PAGE * 4)}
+                      className="w-full mt-4 rounded-md border border-dashed border-border/60 bg-card/40 px-3 py-2.5 text-xs font-medium text-muted-foreground hover:bg-secondary/40 hover:text-foreground transition-colors"
                     >
-                      Mostrar mais {Math.min(remaining, FLAT_PAGE * 2)} de {remaining} restantes
+                      Mostrar mais {Math.min(remaining, PAR_PAGE * 4)} de {remaining} parágrafos restantes
                     </button>
                   )}
                 </>
