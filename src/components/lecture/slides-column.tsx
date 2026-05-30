@@ -65,7 +65,7 @@ export function SlidesColumn({
   const current = hasSlides ? slides![safeIdx] : null;
 
   return (
-    <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden">
+    <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden h-[640px] lg:h-[680px]">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border/60 flex-wrap">
         <div className="flex items-center gap-2">
@@ -183,7 +183,7 @@ export function SlidesColumn({
           </div>
 
           {/* Body: sidebar thumbs + viewer */}
-          <div className="flex-1 grid grid-cols-[80px_1fr] min-h-[420px]">
+          <div className="flex-1 grid grid-cols-[80px_1fr] min-h-0">
             <SlideThumbnails
               slides={slides!}
               currentIdx={safeIdx}

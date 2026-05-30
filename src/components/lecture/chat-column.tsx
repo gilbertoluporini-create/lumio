@@ -34,7 +34,7 @@ export function ChatColumn({
   }, [messages, streamingReply]);
 
   return (
-    <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden min-h-[560px]">
+    <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden h-[560px] lg:h-[600px]">
       <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
         <div className="flex items-center gap-2">
           <MessageSquare className="h-4 w-4 text-primary" />
