@@ -7,12 +7,11 @@
  *  1. Identidade — matéria + título + data da prova (opcional)
  *  2. Assets — checkboxes (Resumo, Flashcards, Quiz, Mapa)
  *  3. Fontes — escolhe PDFs (documents) + aulas gravadas (lectures) existentes
+ *          ou sobe PDFs novos (vão pra /documentos da matéria automaticamente)
  *  4. Confirmar — mostra estimativa de coins + total de itens
  *
  * Submit chama POST /api/study-plans/create — items ficam pending, cron
  * worker gera em background. Redireciona pra /planos/[id].
- *
- * TODO sub-tarefa 5b: tab "Subir novo PDF" no passo 3.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -29,6 +28,7 @@ import {
   Map,
   Sparkles,
   Target,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -43,7 +43,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { listSubjectsAsync, listLecturesAsync } from "@/lib/db";
-import { listDocumentsAsync } from "@/lib/documents";
+import { createDocumentAsync, listDocumentsAsync } from "@/lib/documents";
+import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
 import type {
   Document,
   Lecture,
@@ -112,7 +113,10 @@ export function CreatePlanDialog({
   const [pickedDocs, setPickedDocs] = useState<Set<string>>(new Set());
   const [pickedLectures, setPickedLectures] = useState<Set<string>>(new Set());
   const [loadingSources, setLoadingSources] = useState(false);
-  const [sourceTab, setSourceTab] = useState<"docs" | "lectures">("docs");
+  const [sourceTab, setSourceTab] = useState<"docs" | "lectures" | "upload">(
+    "docs",
+  );
+  const [uploadingPdf, setUploadingPdf] = useState(false);
 
   // Step 4 — estimate / submit
   const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
@@ -192,6 +196,101 @@ export function CreatePlanDialog({
       else next.add(id);
       return next;
     });
+  }
+
+  /**
+   * Sobe um PDF novo direto pela tab "Subir novo": cria row em `documents`
+   * com subject_id da matéria escolhida (aparece em /documentos na pasta certa),
+   * faz upload binário no Storage, marca como selecionado pro plano e volta
+   * pra tab "Meus PDFs" pro usuário ver o estado.
+   */
+  async function handleUploadNewPdf(file: File) {
+    if (!subjectId) {
+      toast.error("Escolhe a matéria primeiro (passo 1).");
+      return;
+    }
+    if (file.size > LIMITS.PDF_BYTES) {
+      toast.error(`"${file.name}" passa de ${PDF_LIMIT_MB} MB.`);
+      return;
+    }
+    const isPdf =
+      file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+    if (!isPdf) {
+      toast.error("Só PDFs aqui. Áudio externo: use 'Nova aula'.");
+      return;
+    }
+
+    setUploadingPdf(true);
+    try {
+      // 1) Extrai texto pra IA usar como contexto.
+      const { extractPdfText } = await import("@/lib/pdf-extract");
+      let sourceText = "";
+      let pageCount: number | undefined;
+      try {
+        const { text, pages } = await extractPdfText(file);
+        sourceText = text ?? "";
+        pageCount = pages;
+      } catch (err) {
+        console.warn("[plan-wizard] pdf text extract failed", err);
+      }
+
+      // 2) Cria document row com subject_id da matéria do plano.
+      //    folder_id null → vai pra raiz da matéria em /documentos.
+      const doc = await createDocumentAsync({
+        userId,
+        subjectId,
+        folderId: null,
+        title: file.name.replace(/\.pdf$/i, ""),
+        sourceKind: "pdf",
+        sourceText: sourceText || undefined,
+        pageCount,
+      });
+      if (!doc) {
+        toast.error("Falha ao criar documento.");
+        return;
+      }
+
+      // 3) Storage upload + source_url.
+      try {
+        const { createClient } = await import("@/lib/supabase/client");
+        const supabase = createClient();
+        const storageKey = `${userId}/${doc.id}.pdf`;
+        const { error: upErr } = await supabase.storage
+          .from("user-documents")
+          .upload(storageKey, file, {
+            contentType: "application/pdf",
+            upsert: true,
+          });
+        if (upErr) throw upErr;
+        const { data: pub } = supabase.storage
+          .from("user-documents")
+          .getPublicUrl(storageKey);
+        if (pub?.publicUrl) {
+          await supabase
+            .from("documents")
+            .update({ source_url: pub.publicUrl })
+            .eq("id", doc.id)
+            .eq("user_id", userId);
+        }
+      } catch (err) {
+        console.warn("[plan-wizard] storage upload failed", err);
+        toast.warning("Documento criado, mas o arquivo não subiu pro storage.");
+      }
+
+      // 4) Adiciona na lista local + marca como selecionado.
+      setDocuments((prev) => [doc, ...prev]);
+      setPickedDocs((prev) => {
+        const next = new Set(prev);
+        next.add(doc.id);
+        return next;
+      });
+      setSourceTab("docs");
+      toast.success(`"${doc.title}" adicionado e selecionado.`);
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setUploadingPdf(false);
+    }
   }
 
   const totalSources = pickedDocs.size + pickedLectures.size;
@@ -316,6 +415,8 @@ export function CreatePlanDialog({
               onToggleDoc={toggleDoc}
               onToggleLecture={toggleLecture}
               loading={loadingSources}
+              uploadingPdf={uploadingPdf}
+              onUploadPdf={handleUploadNewPdf}
             />
           )}
           {step === "confirm" && (
@@ -523,9 +624,11 @@ function SourcesStep({
   onToggleDoc,
   onToggleLecture,
   loading,
+  uploadingPdf,
+  onUploadPdf,
 }: {
-  tab: "docs" | "lectures";
-  onTabChange: (t: "docs" | "lectures") => void;
+  tab: "docs" | "lectures" | "upload";
+  onTabChange: (t: "docs" | "lectures" | "upload") => void;
   documents: Document[];
   lectures: Lecture[];
   pickedDocs: Set<string>;
@@ -533,10 +636,12 @@ function SourcesStep({
   onToggleDoc: (id: string) => void;
   onToggleLecture: (id: string) => void;
   loading: boolean;
+  uploadingPdf: boolean;
+  onUploadPdf: (file: File) => Promise<void>;
 }) {
   return (
     <div className="grid gap-3">
-      <div className="flex items-center gap-1 rounded-md bg-secondary/40 p-0.5 w-fit">
+      <div className="flex items-center gap-1 rounded-md bg-secondary/40 p-0.5 w-fit flex-wrap">
         <button
           onClick={() => onTabChange("docs")}
           className={cn(
@@ -561,6 +666,18 @@ function SourcesStep({
           <AudioLines className="h-3 w-3" />
           Minhas aulas ({lectures.length})
         </button>
+        <button
+          onClick={() => onTabChange("upload")}
+          className={cn(
+            "px-3 py-1 text-xs font-medium rounded transition-colors inline-flex items-center gap-1.5",
+            tab === "upload"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <Upload className="h-3 w-3" />
+          Subir novo
+        </button>
       </div>
 
       {loading ? (
@@ -576,9 +693,9 @@ function SourcesStep({
           }))}
           picked={pickedDocs}
           onToggle={onToggleDoc}
-          emptyMsg="Nenhum PDF nesta matéria. Suba um em Meus documentos."
+          emptyMsg="Nenhum PDF nesta matéria. Use a tab 'Subir novo'."
         />
-      ) : (
+      ) : tab === "lectures" ? (
         <SourceList
           items={lectures.map((l) => ({
             id: l.id,
@@ -592,12 +709,73 @@ function SourcesStep({
           onToggle={onToggleLecture}
           emptyMsg="Nenhuma aula nesta matéria."
         />
+      ) : (
+        <UploadPdfDropzone
+          uploading={uploadingPdf}
+          onUpload={onUploadPdf}
+        />
       )}
 
       <div className="text-xs text-muted-foreground border-t border-border/40 pt-2">
         Total selecionado: {pickedDocs.size + pickedLectures.size} fonte
         {pickedDocs.size + pickedLectures.size === 1 ? "" : "s"}
       </div>
+    </div>
+  );
+}
+
+function UploadPdfDropzone({
+  uploading,
+  onUpload,
+}: {
+  uploading: boolean;
+  onUpload: (file: File) => Promise<void>;
+}) {
+  return (
+    <div className="space-y-2">
+      <label
+        htmlFor="plan-wizard-upload"
+        className={cn(
+          "flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 cursor-pointer transition-colors",
+          uploading
+            ? "border-primary/40 bg-primary/5 cursor-wait"
+            : "border-border/60 bg-card/40 hover:border-primary/40 hover:bg-secondary/40",
+        )}
+      >
+        {uploading ? (
+          <>
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <p className="text-sm font-medium">Subindo PDF…</p>
+            <p className="text-[11px] text-muted-foreground">
+              Extraindo texto e enviando pro storage
+            </p>
+          </>
+        ) : (
+          <>
+            <Upload className="h-5 w-5 text-muted-foreground" />
+            <p className="text-sm font-medium">Clica pra escolher ou arraste o PDF</p>
+            <p className="text-[11px] text-muted-foreground">
+              Vai pra /documentos da matéria automaticamente · Até {PDF_LIMIT_MB} MB
+            </p>
+          </>
+        )}
+        <input
+          id="plan-wizard-upload"
+          type="file"
+          accept="application/pdf,.pdf"
+          disabled={uploading}
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (f) void onUpload(f);
+          }}
+        />
+      </label>
+      <p className="text-[11px] text-muted-foreground leading-relaxed">
+        Sobe quantos quiser — cada um vira uma fonte do plano e fica salvo em
+        Meus documentos &gt; matéria do plano.
+      </p>
     </div>
   );
 }
