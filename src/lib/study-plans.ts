@@ -58,6 +58,9 @@ export type StudyPlanItem = {
   completedAt: string | null;
   /** Documento (PDF) que origina esse item. Cron worker lê pra gerar o asset. */
   sourceDocumentId: string | null;
+  /** Aula gravada que origina esse item (alternativa ao sourceDocumentId).
+   *  Cron worker usa lecture.transcript como source_text quando preenchido. */
+  sourceLectureId: string | null;
   /** Motivo do failed (se aplica). */
   errorMessage: string | null;
   createdAt: string;
@@ -87,6 +90,7 @@ type StudyPlanItemRow = {
   due_at: string | null;
   completed_at: string | null;
   source_document_id: string | null;
+  source_lecture_id: string | null;
   error_message: string | null;
   created_at: string;
 };
@@ -94,7 +98,7 @@ type StudyPlanItemRow = {
 const PLAN_COLS =
   "id, user_id, subject_id, title, exam_date, status, asset_kinds, created_at, updated_at";
 const ITEM_COLS =
-  "id, plan_id, position, kind, asset_id, title, description, status, due_at, completed_at, source_document_id, error_message, created_at";
+  "id, plan_id, position, kind, asset_id, title, description, status, due_at, completed_at, source_document_id, source_lecture_id, error_message, created_at";
 
 function rowToPlan(r: StudyPlanRow): StudyPlan {
   return {
@@ -123,6 +127,7 @@ function rowToItem(r: StudyPlanItemRow): StudyPlanItem {
     dueAt: r.due_at,
     completedAt: r.completed_at,
     sourceDocumentId: r.source_document_id,
+    sourceLectureId: r.source_lecture_id,
     errorMessage: r.error_message,
     createdAt: r.created_at,
   };

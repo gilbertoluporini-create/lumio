@@ -32,15 +32,16 @@ type PlanItemRow = {
   id: string;
   plan_id: string;
   kind: string;
-  source_document_id: string;
+  source_document_id: string | null;
+  source_lecture_id: string | null;
   title: string;
 };
 
-type DocumentRow = {
-  id: string;
-  user_id: string;
+/** Fonte normalizada: vem de document (PDF) ou lecture (transcript). */
+type ItemSource = {
+  userId: string;
   title: string;
-  source_text: string | null;
+  text: string;
 };
 
 /* ----------------------------- Helpers ----------------------------- */
@@ -101,15 +102,20 @@ function extractHighlights(markdown: string, max: number): string[] {
 async function processSummaryItem(
   admin: ReturnType<typeof createAdminClient>,
   item: PlanItemRow,
-  doc: DocumentRow,
+  source: ItemSource,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!doc.source_text || doc.source_text.trim().length < 200) {
-    return { ok: false, error: "PDF sem texto extraído suficiente." };
+  if (!source.text || source.text.trim().length < 200) {
+    return {
+      ok: false,
+      error: item.source_document_id
+        ? "PDF sem texto extraído suficiente."
+        : "Aula sem transcrição suficiente.",
+    };
   }
 
-  // 1) Cobra coins do user dono do plano (doc.user_id)
+  // 1) Cobra coins do user dono do plano
   const cost = COIN_COSTS.summary;
-  const charged = await chargeCoins(doc.user_id, cost, "summary", {
+  const charged = await chargeCoins(source.userId, cost, "summary", {
     planItemId: item.id,
   });
   if (!charged.ok) {
@@ -130,7 +136,7 @@ async function processSummaryItem(
       messages: [
         {
           role: "user",
-          content: `=== PDF: ${doc.title} ===\n\n${doc.source_text.slice(0, 60_000)}\n\nGere o resumo seguindo a estrutura definida.`,
+          content: `=== ${item.source_document_id ? "PDF" : "AULA"}: ${source.title} ===\n\n${source.text.slice(0, 60_000)}\n\nGere o resumo seguindo a estrutura definida.`,
         },
       ],
     });
@@ -143,7 +149,7 @@ async function processSummaryItem(
       };
     }
   } catch (err) {
-    await creditCoins(doc.user_id, cost, "refund", {
+    await creditCoins(source.userId, cost, "refund", {
       planItemId: item.id,
       kind: "summary_generation_error",
     });
@@ -151,7 +157,7 @@ async function processSummaryItem(
   }
 
   if (!markdown || markdown.length < 100) {
-    await creditCoins(doc.user_id, cost, "refund", {
+    await creditCoins(source.userId, cost, "refund", {
       planItemId: item.id,
       kind: "summary_empty",
     });
@@ -169,16 +175,17 @@ async function processSummaryItem(
   const { data: sumRow, error: sumErr } = await admin
     .from("summaries")
     .insert({
-      user_id: doc.user_id,
-      document_id: doc.id,
-      title: doc.title,
+      user_id: source.userId,
+      document_id: item.source_document_id,
+      lecture_id: item.source_lecture_id,
+      title: source.title,
       content: summaryContent,
     })
     .select("id")
     .single();
 
   if (sumErr || !sumRow) {
-    await creditCoins(doc.user_id, cost, "refund", {
+    await creditCoins(source.userId, cost, "refund", {
       planItemId: item.id,
       kind: "summary_save_failed",
     });
@@ -200,7 +207,7 @@ async function processSummaryItem(
   // 5) Log de uso (best-effort)
   if (usage) {
     void logAiUsage({
-      userId: doc.user_id,
+      userId: source.userId,
       endpoint: "/api/cron/study-plan-generator",
       model: SUMMARY_MODEL,
       inputTokens: usage.input_tokens,
@@ -233,12 +240,13 @@ export async function GET(request: Request) {
   };
 
   for (let i = 0; i < MAX_PER_RUN; i++) {
-    // 1) Pega 1 item pending com source_document_id (ordem FIFO)
+    // 1) Pega 1 item pending com source (document OU lecture), ordem FIFO.
+    //    Usa or() pra cobrir os dois casos.
     const { data: itemRaw } = await admin
       .from("study_plan_items")
-      .select("id, plan_id, kind, source_document_id, title")
+      .select("id, plan_id, kind, source_document_id, source_lecture_id, title")
       .eq("status", "pending")
-      .not("source_document_id", "is", null)
+      .or("source_document_id.not.is.null,source_lecture_id.not.is.null")
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -270,27 +278,60 @@ export async function GET(request: Request) {
       continue;
     }
 
-    // 4) Lê document
-    const { data: docRaw } = await admin
-      .from("documents")
-      .select("id, user_id, title, source_text")
-      .eq("id", item.source_document_id)
-      .maybeSingle();
-    if (!docRaw) {
+    // 4) Lê source — document OU lecture, dependendo de qual FK está preenchida
+    let source: ItemSource | null = null;
+    if (item.source_document_id) {
+      const { data: docRaw } = await admin
+        .from("documents")
+        .select("user_id, title, source_text")
+        .eq("id", item.source_document_id)
+        .maybeSingle();
+      if (docRaw) {
+        const d = docRaw as {
+          user_id: string;
+          title: string;
+          source_text: string | null;
+        };
+        source = {
+          userId: d.user_id,
+          title: d.title,
+          text: d.source_text ?? "",
+        };
+      }
+    } else if (item.source_lecture_id) {
+      const { data: lecRaw } = await admin
+        .from("lectures")
+        .select("user_id, title, transcript")
+        .eq("id", item.source_lecture_id)
+        .maybeSingle();
+      if (lecRaw) {
+        const l = lecRaw as {
+          user_id: string;
+          title: string;
+          transcript: string | null;
+        };
+        source = {
+          userId: l.user_id,
+          title: l.title,
+          text: l.transcript ?? "",
+        };
+      }
+    }
+
+    if (!source) {
       await admin
         .from("study_plan_items")
         .update({
           status: "failed",
-          error_message: "Documento de origem não encontrado.",
+          error_message: "Fonte de origem não encontrada.",
         })
         .eq("id", item.id);
       summary.failed++;
       continue;
     }
-    const doc = docRaw as DocumentRow;
 
     // 5) Processa
-    const result = await processSummaryItem(admin, item, doc);
+    const result = await processSummaryItem(admin, item, source);
     if (result.ok) {
       summary.processed++;
     } else {

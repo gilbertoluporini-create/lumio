@@ -13,8 +13,11 @@
  *   subjectId: string,
  *   examDate?: string,         // "YYYY-MM-DD"
  *   assetKinds: StudyPlanItemKind[],   // ["summary","flashcards",...]
- *   documentIds: string[],     // PDFs já subidos
+ *   documentIds?: string[],    // PDFs já subidos (rows em documents)
+ *   lectureIds?: string[],     // Aulas gravadas (rows em lectures com transcript)
  * }
+ *
+ * Pelo menos 1 source (documentIds ou lectureIds) é obrigatório.
  *
  * Response: { planId: string, itemsCreated: number }
  */
@@ -55,6 +58,7 @@ export async function POST(req: NextRequest) {
     examDate?: string;
     assetKinds?: StudyPlanItemKind[];
     documentIds?: string[];
+    lectureIds?: string[];
   };
   try {
     body = (await req.json()) as typeof body;
@@ -67,6 +71,7 @@ export async function POST(req: NextRequest) {
   const examDate = body.examDate ?? null;
   const rawKinds = Array.isArray(body.assetKinds) ? body.assetKinds : [];
   const documentIds = Array.isArray(body.documentIds) ? body.documentIds : [];
+  const lectureIds = Array.isArray(body.lectureIds) ? body.lectureIds : [];
 
   if (!title) {
     return NextResponse.json({ error: "Título obrigatório." }, { status: 400 });
@@ -74,15 +79,16 @@ export async function POST(req: NextRequest) {
   if (!subjectId) {
     return NextResponse.json({ error: "Matéria obrigatória." }, { status: 400 });
   }
-  if (documentIds.length === 0) {
+  const totalSources = documentIds.length + lectureIds.length;
+  if (totalSources === 0) {
     return NextResponse.json(
-      { error: "Anexe ao menos 1 PDF." },
+      { error: "Anexe ao menos 1 PDF ou aula." },
       { status: 400 },
     );
   }
-  if (documentIds.length > 20) {
+  if (totalSources > 20) {
     return NextResponse.json(
-      { error: "Máximo 20 PDFs por plano." },
+      { error: "Máximo 20 fontes (PDFs + aulas) por plano." },
       { status: 400 },
     );
   }
@@ -119,20 +125,42 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Matéria não encontrada." }, { status: 404 });
   }
 
-  const { data: docsRaw, error: docsErr } = await admin
-    .from("documents")
-    .select("id, title")
-    .in("id", documentIds)
-    .eq("user_id", userId);
-  const docs = (docsRaw ?? []) as Array<{ id: string; title: string }>;
-  if (docsErr) {
-    return NextResponse.json({ error: docsErr.message }, { status: 500 });
+  let docs: Array<{ id: string; title: string }> = [];
+  if (documentIds.length > 0) {
+    const { data: docsRaw, error: docsErr } = await admin
+      .from("documents")
+      .select("id, title")
+      .in("id", documentIds)
+      .eq("user_id", userId);
+    if (docsErr) {
+      return NextResponse.json({ error: docsErr.message }, { status: 500 });
+    }
+    docs = (docsRaw ?? []) as Array<{ id: string; title: string }>;
+    if (docs.length !== documentIds.length) {
+      return NextResponse.json(
+        { error: "Um ou mais documentos não foram encontrados." },
+        { status: 404 },
+      );
+    }
   }
-  if (docs.length !== documentIds.length) {
-    return NextResponse.json(
-      { error: "Um ou mais documentos não foram encontrados." },
-      { status: 404 },
-    );
+
+  let lectures: Array<{ id: string; title: string }> = [];
+  if (lectureIds.length > 0) {
+    const { data: lecsRaw, error: lecsErr } = await admin
+      .from("lectures")
+      .select("id, title")
+      .in("id", lectureIds)
+      .eq("user_id", userId);
+    if (lecsErr) {
+      return NextResponse.json({ error: lecsErr.message }, { status: 500 });
+    }
+    lectures = (lecsRaw ?? []) as Array<{ id: string; title: string }>;
+    if (lectures.length !== lectureIds.length) {
+      return NextResponse.json(
+        { error: "Uma ou mais aulas não foram encontradas." },
+        { status: 404 },
+      );
+    }
   }
 
   // 1) Cria o plano
@@ -156,21 +184,22 @@ export async function POST(req: NextRequest) {
   }
   const planId = (planRow as { id: string }).id;
 
-  // 2) Monta items: pra cada PDF, gera 1 item por kind escolhido.
-  //    Ordenação: documento1.kind1, documento1.kind2, ... documento2.kind1, ...
+  // 2) Monta items: pra cada fonte (PDF ou aula), gera 1 item por kind.
+  //    Ordenação: docs primeiro (na ordem enviada), depois aulas.
   //    Items começam status='pending' — cron worker pega depois.
-  const itemsToInsert: Array<{
+  type ItemInsert = {
     plan_id: string;
     position: number;
     kind: StudyPlanItemKind;
-    source_document_id: string;
+    source_document_id: string | null;
+    source_lecture_id: string | null;
     title: string;
     description: string;
     status: "pending";
-  }> = [];
+  };
+  const itemsToInsert: ItemInsert[] = [];
 
   let position = 0;
-  // Preserva ordem em que o user enviou os documentIds
   for (const docId of documentIds) {
     const doc = docs.find((d) => d.id === docId);
     if (!doc) continue;
@@ -180,8 +209,25 @@ export async function POST(req: NextRequest) {
         position: position++,
         kind,
         source_document_id: doc.id,
+        source_lecture_id: null,
         title: `${KIND_LABEL[kind]} de ${doc.title}`,
         description: `Gerado automaticamente a partir do PDF: ${doc.title}`,
+        status: "pending",
+      });
+    }
+  }
+  for (const lecId of lectureIds) {
+    const lec = lectures.find((l) => l.id === lecId);
+    if (!lec) continue;
+    for (const kind of assetKinds) {
+      itemsToInsert.push({
+        plan_id: planId,
+        position: position++,
+        kind,
+        source_document_id: null,
+        source_lecture_id: lec.id,
+        title: `${KIND_LABEL[kind]} de ${lec.title}`,
+        description: `Gerado automaticamente a partir da aula: ${lec.title}`,
         status: "pending",
       });
     }
