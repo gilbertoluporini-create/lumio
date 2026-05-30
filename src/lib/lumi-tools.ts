@@ -30,6 +30,7 @@ export type LumiToolName =
   | "gerar_imagem"
   | "iniciar_modo_prova"
   | "gerar_rotina_estudo"
+  | "criar_plano_de_estudos"
   | "abrir_rota";
 
 export type ToolContext = {
@@ -304,6 +305,41 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "criar_plano_de_estudos",
+    description:
+      "Cria um PLANO DE ESTUDOS completo na aba /planos: uma trilha de 6 a 10 itens ordenados (documentos, resumos, mapas, quiz, flashcards, rotina, notas) que guia o aluno passo a passo até a prova. Você DESENHA a trilha (LLM decide a ordem ideal) e o sistema persiste no banco. O aluno vê o plano em /planos/<id> e marca itens como concluídos. Custo: 8 coins. Use quando o user pedir 'monta um plano de estudos / roteiro / trilha pra essa matéria' OU quando ele estiver com pouco tempo até uma prova e precisar de uma estrutura completa (não só rotina de horários). Diferença pro gerar_rotina_estudo: rotina é PDF de cronograma semanal; plano é trilha de assets/tarefas na aba dedicada. SEMPRE confirme custo (8 coins) e tópicos antes de chamar — esta tool não pergunta nada depois de disparada.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: {
+          type: "string",
+          description: "UUID da matéria-alvo (obrigatório).",
+        },
+        conteudo: {
+          type: "string",
+          description:
+            "Texto com os tópicos da prova / conteúdo a estudar — você usa pra desenhar a trilha (obrigatório).",
+        },
+        dataProva: {
+          type: "string",
+          description:
+            "Opcional: data da prova. Aceita 'YYYY-MM-DD' OU 'DD/MM/YYYY' OU texto livre.",
+        },
+        horasSemanais: {
+          type: "number",
+          description:
+            "Opcional: horas/semana que o aluno tem disponível. Influencia o ritmo dos itens.",
+        },
+        titulo: {
+          type: "string",
+          description:
+            "Opcional: título do plano. Default: 'Plano — {matéria}'.",
+        },
+      },
+      required: ["subjectId", "conteudo"],
+    },
+  },
+  {
     name: "abrir_rota",
     description:
       "Devolve uma instrução pro frontend navegar pra uma rota interna. Use quando o user pedir explicitamente 'me leva pra X' ou quando faz sentido abrir um asset gerado. Não executa nada server-side.",
@@ -517,6 +553,68 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       navegacao: { path, motivo },
       instrucao_pro_client:
         "Renderize um card clicável com este path. Não navegue automaticamente.",
+    };
+  },
+
+  async criar_plano_de_estudos(input, ctx) {
+    const subjectId = str(input.subjectId);
+    if (!subjectId) return { error: "subjectId obrigatório" };
+    const conteudo = str(input.conteudo).trim();
+    if (!conteudo) {
+      return {
+        error:
+          "Forneça `conteudo` (tópicos da prova) — sem isso não dá pra desenhar a trilha.",
+      };
+    }
+    const dataProva = str(input.dataProva) || undefined;
+    const horasSemanais =
+      typeof input.horasSemanais === "number" ? input.horasSemanais : undefined;
+    const titulo = str(input.titulo) || undefined;
+
+    const resp = await fetch(`${ctx.origin}/api/lumi/study-plan`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        cookie: ctx.sessionCookie,
+      },
+      body: JSON.stringify({
+        subjectId,
+        conteudo,
+        dataProva,
+        horasSemanais,
+        titulo,
+      }),
+    });
+    const json = (await resp.json()) as {
+      planId?: string;
+      url?: string;
+      title?: string;
+      itemCount?: number;
+      coinsCharged?: number;
+      balanceAfter?: number;
+      error?: string;
+      required?: number;
+      balance?: number;
+    };
+    if (!resp.ok || !json.planId) {
+      return {
+        error: json.error ?? "Falha ao criar plano de estudos.",
+        saldo_atual: json.balance,
+        custo_necessario: json.required,
+      };
+    }
+    return {
+      titulo: json.title,
+      itens_criados: json.itemCount,
+      url: json.url,
+      navegacao: {
+        path: json.url,
+        motivo: `Abrir plano — ${json.title ?? "trilha de estudos"}`,
+      },
+      coins_gastos: json.coinsCharged,
+      saldo_apos: json.balanceAfter,
+      observacao:
+        "Plano salvo em /planos. Cada item da trilha tem checkbox de concluído — o aluno avança e o sistema acompanha o progresso até a prova.",
     };
   },
 
