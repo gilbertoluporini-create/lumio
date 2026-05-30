@@ -82,26 +82,26 @@ async function probeDuration(filePath: string): Promise<number> {
 }
 
 /**
- * Splita o input em chunks ogg/opus mono 24kbps.
+ * Splita o input em chunks SEM re-encode (-c:a copy). Mantém o formato
+ * original — Whisper aceita mp3/m4a/mp4/wav/webm/ogg etc. Ordem de
+ * magnitude mais rápido que re-encodar (segs vs minutos).
+ *
  * Retorna os paths dos chunks gerados.
  */
 async function splitToChunks(
   inputPath: string,
   outDir: string,
 ): Promise<string[]> {
-  const pattern = path.join(outDir, "chunk_%05d.ogg");
+  const ext = path.extname(inputPath).replace(".", "").toLowerCase() || "mp4";
+  const pattern = path.join(outDir, `chunk_%05d.${ext}`);
   await runFfmpeg([
     "-y",
     "-i",
     inputPath,
-    "-ac",
-    "1",
-    "-ar",
-    "16000",
-    "-c:a",
-    "libopus",
-    "-b:a",
-    "24k",
+    "-c",
+    "copy",
+    "-map",
+    "0:a",
     "-f",
     "segment",
     "-segment_time",
@@ -113,9 +113,21 @@ async function splitToChunks(
 
   const files = await readdir(outDir);
   return files
-    .filter((f) => f.startsWith("chunk_") && f.endsWith(".ogg"))
+    .filter((f) => f.startsWith("chunk_") && f.endsWith(`.${ext}`))
     .sort()
     .map((f) => path.join(outDir, f));
+}
+
+function mimeForExt(ext: string): string {
+  const e = ext.toLowerCase().replace(".", "");
+  if (e === "m4a" || e === "mp4") return "audio/mp4";
+  if (e === "mp3") return "audio/mpeg";
+  if (e === "wav") return "audio/wav";
+  if (e === "ogg" || e === "oga") return "audio/ogg";
+  if (e === "webm") return "audio/webm";
+  if (e === "aac") return "audio/aac";
+  if (e === "flac") return "audio/flac";
+  return "audio/mp4";
 }
 
 async function transcribeChunk(
@@ -124,9 +136,11 @@ async function transcribeChunk(
   offsetSec: number,
 ): Promise<{ segments: WhisperSegment[]; text: string }> {
   const buf = await readFile(filePath);
-  const blob = new Blob([new Uint8Array(buf)], { type: "audio/ogg" });
+  const ext = path.extname(filePath);
+  const mime = mimeForExt(ext);
+  const blob = new Blob([new Uint8Array(buf)], { type: mime });
   const file = new File([blob], path.basename(filePath), {
-    type: "audio/ogg",
+    type: mime,
   });
 
   const resp = (await client.audio.transcriptions.create({
