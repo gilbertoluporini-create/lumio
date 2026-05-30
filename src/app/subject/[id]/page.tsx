@@ -43,6 +43,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ContentWizard } from "@/components/ai/content-wizard";
@@ -342,7 +343,13 @@ function SubjectView({
   }
 
   async function handleDeleteLecture(l: Lecture) {
-    if (!confirm(`Excluir a aula "${l.title}"? Não dá pra desfazer.`)) return;
+    const ok = await confirmAction({
+      title: `Excluir a aula "${l.title}"?`,
+      description: "Não dá pra desfazer.",
+      destructive: true,
+      confirmText: "Excluir aula",
+    });
+    if (!ok) return;
     try {
       await deleteLectureAsync(user.id, l.id);
       await refresh();
@@ -353,12 +360,14 @@ function SubjectView({
   }
 
   async function handleDeleteDocument(d: LumioDocument) {
-    if (
-      !confirm(
-        `Excluir o documento "${d.title}"? O resumo gerado a partir dele também será removido. Não dá pra desfazer.`,
-      )
-    )
-      return;
+    const ok = await confirmAction({
+      title: `Excluir o documento "${d.title}"?`,
+      description:
+        "O resumo gerado a partir dele também será removido. Não dá pra desfazer.",
+      destructive: true,
+      confirmText: "Excluir documento",
+    });
+    if (!ok) return;
     setDeletingDoc(true);
     try {
       await deleteDocumentAsync(user.id, d.id);
@@ -374,12 +383,13 @@ function SubjectView({
 
   async function handleDeleteSubject() {
     if (!subject) return;
-    if (
-      !confirm(
-        `Excluir a matéria "${subject.name}" e todas suas aulas? Não dá pra desfazer.`,
-      )
-    )
-      return;
+    const ok = await confirmAction({
+      title: `Excluir a matéria "${subject.name}"?`,
+      description: "Todas as aulas, resumos e assets dela serão removidos. Não dá pra desfazer.",
+      destructive: true,
+      confirmText: "Excluir matéria",
+    });
+    if (!ok) return;
     try {
       await deleteSubjectAsync(user.id, subjectId);
       toast.success("Matéria excluída.");
@@ -1337,26 +1347,30 @@ function LectureFolder({
   const msgCount = lecture.messages.length;
 
   return (
-    <Card className="overflow-hidden hover:border-primary/40 transition-colors">
+    <Card className="lift-card overflow-hidden border-border/60 bg-gradient-to-b from-card to-card/40 hover:border-primary/40">
       <CardContent className="p-0">
         {/* Header da aula */}
         <Link
           href={`/lecture/${lecture.id}`}
-          className="block px-5 pt-5 pb-3 hover:bg-secondary/20 transition-colors"
+          className="group block px-5 pt-5 pb-4 hover:bg-secondary/20 transition-colors"
         >
           <div className="flex items-start justify-between gap-3">
-            <div className="flex items-start gap-3 min-w-0 flex-1">
+            <div className="flex items-start gap-3.5 min-w-0 flex-1">
               <div
                 className={cn(
-                  "h-10 w-10 shrink-0 rounded-lg bg-gradient-to-br shadow-sm flex items-center justify-center",
+                  "relative h-11 w-11 shrink-0 overflow-hidden rounded-2xl bg-gradient-to-br shadow-md ring-1 ring-white/20 flex items-center justify-center",
                   subjectColor,
                 )}
               >
-                <Mic className="h-4 w-4 text-white/90" />
+                <div className="pointer-events-none absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/25 to-transparent" />
+                <Mic
+                  className="relative z-10 h-[18px] w-[18px] text-white"
+                  strokeWidth={2.2}
+                />
               </div>
-              <div className="min-w-0 flex-1">
+              <div className="min-w-0 flex-1 pt-0.5">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <h3 className="font-semibold text-base truncate">
+                  <h3 className="font-semibold text-[15px] tracking-tight truncate transition-colors group-hover:text-primary">
                     {lecture.title}
                   </h3>
                   {lecture.status === "live" && (
@@ -1365,14 +1379,19 @@ function LectureFolder({
                       AO VIVO
                     </Badge>
                   )}
+                  {hasSummary && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-px text-[9px] font-mono uppercase tracking-wider text-primary shrink-0">
+                      <Sparkles className="h-2.5 w-2.5" /> Com resumo
+                    </span>
+                  )}
                 </div>
-                <div className="text-xs text-muted-foreground mt-1 flex items-center gap-3 flex-wrap">
-                  <span className="inline-flex items-center gap-1">
+                <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-secondary/50 px-2 py-0.5 text-[11px] text-muted-foreground">
                     <Clock className="h-3 w-3" />
                     {formatRelativeTime(lecture.createdAt)}
                   </span>
                   {lecture.durationSec > 0 && (
-                    <span className="inline-flex items-center gap-1">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-secondary/50 px-2 py-0.5 font-mono text-[11px] text-muted-foreground">
                       <Mic className="h-3 w-3" />
                       {formatDuration(lecture.durationSec)}
                     </span>
@@ -1388,7 +1407,7 @@ function LectureFolder({
                     e.stopPropagation();
                     onMove();
                   }}
-                  className="opacity-50 hover:opacity-100 hover:text-primary transition-all p-1"
+                  className="rounded-md p-1.5 opacity-0 transition-all group-hover:opacity-60 hover:!opacity-100 hover:bg-primary/10 hover:text-primary"
                   aria-label="Mover aula"
                   title="Mover pra outra matéria/pasta"
                 >
@@ -1401,7 +1420,7 @@ function LectureFolder({
                   e.stopPropagation();
                   onDelete();
                 }}
-                className="opacity-50 hover:opacity-100 hover:text-destructive transition-all p-1"
+                className="rounded-md p-1.5 opacity-0 transition-all group-hover:opacity-60 hover:!opacity-100 hover:bg-destructive/10 hover:text-destructive"
                 aria-label="Excluir aula"
               >
                 <Trash2 className="h-4 w-4" />
@@ -1410,9 +1429,9 @@ function LectureFolder({
           </div>
         </Link>
 
-        {/* Subpastas (features) */}
-        <div className="border-t border-border/40 bg-card/40">
-          <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-border/40">
+        {/* Subpastas (features) — tiles com estado ativo/inativo */}
+        <div className="border-t border-border/40 bg-secondary/15 p-1.5">
+          <div className="grid grid-cols-3 gap-1">
             <FeatureTab
               href={`/lecture/${lecture.id}?tab=transcript`}
               icon="document"
@@ -1470,18 +1489,34 @@ function FeatureTab({
     <Link
       href={href}
       className={cn(
-        "group flex items-center gap-3 px-4 py-3 hover:bg-secondary/50 transition-colors",
-        !active && "opacity-60 hover:opacity-100",
+        "group/tile flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-all",
+        active
+          ? "bg-card hover:shadow-sm hover:bg-card"
+          : "hover:bg-card/70",
       )}
     >
-      <LumiIcon name={icon} size={28} className="shrink-0" />
+      <LumiIcon
+        name={icon}
+        size={28}
+        className={cn(
+          "shrink-0 transition-all",
+          !active && "opacity-40 grayscale",
+        )}
+      />
       <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium">{label}</div>
-        <div className="text-[10px] text-muted-foreground truncate">
+        <div
+          className={cn(
+            "text-[11px] font-semibold leading-tight",
+            !active && "text-muted-foreground",
+          )}
+        >
+          {label}
+        </div>
+        <div className="mt-0.5 truncate text-[10px] text-muted-foreground">
           {detail}
         </div>
       </div>
-      <ArrowRight className="h-3 w-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+      <ArrowRight className="hidden h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover/tile:opacity-100 md:block" />
     </Link>
   );
 }
