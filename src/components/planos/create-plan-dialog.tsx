@@ -113,9 +113,6 @@ export function CreatePlanDialog({
   const [pickedDocs, setPickedDocs] = useState<Set<string>>(new Set());
   const [pickedLectures, setPickedLectures] = useState<Set<string>>(new Set());
   const [loadingSources, setLoadingSources] = useState(false);
-  const [sourceTab, setSourceTab] = useState<"docs" | "lectures" | "upload">(
-    "docs",
-  );
   const [uploadingPdf, setUploadingPdf] = useState(false);
 
   // Step 4 — estimate / submit
@@ -284,7 +281,6 @@ export function CreatePlanDialog({
         next.add(doc.id);
         return next;
       });
-      setSourceTab("docs");
       toast.success(`"${doc.title}" adicionado e selecionado.`);
     } catch (err) {
       toast.error(`Erro: ${(err as Error).message}`);
@@ -406,8 +402,6 @@ export function CreatePlanDialog({
           )}
           {step === "sources" && (
             <SourcesStep
-              tab={sourceTab}
-              onTabChange={setSourceTab}
               documents={documents}
               lectures={lectures}
               pickedDocs={pickedDocs}
@@ -625,8 +619,6 @@ function formatLectureDuration(durationSec: number | undefined): string {
 }
 
 function SourcesStep({
-  tab,
-  onTabChange,
   documents,
   lectures,
   pickedDocs,
@@ -637,8 +629,6 @@ function SourcesStep({
   uploadingPdf,
   onUploadPdf,
 }: {
-  tab: "docs" | "lectures" | "upload";
-  onTabChange: (t: "docs" | "lectures" | "upload") => void;
   documents: Document[];
   lectures: Lecture[];
   pickedDocs: Set<string>;
@@ -649,52 +639,40 @@ function SourcesStep({
   uploadingPdf: boolean;
   onUploadPdf: (file: File) => Promise<void>;
 }) {
+  if (loading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const totalPicked = pickedDocs.size + pickedLectures.size;
+
   return (
-    <div className="grid gap-3">
-      <div className="flex items-center gap-1 rounded-md bg-secondary/40 p-0.5 w-fit flex-wrap">
-        <button
-          onClick={() => onTabChange("docs")}
-          className={cn(
-            "px-3 py-1 text-xs font-medium rounded transition-colors inline-flex items-center gap-1.5",
-            tab === "docs"
-              ? "bg-background shadow-sm text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <FileText className="h-3 w-3" />
-          Meus PDFs ({documents.length})
-        </button>
-        <button
-          onClick={() => onTabChange("lectures")}
-          className={cn(
-            "px-3 py-1 text-xs font-medium rounded transition-colors inline-flex items-center gap-1.5",
-            tab === "lectures"
-              ? "bg-background shadow-sm text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <AudioLines className="h-3 w-3" />
-          Minhas aulas ({lectures.length})
-        </button>
-        <button
-          onClick={() => onTabChange("upload")}
-          className={cn(
-            "px-3 py-1 text-xs font-medium rounded transition-colors inline-flex items-center gap-1.5",
-            tab === "upload"
-              ? "bg-background shadow-sm text-foreground"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <Upload className="h-3 w-3" />
-          Subir novo
-        </button>
+    <div className="grid gap-4">
+      {/* Aviso sobre material complementar (sub-tarefa 5c) */}
+      <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+        <span className="font-medium text-foreground">Bônus automático:</span>{" "}
+        ao gerar cada item, a IA usa até 3 outros materiais da mesma matéria
+        como contexto cruzado — mais consistência sem custo extra de coins.
       </div>
 
-      {loading ? (
-        <div className="flex justify-center py-8">
-          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-        </div>
-      ) : tab === "docs" ? (
+      {/* Seção 1: Subir novo PDF */}
+      <SectionHeader
+        icon={<Upload className="h-3.5 w-3.5" />}
+        label="Subir novo PDF"
+        hint="Vai pra /documentos da matéria automaticamente"
+      />
+      <UploadPdfDropzone uploading={uploadingPdf} onUpload={onUploadPdf} />
+
+      {/* Seção 2: PDFs já na matéria */}
+      <SectionHeader
+        icon={<FileText className="h-3.5 w-3.5" />}
+        label={`PDFs da matéria (${documents.length})`}
+        hint="Documentos que você já tinha aqui"
+      />
+      <div className="max-h-44 overflow-y-auto -mx-1 px-1">
         <SourceList
           items={documents.map((d) => ({
             id: d.id,
@@ -703,9 +681,17 @@ function SourcesStep({
           }))}
           picked={pickedDocs}
           onToggle={onToggleDoc}
-          emptyMsg="Nenhum PDF nesta matéria. Use a tab 'Subir novo'."
+          emptyMsg="Nenhum PDF nesta matéria. Use 'Subir novo' acima."
         />
-      ) : tab === "lectures" ? (
+      </div>
+
+      {/* Seção 3: Aulas gravadas */}
+      <SectionHeader
+        icon={<AudioLines className="h-3.5 w-3.5" />}
+        label={`Aulas gravadas (${lectures.length})`}
+        hint="Transcrições das suas gravações"
+      />
+      <div className="max-h-44 overflow-y-auto -mx-1 px-1">
         <SourceList
           items={lectures.map((l) => ({
             id: l.id,
@@ -719,17 +705,36 @@ function SourcesStep({
           onToggle={onToggleLecture}
           emptyMsg="Nenhuma aula nesta matéria."
         />
-      ) : (
-        <UploadPdfDropzone
-          uploading={uploadingPdf}
-          onUpload={onUploadPdf}
-        />
-      )}
+      </div>
 
       <div className="text-xs text-muted-foreground border-t border-border/40 pt-2">
-        Total selecionado: {pickedDocs.size + pickedLectures.size} fonte
-        {pickedDocs.size + pickedLectures.size === 1 ? "" : "s"}
+        Total selecionado: {totalPicked} fonte
+        {totalPicked === 1 ? "" : "s"}
       </div>
+    </div>
+  );
+}
+
+function SectionHeader({
+  icon,
+  label,
+  hint,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 -mb-1">
+      <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {icon}
+        {label}
+      </div>
+      {hint && (
+        <span className="text-[10px] text-muted-foreground/70 truncate">
+          {hint}
+        </span>
+      )}
     </div>
   );
 }
@@ -742,51 +747,42 @@ function UploadPdfDropzone({
   onUpload: (file: File) => Promise<void>;
 }) {
   return (
-    <div className="space-y-2">
-      <label
-        htmlFor="plan-wizard-upload"
-        className={cn(
-          "flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-8 cursor-pointer transition-colors",
-          uploading
-            ? "border-primary/40 bg-primary/5 cursor-wait"
-            : "border-border/60 bg-card/40 hover:border-primary/40 hover:bg-secondary/40",
-        )}
-      >
-        {uploading ? (
-          <>
-            <Loader2 className="h-5 w-5 animate-spin text-primary" />
-            <p className="text-sm font-medium">Subindo PDF…</p>
-            <p className="text-[11px] text-muted-foreground">
-              Extraindo texto e enviando pro storage
-            </p>
-          </>
-        ) : (
-          <>
-            <Upload className="h-5 w-5 text-muted-foreground" />
-            <p className="text-sm font-medium">Clica pra escolher ou arraste o PDF</p>
-            <p className="text-[11px] text-muted-foreground">
-              Vai pra /documentos da matéria automaticamente · Até {PDF_LIMIT_MB} MB
-            </p>
-          </>
-        )}
-        <input
-          id="plan-wizard-upload"
-          type="file"
-          accept="application/pdf,.pdf"
-          disabled={uploading}
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            e.target.value = "";
-            if (f) void onUpload(f);
-          }}
-        />
-      </label>
-      <p className="text-[11px] text-muted-foreground leading-relaxed">
-        Sobe quantos quiser — cada um vira uma fonte do plano e fica salvo em
-        Meus documentos &gt; matéria do plano.
-      </p>
-    </div>
+    <label
+      htmlFor="plan-wizard-upload"
+      className={cn(
+        "flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed p-4 cursor-pointer transition-colors",
+        uploading
+          ? "border-primary/40 bg-primary/5 cursor-wait"
+          : "border-border/60 bg-card/40 hover:border-primary/40 hover:bg-secondary/40",
+      )}
+    >
+      {uploading ? (
+        <>
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <p className="text-xs font-medium">Subindo PDF…</p>
+        </>
+      ) : (
+        <>
+          <Upload className="h-4 w-4 text-muted-foreground" />
+          <p className="text-xs font-medium">Clica ou arraste o PDF aqui</p>
+          <p className="text-[10px] text-muted-foreground">
+            Até {PDF_LIMIT_MB} MB · sobe quantos quiser
+          </p>
+        </>
+      )}
+      <input
+        id="plan-wizard-upload"
+        type="file"
+        accept="application/pdf,.pdf"
+        disabled={uploading}
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = "";
+          if (f) void onUpload(f);
+        }}
+      />
+    </label>
   );
 }
 
