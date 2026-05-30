@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { estimateChunkCount } from "@/lib/transcript-chunking";
-import { COIN_COSTS } from "@/lib/coins";
+import { COIN_COSTS } from "@/lib/coin-costs";
 import type {
   LectureSummary,
   TranscriptEntry,
