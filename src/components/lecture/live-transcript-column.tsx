@@ -133,12 +133,18 @@ export function LiveTranscriptColumn({
   onAddMarker?: () => void;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Pra aulas longas: força "chapters" como padrão (flat estoura o renderer)
+  const heavyMode = entries.length > 200;
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    if (typeof window === "undefined") return "flat";
-    return (window.localStorage.getItem("lumio.transcript.view") as ViewMode) || "flat";
+    if (typeof window === "undefined") return heavyMode ? "chapters" : "flat";
+    const saved = window.localStorage.getItem("lumio.transcript.view") as ViewMode | null;
+    return saved || (heavyMode ? "chapters" : "flat");
   });
   // Capítulos abertos: inicialmente todos abertos. Map<id, bool>.
   const [openChapters, setOpenChapters] = useState<Record<string, boolean>>({});
+  // Paginação no modo flat — evita renderizar 1k+ entries de uma vez
+  const FLAT_PAGE = 80;
+  const [flatLimit, setFlatLimit] = useState<number>(FLAT_PAGE);
 
   function setViewModePersisted(v: ViewMode) {
     setViewMode(v);
@@ -155,6 +161,18 @@ export function LiveTranscriptColumn({
       return true;
     });
   }, [entries, search, activeFilter]);
+
+  // Limita keyTerms passadas pro regex de highlight — evita regex caro
+  // em listas com 1k+ entries quando a IA gera muitos termos.
+  const cappedKeyTerms = useMemo(
+    () => keyTerms.slice(0, 20),
+    [keyTerms],
+  );
+
+  // Reset paginação quando filtros mudam
+  useEffect(() => {
+    setFlatLimit(FLAT_PAGE);
+  }, [search, activeFilter, viewMode]);
 
   const chapters = useMemo(
     () => groupIntoChapters(filtered, topics),
@@ -346,7 +364,7 @@ export function LiveTranscriptColumn({
                           key={e.id}
                           entry={e}
                           isActive={e.id === lastEntryId && isLive}
-                          keyTerms={keyTerms}
+                          keyTerms={cappedKeyTerms}
                           hasAudio={hasAudio}
                           onPlay={onPlay}
                           onJumpToSlide={onJumpToSlide}
@@ -360,17 +378,38 @@ export function LiveTranscriptColumn({
           </div>
         ) : (
           <div className="space-y-1">
-            {filtered.map((e) => (
-              <TranscriptEntryRow
-                key={e.id}
-                entry={e}
-                isActive={e.id === lastEntryId && isLive}
-                keyTerms={keyTerms}
-                hasAudio={hasAudio}
-                onPlay={onPlay}
-                onJumpToSlide={onJumpToSlide}
-              />
-            ))}
+            {(() => {
+              // No flat view, durante live mostra TUDO (pra ver hot updates).
+              // Pra aulas longas paradas, pagina pra evitar OOM do renderer.
+              const sliced =
+                isLive || filtered.length <= flatLimit
+                  ? filtered
+                  : filtered.slice(0, flatLimit);
+              const remaining = filtered.length - sliced.length;
+              return (
+                <>
+                  {sliced.map((e) => (
+                    <TranscriptEntryRow
+                      key={e.id}
+                      entry={e}
+                      isActive={e.id === lastEntryId && isLive}
+                      keyTerms={cappedKeyTerms}
+                      hasAudio={hasAudio}
+                      onPlay={onPlay}
+                      onJumpToSlide={onJumpToSlide}
+                    />
+                  ))}
+                  {remaining > 0 && (
+                    <button
+                      onClick={() => setFlatLimit((n) => n + FLAT_PAGE * 2)}
+                      className="w-full mt-2 rounded-md border border-dashed border-border/60 bg-card/40 px-3 py-2.5 text-xs font-medium text-muted-foreground hover:bg-secondary/40 hover:text-foreground transition-colors"
+                    >
+                      Mostrar mais {Math.min(remaining, FLAT_PAGE * 2)} de {remaining} restantes
+                    </button>
+                  )}
+                </>
+              );
+            })()}
             {interim && (
               <div className="px-3 py-2 text-sm text-muted-foreground italic">
                 {interim}
