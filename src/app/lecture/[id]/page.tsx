@@ -928,17 +928,87 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       toast.error("Grave a aula primeiro pra gerar este conteúdo.");
       return;
     }
-    setActionLoading(id);
-    try {
-      if (id === "summary") {
+    if (id === "summary") {
+      setActionLoading(id);
+      try {
         await generateSummary();
-      } else if (id === "flashcards") {
-        router.push("/flashcards?new=1");
-      } else if (id === "quiz") {
-        router.push("/quiz?new=1");
-      } else if (id === "mindmap") {
-        router.push("/documentos?new=mapa");
+      } finally {
+        setActionLoading(null);
       }
+      return;
+    }
+    await generateAssetFromLecture(id);
+  }
+
+  /**
+   * Gera flashcards/quiz/mapa mental direto da transcrição + slides anexados,
+   * sem mandar o user pro wizard. Mantém o contexto da aula (lectureId,
+   * matéria, slides, mensagens do chat) pra cobrar nos endpoints corretos.
+   */
+  async function generateAssetFromLecture(
+    kind: "flashcards" | "quiz" | "mindmap",
+  ) {
+    if (!lecture) return;
+    const transcript = sync.entries.map((e) => e.text).join(" ").trim();
+    if (!transcript) {
+      toast.error("Grave a aula primeiro pra gerar este conteúdo.");
+      return;
+    }
+    const endpoint =
+      kind === "flashcards"
+        ? "/api/flashcards"
+        : kind === "quiz"
+          ? "/api/quiz"
+          : "/api/mindmap";
+    const label =
+      kind === "flashcards"
+        ? "flashcards"
+        : kind === "quiz"
+          ? "quiz"
+          : "mapa mental";
+    const targetRoute =
+      kind === "flashcards"
+        ? "/flashcards"
+        : kind === "quiz"
+          ? "/quiz"
+          : "/documentos";
+    setActionLoading(kind);
+    const t = toast.loading(`Gerando ${label}...`);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          lectureTitle: lecture.title,
+          subject: subject?.name ?? "Geral",
+          transcript,
+          slides: slidesRef.current ?? undefined,
+          messages: messagesRef.current.map(({ role, content }) => ({
+            role,
+            content,
+            id: "",
+            createdAt: "",
+          })),
+          lectureId: lecture.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = data?.error || `HTTP ${res.status}`;
+        toast.error(`Erro ao gerar ${label}: ${msg}`, { id: t });
+        return;
+      }
+      toast.success(`${label.charAt(0).toUpperCase() + label.slice(1)} gerado.`, {
+        id: t,
+        action: {
+          label: "Ver",
+          onClick: () => router.push(targetRoute),
+        },
+      });
+    } catch (err) {
+      toast.error(`Erro ao gerar ${label}: ${(err as Error).message}`, {
+        id: t,
+      });
     } finally {
       setActionLoading(null);
     }
