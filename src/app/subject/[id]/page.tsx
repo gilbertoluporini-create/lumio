@@ -843,7 +843,7 @@ function FavStar({
         "shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md transition-colors",
         active
           ? "text-amber-500 hover:bg-amber-500/10"
-          : "text-muted-foreground hover:bg-secondary hover:text-foreground opacity-0 group-hover:opacity-100 focus:opacity-100",
+          : "text-muted-foreground hover:bg-secondary hover:text-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100",
       )}
     >
       <Star className={cn("h-4 w-4", active && "fill-current")} />
@@ -862,7 +862,7 @@ function MoveButton({ onMove }: { onMove: () => void }) {
       }}
       aria-label="Mover para outra pasta"
       title="Mover para pasta"
-      className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 transition-colors"
+      className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-colors"
     >
       <FolderInput className="h-4 w-4" />
     </button>
@@ -1160,7 +1160,7 @@ function DocumentRow({
         type="button"
         onClick={() => onDelete(document)}
         aria-label={`Excluir ${document.title}`}
-        className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-600 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+        className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-red-500/10 hover:text-red-600 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100"
       >
         <Trash2 className="h-4 w-4" />
       </button>
