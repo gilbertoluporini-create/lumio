@@ -1,29 +1,86 @@
 "use client";
 
-import { useEffect, useState } from "react";
+/**
+ * Wizard de criação de Plano de Estudos.
+ *
+ * 4 passos:
+ *  1. Identidade — matéria + título + data da prova (opcional)
+ *  2. Assets — checkboxes (Resumo, Flashcards, Quiz, Mapa)
+ *  3. Fontes — escolhe PDFs (documents) + aulas gravadas (lectures) existentes
+ *  4. Confirmar — mostra estimativa de coins + total de itens
+ *
+ * Submit chama POST /api/study-plans/create — items ficam pending, cron
+ * worker gera em background. Redireciona pra /planos/[id].
+ *
+ * TODO sub-tarefa 5b: tab "Subir novo PDF" no passo 3.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Target } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  AudioLines,
+  Check,
+  FileText,
+  Layers,
+  Loader2,
+  ListChecks,
+  Map,
+  Sparkles,
+  Target,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { listSubjectsAsync } from "@/lib/db";
-import { createPlanAsync } from "@/lib/study-plans";
-import type { Subject } from "@/lib/types";
+import { cn } from "@/lib/utils";
+import { listSubjectsAsync, listLecturesAsync } from "@/lib/db";
+import { listDocumentsAsync } from "@/lib/documents";
+import type {
+  Document,
+  Lecture,
+  Subject,
+} from "@/lib/types";
+import type { StudyPlanItemKind } from "@/lib/study-plans";
 
 type Props = {
   userId: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onCreated?: (planId: string) => void;
+  /** Pré-seleciona matéria se vier de uma tela contextual (/subject/[id]). */
+  defaultSubjectId?: string;
+};
+
+type StepId = "identity" | "assets" | "sources" | "confirm";
+const STEPS: StepId[] = ["identity", "assets", "sources", "confirm"];
+
+type AssetOption = {
+  kind: StudyPlanItemKind;
+  label: string;
+  cost: number;
+  Icon: typeof FileText;
+};
+
+const ASSET_OPTIONS: AssetOption[] = [
+  { kind: "summary", label: "Resumo educativo", cost: 10, Icon: FileText },
+  { kind: "flashcards", label: "Flashcards", cost: 8, Icon: Layers },
+  { kind: "quiz", label: "Quiz", cost: 8, Icon: ListChecks },
+  { kind: "mindmap", label: "Mapa mental", cost: 6, Icon: Map },
+];
+
+type EstimateResponse = {
+  total: number;
+  itemsTotal: number;
+  breakdown: Array<{ kind: StudyPlanItemKind; perItem: number; count: number; subtotal: number }>;
 };
 
 export function CreatePlanDialog({
@@ -31,14 +88,38 @@ export function CreatePlanDialog({
   open,
   onOpenChange,
   onCreated,
+  defaultSubjectId,
 }: Props) {
   const router = useRouter();
+  const [step, setStep] = useState<StepId>("identity");
+
+  // Step 1 — identity
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [subjectId, setSubjectId] = useState<string>("");
+  const [subjectId, setSubjectId] = useState<string>(defaultSubjectId ?? "");
   const [title, setTitle] = useState("");
   const [examDate, setExamDate] = useState("");
-  const [saving, setSaving] = useState(false);
 
+  // Step 2 — assets
+  const [assetKinds, setAssetKinds] = useState<StudyPlanItemKind[]>([
+    "summary",
+    "flashcards",
+    "quiz",
+  ]);
+
+  // Step 3 — sources
+  const [documents, setDocuments] = useState<Document[]>([]);
+  const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [pickedDocs, setPickedDocs] = useState<Set<string>>(new Set());
+  const [pickedLectures, setPickedLectures] = useState<Set<string>>(new Set());
+  const [loadingSources, setLoadingSources] = useState(false);
+  const [sourceTab, setSourceTab] = useState<"docs" | "lectures">("docs");
+
+  // Step 4 — estimate / submit
+  const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
+  const [estimating, setEstimating] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  /* --------- Fetch listas quando abre --------- */
   useEffect(() => {
     if (!open) return;
     void (async () => {
@@ -51,6 +132,36 @@ export function CreatePlanDialog({
     })();
   }, [open, userId, subjectId, title]);
 
+  // Refresh sources quando muda matéria (filtra pela matéria escolhida)
+  useEffect(() => {
+    if (!open || !subjectId) return;
+    setLoadingSources(true);
+    void (async () => {
+      try {
+        const [docs, lecs] = await Promise.all([
+          listDocumentsAsync(userId, subjectId),
+          listLecturesAsync(userId, subjectId),
+        ]);
+        setDocuments(docs);
+        setLectures(lecs);
+      } finally {
+        setLoadingSources(false);
+      }
+    })();
+  }, [open, userId, subjectId]);
+
+  // Reset ao fechar
+  useEffect(() => {
+    if (open) return;
+    setStep("identity");
+    setTitle("");
+    setExamDate("");
+    setAssetKinds(["summary", "flashcards", "quiz"]);
+    setPickedDocs(new Set());
+    setPickedLectures(new Set());
+    setEstimate(null);
+  }, [open]);
+
   function handleSubjectChange(id: string) {
     setSubjectId(id);
     const subj = subjects.find((s) => s.id === id);
@@ -59,111 +170,576 @@ export function CreatePlanDialog({
     }
   }
 
-  async function handleSubmit() {
-    if (!title.trim()) {
-      toast.error("Dá um título pro plano.");
-      return;
-    }
-    setSaving(true);
+  function toggleAsset(kind: StudyPlanItemKind) {
+    setAssetKinds((prev) =>
+      prev.includes(kind) ? prev.filter((k) => k !== kind) : [...prev, kind],
+    );
+  }
+
+  function toggleDoc(id: string) {
+    setPickedDocs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleLecture(id: string) {
+    setPickedLectures((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const totalSources = pickedDocs.size + pickedLectures.size;
+
+  /* --------- Estimate quando entra no passo 4 --------- */
+  const fetchEstimate = useCallback(async () => {
+    if (totalSources === 0 || assetKinds.length === 0) return;
+    setEstimating(true);
     try {
-      const plan = await createPlanAsync({
-        userId,
-        subjectId: subjectId || null,
-        title: title.trim(),
-        examDate: examDate || null,
+      const res = await fetch("/api/study-plans/estimate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          documentCount: totalSources,
+          assetKinds,
+        }),
       });
-      if (!plan) throw new Error("Falha ao criar.");
-      toast.success("Plano criado.");
-      onOpenChange(false);
-      setTitle("");
-      setExamDate("");
-      onCreated?.(plan.id);
-      router.push(`/planos/${plan.id}`);
+      const json = (await res.json()) as EstimateResponse;
+      setEstimate(json);
     } catch (err) {
-      toast.error(`Não consegui criar: ${(err as Error).message}`);
+      toast.error(`Falha ao estimar: ${(err as Error).message}`);
     } finally {
-      setSaving(false);
+      setEstimating(false);
+    }
+  }, [totalSources, assetKinds]);
+
+  useEffect(() => {
+    if (step === "confirm") void fetchEstimate();
+  }, [step, fetchEstimate]);
+
+  /* --------- Navegação entre steps --------- */
+  const canAdvance = useMemo(() => {
+    if (step === "identity") return !!title.trim() && !!subjectId;
+    if (step === "assets") return assetKinds.length > 0;
+    if (step === "sources") return totalSources > 0;
+    return true;
+  }, [step, title, subjectId, assetKinds, totalSources]);
+
+  function next() {
+    const idx = STEPS.indexOf(step);
+    if (idx < STEPS.length - 1) setStep(STEPS[idx + 1]);
+  }
+  function prev() {
+    const idx = STEPS.indexOf(step);
+    if (idx > 0) setStep(STEPS[idx - 1]);
+  }
+
+  /* --------- Submit final --------- */
+  async function handleSubmit() {
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/study-plans/create", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          title: title.trim(),
+          subjectId,
+          examDate: examDate || undefined,
+          assetKinds,
+          documentIds: Array.from(pickedDocs),
+          lectureIds: Array.from(pickedLectures),
+        }),
+      });
+      const json = (await res.json()) as { planId?: string; error?: string };
+      if (!res.ok || !json.planId) {
+        throw new Error(json.error ?? `HTTP ${res.status}`);
+      }
+      toast.success(
+        `Plano criado. Geração em background — vai aparecendo aos poucos.`,
+      );
+      onOpenChange(false);
+      onCreated?.(json.planId);
+      router.push(`/planos/${json.planId}`);
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setSubmitting(false);
     }
   }
 
+  /* --------- Render --------- */
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Target className="h-5 w-5 text-primary" />
-            Novo plano de estudos
+            Criar plano de estudos
           </DialogTitle>
           <DialogDescription>
-            Defina a matéria, dê um nome ao plano e (opcional) a data da prova.
-            Você adiciona os itens da trilha depois.
+            <StepIndicator step={step} />
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-1.5">
-            <Label htmlFor="plan-subject">Matéria</Label>
-            <select
-              id="plan-subject"
-              value={subjectId}
-              onChange={(e) => handleSubjectChange(e.target.value)}
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <option value="">Sem matéria específica</option>
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.emoji ? `${s.emoji} ` : ""}
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="grid gap-1.5">
-            <Label htmlFor="plan-title">Título</Label>
-            <Input
-              id="plan-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Ex: Prova de Endócrino — semana 1"
-              maxLength={180}
+        <div className="flex-1 overflow-y-auto py-2">
+          {step === "identity" && (
+            <IdentityStep
+              subjects={subjects}
+              subjectId={subjectId}
+              onSubjectChange={handleSubjectChange}
+              title={title}
+              onTitleChange={setTitle}
+              examDate={examDate}
+              onExamDateChange={setExamDate}
             />
-          </div>
-
-          <div className="grid gap-1.5">
-            <Label htmlFor="plan-exam-date">Data da prova (opcional)</Label>
-            <Input
-              id="plan-exam-date"
-              type="date"
-              value={examDate}
-              onChange={(e) => setExamDate(e.target.value)}
+          )}
+          {step === "assets" && (
+            <AssetsStep
+              selected={assetKinds}
+              onToggle={toggleAsset}
             />
-          </div>
+          )}
+          {step === "sources" && (
+            <SourcesStep
+              tab={sourceTab}
+              onTabChange={setSourceTab}
+              documents={documents}
+              lectures={lectures}
+              pickedDocs={pickedDocs}
+              pickedLectures={pickedLectures}
+              onToggleDoc={toggleDoc}
+              onToggleLecture={toggleLecture}
+              loading={loadingSources}
+            />
+          )}
+          {step === "confirm" && (
+            <ConfirmStep
+              title={title}
+              subjectName={subjects.find((s) => s.id === subjectId)?.name ?? "—"}
+              examDate={examDate}
+              assetKinds={assetKinds}
+              totalSources={totalSources}
+              estimate={estimate}
+              estimating={estimating}
+            />
+          )}
         </div>
 
-        <DialogFooter>
+        <div className="border-t border-border/50 pt-3 flex items-center justify-between gap-2">
           <Button
             variant="ghost"
-            onClick={() => onOpenChange(false)}
-            disabled={saving}
+            onClick={step === "identity" ? () => onOpenChange(false) : prev}
+            disabled={submitting}
           >
-            Cancelar
-          </Button>
-          <Button onClick={handleSubmit} disabled={saving} className="gap-1.5">
-            {saving ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Criando…
-              </>
+            {step === "identity" ? (
+              "Cancelar"
             ) : (
               <>
-                <Target className="h-4 w-4" />
-                Criar plano
+                <ArrowLeft className="h-4 w-4" /> Voltar
               </>
             )}
           </Button>
-        </DialogFooter>
+
+          {step !== "confirm" ? (
+            <Button
+              onClick={next}
+              disabled={!canAdvance}
+              className="gap-1.5"
+            >
+              Próximo <ArrowRight className="h-4 w-4" />
+            </Button>
+          ) : (
+            <Button
+              onClick={handleSubmit}
+              disabled={submitting || estimating || !estimate}
+              className="gap-1.5"
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Criando…
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Criar plano · {estimate?.total ?? "…"} coins
+                </>
+              )}
+            </Button>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ====================================================================
+   SUB-COMPONENTES
+   ==================================================================== */
+
+function StepIndicator({ step }: { step: StepId }) {
+  const idx = STEPS.indexOf(step);
+  const labels: Record<StepId, string> = {
+    identity: "Identidade",
+    assets: "Tipos de asset",
+    sources: "Fontes",
+    confirm: "Confirmar",
+  };
+  return (
+    <span className="text-xs">
+      Passo {idx + 1} de {STEPS.length}: {labels[step]}
+    </span>
+  );
+}
+
+function IdentityStep({
+  subjects,
+  subjectId,
+  onSubjectChange,
+  title,
+  onTitleChange,
+  examDate,
+  onExamDateChange,
+}: {
+  subjects: Subject[];
+  subjectId: string;
+  onSubjectChange: (id: string) => void;
+  title: string;
+  onTitleChange: (v: string) => void;
+  examDate: string;
+  onExamDateChange: (v: string) => void;
+}) {
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-1.5">
+        <Label htmlFor="plan-subject">Matéria</Label>
+        <select
+          id="plan-subject"
+          value={subjectId}
+          onChange={(e) => onSubjectChange(e.target.value)}
+          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+        >
+          <option value="">Escolha uma matéria…</option>
+          {subjects.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.emoji ? `${s.emoji} ` : ""}
+              {s.name}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-muted-foreground">
+          As fontes são filtradas pela matéria escolhida.
+        </p>
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label htmlFor="plan-title">Título do plano</Label>
+        <Input
+          id="plan-title"
+          value={title}
+          onChange={(e) => onTitleChange(e.target.value)}
+          placeholder="Ex: Prova de Endócrino — semana 1"
+          maxLength={180}
+        />
+      </div>
+
+      <div className="grid gap-1.5">
+        <Label htmlFor="plan-exam-date">Data da prova (opcional)</Label>
+        <Input
+          id="plan-exam-date"
+          type="date"
+          value={examDate}
+          onChange={(e) => onExamDateChange(e.target.value)}
+        />
+      </div>
+    </div>
+  );
+}
+
+function AssetsStep({
+  selected,
+  onToggle,
+}: {
+  selected: StudyPlanItemKind[];
+  onToggle: (k: StudyPlanItemKind) => void;
+}) {
+  return (
+    <div className="grid gap-3">
+      <p className="text-sm text-muted-foreground">
+        Pra cada fonte (PDF ou aula), serão gerados os tipos que você marcar.
+      </p>
+      <div className="grid sm:grid-cols-2 gap-2">
+        {ASSET_OPTIONS.map(({ kind, label, cost, Icon }) => {
+          const active = selected.includes(kind);
+          return (
+            <button
+              key={kind}
+              onClick={() => onToggle(kind)}
+              className={cn(
+                "flex items-start gap-3 rounded-xl border p-3 text-left transition-colors",
+                active
+                  ? "border-primary bg-primary/5"
+                  : "border-border/60 bg-card hover:border-primary/40",
+              )}
+            >
+              <div
+                className={cn(
+                  "h-9 w-9 rounded-md flex items-center justify-center shrink-0",
+                  active ? "bg-primary/15 text-primary" : "bg-muted",
+                )}
+              >
+                <Icon className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{label}</span>
+                  {active && <Check className="h-4 w-4 text-primary" />}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {cost} coins por fonte
+                </p>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SourcesStep({
+  tab,
+  onTabChange,
+  documents,
+  lectures,
+  pickedDocs,
+  pickedLectures,
+  onToggleDoc,
+  onToggleLecture,
+  loading,
+}: {
+  tab: "docs" | "lectures";
+  onTabChange: (t: "docs" | "lectures") => void;
+  documents: Document[];
+  lectures: Lecture[];
+  pickedDocs: Set<string>;
+  pickedLectures: Set<string>;
+  onToggleDoc: (id: string) => void;
+  onToggleLecture: (id: string) => void;
+  loading: boolean;
+}) {
+  return (
+    <div className="grid gap-3">
+      <div className="flex items-center gap-1 rounded-md bg-secondary/40 p-0.5 w-fit">
+        <button
+          onClick={() => onTabChange("docs")}
+          className={cn(
+            "px-3 py-1 text-xs font-medium rounded transition-colors inline-flex items-center gap-1.5",
+            tab === "docs"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <FileText className="h-3 w-3" />
+          Meus PDFs ({documents.length})
+        </button>
+        <button
+          onClick={() => onTabChange("lectures")}
+          className={cn(
+            "px-3 py-1 text-xs font-medium rounded transition-colors inline-flex items-center gap-1.5",
+            tab === "lectures"
+              ? "bg-background shadow-sm text-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          <AudioLines className="h-3 w-3" />
+          Minhas aulas ({lectures.length})
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : tab === "docs" ? (
+        <SourceList
+          items={documents.map((d) => ({
+            id: d.id,
+            title: d.title,
+            sub: d.pageCount ? `${d.pageCount} páginas` : "PDF",
+          }))}
+          picked={pickedDocs}
+          onToggle={onToggleDoc}
+          emptyMsg="Nenhum PDF nesta matéria. Suba um em Meus documentos."
+        />
+      ) : (
+        <SourceList
+          items={lectures.map((l) => ({
+            id: l.id,
+            title: l.title,
+            sub: l.transcript
+              ? `${Math.round((l.transcript.length / 1500) * 100) / 100} min de aula`
+              : "Aula sem transcrição (não pode ser usada)",
+            disabled: !l.transcript || l.transcript.trim().length < 200,
+          }))}
+          picked={pickedLectures}
+          onToggle={onToggleLecture}
+          emptyMsg="Nenhuma aula nesta matéria."
+        />
+      )}
+
+      <div className="text-xs text-muted-foreground border-t border-border/40 pt-2">
+        Total selecionado: {pickedDocs.size + pickedLectures.size} fonte
+        {pickedDocs.size + pickedLectures.size === 1 ? "" : "s"}
+      </div>
+    </div>
+  );
+}
+
+function SourceList({
+  items,
+  picked,
+  onToggle,
+  emptyMsg,
+}: {
+  items: Array<{ id: string; title: string; sub: string; disabled?: boolean }>;
+  picked: Set<string>;
+  onToggle: (id: string) => void;
+  emptyMsg: string;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="rounded-lg border border-dashed border-border/60 bg-card/40 p-6 text-center">
+        <p className="text-sm text-muted-foreground">{emptyMsg}</p>
+      </div>
+    );
+  }
+  return (
+    <ul className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+      {items.map((it) => {
+        const active = picked.has(it.id);
+        const disabled = !!it.disabled;
+        return (
+          <li key={it.id}>
+            <button
+              onClick={() => !disabled && onToggle(it.id)}
+              disabled={disabled}
+              className={cn(
+                "w-full flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors",
+                disabled
+                  ? "opacity-50 cursor-not-allowed border-border/40 bg-muted/30"
+                  : active
+                    ? "border-primary bg-primary/5"
+                    : "border-border/60 bg-card hover:border-primary/40",
+              )}
+            >
+              <span
+                className={cn(
+                  "h-4 w-4 rounded shrink-0 flex items-center justify-center border",
+                  active ? "bg-primary border-primary" : "border-border/60",
+                )}
+              >
+                {active && <Check className="h-3 w-3 text-primary-foreground" />}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate">{it.title}</p>
+                <p className="text-[11px] text-muted-foreground truncate">
+                  {it.sub}
+                </p>
+              </div>
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function ConfirmStep({
+  title,
+  subjectName,
+  examDate,
+  assetKinds,
+  totalSources,
+  estimate,
+  estimating,
+}: {
+  title: string;
+  subjectName: string;
+  examDate: string;
+  assetKinds: StudyPlanItemKind[];
+  totalSources: number;
+  estimate: EstimateResponse | null;
+  estimating: boolean;
+}) {
+  const kindLabel = (k: StudyPlanItemKind) =>
+    ASSET_OPTIONS.find((o) => o.kind === k)?.label ?? k;
+  return (
+    <div className="grid gap-4">
+      <div className="grid gap-1 rounded-lg border border-border/60 bg-muted/30 p-3 text-sm">
+        <div>
+          <span className="text-muted-foreground">Plano:</span>{" "}
+          <span className="font-medium">{title}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Matéria:</span>{" "}
+          <span className="font-medium">{subjectName}</span>
+        </div>
+        {examDate && (
+          <div>
+            <span className="text-muted-foreground">Prova:</span>{" "}
+            <span className="font-medium">{examDate}</span>
+          </div>
+        )}
+        <div>
+          <span className="text-muted-foreground">Fontes selecionadas:</span>{" "}
+          <span className="font-medium">{totalSources}</span>
+        </div>
+        <div>
+          <span className="text-muted-foreground">Assets a gerar:</span>{" "}
+          <span className="font-medium">
+            {assetKinds.map(kindLabel).join(", ")}
+          </span>
+        </div>
+      </div>
+
+      {estimating ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Calculando custo…
+        </div>
+      ) : estimate ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-4">
+          <p className="text-xs text-muted-foreground mb-2">Estimativa:</p>
+          <ul className="space-y-1 text-xs">
+            {estimate.breakdown.map((b) => (
+              <li key={b.kind} className="flex justify-between">
+                <span>
+                  {kindLabel(b.kind)}: {b.perItem} × {b.count}
+                </span>
+                <span className="font-mono">{b.subtotal} coins</span>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-3 pt-3 border-t border-primary/20 flex justify-between text-sm font-semibold">
+            <span>
+              Total · {estimate.itemsTotal} itens
+            </span>
+            <span className="text-primary">{estimate.total} coins</span>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
+            Coins são cobrados conforme cada item é gerado pelo cron. Se faltar
+            saldo no meio, items individuais ficam como &quot;falhou&quot; sem
+            consumir crédito.
+          </p>
+        </div>
+      ) : null}
+    </div>
   );
 }
