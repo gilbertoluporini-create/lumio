@@ -24,7 +24,8 @@ export const COIN_COSTS = {
   extract_slides: 0,        // grátis — incluído no plano
   transcript_refine: 0,     // grátis — incluído no plano
   extract_schedule: 0,      // grátis no onboarding
-  summary: 10,              // produto: resumo estruturado
+  summary: 10,              // produto: resumo estruturado (por tópicos)
+  summary_educational: 12,  // resumo educativo estilo artigo + imagens (markdown puro)
   transcript_structure: 5,  // revisão + capítulos reais por IA (Sonnet 4.5)
   flashcards: 8,            // alinhado com coins-pricing.ts
   quiz: 8,                  // alinhado com coins-pricing.ts
@@ -49,6 +50,7 @@ export type CoinReason =
   | "image_generation"
   | "transcript_refine"
   | "transcript_structure"
+  | "summary_educational"
   | "welcome_bonus"
   | "admin_grant"
   | "refund";

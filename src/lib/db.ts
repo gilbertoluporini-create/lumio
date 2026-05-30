@@ -239,6 +239,7 @@ type LectureRow = {
   transcript_entries: TranscriptEntry[] | null;
   transcript_insights: TranscriptInsights | null;
   transcript_chapters: import("@/lib/types").TranscriptChapters | null;
+  summary_educational: { markdown: string; generatedAt: string; images?: import("@/lib/types").LectureSummaryImage[] } | null;
   duration_sec: number;
   status: "draft" | "live" | "completed";
   slides_file_name: string | null;
@@ -260,6 +261,7 @@ function rowToLecture(r: LectureRow): Lecture {
     transcriptEntries: r.transcript_entries ?? undefined,
     transcriptInsights: r.transcript_insights ?? undefined,
     transcriptChapters: r.transcript_chapters ?? undefined,
+    summaryEducational: r.summary_educational ?? undefined,
     durationSec: r.duration_sec,
     status: r.status,
     slidesFileName: r.slides_file_name ?? undefined,
@@ -272,7 +274,7 @@ function rowToLecture(r: LectureRow): Lecture {
 }
 
 const LECTURE_COLS =
-  "id, user_id, subject_id, title, transcript, transcript_entries, transcript_insights, transcript_chapters, duration_sec, status, slides_file_name, slides, messages, audio_url, created_at, updated_at";
+  "id, user_id, subject_id, title, transcript, transcript_entries, transcript_insights, transcript_chapters, summary_educational, duration_sec, status, slides_file_name, slides, messages, audio_url, created_at, updated_at";
 
 export async function listLecturesAsync(
   userId: string,
@@ -387,6 +389,8 @@ export async function updateLectureAsync(
     dbPatch.transcript_insights = patch.transcriptInsights ?? null;
   if ("transcriptChapters" in patch)
     dbPatch.transcript_chapters = patch.transcriptChapters ?? null;
+  if ("summaryEducational" in patch)
+    dbPatch.summary_educational = patch.summaryEducational ?? null;
   if ("durationSec" in patch) dbPatch.duration_sec = patch.durationSec ?? null;
   if ("status" in patch) dbPatch.status = patch.status ?? null;
   if ("slidesFileName" in patch)

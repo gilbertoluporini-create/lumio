@@ -116,6 +116,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [summary, setSummary] = useState<LectureSummary | undefined>(undefined);
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [structuringTranscript, setStructuringTranscript] = useState(false);
+  const [generatingEducational, setGeneratingEducational] = useState(false);
 
   const [view, setView] = useState<LectureHeaderView>(
     initialTab === "summary" ? "summary" : "live",
@@ -552,6 +553,45 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     }
   }
 
+  // ===== Resumo educativo (markdown estilo aba Resumos) =====
+  async function generateEducationalSummary() {
+    if (generatingEducational) return;
+    if (!lecture) return;
+    if (sync.entries.length === 0) {
+      toast.error("Transcrição vazia.");
+      return;
+    }
+    setGeneratingEducational(true);
+    const t = toast.loading("Gerando resumo educativo (pode levar 1-2 min)...");
+    try {
+      const res = await fetch(
+        `/api/lectures/${lecture.id}/educational-summary`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok || !data.summaryEducational) {
+        const msg =
+          res.status === 402
+            ? `Coins insuficientes (precisa de ${data.required}, você tem ${data.balance}).`
+            : data?.error || `HTTP ${res.status}`;
+        toast.error(msg, { id: t });
+        return;
+      }
+      setLecture((prev) =>
+        prev ? { ...prev, summaryEducational: data.summaryEducational } : prev,
+      );
+      toast.success("Resumo educativo gerado.", { id: t });
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`, { id: t });
+    } finally {
+      setGeneratingEducational(false);
+    }
+  }
+
   // ===== Estruturação da transcrição com IA =====
   async function structureTranscript() {
     if (structuringTranscript) return;
@@ -945,7 +985,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 summary={summary}
                 generatingSummary={generatingSummary}
                 onGenerateSummary={() => generateSummary()}
-                onOpenSummaryFull={() => setView("summary")}
+                onOpenSummaryFull={() => router.push(`/resumo/${lecture.id}`)}
+                summaryEducational={lecture.summaryEducational}
+                generatingEducational={generatingEducational}
+                onGenerateEducational={generateEducationalSummary}
                 onSearchChange={setSearch}
                 onFilterChange={setActiveFilter}
                 onPlay={handlePlay}

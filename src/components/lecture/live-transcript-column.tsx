@@ -161,6 +161,9 @@ export function LiveTranscriptColumn({
   generatingSummary,
   onGenerateSummary,
   onOpenSummaryFull,
+  summaryEducational,
+  generatingEducational,
+  onGenerateEducational,
   onSearchChange,
   onFilterChange,
   onPlay,
@@ -182,6 +185,9 @@ export function LiveTranscriptColumn({
   generatingSummary?: boolean;
   onGenerateSummary?: () => void;
   onOpenSummaryFull?: () => void;
+  summaryEducational?: { markdown: string; generatedAt: string };
+  generatingEducational?: boolean;
+  onGenerateEducational?: () => void;
   onSearchChange: (v: string) => void;
   onFilterChange: (m: MarkerFilter) => void;
   onPlay?: (offsetSec: number) => void;
@@ -365,8 +371,11 @@ export function LiveTranscriptColumn({
           <SummaryInlineView
             summary={summary}
             generating={!!generatingSummary}
-            hasEntries={entries.length > 0}
             onGenerate={onGenerateSummary}
+            educational={summaryEducational}
+            generatingEducational={!!generatingEducational}
+            onGenerateEducational={onGenerateEducational}
+            hasEntries={entries.length > 0}
             onOpenFull={onOpenSummaryFull}
           />
         ) : filtered.length === 0 && !interim ? (
@@ -610,87 +619,248 @@ export function LiveTranscriptColumn({
   );
 }
 
+type SummaryFormat = "topics" | "educational";
+
 function SummaryInlineView({
+  summary,
+  generating,
+  onGenerate,
+  educational,
+  generatingEducational,
+  onGenerateEducational,
+  hasEntries,
+  onOpenFull,
+}: {
+  summary?: LectureSummary;
+  generating: boolean;
+  onGenerate?: () => void;
+  educational?: { markdown: string; generatedAt: string };
+  generatingEducational: boolean;
+  onGenerateEducational?: () => void;
+  hasEntries: boolean;
+  onOpenFull?: () => void;
+}) {
+  // Sub-tab default: se há educational, mostra ele; senão por tópicos
+  const initialFormat: SummaryFormat = educational
+    ? "educational"
+    : summary
+      ? "topics"
+      : "educational";
+  const [format, setFormat] = useState<SummaryFormat>(initialFormat);
+
+  // Sincroniza quando recém-gerado um dos dois
+  useEffect(() => {
+    if (educational && !summary) setFormat("educational");
+    else if (summary && !educational) setFormat("topics");
+  }, [educational, summary]);
+
+  return (
+    <div className="space-y-4 px-1 py-1">
+      {/* Toggle entre os dois formatos */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-1 rounded-lg bg-secondary/60 p-1">
+          <button
+            onClick={() => setFormat("educational")}
+            className={cn(
+              "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+              format === "educational"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            Educativo
+            {educational && (
+              <span className="ml-1 text-violet-500">•</span>
+            )}
+          </button>
+          <button
+            onClick={() => setFormat("topics")}
+            className={cn(
+              "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+              format === "topics"
+                ? "bg-background shadow-sm text-foreground"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            Por tópicos
+            {summary && (
+              <span className="ml-1 text-violet-500">•</span>
+            )}
+          </button>
+        </div>
+        {onOpenFull && (educational || summary) && (
+          <Button
+            onClick={onOpenFull}
+            variant="outline"
+            size="sm"
+            className="h-7 gap-1 text-[11px]"
+          >
+            <Expand className="h-3 w-3" />
+            Abrir em tela cheia
+          </Button>
+        )}
+      </div>
+
+      {format === "educational" ? (
+        <EducationalSummaryPane
+          markdown={educational?.markdown}
+          generating={generatingEducational}
+          hasEntries={hasEntries}
+          onGenerate={onGenerateEducational}
+        />
+      ) : (
+        <TopicsSummaryPane
+          summary={summary}
+          generating={generating}
+          hasEntries={hasEntries}
+          onGenerate={onGenerate}
+        />
+      )}
+    </div>
+  );
+}
+
+function EducationalSummaryPane({
+  markdown,
+  generating,
+  hasEntries,
+  onGenerate,
+}: {
+  markdown?: string;
+  generating: boolean;
+  hasEntries: boolean;
+  onGenerate?: () => void;
+}) {
+  if (!markdown) {
+    return (
+      <div className="rounded-xl border border-dashed border-violet-500/40 bg-violet-500/5 p-5">
+        <div className="flex items-start gap-3">
+          <div className="h-9 w-9 shrink-0 rounded-lg bg-violet-500/15 flex items-center justify-center">
+            <Sparkles className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Resumo educativo</p>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              Um artigo completo da aula no padrão da aba <strong>Resumos</strong> —
+              estruturado em seções, com aprofundamento dos conceitos, exemplos
+              clínicos e imagens ilustrativas geradas pela IA.
+            </p>
+            <Button
+              onClick={onGenerate}
+              disabled={!hasEntries || generating || !onGenerate}
+              variant="gradient"
+              size="sm"
+              className="mt-3 gap-1.5"
+            >
+              {generating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Gerando (pode levar 1-2 min)...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Gerar resumo educativo (12 coins)
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <span className="inline-flex items-center gap-1.5 text-violet-700 dark:text-violet-300">
+          <Sparkles className="h-3 w-3" />
+          Resumo educativo
+        </span>
+        {onGenerate && (
+          <button
+            onClick={onGenerate}
+            disabled={generating}
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          >
+            {generating ? "Regerando..." : "Regerar (12 coins)"}
+          </button>
+        )}
+      </div>
+      <article className="prose prose-sm dark:prose-invert max-w-none rounded-xl border border-border/60 bg-background/40 p-5 leading-relaxed">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
+      </article>
+    </div>
+  );
+}
+
+function TopicsSummaryPane({
   summary,
   generating,
   hasEntries,
   onGenerate,
-  onOpenFull,
 }: {
   summary?: LectureSummary;
   generating: boolean;
   hasEntries: boolean;
   onGenerate?: () => void;
-  onOpenFull?: () => void;
 }) {
   if (!summary) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-center py-16 px-6">
-        <div className="h-12 w-12 rounded-2xl bg-violet-500/10 flex items-center justify-center mb-3">
-          <Sparkles className="h-5 w-5 text-violet-500" />
+      <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-5">
+        <div className="flex items-start gap-3">
+          <div className="h-9 w-9 shrink-0 rounded-lg bg-secondary flex items-center justify-center">
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold">Resumo por tópicos</p>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              Resumo estruturado por slide/bloco lógico — síntese geral, pontos
+              centrais em bullets e detalhamento por tópico com Q&A relacionadas
+              do chat.
+            </p>
+            <Button
+              onClick={onGenerate}
+              disabled={!hasEntries || generating || !onGenerate}
+              variant="outline"
+              size="sm"
+              className="mt-3 gap-1.5"
+            >
+              {generating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Gerando...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="h-4 w-4" />
+                  Gerar resumo por tópicos (10 coins)
+                </>
+              )}
+            </Button>
+          </div>
         </div>
-        <p className="text-sm font-semibold">Nenhum resumo ainda</p>
-        <p className="mt-1.5 text-xs text-muted-foreground max-w-xs">
-          {hasEntries
-            ? "A IA lê a transcrição e os slides anexados e gera um resumo estruturado."
-            : "Grave ou suba o áudio antes de gerar o resumo."}
-        </p>
-        <Button
-          onClick={onGenerate}
-          disabled={!hasEntries || generating || !onGenerate}
-          variant="gradient"
-          size="sm"
-          className="mt-4 gap-1.5"
-        >
-          {generating ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Gerando...
-            </>
-          ) : (
-            <>
-              <Sparkles className="h-4 w-4" />
-              Gerar resumo (10 coins)
-            </>
-          )}
-        </Button>
       </div>
     );
   }
 
   return (
-    <div className="space-y-5 px-1 py-1">
-      {/* Header com botão "Abrir tela cheia" */}
-      <div className="flex items-center justify-between gap-2 sticky top-0 bg-card/95 backdrop-blur z-10 pb-2 -mt-1">
-        <div className="inline-flex items-center gap-1.5 text-[11px] text-violet-700 dark:text-violet-300">
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 text-[11px]">
+        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
           <Sparkles className="h-3 w-3" />
-          Resumo gerado por IA
-        </div>
-        <div className="flex items-center gap-1.5">
-          {onGenerate && (
-            <button
-              onClick={onGenerate}
-              disabled={generating}
-              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-            >
-              {generating ? "Regerando..." : "Regerar"}
-            </button>
-          )}
-          {onOpenFull && (
-            <Button
-              onClick={onOpenFull}
-              variant="outline"
-              size="sm"
-              className="h-7 gap-1 text-[11px]"
-            >
-              <Expand className="h-3 w-3" />
-              Abrir em tela cheia
-            </Button>
-          )}
-        </div>
+          Resumo por tópicos
+        </span>
+        {onGenerate && (
+          <button
+            onClick={onGenerate}
+            disabled={generating}
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          >
+            {generating ? "Regerando..." : "Regerar (10 coins)"}
+          </button>
+        )}
       </div>
 
-      {/* Síntese geral */}
       {summary.generalSummary && (
         <div className="rounded-xl border border-border/60 bg-background/40 p-4">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
@@ -704,7 +874,6 @@ function SummaryInlineView({
         </div>
       )}
 
-      {/* Highlights */}
       {summary.highlights && summary.highlights.length > 0 && (
         <div className="rounded-xl border border-border/60 bg-background/40 p-4">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
@@ -733,7 +902,6 @@ function SummaryInlineView({
         </div>
       )}
 
-      {/* Sections (slides ou blocos lógicos) */}
       {summary.sections && summary.sections.length > 0 && (
         <div className="space-y-3">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
@@ -773,7 +941,6 @@ function SummaryInlineView({
         </div>
       )}
 
-      {/* Imagens (se houver) */}
       {summary.images && summary.images.length > 0 && (
         <div className="space-y-3">
           <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">

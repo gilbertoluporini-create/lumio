@@ -161,6 +161,16 @@ export type Lecture = {
   transcriptEntries?: TranscriptEntry[];
   transcriptInsights?: TranscriptInsights;
   transcriptChapters?: TranscriptChapters;
+  /**
+   * Resumo educativo em formato artigo (markdown puro) — gerado pelo
+   * mesmo pipeline da aba Resumos do sidebar. Convive com `summary`
+   * estruturado em /summaries (o resumo "por tópicos").
+   */
+  summaryEducational?: {
+    markdown: string;
+    generatedAt: string;
+    images?: import("@/lib/types").LectureSummaryImage[];
+  };
   durationSec: number;
   createdAt: string;
   updatedAt: string;
