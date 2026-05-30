@@ -142,23 +142,19 @@ export function NewLectureDialog({
                         type="button"
                         onClick={() => setSubjectId(s.id)}
                         className={cn(
-                          "inline-flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-sm transition-all",
+                          "inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm transition-all",
                           sel
                             ? "border-primary bg-primary/10 text-foreground"
-                            : "border-border bg-background hover:bg-secondary/40",
+                            : "border-border bg-background text-muted-foreground hover:bg-secondary/40 hover:text-foreground",
                         )}
                       >
-                        <span
-                          className={cn(
-                            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br shadow-sm",
-                            s.color,
-                          )}
-                        >
-                          {createElement(Icon, {
-                            className: "h-3.5 w-3.5 text-white",
-                            strokeWidth: 2.4,
+                        {createElement(Icon, {
+                            className: cn(
+                              "h-4 w-4 shrink-0",
+                              sel ? "text-primary" : "text-muted-foreground",
+                            ),
+                            strokeWidth: 1.8,
                           })}
-                        </span>
                         {s.name}
                       </button>
                     );

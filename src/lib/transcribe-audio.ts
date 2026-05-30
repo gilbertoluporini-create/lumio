@@ -17,14 +17,15 @@ import path from "node:path";
 import OpenAI from "openai";
 import type { TranscriptEntry, TranscriptSpeaker } from "@/lib/types";
 
-// CommonJS interop — ffmpeg-static exporta o path do binário como default
-import ffmpegStatic from "ffmpeg-static";
+// @ffmpeg-installer/ffmpeg resolve o binário por arch via optional deps —
+// funciona melhor em Vercel/serverless do que ffmpeg-static.
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 
-const FFMPEG = (ffmpegStatic as unknown as string) || "ffmpeg";
+const FFMPEG = ffmpegInstaller?.path || "ffmpeg";
 
 const CHUNK_SECONDS = 600; // 10 min por chunk → ~1.8MB ogg/opus 24kbps mono
 const WHISPER_MODEL = "whisper-1";
-const MAX_PARALLEL = 4;
+const MAX_PARALLEL = 3;
 
 type WhisperSegment = {
   start: number;
@@ -199,13 +200,18 @@ export async function transcribeAudioBuffer(
   const chunksDir = path.join(work, "chunks");
 
   try {
+    console.log("[transcribe] ffmpeg path:", FFMPEG);
+    console.log("[transcribe] tmp work:", work, "input size:", audioBuffer.length);
+
     await writeFile(inputPath, audioBuffer);
     await import("node:fs/promises").then((fs) => fs.mkdir(chunksDir));
 
     const totalSec = await probeDuration(inputPath);
+    console.log("[transcribe] probed duration sec:", totalSec);
     await opts.onProgress?.(5);
 
     const chunkPaths = await splitToChunks(inputPath, chunksDir);
+    console.log("[transcribe] chunks produced:", chunkPaths.length);
     if (chunkPaths.length === 0) {
       throw new Error("Não conseguimos dividir o arquivo de áudio.");
     }

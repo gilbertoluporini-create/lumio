@@ -33,14 +33,13 @@ const nextConfig: NextConfig = {
     root: path.resolve(__dirname),
   },
   poweredByHeader: false,
-  // ffmpeg-static distribui um binário nativo. Em Next 16 + Vercel, precisa
-  // ficar fora do bundle pra que require.resolve devolva o path correto, e o
-  // binário precisa ser incluído no output tracing pra deploy.
-  serverExternalPackages: ["ffmpeg-static"],
+  // @ffmpeg-installer/ffmpeg distribui um binário nativo via optional deps
+  // por arch (linux-x64 no Vercel). Em Next 16 + Vercel, precisa ficar fora
+  // do bundle e o binário precisa ser incluído no output tracing.
+  serverExternalPackages: ["@ffmpeg-installer/ffmpeg"],
   outputFileTracingIncludes: {
     "/api/lectures/[id]/transcribe": [
-      "./node_modules/ffmpeg-static/ffmpeg",
-      "./node_modules/ffmpeg-static/ffmpeg.exe",
+      "./node_modules/@ffmpeg-installer/**",
     ],
   },
   images: {
