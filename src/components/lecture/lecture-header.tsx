@@ -5,6 +5,7 @@ import {
   Check,
   ChevronLeft,
   Download,
+  FolderInput,
   Mic,
   MoreHorizontal,
   Save,
@@ -46,6 +47,7 @@ export function LectureHeader({
   onShare,
   onExportPdf,
   onDelete,
+  onMove,
   onBack,
 }: {
   title: string;
@@ -65,6 +67,7 @@ export function LectureHeader({
   onShare: () => void;
   onExportPdf: () => void;
   onDelete: () => void;
+  onMove?: () => void;
   onBack: () => void;
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
@@ -232,6 +235,11 @@ export function LectureHeader({
                 {!hasSummary && (
                   <DropdownMenuItem onClick={onExportPdf}>
                     <Download className="h-4 w-4" /> Exportar PDF
+                  </DropdownMenuItem>
+                )}
+                {onMove && (
+                  <DropdownMenuItem onClick={onMove}>
+                    <FolderInput className="h-4 w-4" /> Mover pra outra matéria
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />

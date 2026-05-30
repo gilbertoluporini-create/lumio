@@ -18,8 +18,13 @@ import {
   deleteLectureAsync,
   getLectureAsync,
   getSubjectAsync,
+  listSubjectsAsync,
   updateLectureAsync,
 } from "@/lib/db";
+import {
+  MoveToFolderDialog,
+  type MoveTarget,
+} from "@/components/documents/move-to-folder-dialog";
 import {
   getSummaryByLectureIdAsync,
   upsertSummaryByLectureAsync,
@@ -98,6 +103,8 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
 
   const [lecture, setLecture] = useState<Lecture | null>(null);
   const [subject, setSubject] = useState<Subject | null>(null);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
 
   const [interim, setInterim] = useState("");
   const [durationSec, setDurationSec] = useState(0);
@@ -258,8 +265,14 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           ]),
         );
       }
-      const s = await getSubjectAsync(user.id, l.subjectId);
-      if (active) setSubject(s);
+      const [s, subs] = await Promise.all([
+        getSubjectAsync(user.id, l.subjectId),
+        listSubjectsAsync(user.id),
+      ]);
+      if (active) {
+        setSubject(s);
+        setSubjects(subs);
+      }
     })();
     return () => {
       active = false;
@@ -957,6 +970,16 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         onShare={handleShare}
         onExportPdf={handleExportPdf}
         onDelete={handleDelete}
+        onMove={() =>
+          lecture &&
+          setMoveTarget({
+            kind: "lecture",
+            id: lecture.id,
+            title: lecture.title,
+            currentSubjectId: lecture.subjectId ?? null,
+            note: "Move a AULA INTEIRA (transcrição, resumo, flashcards, quiz, mapa) pra a nova matéria.",
+          })
+        }
         onBack={() => router.push("/dashboard")}
       />
 
@@ -1137,6 +1160,27 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         )}
       </div>
       <TranscribingOverlay lectureId={lectureId} />
+
+      {/* Mover aula inteira pra outra matéria */}
+      <MoveToFolderDialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null);
+        }}
+        userId={user.id}
+        subjects={subjects}
+        target={moveTarget}
+        onMoved={async () => {
+          setMoveTarget(null);
+          // Reload subject + lecture pra refletir a nova pasta no header.
+          const l = await getLectureAsync(user.id, lectureId);
+          if (l) {
+            setLecture(l);
+            const s = await getSubjectAsync(user.id, l.subjectId);
+            setSubject(s);
+          }
+        }}
+      />
     </>
   );
 }

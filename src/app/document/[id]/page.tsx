@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   FileText,
+  FolderInput,
   Loader2,
   Sparkles,
   Trash2,
@@ -26,12 +27,17 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ContentWizard } from "@/components/ai/content-wizard";
 import {
+  MoveToFolderDialog,
+  type MoveTarget,
+} from "@/components/documents/move-to-folder-dialog";
+import {
   deleteDocumentAsync,
   getDocumentAsync,
 } from "@/lib/documents";
 import { listSummariesAsync } from "@/lib/summaries";
+import { listSubjectsAsync } from "@/lib/db";
 import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
-import type { Document, Summary, User } from "@/lib/types";
+import type { Document, Subject, Summary, User } from "@/lib/types";
 
 export default function DocumentPage({
   params,
@@ -64,17 +70,21 @@ function DocumentView({
   const [deleting, setDeleting] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [extracting, setExtracting] = useState(false);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [moveOpen, setMoveOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let active = true;
     (async () => {
-      const [d, sums] = await Promise.all([
+      const [d, sums, subs] = await Promise.all([
         getDocumentAsync(user.id, documentId),
         listSummariesAsync(user.id),
+        listSubjectsAsync(user.id),
       ]);
       if (!active) return;
       setDoc(d);
+      setSubjects(subs);
       const sm =
         sums.find(
           (s) =>
@@ -270,6 +280,15 @@ function DocumentView({
           <Button
             variant="outline"
             size="sm"
+            onClick={() => setMoveOpen(true)}
+            className="gap-1.5"
+          >
+            <FolderInput className="h-3.5 w-3.5" />
+            Mover
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
             onClick={handleDelete}
             disabled={deleting}
             className="gap-1.5 text-red-600 hover:text-red-700"
@@ -352,6 +371,29 @@ function DocumentView({
         initialSubjectId={doc.subjectId}
         onCreated={({ summaryId }) => {
           if (summaryId) router.push(`/resumo/doc/${summaryId}`);
+        }}
+      />
+
+      {/* Mover este documento entre matérias */}
+      <MoveToFolderDialog
+        open={moveOpen}
+        onOpenChange={setMoveOpen}
+        userId={user.id}
+        subjects={subjects}
+        target={
+          doc
+            ? {
+                kind: "document",
+                id: doc.id,
+                title: doc.title,
+                currentSubjectId: doc.subjectId ?? null,
+              }
+            : null
+        }
+        onMoved={() => {
+          setMoveOpen(false);
+          // Reload doc pra refletir o novo subject_id
+          void getDocumentAsync(user.id, documentId).then((d) => setDoc(d));
         }}
       />
     </div>
