@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { createElement, useState } from "react";
 import { Check, FolderInput, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { updateLectureAsync } from "@/lib/db";
 import { updateDocumentAsync } from "@/lib/documents";
 import { updateSummaryAsync } from "@/lib/summaries";
+import { getSubjectIcon } from "@/lib/subject-icon";
 import { cn } from "@/lib/utils";
 import type { Subject } from "@/lib/types";
 
@@ -131,12 +132,12 @@ export function MoveToFolderDialog({
                   )}
                   aria-pressed={sel}
                 >
-                  <span
-                    className={cn(
-                      "h-7 w-7 rounded-md shrink-0 bg-gradient-to-br",
-                      s.color,
-                    )}
-                  />
+                  <span className="h-9 w-9 rounded-lg shrink-0 bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
+                    {createElement(getSubjectIcon(s.name), {
+                      className: "h-5 w-5 text-primary",
+                      strokeWidth: 2.2,
+                    })}
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="text-sm font-medium truncate">{s.name}</div>
                     {isCurrent && (
