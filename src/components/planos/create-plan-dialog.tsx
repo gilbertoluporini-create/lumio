@@ -81,7 +81,19 @@ const ASSET_OPTIONS: AssetOption[] = [
 type EstimateResponse = {
   total: number;
   itemsTotal: number;
-  breakdown: Array<{ kind: StudyPlanItemKind; perItem: number; count: number; subtotal: number }>;
+  breakdown: Array<{
+    kind: StudyPlanItemKind;
+    count: number;
+    subtotal: number;
+    avgPerItem: number;
+  }>;
+  perSource: Array<{
+    id: string;
+    title: string;
+    kind: "document" | "lecture";
+    chars: number;
+    summaryCoins: number;
+  }>;
 };
 
 export function CreatePlanDialog({
@@ -300,7 +312,8 @@ export function CreatePlanDialog({
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          documentCount: totalSources,
+          documentIds: Array.from(pickedDocs),
+          lectureIds: Array.from(pickedLectures),
           assetKinds,
         }),
       });
@@ -311,7 +324,7 @@ export function CreatePlanDialog({
     } finally {
       setEstimating(false);
     }
-  }, [totalSources, assetKinds]);
+  }, [totalSources, assetKinds, pickedDocs, pickedLectures]);
 
   useEffect(() => {
     if (step === "confirm") void fetchEstimate();
@@ -905,7 +918,10 @@ function ConfirmStep({
             {estimate.breakdown.map((b) => (
               <li key={b.kind} className="flex justify-between">
                 <span>
-                  {kindLabel(b.kind)}: {b.perItem} × {b.count}
+                  {kindLabel(b.kind)}
+                  {b.kind === "summary"
+                    ? ` · proporcional ao tamanho (~${b.avgPerItem} coins/fonte)`
+                    : ` · ${b.avgPerItem} × ${b.count}`}
                 </span>
                 <span className="font-mono">{b.subtotal} coins</span>
               </li>
@@ -918,7 +934,9 @@ function ConfirmStep({
             <span className="text-primary">{estimate.total} coins</span>
           </div>
           <p className="text-[11px] text-muted-foreground mt-2 leading-relaxed">
-            Coins são cobrados conforme cada item é gerado pelo cron. Se faltar
+            Resumo agora cobra proporcional ao tamanho do material (~1 coin/10k
+            chars, mín 5 / máx 30). Coins são cobrados conforme cada item é
+            gerado pelo cron. Se faltar
             saldo no meio, items individuais ficam como &quot;falhou&quot; sem
             consumir crédito.
           </p>

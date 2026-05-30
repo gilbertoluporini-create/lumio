@@ -22,7 +22,8 @@
 import { NextResponse } from "next/server";
 import { createMessage } from "@/lib/llm-fallback";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
-import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
+import { chargeCoins, creditCoins } from "@/lib/coins";
+import { calculateSummaryCoins } from "@/lib/coin-costs";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { logAiUsage } from "@/lib/ai-usage";
 import type { LectureSummary } from "@/lib/types";
@@ -202,8 +203,9 @@ async function processSummaryItem(
     };
   }
 
-  // 1) Cobra coins do user dono do plano
-  const cost = COIN_COSTS.summary;
+  // 1) Cobra coins do user dono do plano — preço linear no tamanho da fonte.
+  //    Fonte com <200 chars já foi barrada no guard acima.
+  const cost = calculateSummaryCoins(source.text.length);
   const charged = await chargeCoins(source.userId, cost, "summary", {
     planItemId: item.id,
   });
