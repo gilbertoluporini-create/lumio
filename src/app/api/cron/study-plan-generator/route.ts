@@ -9,6 +9,11 @@
  * mindmap) caem em status='failed' até serem implementados nas próximas
  * sub-tarefas.
  *
+ * Contexto cruzado: antes de gerar o resumo, o worker carrega até 3 docs
+ * e 3 lectures da MESMA matéria do plano (excluindo a própria fonte) e
+ * injeta no prompt como MATERIAL COMPLEMENTAR. O LLM usa só pra consistência
+ * de termos e conceitos — não copia, não inventa fatos.
+ *
  * Processa MAX_PER_RUN itens por execução (pra caber em 60s do Vercel Free).
  *
  * Auth: Bearer CRON_SECRET (Vercel injeta automático).
@@ -50,7 +55,7 @@ type ItemSource = {
 function buildSummarySystemPrompt(): string {
   return `Você é um tutor universitário especializado em produzir resumos didáticos em pt-BR de materiais acadêmicos.
 
-Tarefa: ler o PDF anexado (texto extraído) e produzir um RESUMO COMPLETO e DIDÁTICO em markdown, estilo artigo. Estruturado pra um aluno entender.
+Tarefa: ler a FONTE PRINCIPAL anexada e produzir um RESUMO COMPLETO e DIDÁTICO em markdown, estilo artigo. Estruturado pra um aluno entender.
 
 ESTRUTURA OBRIGATÓRIA:
 # {Título do tema central da aula}
@@ -72,9 +77,91 @@ Se for assunto médico, conexão com prática clínica. Senão, exemplos prátic
 
 REGRAS:
 - pt-BR formal-acessível. Terminologia técnica preservada com explicação.
-- NÃO invente conteúdo que não está no PDF.
+- O resumo é da FONTE PRINCIPAL. Quando houver MATERIAL COMPLEMENTAR DA MESMA
+  MATÉRIA, use-o apenas pra (1) reforçar definições com termos consistentes,
+  (2) cruzar conceitos correlatos pra dar profundidade, (3) usar exemplos do
+  mesmo universo quando ajudarem. NÃO invente fatos do complementar como se
+  fossem da fonte principal. Se a fonte principal não menciona um detalhe,
+  ele não entra no resumo dela.
 - Mantenha entre 600 e 1500 palavras.
 - Use markdown puro (##, **, -). Sem cercas \`\`\`.`;
+}
+
+/**
+ * Busca outros materiais (docs + lectures) da MESMA matéria do plano,
+ * excluindo a fonte atual, pra enriquecer o prompt com contexto cruzado.
+ *
+ * Limites pra controlar custo de tokens:
+ *   - até MAX_EXTRA_ITEMS itens (3 docs + 3 lectures)
+ *   - até MAX_CHARS_PER_EXTRA chars por item (~1k tokens)
+ *   - até MAX_TOTAL_EXTRA chars no total (~3k tokens extras)
+ *
+ * Se subject_id do plano for null ou não houver material complementar
+ * relevante, retorna string vazia (worker segue sem contexto extra).
+ */
+async function loadComplementaryContext(
+  admin: ReturnType<typeof createAdminClient>,
+  planId: string,
+  userId: string,
+  excludeDocId: string | null,
+  excludeLectureId: string | null,
+): Promise<string> {
+  const MAX_EXTRA_ITEMS = 3;
+  const MAX_CHARS_PER_EXTRA = 4000;
+  const MAX_TOTAL_EXTRA = 12_000;
+
+  const { data: planRaw } = await admin
+    .from("study_plans")
+    .select("subject_id")
+    .eq("id", planId)
+    .maybeSingle();
+  const planSubjectId =
+    (planRaw as { subject_id: string | null } | null)?.subject_id ?? null;
+  if (!planSubjectId) return "";
+
+  let docsQ = admin
+    .from("documents")
+    .select("id, title, source_text")
+    .eq("user_id", userId)
+    .eq("subject_id", planSubjectId)
+    .not("source_text", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(MAX_EXTRA_ITEMS + 1);
+  if (excludeDocId) docsQ = docsQ.neq("id", excludeDocId);
+
+  let lecsQ = admin
+    .from("lectures")
+    .select("id, title, transcript")
+    .eq("user_id", userId)
+    .eq("subject_id", planSubjectId)
+    .not("transcript", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(MAX_EXTRA_ITEMS + 1);
+  if (excludeLectureId) lecsQ = lecsQ.neq("id", excludeLectureId);
+
+  const [{ data: docs }, { data: lecs }] = await Promise.all([docsQ, lecsQ]);
+
+  const parts: string[] = [];
+  let totalChars = 0;
+  const pushIfFits = (label: string, title: string, text: string) => {
+    if (parts.length >= MAX_EXTRA_ITEMS * 2) return;
+    if (!text || text.trim().length < 200) return;
+    const slice = text.slice(0, MAX_CHARS_PER_EXTRA);
+    if (totalChars + slice.length > MAX_TOTAL_EXTRA) return;
+    parts.push(`### ${label}: ${title}\n${slice}`);
+    totalChars += slice.length;
+  };
+
+  // Intercala docs e lectures (3+3 max) pra equilibrar contexto.
+  const docList = ((docs ?? []) as Array<{ title: string; source_text: string }>);
+  const lecList = ((lecs ?? []) as Array<{ title: string; transcript: string }>);
+  const maxRound = Math.max(docList.length, lecList.length);
+  for (let i = 0; i < maxRound; i++) {
+    if (docList[i]) pushIfFits("PDF", docList[i].title, docList[i].source_text);
+    if (lecList[i]) pushIfFits("Aula", lecList[i].title, lecList[i].transcript);
+  }
+
+  return parts.join("\n\n");
 }
 
 function extractHighlights(markdown: string, max: number): string[] {
@@ -104,6 +191,7 @@ async function processSummaryItem(
   admin: ReturnType<typeof createAdminClient>,
   item: PlanItemRow,
   source: ItemSource,
+  complementaryContext: string,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!source.text || source.text.trim().length < 200) {
     return {
@@ -127,6 +215,13 @@ async function processSummaryItem(
   }
 
   // 2) Gera o resumo via Claude
+  const sourceLabel = item.source_document_id ? "PDF" : "AULA";
+  const mainBlock = `=== FONTE PRINCIPAL (${sourceLabel}): ${source.title} ===\n\n${source.text.slice(0, 60_000)}`;
+  const complementBlock = complementaryContext
+    ? `\n\n=== MATERIAL COMPLEMENTAR DA MESMA MATÉRIA ===\nUse apenas como contexto cruzado pra reforçar definições e cruzar conceitos. Não copie. Não invente fatos do complementar como se fossem da fonte principal.\n\n${complementaryContext}`
+    : "";
+  const userContent = `${mainBlock}${complementBlock}\n\nGere o resumo da FONTE PRINCIPAL seguindo a estrutura definida.`;
+
   let markdown = "";
   let usage: { input_tokens: number; output_tokens: number } | undefined;
   try {
@@ -137,7 +232,7 @@ async function processSummaryItem(
       messages: [
         {
           role: "user",
-          content: `=== ${item.source_document_id ? "PDF" : "AULA"}: ${source.title} ===\n\n${source.text.slice(0, 60_000)}\n\nGere o resumo seguindo a estrutura definida.`,
+          content: userContent,
         },
       ],
     });
@@ -330,8 +425,28 @@ async function runWorker(restrictPlanIds: string[] | null) {
       continue;
     }
 
-    // 5) Processa
-    const result = await processSummaryItem(admin, item, source);
+    // 5) Contexto complementar: outros materiais da mesma matéria do plano
+    //    (não bloqueia se falhar — geração segue só com a fonte principal).
+    let complementaryContext = "";
+    try {
+      complementaryContext = await loadComplementaryContext(
+        admin,
+        item.plan_id,
+        source.userId,
+        item.source_document_id,
+        item.source_lecture_id,
+      );
+    } catch (err) {
+      console.warn("[plan-worker] complementary context failed", err);
+    }
+
+    // 6) Processa
+    const result = await processSummaryItem(
+      admin,
+      item,
+      source,
+      complementaryContext,
+    );
     if (result.ok) {
       summary.processed++;
     } else {
