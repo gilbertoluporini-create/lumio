@@ -199,9 +199,10 @@ export async function POST(
   }
 
   // ----- Chunking: divide a transcrição em pedaços de ~25min -----
-  // Aulas curtas (<25min) viram 1 chunk só (custo = 5 coins, igual antes).
+  // Aulas curtas (<25min) viram 1 chunk só (custo = 15 coins).
   // Aulas longas viram 2-4 chunks processados em paralelo. Cada chunk custa
-  // 5 coins. Cobramos upfront e reembolsamos chunks que falharem.
+  // 15 coins (cobre Sonnet ~$0.15 + margem). Cobramos upfront e reembolsamos
+  // chunks que falharem.
   const chunks = splitIntoChunks(entries);
   if (chunks.length === 0) {
     return NextResponse.json(
@@ -210,7 +211,7 @@ export async function POST(
     );
   }
 
-  const perChunkCost = COIN_COSTS.transcript_structure; // 5
+  const perChunkCost = COIN_COSTS.transcript_structure; // 15
   const totalCost = perChunkCost * chunks.length;
   const charged = await chargeCoins(userId, totalCost, "transcript_structure", {
     lectureId,

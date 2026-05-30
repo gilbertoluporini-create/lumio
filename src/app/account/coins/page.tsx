@@ -53,7 +53,7 @@ const COSTS = [
   { icon: Bot, label: "Pergunta no chat IA", cost: 2 },
   { icon: FileText, label: "Resumo automático da aula", cost: 14 },
   { icon: Layers, label: "Anexar PDF de slides", cost: 16 },
-  { icon: Sparkles, label: "Correção de transcrição (1h aula)", cost: 5 },
+  { icon: Sparkles, label: "Correção de transcrição (15 coins por 25min de aula)", cost: 15 },
   { icon: Calendar, label: "Extrair grade horária", cost: 0, free: true },
 ];
 

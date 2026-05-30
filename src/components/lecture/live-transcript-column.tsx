@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { estimateChunkCount } from "@/lib/transcript-chunking";
+import { COIN_COSTS } from "@/lib/coins";
 import type {
   LectureSummary,
   TranscriptEntry,
@@ -322,13 +323,14 @@ export function LiveTranscriptColumn({
     }
   }, [generatingEducational, educationalStartedAt]);
 
-  // Quantos chunks a revisão IA vai gerar pra essa transcrição (5 coins
-  // por chunk). Aulas <25min = 1 chunk = 5c; 1h+ vira 2-4 chunks.
+  // Quantos chunks a revisão IA vai gerar pra essa transcrição
+  // (COIN_COSTS.transcript_structure por chunk). Aulas <25min = 1 chunk;
+  // 1h+ vira 2-4 chunks.
   const aiChunkCount = useMemo(
     () => Math.max(1, estimateChunkCount(entries)),
     [entries],
   );
-  const aiCoinCost = aiChunkCount * 5;
+  const aiCoinCost = aiChunkCount * COIN_COSTS.transcript_structure;
 
   function setViewModePersisted(v: ViewMode) {
     setViewMode(v);

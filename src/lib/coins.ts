@@ -26,7 +26,7 @@ export const COIN_COSTS = {
   extract_schedule: 0,      // grátis no onboarding
   summary: 10,              // produto: resumo estruturado (por tópicos)
   summary_educational: 12,  // resumo educativo estilo artigo + imagens (markdown puro)
-  transcript_structure: 5,  // revisão + capítulos reais por IA (Sonnet 4.5)
+  transcript_structure: 15, // revisão + capítulos por IA (Sonnet 4.5) — por chunk de ~25min. Aula 1h ≈ 30c, 1h30 ≈ 45c, 2h ≈ 60c. Custo API real: ~$0.15/chunk.
   flashcards: 8,            // alinhado com coins-pricing.ts
   quiz: 8,                  // alinhado com coins-pricing.ts
   mindmap: 6,               // alinhado com coins-pricing.ts

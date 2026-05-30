@@ -6,8 +6,8 @@ import type { TranscriptEntry } from "@/lib/types";
  *   - Boundaries naturais (intervalos de aulas, mudança de tópico) geralmente
  *     acontecem em janelas de 20-30min — chunks dessa escala raramente cortam
  *     no meio de uma explicação.
- *   - Custa 5 coins por chunk → uma aula de 1h vira 2 chunks = 10c, 1h30 vira
- *     3 chunks = 15c. Pricing legível.
+ *   - Custa 15 coins por chunk (cobre Sonnet ~$0.15 + margem). 1h ≈ 2 chunks
+ *     = 30c, 1h30 ≈ 3 chunks = 45c, 2h ≈ 4 chunks = 60c. Pricing legível.
  */
 const TARGET_CHUNK_SEC = 25 * 60;
 
