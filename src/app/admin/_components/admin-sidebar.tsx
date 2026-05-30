@@ -6,11 +6,11 @@ import { usePathname } from "next/navigation";
 import {
   Award,
   BarChart3,
+  CalendarDays,
   HeartPulse,
   LayoutDashboard,
   LogOut,
   Mail,
-  Megaphone,
   Menu,
   Settings,
   ShieldAlert,
@@ -42,9 +42,9 @@ const NAV_SECTIONS: NavSection[] = [
     items: [
       { href: "/admin", label: "Visão geral", Icon: LayoutDashboard },
       {
-        href: "/admin/marketing/crescimento",
-        label: "Crescimento",
-        Icon: Megaphone,
+        href: "/admin/calendario",
+        label: "Calendário de posts",
+        Icon: CalendarDays,
         accent: "fuchsia",
       },
       {
