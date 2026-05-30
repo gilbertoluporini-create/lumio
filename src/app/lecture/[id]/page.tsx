@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AlertCircle, Headphones, Lightbulb, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
@@ -229,19 +229,27 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         return;
       }
       setAudioUrl(l.audioUrl);
-      // Hydrate transcript entries (fallback: split simples se só tiver string)
+      // Hydrate transcript entries em transition de baixa prioridade —
+      // pra aulas longas (1k+ entries) o React processa o primeiro paint
+      // da UI ANTES de cuspir todo o conteúdo pesado. Sem isso o renderer
+      // do Chrome estourava no first mount (Código de erro: 5).
       if (l.transcriptEntries && l.transcriptEntries.length > 0) {
-        sync.replaceAll(l.transcriptEntries);
+        const allEntries = l.transcriptEntries;
+        startTransition(() => sync.replaceAll(allEntries));
       } else if (l.transcript) {
-        sync.replaceAll([
-          {
-            id: generateId(),
-            startSec: 0,
-            endSec: l.durationSec || 0,
-            speaker: "professor",
-            text: l.transcript,
-          },
-        ]);
+        const t = l.transcript;
+        const dur = l.durationSec || 0;
+        startTransition(() =>
+          sync.replaceAll([
+            {
+              id: generateId(),
+              startSec: 0,
+              endSec: dur,
+              speaker: "professor",
+              text: t,
+            },
+          ]),
+        );
       }
       const s = await getSubjectAsync(user.id, l.subjectId);
       if (active) setSubject(s);
