@@ -75,8 +75,9 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/notifications  { action: 'read_all' }
- * Marca todas as notificações do user como lidas.
+ * POST /api/notifications  { action: 'read_all' | 'clear_all' }
+ *  - 'read_all':  marca todas como lidas (mantém histórico)
+ *  - 'clear_all': apaga TODAS as notificações do user (ação destrutiva)
  */
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -95,24 +96,34 @@ export async function POST(req: NextRequest) {
     // body opcional
   }
 
-  if (body.action !== "read_all") {
-    return NextResponse.json(
-      { error: "Ação inválida. Use { action: 'read_all' }." },
-      { status: 400 },
-    );
-  }
-
   const admin = createAdminClient();
-  const now = new Date().toISOString();
-  const { error } = await admin
-    .from("notifications")
-    .update({ read_at: now })
-    .eq("user_id", user.id)
-    .is("read_at", null);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (body.action === "read_all") {
+    const now = new Date().toISOString();
+    const { error } = await admin
+      .from("notifications")
+      .update({ read_at: now })
+      .eq("user_id", user.id)
+      .is("read_at", null);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true });
   }
 
-  return NextResponse.json({ ok: true });
+  if (body.action === "clear_all") {
+    const { error, count } = await admin
+      .from("notifications")
+      .delete({ count: "exact" })
+      .eq("user_id", user.id);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+    return NextResponse.json({ ok: true, deleted: count ?? 0 });
+  }
+
+  return NextResponse.json(
+    { error: "Ação inválida. Use { action: 'read_all' | 'clear_all' }." },
+    { status: 400 },
+  );
 }

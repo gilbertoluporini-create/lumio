@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bell, Check, CheckCheck, Loader2, MessageSquare } from "lucide-react";
+import { toast } from "sonner";
+import { Bell, Check, CheckCheck, Loader2, MessageSquare, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -11,6 +12,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { isAdminEmail } from "@/lib/admin-emails";
 
 type NotificationItem = {
   id: string;
@@ -53,14 +55,16 @@ function iconFor(type: string) {
   }
 }
 
-export function NotificationsButton() {
+export function NotificationsButton({ userEmail }: { userEmail?: string } = {}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const lastFetchRef = useRef<number>(0);
+  const isAdmin = !!userEmail && isAdminEmail(userEmail);
 
   const fetchNotifications = useCallback(async () => {
     if (loading) return;
@@ -127,6 +131,37 @@ export function NotificationsButton() {
     }
   }
 
+  async function clearAll() {
+    if (clearing || items.length === 0) return;
+    // Admin precisa confirmar (proteção contra acidente em conta operacional)
+    if (isAdmin) {
+      const ok = window.confirm(
+        "Tem certeza de que deseja excluir TODAS as notificações? Essa ação é irreversível.",
+      );
+      if (!ok) return;
+    }
+    setClearing(true);
+    try {
+      const res = await fetch("/api/notifications", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action: "clear_all" }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(`Erro ao limpar: ${data?.error ?? `HTTP ${res.status}`}`);
+        return;
+      }
+      setItems([]);
+      setUnreadCount(0);
+      toast.success("Notificações limpas.");
+    } catch (err) {
+      toast.error(`Erro ao limpar: ${(err as Error).message}`);
+    } finally {
+      setClearing(false);
+    }
+  }
+
   async function handleClick(item: NotificationItem) {
     // marca lida otimisticamente
     if (!item.read_at) {
@@ -177,21 +212,42 @@ export function NotificationsButton() {
               </span>
             )}
           </DropdownMenuLabel>
-          {hasUnread && (
-            <button
-              onClick={markAllRead}
-              disabled={marking}
-              className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
-              title="Marcar todas como lidas"
-            >
-              {marking ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : (
-                <CheckCheck className="h-3 w-3" />
-              )}
-              Marcar lidas
-            </button>
-          )}
+          <div className="flex items-center gap-2.5">
+            {hasUnread && (
+              <button
+                onClick={markAllRead}
+                disabled={marking}
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                title="Marcar todas como lidas"
+              >
+                {marking ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <CheckCheck className="h-3 w-3" />
+                )}
+                Marcar lidas
+              </button>
+            )}
+            {items.length > 0 && (
+              <button
+                onClick={clearAll}
+                disabled={clearing}
+                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-red-500 disabled:opacity-50 transition-colors"
+                title={
+                  isAdmin
+                    ? "Excluir todas (com confirmação)"
+                    : "Excluir todas as notificações"
+                }
+              >
+                {clearing ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : (
+                  <Trash2 className="h-3 w-3" />
+                )}
+                Limpar
+              </button>
+            )}
+          </div>
         </div>
         <DropdownMenuSeparator />
 
