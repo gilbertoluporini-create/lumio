@@ -7,6 +7,7 @@ import {
   CheckCheck,
   Copy,
   FileText,
+  Image as ImageIcon,
   Layers,
   Network,
   Sparkles,
@@ -75,9 +76,37 @@ export function LumiMessageBubble({ message, isStreaming }: Props) {
   const [copied, setCopied] = useState(false);
 
   if (message.role === "user") {
+    const userAttachments = message.userAttachments ?? [];
     return (
-      <div className="flex justify-end">
+      <div className="flex flex-col items-end">
         <div className="max-w-[80%]">
+          {userAttachments.length > 0 && (
+            <div className="mb-1.5 flex flex-wrap justify-end gap-1.5">
+              {userAttachments.map((a, idx) => {
+                const isImage = (a.contentType ?? "").startsWith("image/");
+                const sizeLabel =
+                  typeof a.sizeKb === "number" && a.sizeKb > 0
+                    ? a.sizeKb >= 1024
+                      ? `${(a.sizeKb / 1024).toFixed(1)} MB`
+                      : `${a.sizeKb} KB`
+                    : null;
+                const Icon = isImage ? ImageIcon : FileText;
+                return (
+                  <div
+                    key={`${a.name}-${idx}`}
+                    className="flex max-w-[220px] items-center gap-1.5 rounded-lg border border-primary/20 bg-primary/10 px-2 py-1 text-[11px] text-primary"
+                    title={a.name}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{a.name}</span>
+                    {sizeLabel ? (
+                      <span className="shrink-0 opacity-70">· {sizeLabel}</span>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
           <div className="rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground shadow-sm">
             <p className="whitespace-pre-wrap leading-relaxed">
               {message.content}

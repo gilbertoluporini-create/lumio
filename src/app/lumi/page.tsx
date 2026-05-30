@@ -393,14 +393,25 @@ function LumiAssistant({ user }: { user: User }) {
         role: "user",
         content: trimmed,
         createdAt: new Date().toISOString(),
+        ...(attachments.length > 0
+          ? {
+              userAttachments: attachments.map((a) => ({
+                name: a.name,
+                contentType: a.contentType,
+                sizeKb: a.sizeKb,
+              })),
+            }
+          : {}),
       };
       const optimisticChat = appendMessage(user.id, currentChat.id, userMsg);
       if (optimisticChat) setChat(optimisticChat);
       setInput("");
+      // Captura anexos pro envio e limpa do composer pra próxima msg não reenviar.
+      const capturedAttachmentsPayload = attachmentsPayload;
+      if (attachments.length > 0) setAttachments([]);
 
       // Silencia params não-usados no novo endpoint
       void opts;
-      void attachmentsPayload;
       void contextLabel;
 
       // Inicia stream via store global — sobrevive a navegações
@@ -416,6 +427,9 @@ function LumiAssistant({ user }: { user: User }) {
           })),
           subjectId: context.subjectId,
           subjectName: context.subjectName,
+          ...(capturedAttachmentsPayload.length > 0
+            ? { attachments: capturedAttachmentsPayload }
+            : {}),
         },
         onDone: () => {
           // Refresh do chat pra renderizar a assistant message recém-commitada
@@ -430,6 +444,7 @@ function LumiAssistant({ user }: { user: User }) {
       });
     },
     [
+      attachments,
       attachmentsPayload,
       chat,
       context.subjectId,

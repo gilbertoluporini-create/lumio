@@ -27,6 +27,16 @@ export type LumiChatMessage = {
     status: "running" | "done" | "error";
     output?: unknown;
   }[];
+  /**
+   * Anexos enviados pelo user nesta mensagem (imagens/PDFs/textos).
+   * Guardamos só metadata — o conteúdo cru (base64) é grande demais pra
+   * persistir em localStorage e já foi entregue ao server no fetch.
+   */
+  userAttachments?: {
+    name: string;
+    contentType?: string;
+    sizeKb?: number;
+  }[];
 };
 
 export type ChatAttachmentKind = "file" | "document";
