@@ -12,6 +12,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -57,6 +58,19 @@ function newId(): string {
   return `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/**
+ * Sanitiza artifacts que a IA às vezes vaza no output:
+ *   - `{{PLACEHOLDER}}` ou `{{{{...}}}}` (templates não substituídos)
+ *   - Separadores tipo `*---*`, `---***`, `***---` que aparecem entre frases
+ *   - Linhas com 3+ asteriscos/hífens misturados (separador corrompido)
+ */
+function cleanAssistantText(text: string): string {
+  return text
+    .replace(/\{\{+\s*[\w-]*\s*\}+\}+/g, "")
+    .replace(/\*+\s*-{2,}\s*\*+/g, "")
+    .replace(/(^|\n)\s*[*-]{3,}\s*[*-]{2,}\s*($|\n)/g, "$1\n$2");
+}
+
 const VARIANT_HEADLINE: Record<NonNullable<LumiChatPanelProps["variant"]>, string> = {
   summary: "Pergunte sobre este resumo",
   deck: "Pergunte sobre estes cards",
@@ -84,6 +98,8 @@ export function LumiChatPanel({
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const historyRef = useRef<HTMLDivElement>(null);
+  const stickyToBottomRef = useRef(true);
+  const lastTurnCountRef = useRef(0);
 
   const headline = VARIANT_HEADLINE[variant];
   const subtitle = VARIANT_SUBTITLE[variant];
@@ -119,10 +135,38 @@ export function LumiChatPanel({
     ];
   }, [suggestedQuestions, variant]);
 
+  // Detecta scroll manual pra cima — para o auto-scroll enquanto user lê
+  // mensagens anteriores. Volta a stickar quando user scrolla pro fim.
   useEffect(() => {
     const box = historyRef.current;
     if (!box) return;
-    box.scrollTop = box.scrollHeight;
+    function onScroll() {
+      if (!box) return;
+      const nearBottom =
+        box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+      stickyToBottomRef.current = nearBottom;
+    }
+    box.addEventListener("scroll", onScroll, { passive: true });
+    return () => box.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Toda mensagem nova do user re-ativa sticky.
+  useEffect(() => {
+    if (turns.length > lastTurnCountRef.current) {
+      stickyToBottomRef.current = true;
+    }
+    lastTurnCountRef.current = turns.length;
+  }, [turns.length]);
+
+  // useLayoutEffect + rAF pra rodar depois do paint (scrollHeight novo).
+  useLayoutEffect(() => {
+    if (!stickyToBottomRef.current) return;
+    const box = historyRef.current;
+    if (!box) return;
+    const raf = requestAnimationFrame(() => {
+      box.scrollTop = box.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
   }, [turns, sending]);
 
   const sendMessage = useCallback(
@@ -310,7 +354,7 @@ export function LumiChatPanel({
               {t.role === "assistant" ? (
                 <div className="prose prose-xs dark:prose-invert max-w-none prose-p:my-1 prose-p:leading-relaxed prose-strong:text-foreground prose-ul:my-1">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {t.content}
+                    {cleanAssistantText(t.content)}
                   </ReactMarkdown>
                 </div>
               ) : (

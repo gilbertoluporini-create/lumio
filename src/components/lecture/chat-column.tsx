@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { Bot, Loader2, MessageSquare, Send, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,10 +27,45 @@ export function ChatColumn({
   sending: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const lastMessageCountRef = useRef(0);
+  const stickyToBottomRef = useRef(true);
+
+  // Tracka se user scrollou pra cima manualmente — se sim, paramos de
+  // auto-scrollar enquanto a IA streama (evita "pular pra baixo" no meio
+  // da leitura). Volta a auto-scrollar quando user envia mensagem nova.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    const box = scrollRef.current;
+    if (!box) return;
+    function onScroll() {
+      if (!box) return;
+      const nearBottom =
+        box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+      stickyToBottomRef.current = nearBottom;
     }
+    box.addEventListener("scroll", onScroll, { passive: true });
+    return () => box.removeEventListener("scroll", onScroll);
+  }, []);
+
+  // Quando uma mensagem NOVA do user é adicionada, força sticky=true
+  // pra garantir que o auto-scroll volte a seguir a resposta.
+  useEffect(() => {
+    if (messages.length > lastMessageCountRef.current) {
+      stickyToBottomRef.current = true;
+    }
+    lastMessageCountRef.current = messages.length;
+  }, [messages.length]);
+
+  // useLayoutEffect + rAF pra rodar após o paint (scrollHeight atualizado
+  // com o conteúdo novo já renderizado). Caso contrário, durante streaming
+  // o scrollHeight ainda é o anterior e o auto-scroll fica "atrasado".
+  useLayoutEffect(() => {
+    if (!stickyToBottomRef.current) return;
+    const box = scrollRef.current;
+    if (!box) return;
+    const raf = requestAnimationFrame(() => {
+      box.scrollTop = box.scrollHeight;
+    });
+    return () => cancelAnimationFrame(raf);
   }, [messages, streamingReply]);
 
   return (
@@ -125,8 +160,22 @@ export function ChatColumn({
   );
 }
 
+/**
+ * Sanitiza artifacts que a IA às vezes vaza no output:
+ *   - `{{PLACEHOLDER}}` ou `{{{{...}}}}` (templates não substituídos)
+ *   - Separadores tipo `*---*`, `---***`, `***---` que aparecem entre frases
+ *   - Linhas com 3+ asteriscos/hífens misturados (separador corrompido)
+ */
+function cleanAssistantText(text: string): string {
+  return text
+    .replace(/\{\{+\s*[\w-]*\s*\}+\}+/g, "")
+    .replace(/\*+\s*-{2,}\s*\*+/g, "")
+    .replace(/(^|\n)\s*[*-]{3,}\s*[*-]{2,}\s*($|\n)/g, "$1\n$2");
+}
+
 function ChatBubble({ message, streaming }: { message: ChatMessage; streaming?: boolean }) {
   const isUser = message.role === "user";
+  const content = isUser ? message.content : cleanAssistantText(message.content);
   return (
     <div className={cn("flex gap-2", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
@@ -142,7 +191,7 @@ function ChatBubble({ message, streaming }: { message: ChatMessage; streaming?: 
             : "bg-secondary/70 text-foreground rounded-bl-sm",
         )}
       >
-        {message.content}
+        {content}
         {streaming && (
           <span className="inline-block ml-1 h-3 w-0.5 bg-current animate-pulse align-middle" />
         )}
