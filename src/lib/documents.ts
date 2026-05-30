@@ -7,6 +7,7 @@ type DocumentRow = {
   id: string;
   user_id: string;
   subject_id: string | null;
+  folder_id: string | null;
   title: string;
   source_kind: DocumentSourceKind;
   source_url: string | null;
@@ -21,6 +22,7 @@ function rowToDocument(r: DocumentRow): Document {
     id: r.id,
     userId: r.user_id,
     subjectId: r.subject_id ?? "",
+    folderId: r.folder_id ?? undefined,
     title: r.title,
     sourceKind: r.source_kind,
     sourceUrl: r.source_url ?? undefined,
@@ -32,7 +34,7 @@ function rowToDocument(r: DocumentRow): Document {
 }
 
 const DOCUMENT_COLS =
-  "id, user_id, subject_id, title, source_kind, source_url, source_text, page_count, created_at, updated_at";
+  "id, user_id, subject_id, folder_id, title, source_kind, source_url, source_text, page_count, created_at, updated_at";
 
 export async function listDocumentsAsync(
   userId: string,
@@ -77,6 +79,7 @@ export async function getDocumentAsync(
 export async function createDocumentAsync(input: {
   userId: string;
   subjectId: string | null;
+  folderId?: string | null;
   title: string;
   sourceKind: DocumentSourceKind;
   sourceUrl?: string;
@@ -88,6 +91,7 @@ export async function createDocumentAsync(input: {
   const row: Partial<DocumentRow> = {
     user_id: input.userId,
     subject_id: input.subjectId,
+    folder_id: input.folderId ?? null,
     title: input.title,
     source_kind: input.sourceKind,
     source_url: input.sourceUrl ?? null,
@@ -112,6 +116,7 @@ export async function updateDocumentAsync(
   patch: Partial<{
     title: string;
     subjectId: string | null;
+    folderId: string | null;
     sourceText: string | null;
     pageCount: number | null;
   }>,
@@ -121,6 +126,7 @@ export async function updateDocumentAsync(
   const dbPatch: Record<string, unknown> = {};
   if ("title" in patch) dbPatch.title = patch.title ?? null;
   if ("subjectId" in patch) dbPatch.subject_id = patch.subjectId ?? null;
+  if ("folderId" in patch) dbPatch.folder_id = patch.folderId ?? null;
   if ("sourceText" in patch) dbPatch.source_text = patch.sourceText ?? null;
   if ("pageCount" in patch) dbPatch.page_count = patch.pageCount ?? null;
   if (Object.keys(dbPatch).length === 0) return getDocumentAsync(userId, id);

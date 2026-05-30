@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 type Body = {
   subjectId: string;
   title: string;
+  /** Pasta dentro da matéria (opcional). null/undefined = raiz. */
+  folderId?: string | null;
 };
 
 const RESET_INTERVAL_DAYS = 30;
@@ -127,6 +129,7 @@ export async function POST(req: Request) {
       .insert({
         user_id: user.id,
         subject_id: body.subjectId,
+        folder_id: body.folderId ?? null,
         title: body.title.trim(),
         transcript: "",
         duration_sec: 0,
@@ -134,7 +137,7 @@ export async function POST(req: Request) {
         messages: [],
       })
       .select(
-        "id, user_id, subject_id, title, transcript, duration_sec, status, slides_file_name, slides, messages, audio_url, created_at, updated_at",
+        "id, user_id, subject_id, folder_id, title, transcript, duration_sec, status, slides_file_name, slides, messages, audio_url, created_at, updated_at",
       )
       .single();
 

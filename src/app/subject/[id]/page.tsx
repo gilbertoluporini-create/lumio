@@ -2,20 +2,24 @@
 
 import { createElement, use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   ArrowRight,
   Calendar,
   ChevronRight,
+  Folder as FolderIcon,
   FolderInput,
+  FolderPlus,
   Clock,
   FileText,
   HelpCircle,
   Layers,
   MapPin,
   Mic,
+  MoreHorizontal,
   Network,
+  Pencil,
   Plus,
   Sparkles,
   Star,
@@ -58,19 +62,36 @@ import {
   MoveToFolderDialog,
   type MoveTarget,
 } from "@/components/documents/move-to-folder-dialog";
+import { UploadDocumentDialog } from "@/components/documents/upload-document-dialog";
+import {
+  createFolderAsync,
+  deleteFolderAsync,
+  listFoldersBySubjectAsync,
+  renameFolderAsync,
+  buildBreadcrumb,
+} from "@/lib/folders";
 import {
   DAY_LABELS_LONG,
   type Document as LumioDocument,
+  type Folder,
   type Lecture,
   type Subject,
   type Summary,
   type User,
 } from "@/lib/types";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn, formatDuration, formatRelativeTime } from "@/lib/utils";
 
 type SubjectAsset = {
   id: string;
   lecture_id: string;
+  folder_id: string | null;
   kind: "flashcards" | "quiz" | "mindmap";
   payload: {
     cards?: unknown[];
@@ -116,14 +137,25 @@ function SubjectView({
   subjectId: string;
 }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const currentFolderId = searchParams.get("folder") ?? null;
+
   const [subject, setSubject] = useState<Subject | null>(null);
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [documents, setDocuments] = useState<LumioDocument[]>([]);
   const [assets, setAssets] = useState<SubjectAsset[]>([]);
+  const [folders, setFolders] = useState<Folder[]>([]);
   const [loading, setLoading] = useState(true);
   const [newOpen, setNewOpen] = useState(false);
   const [lectureTitle, setLectureTitle] = useState("");
+  // Diálogos de pasta: criar (input no contexto da pasta atual) e renomear
+  // (input pra renomear pasta existente).
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [uploadDocOpen, setUploadDocOpen] = useState(false);
+  const [renamingFolder, setRenamingFolder] = useState<Folder | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   // Mindmap usa dialog próprio (mais simples — só complexidade + foco).
   // Outros modes continuam no ContentWizard cheio.
   const [wizardMode, setWizardMode] = useState<
@@ -164,6 +196,7 @@ function SubjectView({
       id: sm.id,
       title: sm.title ?? "Resumo",
       currentSubjectId: subjectId,
+      currentFolderId: sm.folderId ?? null,
     });
   const moveDocument = (d: LumioDocument) =>
     setMoveTarget({
@@ -171,8 +204,10 @@ function SubjectView({
       id: d.id,
       title: d.title,
       currentSubjectId: subjectId,
+      currentFolderId: d.folderId ?? null,
     });
-  const moveAsset = (a: SubjectAsset) =>
+  const moveAsset = (a: SubjectAsset) => {
+    const lec = lectures.find((l) => l.id === a.lecture_id);
     setMoveTarget({
       kind: "lecture",
       id: a.lecture_id,
@@ -183,22 +218,26 @@ function SubjectView({
             ? "Quiz"
             : "Mapa mental",
       currentSubjectId: subjectId,
+      currentFolderId: lec?.folderId ?? a.folder_id ?? null,
       note: "Isso move a aula inteira deste material (transcrição, resumo e outros materiais gerados) pra nova pasta.",
     });
+  };
 
   async function refresh() {
-    const [s, l, sm, d, all] = await Promise.all([
+    const [s, l, sm, d, all, fld] = await Promise.all([
       getSubjectAsync(user.id, subjectId),
       listLecturesAsync(user.id, subjectId),
       listSummariesAsync(user.id, subjectId),
       listDocumentsAsync(user.id, subjectId),
       listSubjectsAsync(user.id),
+      listFoldersBySubjectAsync(user.id, subjectId),
     ]);
     setSubject(s);
     setLectures(l);
     setSummaries(sm);
     setDocuments(d);
     setAllSubjects(all);
+    setFolders(fld);
 
     // Busca todos os assets (flashcards/quiz/mindmap) das aulas dessa matéria
     // pra que apareçam na pasta — antes o user gerava um quiz e ele "sumia"
@@ -210,7 +249,7 @@ function SubjectView({
         const supabase = createClient();
         const { data: rows, error } = await supabase
           .from("lecture_assets")
-          .select("id, lecture_id, kind, payload, created_at, updated_at")
+          .select("id, lecture_id, folder_id, kind, payload, created_at, updated_at")
           .eq("user_id", user.id)
           .in("lecture_id", lectureIds)
           .is("deleted_at", null)
@@ -226,6 +265,61 @@ function SubjectView({
     }
   }
 
+  async function handleCreateFolder() {
+    const name = newFolderName.trim();
+    if (!name) return;
+    const created = await createFolderAsync({
+      userId: user.id,
+      subjectId,
+      parentFolderId: currentFolderId,
+      name,
+    });
+    if (!created) {
+      toast.error("Não foi possível criar a pasta. Talvez já exista uma com esse nome.");
+      return;
+    }
+    setNewFolderName("");
+    setNewFolderOpen(false);
+    await refresh();
+    toast.success(`Pasta "${created.name}" criada.`);
+  }
+
+  async function handleRenameFolder() {
+    if (!renamingFolder) return;
+    const name = renameDraft.trim();
+    if (!name) return;
+    const ok = await renameFolderAsync(user.id, renamingFolder.id, name);
+    if (!ok) {
+      toast.error("Não foi possível renomear.");
+      return;
+    }
+    setRenamingFolder(null);
+    setRenameDraft("");
+    await refresh();
+    toast.success("Pasta renomeada.");
+  }
+
+  async function handleDeleteFolder(f: Folder) {
+    if (
+      !confirm(
+        `Excluir a pasta "${f.name}"? Subpastas e arquivos dentro dela voltam pra raiz da matéria — nada é apagado.`,
+      )
+    )
+      return;
+    const ok = await deleteFolderAsync(user.id, f.id);
+    if (!ok) {
+      toast.error("Não foi possível excluir a pasta.");
+      return;
+    }
+    // Se estava dentro da pasta deletada, sobe um nível.
+    if (currentFolderId === f.id) {
+      const parent = f.parentFolderId;
+      router.push(parent ? `/subject/${subjectId}?folder=${parent}` : `/subject/${subjectId}`);
+    }
+    await refresh();
+    toast.success("Pasta excluída.");
+  }
+
   useEffect(() => {
     refresh().finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -238,6 +332,7 @@ function SubjectView({
       const lecture = await createLectureAsync(user.id, {
         subjectId,
         title,
+        folderId: currentFolderId,
       });
       setNewOpen(false);
       router.push(`/lecture/${lecture.id}`);
@@ -314,6 +409,30 @@ function SubjectView({
     return set;
   }, [summaries]);
 
+  // Helper: item pertence à pasta atual? Trata null/undefined como raiz.
+  const matchesCurrentFolder = (
+    folderId: string | null | undefined,
+  ): boolean => (folderId ?? null) === (currentFolderId ?? null);
+
+  // Subpastas direto-filhas da pasta atual (raiz ou aninhada).
+  const subfolders = useMemo(
+    () =>
+      folders
+        .filter((f) => (f.parentFolderId ?? null) === (currentFolderId ?? null))
+        .sort((a, b) =>
+          a.position !== b.position
+            ? a.position - b.position
+            : a.name.localeCompare(b.name, "pt-BR"),
+        ),
+    [folders, currentFolderId],
+  );
+
+  // Breadcrumb da pasta atual (vazio se raiz).
+  const folderPath = useMemo(
+    () => buildBreadcrumb(folders, currentFolderId ?? undefined),
+    [folders, currentFolderId],
+  );
+
   // Quando o user gera flashcards/quiz/mindmap só com PDFs (sem gravar aula),
   // o wizard cria uma lecture "fake" como container do asset. Essa lecture
   // não tem transcript/slides/messages — não faz sentido mostrar na lista
@@ -321,27 +440,45 @@ function SubjectView({
   const realLectures = useMemo(
     () =>
       lectures.filter((l) => {
+        if (!matchesCurrentFolder(l.folderId)) return false;
         const hasTranscript = (l.transcript ?? "").trim().length > 0;
         const hasSlides = (l.slides?.length ?? 0) > 0;
         const hasMessages = (l.messages?.length ?? 0) > 0;
         return hasTranscript || hasSlides || hasMessages;
       }),
-    [lectures],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lectures, currentFolderId],
+  );
+
+  const summariesInFolder = useMemo(
+    () => summaries.filter((s) => matchesCurrentFolder(s.folderId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [summaries, currentFolderId],
+  );
+  const documentsInFolder = useMemo(
+    () => documents.filter((d) => matchesCurrentFolder(d.folderId)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [documents, currentFolderId],
+  );
+  const assetsInFolder = useMemo(
+    () => assets.filter((a) => matchesCurrentFolder(a.folder_id)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [assets, currentFolderId],
   );
 
   // Assets separados por tipo pra cada categoria virar sua própria seção
   // (antes "Materiais gerados" misturava flashcards/quiz/mapas).
   const flashcards = useMemo(
-    () => assets.filter((a) => a.kind === "flashcards"),
-    [assets],
+    () => assetsInFolder.filter((a) => a.kind === "flashcards"),
+    [assetsInFolder],
   );
   const quizzes = useMemo(
-    () => assets.filter((a) => a.kind === "quiz"),
-    [assets],
+    () => assetsInFolder.filter((a) => a.kind === "quiz"),
+    [assetsInFolder],
   );
   const mindmaps = useMemo(
-    () => assets.filter((a) => a.kind === "mindmap"),
-    [assets],
+    () => assetsInFolder.filter((a) => a.kind === "mindmap"),
+    [assetsInFolder],
   );
 
   // Categorias com conteúdo, na ordem da barra de filtros.
@@ -350,20 +487,20 @@ function SubjectView({
       (
         [
           { key: "lectures", label: "Aulas", count: realLectures.length },
-          { key: "summaries", label: "Resumos", count: summaries.length },
+          { key: "summaries", label: "Resumos", count: summariesInFolder.length },
           { key: "flashcards", label: "Flashcards", count: flashcards.length },
           { key: "quiz", label: "Quiz", count: quizzes.length },
           { key: "mindmap", label: "Mapas", count: mindmaps.length },
-          { key: "documents", label: "PDFs", count: documents.length },
+          { key: "documents", label: "PDFs", count: documentsInFolder.length },
         ] as Array<{ key: FilterKey; label: string; count: number }>
       ).filter((c) => c.count > 0),
     [
       realLectures.length,
-      summaries.length,
+      summariesInFolder.length,
       flashcards.length,
       quizzes.length,
       mindmaps.length,
-      documents.length,
+      documentsInFolder.length,
     ],
   );
 
@@ -420,13 +557,42 @@ function SubjectView({
       {/* Voltar pra aba do menu (Meus documentos) */}
       <BackToHub className="mb-3" />
 
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-5">
+      {/* Breadcrumb: Dashboard › Matéria › [Pasta › Subpasta...] */}
+      <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-5 flex-wrap">
         <Link href="/dashboard" className="hover:text-foreground transition-colors">
           Dashboard
         </Link>
         <ChevronRight className="h-3.5 w-3.5" />
-        <span className="text-foreground font-medium">{subject.name}</span>
+        {folderPath.length === 0 ? (
+          <span className="text-foreground font-medium">{subject.name}</span>
+        ) : (
+          <Link
+            href={`/subject/${subjectId}`}
+            className="hover:text-foreground transition-colors"
+          >
+            {subject.name}
+          </Link>
+        )}
+        {folderPath.map((f, i) => {
+          const isLast = i === folderPath.length - 1;
+          return (
+            <span key={f.id} className="inline-flex items-center gap-1.5">
+              <ChevronRight className="h-3.5 w-3.5" />
+              {isLast ? (
+                <span className="text-foreground font-medium inline-flex items-center gap-1">
+                  <FolderIcon className="h-3.5 w-3.5" /> {f.name}
+                </span>
+              ) : (
+                <Link
+                  href={`/subject/${subjectId}?folder=${f.id}`}
+                  className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                >
+                  <FolderIcon className="h-3.5 w-3.5" /> {f.name}
+                </Link>
+              )}
+            </span>
+          );
+        })}
       </div>
 
       {/* Header da matéria */}
@@ -454,6 +620,12 @@ function SubjectView({
           <Button variant="outline" size="sm" onClick={handleDeleteSubject}>
             <Trash2 className="h-4 w-4" />
             Excluir matéria
+          </Button>
+          <Button variant="outline" onClick={() => setUploadDocOpen(true)}>
+            <FileText className="h-4 w-4" /> Subir documento
+          </Button>
+          <Button variant="outline" onClick={() => setNewFolderOpen(true)}>
+            <FolderPlus className="h-4 w-4" /> Nova pasta
           </Button>
           <Button variant="gradient" onClick={() => setNewOpen(true)}>
             <Mic className="h-4 w-4" /> Nova aula
@@ -524,12 +696,41 @@ function SubjectView({
         </div>
       )}
 
+      {/* Subpastas — sempre no topo da view atual (raiz ou nested) */}
+      {subfolders.length > 0 && (
+        <div className="mb-6">
+          <SectionHeading label="Pastas" count={subfolders.length} />
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {subfolders.map((f) => (
+              <FolderCard
+                key={f.id}
+                folder={f}
+                subjectId={subjectId}
+                onRename={() => {
+                  setRenamingFolder(f);
+                  setRenameDraft(f.name);
+                }}
+                onDelete={() => handleDeleteFolder(f)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Barra de filtros + conteúdo da pasta */}
       {realLectures.length === 0 &&
-      documents.length === 0 &&
-      assets.length === 0 &&
-      summaries.length === 0 ? (
-        <EmptyState onCreate={() => setNewOpen(true)} />
+      documentsInFolder.length === 0 &&
+      assetsInFolder.length === 0 &&
+      summariesInFolder.length === 0 ? (
+        subfolders.length > 0 ? (
+          <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-6 text-center text-sm text-muted-foreground">
+            Esta pasta ainda não tem aulas, resumos ou outros materiais. Use{" "}
+            <strong className="text-foreground">Nova aula</strong> ou{" "}
+            <strong className="text-foreground">Nova pasta</strong> pra começar.
+          </div>
+        ) : (
+          <EmptyState onCreate={() => setNewOpen(true)} />
+        )
       ) : (
         <>
           {categories.length > 1 && (
@@ -564,17 +765,27 @@ function SubjectView({
                       subjectColor={subject.color}
                       hasSummary={lectureIdsWithSummary.has(l.id)}
                       onDelete={() => handleDeleteLecture(l)}
+                      onMove={() =>
+                        setMoveTarget({
+                          kind: "lecture",
+                          id: l.id,
+                          title: l.title,
+                          currentSubjectId: subjectId,
+                          currentFolderId: l.folderId ?? null,
+                          note: "Move a aula inteira (transcrição, resumo, flashcards/quiz/mapa gerados) pra nova matéria ou pasta.",
+                        })
+                      }
                     />
                   ))}
                 </div>
               </div>
             )}
 
-            {showSection("summaries") && summaries.length > 0 && (
+            {showSection("summaries") && summariesInFolder.length > 0 && (
               <div>
-                <SectionHeading label="Resumos" count={summaries.length} />
+                <SectionHeading label="Resumos" count={summariesInFolder.length} />
                 <div className="space-y-2">
-                  {summaries.map((sm) => (
+                  {summariesInFolder.map((sm) => (
                     <SummaryRow
                       key={sm.id}
                       summary={sm}
@@ -638,11 +849,11 @@ function SubjectView({
               </div>
             )}
 
-            {showSection("documents") && documents.length > 0 && (
+            {showSection("documents") && documentsInFolder.length > 0 && (
               <div>
-                <SectionHeading label="Documentos (PDF)" count={documents.length} />
+                <SectionHeading label="Documentos (PDF)" count={documentsInFolder.length} />
                 <div className="space-y-2">
-                  {documents.map((d) => {
+                  {documentsInFolder.map((d) => {
                     const sm = summaries.find(
                       (s) =>
                         s.source.kind === "document" &&
@@ -694,6 +905,80 @@ function SubjectView({
             </Button>
             <Button variant="gradient" onClick={handleCreate}>
               <Mic className="h-4 w-4" /> Começar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Nova Pasta */}
+      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Nova pasta {folderPath.length > 0 ? `em ${folderPath[folderPath.length - 1].name}` : `em ${subject.name}`}
+            </DialogTitle>
+            <DialogDescription>
+              Organize aulas, resumos e PDFs por tema (ex.: Anatomia, Fisio).
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="folder-name">Nome da pasta</Label>
+            <Input
+              id="folder-name"
+              autoFocus
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Ex.: Imaginologia"
+              onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNewFolderOpen(false)}>
+              Cancelar
+            </Button>
+            <Button variant="gradient" onClick={handleCreateFolder} disabled={!newFolderName.trim()}>
+              <FolderPlus className="h-4 w-4" /> Criar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog Renomear Pasta */}
+      <Dialog
+        open={!!renamingFolder}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRenamingFolder(null);
+            setRenameDraft("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Renomear pasta</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="rename-folder">Novo nome</Label>
+            <Input
+              id="rename-folder"
+              autoFocus
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleRenameFolder()}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setRenamingFolder(null);
+                setRenameDraft("");
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button variant="gradient" onClick={handleRenameFolder} disabled={!renameDraft.trim()}>
+              Salvar
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -779,6 +1064,20 @@ function SubjectView({
           refresh();
         }}
       />
+
+      {/* Subir documento (PDF) — pré-atribui matéria atual + pasta atual */}
+      <UploadDocumentDialog
+        open={uploadDocOpen}
+        onOpenChange={setUploadDocOpen}
+        userId={user.id}
+        subjects={allSubjects}
+        defaultSubjectId={subjectId}
+        defaultFolderId={currentFolderId}
+        onUploaded={() => {
+          setUploadDocOpen(false);
+          refresh();
+        }}
+      />
     </div>
   );
 }
@@ -823,6 +1122,65 @@ function SectionHeading({ label, count }: { label: string; count: number }) {
     <h2 className="text-xs uppercase tracking-wider text-muted-foreground font-semibold mb-3">
       {label} · {count}
     </h2>
+  );
+}
+
+function FolderCard({
+  folder,
+  subjectId,
+  onRename,
+  onDelete,
+}: {
+  folder: Folder;
+  subjectId: string;
+  onRename: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="group relative rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:bg-secondary/40 transition-colors">
+      <Link
+        href={`/subject/${subjectId}?folder=${folder.id}`}
+        className="flex items-center gap-3 p-4 min-w-0"
+      >
+        <span className="h-10 w-10 shrink-0 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center">
+          <FolderIcon className="h-5 w-5 text-primary" strokeWidth={2.2} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{folder.name}</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Pasta
+          </p>
+        </div>
+      </Link>
+      {/* Menu de ações no canto */}
+      <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="h-7 w-7"
+              aria-label="Mais opções"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem onClick={onRename}>
+              <Pencil className="h-4 w-4" /> Renomear
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={onDelete}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" /> Excluir pasta
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+    </div>
   );
 }
 
@@ -966,11 +1324,13 @@ function LectureFolder({
   subjectColor,
   hasSummary,
   onDelete,
+  onMove,
 }: {
   lecture: Lecture;
   subjectColor: string;
   hasSummary: boolean;
   onDelete: () => void;
+  onMove?: () => void;
 }) {
   const hasTranscript = lecture.transcript.trim().length > 0;
   const hasSlides = (lecture.slides?.length ?? 0) > 0;
@@ -1020,17 +1380,33 @@ function LectureFolder({
                 </div>
               </div>
             </div>
-            <button
-              onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onDelete();
-              }}
-              className="opacity-50 hover:opacity-100 hover:text-destructive transition-all p-1"
-              aria-label="Excluir aula"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            <div className="flex items-center gap-1 shrink-0">
+              {onMove && (
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onMove();
+                  }}
+                  className="opacity-50 hover:opacity-100 hover:text-primary transition-all p-1"
+                  aria-label="Mover aula"
+                  title="Mover pra outra matéria/pasta"
+                >
+                  <FolderInput className="h-4 w-4" />
+                </button>
+              )}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onDelete();
+                }}
+                className="opacity-50 hover:opacity-100 hover:text-destructive transition-all p-1"
+                aria-label="Excluir aula"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         </Link>
 

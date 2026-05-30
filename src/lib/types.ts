@@ -74,11 +74,25 @@ export type Document = {
   id: string;
   userId: string;
   subjectId: string;
+  /** Pasta dentro da matéria. null/undefined = raiz da matéria. */
+  folderId?: string;
   title: string;
   sourceKind: DocumentSourceKind;
   sourceUrl?: string;
   sourceText?: string;
   pageCount?: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Folder = {
+  id: string;
+  userId: string;
+  subjectId: string;
+  /** null = raiz da matéria. */
+  parentFolderId?: string;
+  name: string;
+  position: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -91,6 +105,8 @@ export type Summary = {
   id: string;
   userId: string;
   subjectId: string;
+  /** Pasta dentro da matéria. null/undefined = raiz. */
+  folderId?: string;
   title: string;
   source: SummarySource;
   content: LectureSummary;
@@ -156,6 +172,8 @@ export type Lecture = {
   id: string;
   userId: string;
   subjectId: string;
+  /** Pasta dentro da matéria. null/undefined = raiz. */
+  folderId?: string;
   title: string;
   transcript: string;
   transcriptEntries?: TranscriptEntry[];

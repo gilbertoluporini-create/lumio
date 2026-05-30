@@ -1278,18 +1278,23 @@ function SummaryContent({
   };
 
   return (
-    <article className="rounded-2xl border border-border/60 bg-card p-6 md:p-10 lg:p-12 space-y-10">
-      {/* Resumo geral em destaque */}
+    <div className="space-y-6">
+      {/* Resumo geral — estilo igual ao da tela /resumo/doc/[summaryId] */}
       {summary.generalSummary && (
-        <div className="rounded-xl bg-gradient-to-br from-primary/8 via-card to-fuchsia-500/8 border border-primary/15 p-5">
-          <div className="text-[11px] uppercase tracking-wider text-primary/90 font-medium mb-3 inline-flex items-center gap-1.5">
-            <Sparkles className="h-3 w-3" /> Resumo geral
+        <div className="rounded-xl border border-border/70 bg-gradient-to-br from-primary/5 via-card to-fuchsia-500/5 p-6">
+          <div className="flex items-center gap-2 mb-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-fuchsia-500 shadow">
+              <Sparkles className="h-4 w-4 text-white" />
+            </div>
+            <h2 className="text-base font-semibold tracking-tight">
+              Visão geral
+            </h2>
           </div>
-          <div className="prose prose-base md:prose-lg dark:prose-invert max-w-none prose-p:leading-relaxed prose-p:my-4 prose-headings:scroll-mt-20 prose-headings:font-semibold prose-h1:text-2xl prose-h1:mt-0 prose-h2:text-xl prose-h2:mt-7 prose-h3:text-lg prose-strong:text-foreground prose-strong:font-semibold prose-a:text-primary prose-a:no-underline hover:prose-a:underline prose-img:rounded-xl prose-img:border prose-img:border-border/60 prose-img:shadow-sm prose-hr:my-6 prose-hr:border-border/40 prose-ul:my-3 prose-li:my-1 prose-blockquote:border-l-primary prose-blockquote:bg-primary/5 prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:rounded-r-lg prose-blockquote:not-italic">
+          <article className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-headings:scroll-mt-20 prose-headings:font-semibold prose-strong:text-foreground prose-a:text-primary prose-img:rounded-xl prose-img:border prose-img:border-border/60 prose-img:shadow-sm prose-blockquote:border-l-primary prose-blockquote:bg-primary/5 prose-blockquote:py-2 prose-blockquote:px-4 prose-blockquote:rounded-r-lg prose-blockquote:not-italic">
             <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
               {cleanSummaryMarkdown(summary.generalSummary)}
             </ReactMarkdown>
-          </div>
+          </article>
         </div>
       )}
 
@@ -1450,7 +1455,7 @@ function SummaryContent({
           </div>
         </div>
       )}
-    </article>
+    </div>
   );
 }
 

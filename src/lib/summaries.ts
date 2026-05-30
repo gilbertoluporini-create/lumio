@@ -12,6 +12,7 @@ type SummaryRow = {
   id: string;
   user_id: string;
   subject_id: string | null;
+  folder_id: string | null;
   lecture_id: string | null;
   document_id: string | null;
   title: string;
@@ -29,6 +30,7 @@ function rowToSummary(r: SummaryRow): Summary {
     id: r.id,
     userId: r.user_id,
     subjectId: r.subject_id ?? "",
+    folderId: r.folder_id ?? undefined,
     title: r.title,
     source,
     content: r.content,
@@ -39,7 +41,7 @@ function rowToSummary(r: SummaryRow): Summary {
 }
 
 const SUMMARY_COLS =
-  "id, user_id, subject_id, lecture_id, document_id, title, content, images, created_at, updated_at";
+  "id, user_id, subject_id, folder_id, lecture_id, document_id, title, content, images, created_at, updated_at";
 
 // Todas as leituras filtram deleted_at IS NULL. Quando um resumo é deletado
 // (soft-delete via deleteSummaryAsync), ele some das listagens mas o row
@@ -178,6 +180,7 @@ export async function updateSummaryAsync(
     content: LectureSummary;
     images: LectureSummaryImage[] | null;
     subjectId: string | null;
+    folderId: string | null;
   }>,
 ): Promise<Summary | null> {
   if (!isSupabaseConfigured()) return null;
@@ -187,6 +190,7 @@ export async function updateSummaryAsync(
   if ("content" in patch) dbPatch.content = patch.content;
   if ("images" in patch) dbPatch.images = patch.images ?? null;
   if ("subjectId" in patch) dbPatch.subject_id = patch.subjectId ?? null;
+  if ("folderId" in patch) dbPatch.folder_id = patch.folderId ?? null;
   if (Object.keys(dbPatch).length === 0) return getSummaryAsync(userId, id);
   const { data, error } = await supabase
     .from("summaries")

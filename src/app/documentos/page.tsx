@@ -12,7 +12,7 @@
 
 import { createElement, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, FileText, FolderPlus, Plus, Search } from "lucide-react";
+import { ArrowRight, FileText, FolderPlus, Plus, Search, Upload } from "lucide-react";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,7 @@ import { Input } from "@/components/ui/input";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import { AssignSubjectDialog } from "@/components/documents/assign-subject-dialog";
+import { UploadDocumentDialog } from "@/components/documents/upload-document-dialog";
 import {
   useAllDocuments,
   type DocumentItem,
@@ -55,6 +56,7 @@ function DocumentosView({ user }: { user: User }) {
   );
   const [query, setQuery] = useState("");
   const [assignDoc, setAssignDoc] = useState<DocumentItem | null>(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
 
   /** Stats agregados por matéria (lectures + docs por kind). */
   const statsBySubject = useMemo(() => {
@@ -163,11 +165,16 @@ function DocumentosView({ user }: { user: User }) {
             </h1>
           </div>
         </div>
-        <Button asChild variant="outline" size="sm">
-          <Link href="/dashboard">
-            <Plus className="h-4 w-4" /> Nova matéria
-          </Link>
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setUploadOpen(true)}>
+            <Upload className="h-4 w-4" /> Subir documento
+          </Button>
+          <Button asChild variant="outline" size="sm">
+            <Link href="/dashboard">
+              <Plus className="h-4 w-4" /> Nova matéria
+            </Link>
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -257,6 +264,18 @@ function DocumentosView({ user }: { user: User }) {
         userId={user.id}
         onAssigned={() => {
           setAssignDoc(null);
+          refresh();
+        }}
+      />
+
+      {/* Dialog: subir documento (PDF) com matéria/pasta opcionais */}
+      <UploadDocumentDialog
+        open={uploadOpen}
+        onOpenChange={setUploadOpen}
+        userId={user.id}
+        subjects={subjects}
+        onUploaded={() => {
+          setUploadOpen(false);
           refresh();
         }}
       />

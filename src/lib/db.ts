@@ -234,6 +234,7 @@ type LectureRow = {
   id: string;
   user_id: string;
   subject_id: string | null;
+  folder_id: string | null;
   title: string;
   transcript: string;
   transcript_entries: TranscriptEntry[] | null;
@@ -256,6 +257,7 @@ function rowToLecture(r: LectureRow): Lecture {
     id: r.id,
     userId: r.user_id,
     subjectId: r.subject_id ?? "",
+    folderId: r.folder_id ?? undefined,
     title: r.title,
     transcript: r.transcript,
     transcriptEntries: r.transcript_entries ?? undefined,
@@ -274,7 +276,7 @@ function rowToLecture(r: LectureRow): Lecture {
 }
 
 const LECTURE_COLS =
-  "id, user_id, subject_id, title, transcript, transcript_entries, transcript_insights, transcript_chapters, summary_educational, duration_sec, status, slides_file_name, slides, messages, audio_url, created_at, updated_at";
+  "id, user_id, subject_id, folder_id, title, transcript, transcript_entries, transcript_insights, transcript_chapters, summary_educational, duration_sec, status, slides_file_name, slides, messages, audio_url, created_at, updated_at";
 
 export async function listLecturesAsync(
   userId: string,
@@ -331,7 +333,7 @@ function fireFirstLectureOnce(userId: string): void {
 
 export async function createLectureAsync(
   userId: string,
-  data: { subjectId: string; title: string },
+  data: { subjectId: string; title: string; folderId?: string | null },
 ): Promise<Lecture> {
   if (!isSupabaseConfigured()) {
     const lec = localCreateLecture(userId, {
@@ -348,6 +350,7 @@ export async function createLectureAsync(
     body: JSON.stringify({
       subjectId: data.subjectId,
       title: data.title,
+      folderId: data.folderId ?? null,
     }),
   });
   const json = await res.json();
@@ -398,6 +401,7 @@ export async function updateLectureAsync(
   if ("slides" in patch) dbPatch.slides = patch.slides ?? null;
   if ("messages" in patch) dbPatch.messages = patch.messages ?? null;
   if ("audioUrl" in patch) dbPatch.audio_url = patch.audioUrl ?? null;
+  if ("folderId" in patch) dbPatch.folder_id = patch.folderId ?? null;
   if (Object.keys(dbPatch).length === 0) return getLectureAsync(userId, id);
 
   const { data, error } = await supabase
