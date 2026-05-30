@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Award,
   BarChart3,
   HeartPulse,
   LayoutDashboard,
@@ -64,6 +65,12 @@ const NAV_SECTIONS: NavSection[] = [
     label: "Pessoas",
     items: [
       { href: "/admin/users", label: "Usuários", Icon: Users },
+      {
+        href: "/admin/embaixadores",
+        label: "Embaixadores",
+        Icon: Award,
+        accent: "fuchsia",
+      },
       { href: "/admin/leads", label: "Leads", Icon: UserPlus },
       { href: "/admin/tickets", label: "Tickets", Icon: Mail },
     ],
