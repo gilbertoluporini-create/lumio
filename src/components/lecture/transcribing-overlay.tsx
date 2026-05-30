@@ -27,6 +27,10 @@ export function TranscribingOverlay({
   const router = useRouter();
   const [state, setState] = useState<StatusResp | null>(null);
   const [retrying, setRetrying] = useState(false);
+  // Só dispara "concluído" se em algum momento vimos a transcrição em
+  // andamento — uma lecture que abre já `completed` (caso normal de
+  // gravação ao vivo ou aula antiga) não deve gerar toast nem reload.
+  const sawTranscribingRef = useRef(false);
   const completedFiredRef = useRef(false);
 
   useEffect(() => {
@@ -34,6 +38,7 @@ export function TranscribingOverlay({
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     async function tick() {
+      let scheduleNext = true;
       try {
         const res = await fetch(`/api/lectures/${lectureId}/status`, {
           cache: "no-store",
@@ -43,25 +48,43 @@ export function TranscribingOverlay({
         if (!alive) return;
         setState(data);
 
+        if (data.status === "transcribing" || data.status === "pending") {
+          sawTranscribingRef.current = true;
+        }
+
+        // Caso quieto: lecture já abriu completed e nunca estava
+        // transcribing — para o polling sem fazer nada.
+        if (data.status === "completed" && !sawTranscribingRef.current) {
+          scheduleNext = false;
+          return;
+        }
+
+        // Caso "transcrição acabou agora": estava transcribing, virou
+        // completed — dispara toast + reload uma vez só.
         if (data.status === "completed" && !completedFiredRef.current) {
           completedFiredRef.current = true;
+          scheduleNext = false;
           toast.success("Transcrição concluída.");
-          // dá tempo pro toast aparecer antes do reload
           setTimeout(() => {
             if (!alive) return;
             onCompleted?.();
             router.refresh();
-            // fallback hard se router.refresh não recarregar componente
             setTimeout(() => {
               if (typeof window !== "undefined") window.location.reload();
             }, 800);
           }, 500);
           return;
         }
+
+        // Failed termina o polling também.
+        if (data.status === "failed") {
+          scheduleNext = false;
+          return;
+        }
       } catch {
         // silencioso, tenta de novo
       } finally {
-        if (alive) {
+        if (alive && scheduleNext) {
           timer = setTimeout(tick, POLL_INTERVAL_MS);
         }
       }
