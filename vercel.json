@@ -8,6 +8,10 @@
     {
       "path": "/api/cron/email-onboarding",
       "schedule": "0 13 * * *"
+    },
+    {
+      "path": "/api/cron/study-plan-generator",
+      "schedule": "* * * * *"
     }
   ]
 }
