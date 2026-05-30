@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  AlertCircle,
   ArrowLeft,
   ArrowRight,
   CalendarDays,
@@ -154,6 +155,23 @@ function PlanoView({ user }: { user: User }) {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  // Polling enquanto há items em geração assíncrona (pending/generating).
+  // Cron worker processa 1 item por minuto em prod, mas localmente queremos
+  // ver assets aparecendo "ao vivo" assim que ficam prontos. 5s de intervalo.
+  const hasInflight = useMemo(
+    () =>
+      items.some((i) => i.status === "pending" || i.status === "generating"),
+    [items],
+  );
+
+  useEffect(() => {
+    if (!hasInflight) return;
+    const t = setInterval(() => {
+      void reload();
+    }, 5000);
+    return () => clearInterval(t);
+  }, [hasInflight, reload]);
 
   const progress = useMemo(() => progressPercent(items), [items]);
   const days = useMemo(
@@ -497,6 +515,19 @@ function PlanoView({ user }: { user: User }) {
           </span>
           <span className="font-semibold text-primary">{progress}%</span>
         </div>
+        {/* Badge ao vivo quando há geração em background */}
+        {hasInflight && (
+          <p className="mt-1.5 text-[11px] text-sky-600 inline-flex items-center gap-1.5">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {items.filter((i) => i.status === "generating").length} gerando ·{" "}
+            {items.filter(
+              (i) =>
+                i.status === "pending" &&
+                (i.sourceDocumentId || i.sourceLectureId),
+            ).length}{" "}
+            na fila
+          </p>
+        )}
         <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-secondary">
           <div
             className="h-full rounded-full bg-primary transition-all duration-500"
@@ -653,6 +684,35 @@ function TrailItem({
             <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
               <CheckCircle2 className="h-3 w-3" />
               Pronto
+            </span>
+          )}
+          {item.status === "generating" && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-600">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Gerando…
+            </span>
+          )}
+          {item.status === "pending" && item.sourceDocumentId === null &&
+            item.sourceLectureId === null && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-muted-foreground/30 bg-muted/50 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <Circle className="h-3 w-3" />
+                Pendente
+              </span>
+            )}
+          {item.status === "pending" &&
+            (item.sourceDocumentId !== null || item.sourceLectureId !== null) && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-600">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Na fila…
+              </span>
+            )}
+          {item.status === "failed" && (
+            <span
+              className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-[10px] font-medium text-rose-600"
+              title={item.errorMessage ?? undefined}
+            >
+              <AlertCircle className="h-3 w-3" />
+              Falhou
             </span>
           )}
         </div>
