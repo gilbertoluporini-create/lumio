@@ -250,9 +250,16 @@ export function LiveTranscriptColumn({
   initialViewMode?: ViewMode;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Aula sem áudio/entries = nasceu de PDF/dashboard, não tem transcrição.
+  // Nesse caso só faz sentido mostrar Resumo — escondemos as outras 2 tabs.
+  const hasTranscriptContent = entries.length > 0 || hasAudio;
+
   // Default sempre "chapters" (revisada). Usuário pode alternar pra "flat" (crua).
   // initialViewMode (de ?tab=summary) tem prioridade sobre localStorage no primeiro mount.
+  // Sem transcrição (PDF/dashboard), força "summary" — as tabs de transcrição
+  // não aparecem e não faz sentido cair em "chapters" vazio.
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (!hasTranscriptContent) return "summary";
     if (initialViewMode) return initialViewMode;
     if (typeof window === "undefined") return "chapters";
     const saved = window.localStorage.getItem("lumio.transcript.view") as ViewMode | null;
@@ -312,33 +319,37 @@ export function LiveTranscriptColumn({
       <div className="px-5 pt-5 pb-3 border-b border-border/60">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-1 rounded-lg bg-secondary/60 p-1">
-            <button
-              onClick={() => setViewModePersisted("chapters")}
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                viewMode === "chapters"
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Transcrição revisada
-              {chapters.length > 0 && (
-                <span className="ml-1.5 text-[9px] text-muted-foreground">
-                  {chapters.length}
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setViewModePersisted("flat")}
-              className={cn(
-                "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-                viewMode === "flat"
-                  ? "bg-background shadow-sm text-foreground"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Transcrição crua
-            </button>
+            {hasTranscriptContent && (
+              <>
+                <button
+                  onClick={() => setViewModePersisted("chapters")}
+                  className={cn(
+                    "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                    viewMode === "chapters"
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Transcrição revisada
+                  {chapters.length > 0 && (
+                    <span className="ml-1.5 text-[9px] text-muted-foreground">
+                      {chapters.length}
+                    </span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setViewModePersisted("flat")}
+                  className={cn(
+                    "rounded-md px-3 py-1 text-xs font-medium transition-colors",
+                    viewMode === "flat"
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Transcrição crua
+                </button>
+              </>
+            )}
             <button
               onClick={() => setViewModePersisted("summary")}
               className={cn(
