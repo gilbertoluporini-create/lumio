@@ -376,7 +376,7 @@ export function LiveTranscriptColumn({
 
 
   return (
-    <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden">
+    <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden h-[640px] lg:h-[720px]">
       <div className="px-5 pt-5 pb-3 border-b border-border/60">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-1 rounded-lg bg-secondary/60 p-1">
@@ -494,7 +494,7 @@ export function LiveTranscriptColumn({
 
       <div
         ref={scrollRef}
-        className="flex-1 overflow-y-auto p-3 scrollbar-thin min-h-[420px]"
+        className="flex-1 overflow-y-auto p-3 scrollbar-thin min-h-0"
       >
         {viewMode === "summary" ? (
           <SummaryInlineView

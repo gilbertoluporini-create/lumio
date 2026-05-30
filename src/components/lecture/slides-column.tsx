@@ -4,36 +4,15 @@ import { useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
-  Download,
-  Hand,
-  Highlighter,
   Info,
   Loader2,
-  Maximize2,
-  MessageSquare,
-  MousePointer2,
   Paperclip,
-  Pencil,
-  Shapes,
   Trash2,
-  Type as TypeIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import type { Slide } from "@/lib/types";
-
-const TOOLS = [
-  { id: "select", icon: MousePointer2, label: "Selecionar" },
-  { id: "pan", icon: Hand, label: "Mover" },
-  { id: "text", icon: TypeIcon, label: "Texto" },
-  { id: "draw", icon: Pencil, label: "Lápis" },
-  { id: "highlight", icon: Highlighter, label: "Realçar" },
-  { id: "shape", icon: Shapes, label: "Forma" },
-  { id: "comment", icon: MessageSquare, label: "Comentário" },
-] as const;
-
-type ToolId = (typeof TOOLS)[number]["id"];
 
 export function SlidesColumn({
   slides,
@@ -57,7 +36,6 @@ export function SlidesColumn({
   syncedSlideIdx?: number;
 }) {
   const [zoom, setZoom] = useState(100);
-  const [tool, setTool] = useState<ToolId>("select");
   const hasSlides = !!slides && slides.length > 0;
   const safeIdx = hasSlides
     ? Math.min(Math.max(currentIdx, 0), slides!.length - 1)
@@ -65,7 +43,7 @@ export function SlidesColumn({
   const current = hasSlides ? slides![safeIdx] : null;
 
   return (
-    <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden h-[640px] lg:h-[680px]">
+    <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden h-[640px] lg:h-[720px]">
       {/* Header */}
       <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border/60 flex-wrap">
         <div className="flex items-center gap-2">
@@ -159,17 +137,6 @@ export function SlidesColumn({
               >
                 <span className="text-sm font-semibold">+</span>
               </Button>
-              <Button variant="ghost" size="icon-sm" aria-label="Fullscreen">
-                <Maximize2 className="h-3.5 w-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Download"
-                title="Download"
-              >
-                <Download className="h-3.5 w-3.5" />
-              </Button>
               <Button
                 variant="ghost"
                 size="icon-sm"
@@ -204,27 +171,6 @@ export function SlidesColumn({
                   Imagem indisponível
                 </div>
               )}
-              {/* Floating toolbox */}
-              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-0.5 rounded-full bg-background/95 backdrop-blur border border-border/60 shadow-lg p-1">
-                {TOOLS.map((t) => {
-                  const Icon = t.icon;
-                  return (
-                    <button
-                      key={t.id}
-                      onClick={() => setTool(t.id)}
-                      title={t.label}
-                      className={cn(
-                        "h-8 w-8 rounded-full flex items-center justify-center transition-colors",
-                        tool === t.id
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-muted",
-                      )}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                    </button>
-                  );
-                })}
-              </div>
             </div>
           </div>
 

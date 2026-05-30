@@ -1090,7 +1090,36 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           />
         ) : (
           <>
-            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
+            {audioUrl && !isLive && (
+              <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-card px-4 py-2.5">
+                <div className="h-8 w-8 shrink-0 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                  <Headphones className="h-4 w-4 text-violet-500" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold leading-tight">
+                    Áudio da aula
+                  </div>
+                  <div className="text-[10px] text-muted-foreground leading-tight">
+                    {formatDuration(durationSec)}
+                  </div>
+                </div>
+                <div className="min-w-0 flex-[2] max-w-[640px]">
+                  <AudioPlayer
+                    src={audioUrl}
+                    initialDurationSec={durationSec}
+                    compact
+                  />
+                </div>
+              </div>
+            )}
+
+            <div
+              className={
+                showSlidesColumn
+                  ? "grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_380px]"
+                  : "grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]"
+              }
+            >
               <LiveTranscriptColumn
                 entries={sync.entries}
                 interim={interim}
@@ -1121,18 +1150,8 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 initialViewMode={initialTranscriptView}
               />
 
-              <div className="space-y-4 min-w-0 lg:sticky lg:top-4 lg:self-start">
-                <ChatColumn
-                  messages={messages}
-                  streamingReply={streamingReply}
-                  suggestions={suggestions}
-                  input={input}
-                  onInputChange={setInput}
-                  onSend={sendMessage}
-                  sending={sending}
-                />
-
-                {showSlidesColumn && (
+              {showSlidesColumn && (
+                <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">
                   <SlidesColumn
                     slides={slides}
                     attaching={attaching}
@@ -1144,21 +1163,21 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                     onRemove={removeSlides}
                     syncedSlideIdx={syncedSlideIdx}
                   />
-                )}
+                </div>
+              )}
+
+              <div className="min-w-0 lg:sticky lg:top-4 lg:self-start">
+                <ChatColumn
+                  messages={messages}
+                  streamingReply={streamingReply}
+                  suggestions={suggestions}
+                  input={input}
+                  onInputChange={setInput}
+                  onSend={sendMessage}
+                  sending={sending}
+                />
               </div>
             </div>
-
-            {audioUrl && !isLive && (
-              <CollapsibleSection
-                id={`audio-${lectureId}`}
-                title="Áudio da aula"
-                subtitle={`${formatDuration(durationSec)} · ouvir + navegar`}
-                icon={<Headphones className="h-4 w-4" />}
-                defaultOpen={false}
-              >
-                <AudioPlayer src={audioUrl} initialDurationSec={durationSec} />
-              </CollapsibleSection>
-            )}
 
             <CollapsibleSection
               id={`insights-${lectureId}`}
