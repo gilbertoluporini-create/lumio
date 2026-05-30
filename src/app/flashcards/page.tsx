@@ -81,6 +81,7 @@ import {
   listCardStatesAsync,
   makeCardId,
   nextReview,
+  pruneOrphanCardStates,
   saveCardStateAsync,
   type CardState,
   type Quality,
@@ -362,7 +363,11 @@ function FlashcardsHubView({ user }: { user: User }) {
       .filter((d): d is Deck => d !== null && d.cards.length > 0);
 
     setDecks(built);
-    setCardStates(statesRes);
+    // Sanitiza estados SRS órfãos (decks deletados deixam card_id fantasma no
+    // localStorage que infla "domínio médio" e "estudados hoje").
+    const activeAssetIds = built.map((d) => d.assetId);
+    const cleanStates = pruneOrphanCardStates(user.id, statesRes, activeAssetIds);
+    setCardStates(cleanStates);
   }, [user.id]);
 
   useEffect(() => {

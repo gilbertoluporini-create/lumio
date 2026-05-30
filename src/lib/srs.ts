@@ -255,3 +255,36 @@ export function countDueForDeck(
 export function makeCardId(assetId: string, index: number): string {
   return `${assetId}:${index}`;
 }
+
+/**
+ * Extrai assetId de um card_id (formato "assetId:index").
+ */
+function getAssetIdFromCardId(cardId: string): string {
+  const colonIdx = cardId.indexOf(":");
+  return colonIdx === -1 ? cardId : cardId.slice(0, colonIdx);
+}
+
+/**
+ * Remove cardStates órfãos — entradas cujo assetId não existe mais nos
+ * decks ativos. Quando o usuário deleta um deck, as entradas SRS ficavam
+ * pra sempre no localStorage e inflavam "domínio médio" e "estudados hoje"
+ * com dados fantasma. Chame depois de carregar decks pra sanitizar.
+ *
+ * Retorna o novo array filtrado E persiste no localStorage se algo foi
+ * removido (idempotente quando não há órfãos).
+ */
+export function pruneOrphanCardStates(
+  userId: string,
+  states: CardState[],
+  activeAssetIds: string[],
+): CardState[] {
+  if (states.length === 0) return states;
+  const activeSet = new Set(activeAssetIds);
+  const kept = states.filter((s) =>
+    activeSet.has(getAssetIdFromCardId(s.card_id)),
+  );
+  if (kept.length !== states.length) {
+    writeAll(userId, kept);
+  }
+  return kept;
+}
