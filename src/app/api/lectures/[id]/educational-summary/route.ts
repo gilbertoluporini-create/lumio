@@ -10,7 +10,9 @@ import type { TranscriptEntry, TranscriptChapters } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 180;
+// Aulas de 1h30+ geram markdown de 1500-2500 palavras com Sonnet 4.5.
+// 3 min era apertado; 5 min cobre o pior caso (input grande + output longo).
+export const maxDuration = 300;
 
 const SYSTEM_PROMPT = `Você é um TUTOR universitário brasileiro experiente criando um RESUMO DIDÁTICO COMPLETO de uma aula.
 
