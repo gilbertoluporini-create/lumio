@@ -143,7 +143,7 @@ export function MoveToFolderDialog({
     }
     setSaving(true);
     try {
-      const patch: { subjectId: string; folderId: string | null } = {
+      const patch = {
         subjectId: effectiveSubject,
         folderId: effectiveFolder ?? null,
       };
@@ -152,7 +152,11 @@ export function MoveToFolderDialog({
       } else if (target.kind === "document") {
         await updateDocumentAsync(userId, target.id, patch);
       } else {
-        await updateLectureAsync(userId, target.id, patch);
+        // Lecture.folderId é string | undefined, não null. Converte aqui.
+        await updateLectureAsync(userId, target.id, {
+          subjectId: patch.subjectId,
+          folderId: patch.folderId ?? undefined,
+        });
       }
       toast.success("Movido.");
       onMoved?.();
