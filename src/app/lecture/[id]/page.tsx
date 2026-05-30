@@ -584,7 +584,15 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       setLecture((prev) =>
         prev ? { ...prev, summaryEducational: data.summaryEducational } : prev,
       );
-      toast.success("Resumo educativo gerado.", { id: t });
+      toast.success("Resumo educativo gerado. Imagens em andamento...", { id: t });
+      // Re-puxa o summary do banco pra capturar as imagens geradas pelo
+      // fire-and-forget de /api/ai/summary-images (chega ~20-40s depois).
+      if (lecture?.id) {
+        setTimeout(async () => {
+          const sm = await getSummaryByLectureIdAsync(user.id, lecture.id);
+          if (sm?.content) setSummary(sm.content);
+        }, 25_000);
+      }
     } catch (err) {
       toast.error(`Erro: ${(err as Error).message}`, { id: t });
     } finally {
@@ -987,6 +995,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 onGenerateSummary={() => generateSummary()}
                 onOpenSummaryFull={() => router.push(`/resumo/${lecture.id}`)}
                 summaryEducational={lecture.summaryEducational}
+                summaryImages={summary?.images}
                 generatingEducational={generatingEducational}
                 onGenerateEducational={generateEducationalSummary}
                 onSearchChange={setSearch}

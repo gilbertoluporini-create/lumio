@@ -162,6 +162,7 @@ export function LiveTranscriptColumn({
   onGenerateSummary,
   onOpenSummaryFull,
   summaryEducational,
+  summaryImages,
   generatingEducational,
   onGenerateEducational,
   onSearchChange,
@@ -186,6 +187,7 @@ export function LiveTranscriptColumn({
   onGenerateSummary?: () => void;
   onOpenSummaryFull?: () => void;
   summaryEducational?: { markdown: string; generatedAt: string };
+  summaryImages?: import("@/lib/types").LectureSummaryImage[];
   generatingEducational?: boolean;
   onGenerateEducational?: () => void;
   onSearchChange: (v: string) => void;
@@ -373,6 +375,7 @@ export function LiveTranscriptColumn({
             generating={!!generatingSummary}
             onGenerate={onGenerateSummary}
             educational={summaryEducational}
+            educationalImages={summaryImages}
             generatingEducational={!!generatingEducational}
             onGenerateEducational={onGenerateEducational}
             hasEntries={entries.length > 0}
@@ -621,6 +624,7 @@ export function LiveTranscriptColumn({
 
 function SummaryInlineView({
   educational,
+  educationalImages,
   generatingEducational,
   onGenerateEducational,
   hasEntries,
@@ -632,6 +636,7 @@ function SummaryInlineView({
   generating?: boolean;
   onGenerate?: () => void;
   educational?: { markdown: string; generatedAt: string };
+  educationalImages?: import("@/lib/types").LectureSummaryImage[];
   generatingEducational: boolean;
   onGenerateEducational?: () => void;
   hasEntries: boolean;
@@ -655,6 +660,7 @@ function SummaryInlineView({
       )}
       <EducationalSummaryPane
         markdown={educational?.markdown}
+        images={educationalImages}
         generating={generatingEducational}
         hasEntries={hasEntries}
         onGenerate={onGenerateEducational}
@@ -665,11 +671,13 @@ function SummaryInlineView({
 
 function EducationalSummaryPane({
   markdown,
+  images,
   generating,
   hasEntries,
   onGenerate,
 }: {
   markdown?: string;
+  images?: import("@/lib/types").LectureSummaryImage[];
   generating: boolean;
   hasEntries: boolean;
   onGenerate?: () => void;
@@ -732,6 +740,32 @@ function EducationalSummaryPane({
       <article className="prose prose-sm dark:prose-invert max-w-none rounded-xl border border-border/60 bg-background/40 p-5 leading-relaxed">
         <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
       </article>
+      {images && images.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+            Imagens ilustrativas
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {images.map((img, i) => (
+              <figure
+                key={i}
+                className="rounded-lg border border-border/60 bg-background/40 overflow-hidden"
+              >
+                <img
+                  src={img.url}
+                  alt={img.alt ?? `Imagem ${i + 1}`}
+                  className="w-full h-auto"
+                />
+                {img.caption && (
+                  <figcaption className="px-3 py-2 text-[11px] text-muted-foreground border-t border-border/40">
+                    {img.caption}
+                  </figcaption>
+                )}
+              </figure>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

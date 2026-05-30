@@ -210,6 +210,39 @@ export async function POST(
       console.error("[educational-summary] db update failed", upErr);
     }
 
+    // Espelha no row de summaries pra que /api/ai/summary-images encontre o
+    // markdown via lecture_id e popule summaries.images. A UI também lê
+    // summary via getSummaryByLectureIdAsync — então as imagens aparecem
+    // automaticamente quando a page recarrega o summary depois.
+    const summaryContent = {
+      generatedAt: payload.generatedAt,
+      generalSummary: markdown,
+      highlights: [],
+      sections: [],
+    };
+    // Procura row existente pra mesma lecture
+    const { data: existingSummary } = await admin
+      .from("summaries")
+      .select("id")
+      .eq("lecture_id", lectureId)
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (existingSummary?.id) {
+      await admin
+        .from("summaries")
+        .update({ content: summaryContent, title: lectureRow.title || "Resumo" })
+        .eq("id", existingSummary.id);
+    } else {
+      await admin.from("summaries").insert({
+        user_id: userId,
+        subject_id: lectureRow.subject_id,
+        lecture_id: lectureId,
+        title: lectureRow.title || "Resumo",
+        content: summaryContent,
+      });
+    }
+
     // Fire-and-forget images (mesmo padrão do correlate)
     void fetch(new URL("/api/ai/summary-images", req.url).toString(), {
       method: "POST",
