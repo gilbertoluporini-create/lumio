@@ -52,6 +52,7 @@ export default function OnboardingPage() {
   const [colorOverride, setColorOverride] = useState<string | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
 
@@ -188,7 +189,7 @@ export default function OnboardingPage() {
   }
 
   async function finish() {
-    if (saving) return;
+    if (saving || skipping) return;
     if (subjects.length === 0) {
       toast.error("Adicione ao menos uma matéria.");
       return;
@@ -208,6 +209,33 @@ export default function OnboardingPage() {
     } catch (err) {
       toast.error(`Erro ao salvar: ${(err as Error).message}`);
       setSaving(false);
+    }
+  }
+
+  async function skip() {
+    if (saving || skipping) return;
+    setSkipping(true);
+    try {
+      const user = await getCurrentUserAsync();
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
+      // Matéria default pra dashboard ter onde ancorar a primeira aula.
+      // User edita/renomeia depois.
+      const defaultSubject: DraftSubject = {
+        name: "Geral",
+        emoji: "",
+        color: defaultColorForIndex(0),
+        schedule: [],
+      };
+      await bulkCreateSubjectsAsync(user.id, [defaultSubject]);
+      await markOnboardedAsync();
+      Analytics.onboardingCompleted(0, true);
+      router.push("/dashboard");
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+      setSkipping(false);
     }
   }
 
@@ -486,24 +514,39 @@ export default function OnboardingPage() {
             <div className="mt-8 flex flex-col sm:flex-row gap-3 items-center justify-between">
               <p className="text-xs text-muted-foreground">
                 {subjects.length === 0
-                  ? "Adicione ao menos uma pra continuar."
+                  ? "Sem pressa — você pode pular e configurar depois."
                   : "Você pode editar, adicionar mais ou excluir depois no dashboard."}
               </p>
-              <Button
-                onClick={finish}
-                variant="gradient"
-                size="lg"
-                disabled={saving || subjects.length === 0}
-                className="min-w-[180px]"
-              >
-                {saving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <>
-                    Concluir <ArrowRight className="h-4 w-4" />
-                  </>
-                )}
-              </Button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Button
+                  onClick={skip}
+                  variant="ghost"
+                  size="lg"
+                  disabled={saving || skipping}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  {skipping ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Pular por enquanto"
+                  )}
+                </Button>
+                <Button
+                  onClick={finish}
+                  variant="gradient"
+                  size="lg"
+                  disabled={saving || skipping || subjects.length === 0}
+                  className="min-w-[180px]"
+                >
+                  {saving ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      Concluir <ArrowRight className="h-4 w-4" />
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>
