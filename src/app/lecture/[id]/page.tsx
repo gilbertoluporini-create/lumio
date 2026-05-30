@@ -215,9 +215,15 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         Array.isArray(l.slides) && l.slides.length > 0 ? l.slides : undefined;
       setSlides(validSlides);
       setSlidesFileName(validSlides ? l.slidesFileName : undefined);
-      // Carrega summary da tabela summaries (source of truth)
+      // Carrega summary da tabela summaries (source of truth).
+      // Importante: `images` é coluna top-level no row, não vem dentro de
+      // `content`. Funde os dois antes de salvar no state.
       const sm = await getSummaryByLectureIdAsync(user.id, l.id);
-      setSummary(sm?.content);
+      if (sm?.content) {
+        setSummary({ ...sm.content, images: sm.images ?? sm.content.images });
+      } else {
+        setSummary(undefined);
+      }
 
       // Se a lecture é "shell" (sem transcript + sem slides) MAS tem summary,
       // ela foi criada só pra abrigar resumo gerado de PDF/chat. Não faz
@@ -590,7 +596,12 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       if (lecture?.id) {
         setTimeout(async () => {
           const sm = await getSummaryByLectureIdAsync(user.id, lecture.id);
-          if (sm?.content) setSummary(sm.content);
+          if (sm?.content) {
+            setSummary({
+              ...sm.content,
+              images: sm.images ?? sm.content.images,
+            });
+          }
         }, 25_000);
       }
     } catch (err) {
