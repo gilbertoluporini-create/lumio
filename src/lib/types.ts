@@ -126,6 +126,32 @@ export type TranscriptInsights = {
   updatedAt: string;
 };
 
+/**
+ * Resultado da revisão estrutural da transcrição com IA.
+ * Cada chapter tem título descritivo (não "Parte 1") e parágrafos com
+ * texto refinado (typos corrigidos, pontuação ajustada) preservando o
+ * timestamp original do trecho onde começa.
+ */
+export type TranscriptChapterParagraph = {
+  startSec: number;
+  text: string;
+};
+
+export type TranscriptRevisedChapter = {
+  id: string;
+  title: string;
+  startSec: number;
+  endSec: number;
+  /** 1-2 frases descrevendo o que essa parte aborda. */
+  summary?: string;
+  paragraphs: TranscriptChapterParagraph[];
+};
+
+export type TranscriptChapters = {
+  chapters: TranscriptRevisedChapter[];
+  generatedAt: string;
+};
+
 export type Lecture = {
   id: string;
   userId: string;
@@ -134,6 +160,7 @@ export type Lecture = {
   transcript: string;
   transcriptEntries?: TranscriptEntry[];
   transcriptInsights?: TranscriptInsights;
+  transcriptChapters?: TranscriptChapters;
   durationSec: number;
   createdAt: string;
   updatedAt: string;

@@ -115,6 +115,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
 
   const [summary, setSummary] = useState<LectureSummary | undefined>(undefined);
   const [generatingSummary, setGeneratingSummary] = useState(false);
+  const [structuringTranscript, setStructuringTranscript] = useState(false);
 
   const [view, setView] = useState<LectureHeaderView>(
     initialTab === "summary" ? "summary" : "live",
@@ -543,6 +544,46 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     }
   }
 
+  // ===== Estruturação da transcrição com IA =====
+  async function structureTranscript() {
+    if (structuringTranscript) return;
+    if (!lecture) return;
+    if (sync.entries.length === 0) {
+      toast.error("Transcrição vazia.");
+      return;
+    }
+    setStructuringTranscript(true);
+    const t = toast.loading("Revisando e separando em capítulos...");
+    try {
+      const res = await fetch(
+        `/api/lectures/${lecture.id}/structure-transcript`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({}),
+        },
+      );
+      const data = await res.json();
+      if (!res.ok || !data.chapters) {
+        const msg =
+          res.status === 402
+            ? `Coins insuficientes (precisa de ${data.required}, você tem ${data.balance}).`
+            : data?.error || `HTTP ${res.status}`;
+        toast.error(msg, { id: t });
+        return;
+      }
+      // Atualiza lecture local pra refletir os chapters revisados sem recarregar
+      setLecture((prev) =>
+        prev ? { ...prev, transcriptChapters: data.chapters } : prev,
+      );
+      toast.success("Transcrição revisada gerada.", { id: t });
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`, { id: t });
+    } finally {
+      setStructuringTranscript(false);
+    }
+  }
+
   // ===== Summary =====
   async function generateSummary(opts?: { silent?: boolean }) {
     if (generatingSummary) return;
@@ -890,6 +931,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 hasAudio={!!audioUrl}
                 search={search}
                 activeFilter={activeFilter}
+                revisedChapters={lecture.transcriptChapters?.chapters}
+                onStructureRequest={structureTranscript}
+                structuring={structuringTranscript}
                 onSearchChange={setSearch}
                 onFilterChange={setActiveFilter}
                 onPlay={handlePlay}

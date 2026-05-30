@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo, useRef, useEffect, useState } from "react";
-import { Bookmark, ChevronDown, Filter, Play, Search, Sparkles } from "lucide-react";
+import { Bookmark, ChevronDown, Filter, Loader2, Play, Search, Sparkles, Wand2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
   TranscriptEntry,
   TranscriptMarker,
+  TranscriptRevisedChapter,
   TranscriptTopic,
 } from "@/lib/types";
 
@@ -150,6 +151,9 @@ export function LiveTranscriptColumn({
   search,
   activeFilter,
   topics = [],
+  revisedChapters,
+  structuring,
+  onStructureRequest,
   onSearchChange,
   onFilterChange,
   onPlay,
@@ -164,6 +168,9 @@ export function LiveTranscriptColumn({
   search: string;
   activeFilter: MarkerFilter;
   topics?: TranscriptTopic[];
+  revisedChapters?: TranscriptRevisedChapter[];
+  structuring?: boolean;
+  onStructureRequest?: () => void;
   onSearchChange: (v: string) => void;
   onFilterChange: (m: MarkerFilter) => void;
   onPlay?: (offsetSec: number) => void;
@@ -342,58 +349,137 @@ export function LiveTranscriptColumn({
             </p>
           </div>
         ) : viewMode === "chapters" ? (
-          <div className="space-y-2">
-            {chapters.map((ch, i) => {
-              const open = openChapters[ch.id] ?? false;
-              const number = String(i + 1).padStart(2, "0");
-              return (
-                <div
-                  key={ch.id}
-                  className="rounded-xl border border-border/60 bg-card overflow-hidden"
-                >
-                  <div className="flex items-center gap-2 px-3 py-2.5">
-                    <button
-                      onClick={() =>
-                        setOpenChapters((p) => ({ ...p, [ch.id]: !open }))
-                      }
-                      aria-expanded={open}
-                      className="flex flex-1 items-center gap-2 text-left min-w-0"
-                    >
-                      <ChevronDown
-                        className={cn(
-                          "h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0",
-                          open && "rotate-0",
-                          !open && "-rotate-90",
-                        )}
-                      />
-                      <span className="font-mono text-[11px] text-muted-foreground/80 tabular-nums shrink-0">
-                        {number}
-                      </span>
-                      <span className="text-sm font-semibold truncate">
-                        {ch.title}
-                      </span>
-                      <span className="font-mono text-[10px] text-muted-foreground tabular-nums shrink-0">
-                        {formatTs(ch.startSec)}
-                      </span>
-                    </button>
-                    {hasAudio && onPlay && (
-                      <button
-                        onClick={() => onPlay(ch.startSec)}
-                        className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors"
-                      >
-                        <Play className="h-2.5 w-2.5 fill-current" />
-                        Ir para {formatTs(ch.startSec)}
-                      </button>
-                    )}
+          <div className="space-y-3">
+            {/* Banner: revisão por IA */}
+            {revisedChapters && revisedChapters.length > 0 ? (
+              <div className="flex items-center justify-between gap-2 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2 text-[11px]">
+                <span className="inline-flex items-center gap-1.5 text-violet-700 dark:text-violet-300">
+                  <Wand2 className="h-3 w-3" />
+                  Revisada e separada por IA
+                </span>
+                {onStructureRequest && (
+                  <button
+                    onClick={onStructureRequest}
+                    disabled={structuring}
+                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                  >
+                    {structuring ? "Regerando..." : "Regerar (5 coins)"}
+                  </button>
+                )}
+              </div>
+            ) : onStructureRequest ? (
+              <div className="rounded-lg border border-dashed border-violet-500/40 bg-violet-500/5 p-3">
+                <div className="flex items-start gap-2.5">
+                  <div className="h-7 w-7 shrink-0 rounded-md bg-violet-500/15 flex items-center justify-center">
+                    <Wand2 className="h-3.5 w-3.5 text-violet-600 dark:text-violet-400" />
                   </div>
-                  {open && (() => {
-                    const chapterParagraphs = groupIntoParagraphs(
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold">
+                      Quer capítulos com títulos reais?
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                      A IA revisa typos, ajusta pontuação e separa em capítulos
+                      por tópico — não por janela de tempo.
+                    </p>
+                    <Button
+                      onClick={onStructureRequest}
+                      disabled={structuring || entries.length === 0}
+                      size="sm"
+                      className="mt-2 h-7 gap-1.5 text-[11px]"
+                    >
+                      {structuring ? (
+                        <>
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                          Revisando...
+                        </>
+                      ) : (
+                        <>
+                          <Wand2 className="h-3 w-3" />
+                          Revisar com IA (5 coins)
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* Lista de capítulos: revisados (IA) ou sintéticos (fallback) */}
+            <div className="space-y-2">
+              {(revisedChapters && revisedChapters.length > 0
+                ? revisedChapters.map((rc, i) => ({
+                    id: rc.id,
+                    title: rc.title,
+                    startSec: rc.startSec,
+                    summary: rc.summary,
+                    number: String(i + 1).padStart(2, "0"),
+                    paragraphs: rc.paragraphs,
+                  }))
+                : chapters.map((ch, i) => ({
+                    id: ch.id,
+                    title: ch.title,
+                    startSec: ch.startSec,
+                    summary: undefined as string | undefined,
+                    number: String(i + 1).padStart(2, "0"),
+                    paragraphs: groupIntoParagraphs(
                       ch.entries,
                       CHAPTER_PARAGRAPH_SEC,
-                    );
-                    return (
+                    ),
+                  }))
+              ).map((ch) => {
+                const open = openChapters[ch.id] ?? false;
+                return (
+                  <div
+                    key={ch.id}
+                    className="rounded-xl border border-border/60 bg-card overflow-hidden"
+                  >
+                    <div className="flex items-start gap-2 px-3 py-2.5">
+                      <button
+                        onClick={() =>
+                          setOpenChapters((p) => ({ ...p, [ch.id]: !open }))
+                        }
+                        aria-expanded={open}
+                        className="flex flex-1 items-start gap-2 text-left min-w-0"
+                      >
+                        <ChevronDown
+                          className={cn(
+                            "h-3.5 w-3.5 text-muted-foreground transition-transform shrink-0 mt-0.5",
+                            open && "rotate-0",
+                            !open && "-rotate-90",
+                          )}
+                        />
+                        <span className="font-mono text-[11px] text-muted-foreground/80 tabular-nums shrink-0 mt-0.5">
+                          {ch.number}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-semibold truncate">
+                              {ch.title}
+                            </span>
+                            <span className="font-mono text-[10px] text-muted-foreground tabular-nums shrink-0">
+                              {formatTs(ch.startSec)}
+                            </span>
+                          </div>
+                          {ch.summary && (
+                            <p className="text-[11px] text-muted-foreground mt-0.5 line-clamp-2">
+                              {ch.summary}
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                      {hasAudio && onPlay && (
+                        <button
+                          onClick={() => onPlay(ch.startSec)}
+                          className="inline-flex items-center gap-1 rounded-md border border-border/60 bg-background px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/60 transition-colors shrink-0"
+                        >
+                          <Play className="h-2.5 w-2.5 fill-current" />
+                          {formatTs(ch.startSec)}
+                        </button>
+                      )}
+                    </div>
+                    {open && (
                       <div className="border-t border-border/60 px-4 py-4 space-y-4 bg-background/40">
-                        {chapterParagraphs.map((p) => (
+                        {ch.paragraphs.map((p) => (
                           <div key={p.startSec} className="flex gap-3">
                             <button
                               onClick={() => onPlay?.(p.startSec)}
@@ -414,11 +500,11 @@ export function LiveTranscriptColumn({
                           </div>
                         ))}
                       </div>
-                    );
-                  })()}
-                </div>
-              );
-            })}
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           </div>
         ) : (
           <div className="px-2 py-1">
