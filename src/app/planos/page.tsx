@@ -188,9 +188,12 @@ function PlanosView({ user }: { user: User }) {
   }, [subjects]);
 
   return (
-    <div className="mx-auto w-full max-w-[1100px] px-4 py-6 lg:px-8 lg:py-8">
+    // Flow natural: cabe → sem scroll; passa → body scrolla.
+    // Em desktop reduzimos padding vertical e o mb do header pra que o caso
+    // comum (0-9 cards em 3 colunas) caiba sem forçar scroll.
+    <div className="mx-auto w-full max-w-[1100px] px-4 py-6 lg:px-8 lg:py-5">
       {/* Header */}
-      <div className="mb-8 flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-end md:justify-between lg:mb-5">
         <div>
           <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 text-[11px] font-medium text-primary">
             <Sparkles className="h-3 w-3" />

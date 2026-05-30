@@ -8,16 +8,18 @@
  * existente, mapa, etc.) entra na Fase 3 com o Lumi orquestrando.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
+  ArrowRight,
   CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
   Circle,
+  ExternalLink,
   FileText,
   Layers,
   Loader2,
@@ -29,6 +31,7 @@ import {
   Sparkles,
   Target,
   Trash2,
+  Wand2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
@@ -52,14 +55,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { listSubjectsAsync } from "@/lib/db";
+import { createDocumentAsync } from "@/lib/documents";
+import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import {
   addItemAsync,
+  assetHrefFor,
   daysUntilExam,
   deleteItemAsync,
   deletePlanAsync,
+  GENERATABLE_KINDS,
+  WIZARD_KINDS,
   getPlanAsync,
   ITEM_KIND_LABEL,
   progressPercent,
+  updateItemAsync,
   updateItemStatusAsync,
   type StudyPlan,
   type StudyPlanItem,
@@ -67,6 +76,12 @@ import {
 } from "@/lib/study-plans";
 import { cn } from "@/lib/utils";
 import type { User } from "@/lib/types";
+import { ContentWizard } from "@/components/ai/content-wizard";
+import {
+  RotinaWizardDialog,
+  type RotinaWizardSubmit,
+} from "@/components/planos/rotina-wizard-dialog";
+import type { AIMode } from "@/lib/coins-pricing";
 
 const KIND_ICON: Record<StudyPlanItemKind, typeof FileText> = {
   document: FileText,
@@ -112,6 +127,10 @@ function PlanoView({ user }: { user: User }) {
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  /** Item da trilha selecionado pra "Gerar agora" — abre o ContentWizard. */
+  const [genItem, setGenItem] = useState<StudyPlanItem | null>(null);
+  /** Item de Rotina selecionado pra abrir RotinaWizardDialog. */
+  const [rotinaItem, setRotinaItem] = useState<StudyPlanItem | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -171,6 +190,193 @@ function PlanoView({ user }: { user: User }) {
     }
   }
 
+  /**
+   * Gera a rotina (PDF cronograma) chamando /api/lumi/routine com os dados
+   * do RotinaWizardDialog. Custa 12 coins. Linka o documentId retornado
+   * como asset_id do item.
+   */
+  const handleGenerateRotina = useCallback(
+    async (item: StudyPlanItem, data: RotinaWizardSubmit) => {
+      if (!plan?.subjectId) {
+        toast.error(
+          "Esse plano precisa estar atrelado a uma matéria pra gerar a rotina.",
+        );
+        throw new Error("no subject");
+      }
+      const toastId = toast.loading("Gerando rotina (PDF)…");
+      try {
+        const res = await fetch("/api/lumi/routine", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            subjectId: plan.subjectId,
+            conteudo: data.conteudo,
+            horasSemanais: data.horasSemanais,
+            dataProva: plan.examDate ?? "",
+            titulo: item.title,
+          }),
+        });
+        const json = (await res.json()) as {
+          documentId?: string;
+          error?: string;
+        };
+        if (!res.ok || !json.documentId) {
+          throw new Error(json.error ?? "Falha ao gerar rotina.");
+        }
+        await updateItemAsync(item.id, {
+          assetId: json.documentId,
+          status: "done",
+        });
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id === item.id
+              ? {
+                  ...i,
+                  assetId: json.documentId!,
+                  status: "done",
+                  completedAt: new Date().toISOString(),
+                }
+              : i,
+          ),
+        );
+        toast.success("Rotina pronta! Abre o PDF pra ver.", { id: toastId });
+      } catch (err) {
+        toast.error(`Erro: ${(err as Error).message}`, { id: toastId });
+        throw err;
+      }
+    },
+    [plan],
+  );
+
+  /**
+   * Anexa um PDF (upload) como Documento do item. Cria row em `documents`,
+   * sobe binário no Storage e linka documentId em asset_id.
+   * Reusa a mesma lógica do wizard pra Storage + Document.
+   */
+  const handleAttachPdf = useCallback(
+    async (item: StudyPlanItem, file: File) => {
+      if (!plan) return;
+      if (file.type !== "application/pdf") {
+        toast.error("Só PDF por aqui.");
+        return;
+      }
+      if (file.size > 30 * 1024 * 1024) {
+        toast.error("PDF acima de 30MB.");
+        return;
+      }
+      const toastId = toast.loading("Anexando PDF…");
+      try {
+        // Cria document primeiro (sem texto — extração via index roda em bg).
+        const doc = await createDocumentAsync({
+          userId: user.id,
+          subjectId: plan.subjectId,
+          title: item.title || file.name.replace(/\.pdf$/i, ""),
+          sourceKind: "pdf",
+          sourceText: "",
+          pageCount: undefined,
+        });
+        if (!doc) throw new Error("Falha ao criar documento.");
+
+        // Sobe PDF binário no Storage
+        const supabase = createSupabaseClient();
+        const storageKey = `${user.id}/${doc.id}.pdf`;
+        const { error: upErr } = await supabase.storage
+          .from("user-documents")
+          .upload(storageKey, file, {
+            contentType: "application/pdf",
+            upsert: true,
+          });
+        if (upErr) throw new Error(upErr.message);
+
+        const { data: pub } = supabase.storage
+          .from("user-documents")
+          .getPublicUrl(storageKey);
+        if (pub?.publicUrl) {
+          await supabase
+            .from("documents")
+            .update({ source_url: pub.publicUrl })
+            .eq("id", doc.id);
+        }
+
+        await updateItemAsync(item.id, {
+          assetId: doc.id,
+          status: "done",
+        });
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id === item.id
+              ? {
+                  ...i,
+                  assetId: doc.id,
+                  status: "done",
+                  completedAt: new Date().toISOString(),
+                }
+              : i,
+          ),
+        );
+        toast.success("PDF anexado.", { id: toastId });
+      } catch (err) {
+        toast.error(`Erro: ${(err as Error).message}`, { id: toastId });
+      }
+    },
+    [plan, user.id],
+  );
+
+  /**
+   * Linka o asset gerado pelo ContentWizard ao item da trilha.
+   * Pra mindmap/quiz/flashcards, asset_id = lecture_assets.id (assetRowId).
+   * Pra summary, asset_id = summaries.id (rota /resumo/doc/[id]).
+   */
+  const handleAssetGenerated = useCallback(
+    async (result: {
+      lectureId?: string;
+      summaryId?: string;
+      documentId?: string;
+      assetRowId?: string;
+      mode: AIMode;
+    }) => {
+      if (!genItem) return;
+      let assetId: string | null = null;
+      if (result.mode === "summary") {
+        assetId = result.summaryId ?? null;
+      } else {
+        // flashcards | quiz | mindmap
+        assetId = result.assetRowId ?? null;
+      }
+      if (!assetId) {
+        toast.warning(
+          "Asset criado mas não consegui linkar ao item. Marca manualmente quando estudar.",
+        );
+        setGenItem(null);
+        return;
+      }
+      try {
+        await updateItemAsync(genItem.id, {
+          assetId,
+          status: "done",
+        });
+        setItems((prev) =>
+          prev.map((i) =>
+            i.id === genItem.id
+              ? {
+                  ...i,
+                  assetId,
+                  status: "done",
+                  completedAt: new Date().toISOString(),
+                }
+              : i,
+          ),
+        );
+        toast.success("Asset linkado à trilha.");
+      } catch (err) {
+        toast.error(`Não consegui linkar: ${(err as Error).message}`);
+      } finally {
+        setGenItem(null);
+      }
+    },
+    [genItem],
+  );
+
   async function handleDeletePlan() {
     if (!plan) return;
     if (!confirm("Excluir este plano e todos os itens? Essa ação não dá pra desfazer.")) return;
@@ -213,7 +419,10 @@ function PlanoView({ user }: { user: User }) {
   const examDateLabel = formatExamDate(plan.examDate);
 
   return (
-    <div className="mx-auto w-full max-w-[900px] px-4 py-6 lg:px-8 lg:py-8">
+    // Mesmo padrão de /planos: flow natural (sem trava de viewport).
+    // Em desktop reduzimos py e o mb dos blocos pra que o caso comum
+    // (header + progress + 4-8 itens) caiba sem forçar scroll.
+    <div className="mx-auto w-full max-w-[900px] px-4 py-6 lg:px-8 lg:py-5">
       {/* Breadcrumb */}
       <Link
         href="/planos"
@@ -224,7 +433,7 @@ function PlanoView({ user }: { user: User }) {
       </Link>
 
       {/* Header */}
-      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-start md:justify-between lg:mb-4">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-primary">
@@ -275,7 +484,7 @@ function PlanoView({ user }: { user: User }) {
       </div>
 
       {/* Progress bar */}
-      <div className="mb-6 rounded-2xl border border-border/60 bg-card p-4">
+      <div className="mb-6 rounded-2xl border border-border/60 bg-card p-4 lg:mb-4 lg:p-3">
         <div className="flex items-center justify-between text-xs">
           <span className="font-medium text-foreground">
             {items.length === 0
@@ -319,6 +528,9 @@ function PlanoView({ user }: { user: User }) {
               index={idx}
               onToggle={() => void handleToggle(item)}
               onDelete={() => void handleDeleteItem(item)}
+              onGenerate={() => setGenItem(item)}
+              onGenerateRotina={() => setRotinaItem(item)}
+              onAttachPdf={(file) => void handleAttachPdf(item, file)}
             />
           ))}
         </ol>
@@ -330,6 +542,36 @@ function PlanoView({ user }: { user: User }) {
         onOpenChange={setAddOpen}
         onAdded={(item) => setItems((prev) => [...prev, item])}
       />
+
+      {/* ContentWizard reaproveitado pra Fase 4: cada item gerável vira asset
+          real (summary/mindmap/quiz/flashcards) ancorado na matéria do plano. */}
+      {genItem && WIZARD_KINDS.includes(genItem.kind) && (
+        <ContentWizard
+          open={!!genItem}
+          onOpenChange={(v) => {
+            if (!v) setGenItem(null);
+          }}
+          mode={genItem.kind as AIMode}
+          userId={user.id}
+          initialSubjectId={plan.subjectId ?? undefined}
+          onCreated={(r) => void handleAssetGenerated(r)}
+        />
+      )}
+
+      {/* Wizard pra Rotina — coleta tópicos + horas/semana antes de chamar API. */}
+      {rotinaItem && (
+        <RotinaWizardDialog
+          open={!!rotinaItem}
+          onOpenChange={(v) => {
+            if (!v) setRotinaItem(null);
+          }}
+          subjectName={subjectName ?? "Geral"}
+          examDateLabel={examDateLabel}
+          itemTitle={rotinaItem.title}
+          initialConteudo={rotinaItem.description ?? ""}
+          onSubmit={(data) => handleGenerateRotina(rotinaItem, data)}
+        />
+      )}
     </div>
   );
 }
@@ -339,17 +581,34 @@ function TrailItem({
   index,
   onToggle,
   onDelete,
+  onGenerate,
+  onGenerateRotina,
+  onAttachPdf,
 }: {
   item: StudyPlanItem;
   index: number;
   onToggle: () => void;
   onDelete: () => void;
+  /** Abre ContentWizard (summary/mindmap/quiz/flashcards). */
+  onGenerate: () => void;
+  /** Dispara /api/lumi/routine direto. */
+  onGenerateRotina: () => void;
+  /** Recebe o PDF selecionado pelo input file. */
+  onAttachPdf: (file: File) => void;
 }) {
   const Icon = KIND_ICON[item.kind];
   const tone = KIND_TONE[item.kind];
   const done = item.status === "done";
   const [expanded, setExpanded] = useState(false);
   const hasDescription = !!item.description && item.description.length > 0;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const generatable = GENERATABLE_KINDS.includes(item.kind);
+  const isWizardKind = WIZARD_KINDS.includes(item.kind);
+  const isRoutine = item.kind === "routine";
+  const isDocument = item.kind === "document";
+  const assetHref = assetHrefFor(item);
+  const hasAsset = !!assetHref;
 
   return (
     <li
@@ -386,6 +645,12 @@ function TrailItem({
           <span className="text-[11px] text-muted-foreground">
             #{index + 1}
           </span>
+          {hasAsset && (
+            <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
+              <CheckCircle2 className="h-3 w-3" />
+              Pronto
+            </span>
+          )}
         </div>
         <h3
           className={cn(
@@ -416,6 +681,58 @@ function TrailItem({
               </p>
             )}
           </>
+        )}
+
+        {/* Ações de asset: abrir quando existe, gerar quando ainda não.
+            Cada kind tem um fluxo: wizard, rotina API, ou upload PDF. */}
+        {(generatable || hasAsset) && (
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {hasAsset && assetHref ? (
+              <Link href={assetHref}>
+                <Button size="sm" variant="outline" className="gap-1.5">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  Abrir {ITEM_KIND_LABEL[item.kind].toLowerCase()}
+                  <ArrowRight className="h-3.5 w-3.5" />
+                </Button>
+              </Link>
+            ) : isWizardKind ? (
+              <Button size="sm" onClick={onGenerate} className="gap-1.5">
+                <Wand2 className="h-3.5 w-3.5" />
+                Gerar agora
+              </Button>
+            ) : isRoutine ? (
+              <Button
+                size="sm"
+                onClick={onGenerateRotina}
+                className="gap-1.5"
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                Gerar rotina (PDF · 12 coins)
+              </Button>
+            ) : isDocument ? (
+              <>
+                <Button
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="gap-1.5"
+                >
+                  <Wand2 className="h-3.5 w-3.5" />
+                  Anexar PDF
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onAttachPdf(f);
+                    e.target.value = ""; // permite reselect mesmo arquivo
+                  }}
+                />
+              </>
+            ) : null}
+          </div>
         )}
       </div>
 

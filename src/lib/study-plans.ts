@@ -272,6 +272,38 @@ export async function updateItemStatusAsync(
   if (error) throw error;
 }
 
+/**
+ * Atualiza campos arbitrários de um item — usado depois de gerar um asset
+ * (linka asset_id e marca status="done" em uma chamada só).
+ */
+export async function updateItemAsync(
+  itemId: string,
+  patch: Partial<{
+    title: string;
+    description: string | null;
+    assetId: string | null;
+    status: StudyPlanItemStatus;
+  }>,
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = createClient();
+  const dbPatch: Record<string, unknown> = {};
+  if ("title" in patch) dbPatch.title = patch.title;
+  if ("description" in patch) dbPatch.description = patch.description;
+  if ("assetId" in patch) dbPatch.asset_id = patch.assetId;
+  if ("status" in patch) {
+    dbPatch.status = patch.status;
+    dbPatch.completed_at =
+      patch.status === "done" ? new Date().toISOString() : null;
+  }
+  if (Object.keys(dbPatch).length === 0) return;
+  const { error } = await supabase
+    .from("study_plan_items")
+    .update(dbPatch)
+    .eq("id", itemId);
+  if (error) throw error;
+}
+
 export async function deleteItemAsync(itemId: string): Promise<void> {
   if (!isSupabaseConfigured()) return;
   const supabase = createClient();
@@ -298,6 +330,57 @@ export function progressPercent(items: StudyPlanItem[]): number {
   const done = items.filter((i) => i.status === "done").length;
   return Math.round((done / items.length) * 100);
 }
+
+/**
+ * Mapeia um item (kind + assetId) pra rota onde o asset vive.
+ * Retorna null quando o asset ainda não foi gerado/linkado.
+ *
+ * Nota: pra mindmap/quiz/flashcards, asset_id é o `lecture_assets.id`
+ * (não o lecture.id) — é o que /deck/[assetId] etc. consultam.
+ * Pra summary, asset_id é o `summaries.id` (rota /resumo/doc/[id]).
+ * Pra document, asset_id é o `documents.id` (rota /documentos/[id]).
+ */
+export function assetHrefFor(item: StudyPlanItem): string | null {
+  if (!item.assetId) return null;
+  switch (item.kind) {
+    case "flashcards":
+      return `/deck/${item.assetId}`;
+    case "mindmap":
+      return `/mapa/${item.assetId}`;
+    case "quiz":
+      return `/quiz-banco/${item.assetId}`;
+    case "summary":
+      return `/resumo/doc/${item.assetId}`;
+    case "document":
+    case "routine":
+      // Rotina é um Document especial (PDF cronograma) — /api/lumi/routine
+      // retorna documentId e a rota /document/[id] renderiza ambos.
+      return `/document/${item.assetId}`;
+    default:
+      return null;
+  }
+}
+
+/** Kinds que podem ser gerados via algum fluxo "Gerar agora". */
+export const GENERATABLE_KINDS: StudyPlanItemKind[] = [
+  "summary",
+  "mindmap",
+  "quiz",
+  "flashcards",
+  "routine",
+  "document",
+];
+
+/**
+ * Kinds que o ContentWizard cobre. Outros (routine/document) usam fluxos
+ * próprios — rotina chama /api/lumi/routine direto, documento abre upload.
+ */
+export const WIZARD_KINDS: StudyPlanItemKind[] = [
+  "summary",
+  "mindmap",
+  "quiz",
+  "flashcards",
+];
 
 export const ITEM_KIND_LABEL: Record<StudyPlanItemKind, string> = {
   document: "Documento",

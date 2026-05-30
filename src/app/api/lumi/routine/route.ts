@@ -277,9 +277,11 @@ export async function POST(req: Request) {
   const admin = createAdminClient();
   const { data: subjectsRaw, error: subjErr } = await admin
     .from("subjects")
-    .select("id, user_id, name, emoji, color, icon, schedule, created_at")
+    // `emoji` foi removido do schema — `icon` é a fonte canônica.
+    .select("id, user_id, name, color, icon, schedule, created_at")
     .eq("user_id", user.id);
   if (subjErr) {
+    console.error("[lumi/routine] subjects load failed", subjErr);
     return Response.json(
       { error: "Falha ao carregar matérias." },
       { status: 500 },
@@ -375,6 +377,10 @@ export async function POST(req: Request) {
 
   const parsed = tryParsePlan(raw);
   if (!parsed || !Array.isArray(parsed.weeklyPlan)) {
+    console.error(
+      "[lumi/routine] parse failed. raw first 300 chars:",
+      raw.slice(0, 300),
+    );
     try {
       await creditCoins(user.id, COIN_COSTS.routine, "refund", {
         reason: "routine_no_content",
@@ -391,6 +397,15 @@ export async function POST(req: Request) {
   const weeklyPlan = planToDays(parsed, freeWeek);
   const hasAnyBlock = weeklyPlan.some((d) => d.blocks.length > 0);
   if (!hasAnyBlock) {
+    console.error(
+      "[lumi/routine] no valid blocks. LLM proposed",
+      (parsed.weeklyPlan ?? []).reduce(
+        (acc, d) => acc + (d.blocks?.length ?? 0),
+        0,
+      ),
+      "blocks total. Free week totals:",
+      freeWeek.map((d) => `${d.dayLabel}: ${d.totalFreeMinutes}min`).join(" | "),
+    );
     try {
       await creditCoins(user.id, COIN_COSTS.routine, "refund", {
         reason: "routine_no_valid_blocks",

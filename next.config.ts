@@ -17,7 +17,10 @@ const csp = [
   "media-src 'self' blob: https://*.supabase.co",
   "font-src 'self' data: https://fonts.gstatic.com",
   "connect-src 'self' https://api.anthropic.com https://*.supabase.co wss://*.supabase.co https://api.stripe.com https://www.google-analytics.com https://*.google-analytics.com https://www.facebook.com https://connect.facebook.net https://us.i.posthog.com https://us-assets.i.posthog.com",
-  "frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com",
+  // Supabase Storage entra no frame-src pq /document/[id] usa <iframe> pra
+  // mostrar o PDF do bucket (rotina, anexos, etc). Sem isso o Chrome bloqueia
+  // com "Este conteúdo está bloqueado".
+  "frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://*.supabase.co",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",

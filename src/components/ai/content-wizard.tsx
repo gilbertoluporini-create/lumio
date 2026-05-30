@@ -142,6 +142,12 @@ export type ContentWizardProps = {
     lectureId?: string;
     summaryId?: string;
     documentId?: string;
+    /**
+     * Id da row em `lecture_assets` (não confundir com lectureId).
+     * Existe quando mode ∈ {flashcards, quiz, mindmap}, que é o id
+     * usado pelas rotas /deck/[assetId], /quiz-banco/[assetId], /mapa/[assetId].
+     */
+    assetRowId?: string;
     mode: AIMode;
   }) => void;
 };
@@ -1017,6 +1023,7 @@ export function ContentWizard({
           );
           return;
         }
+        let assetRowId: string | undefined;
         if (isSupabaseConfigured()) {
           const supabase = createClient();
           const kind = mode;
@@ -1069,22 +1076,33 @@ export function ContentWizard({
           }
           // Insert lecture_asset com timeout — se o Supabase pendurar,
           // o user ainda recebe feedback em vez de travar em 95%.
-          await withTimeout(
-            supabase.from("lecture_assets").insert({
-              lecture_id: lecture.id,
-              user_id: userId,
-              kind,
-              payload,
-              coins_spent: json.coinsCharged,
-            }),
+          // Captura o id da row pro callback poder linkar em outros lugares
+          // (ex: study_plan_items.asset_id na trilha do Plano de Estudos).
+          const assetInsert = await withTimeout(
+            supabase
+              .from("lecture_assets")
+              .insert({
+                lecture_id: lecture.id,
+                user_id: userId,
+                kind,
+                payload,
+                coins_spent: json.coinsCharged,
+              })
+              .select("id")
+              .single(),
             15_000,
             "lecture_assets.insert",
           );
+          const assetRow = (assetInsert as { data?: { id?: string } } | null)
+            ?.data;
+          if (assetRow?.id) {
+            assetRowId = assetRow.id;
+          }
         }
         finishProgress("Pronto!");
         toast.success(`${modeLabel(mode)} pronto!`);
         fireConfetti();
-        onCreated?.({ lectureId: lecture.id, mode });
+        onCreated?.({ lectureId: lecture.id, assetRowId, mode });
       }
     } catch (err) {
       cancelProgress();
