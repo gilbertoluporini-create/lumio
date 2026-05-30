@@ -50,7 +50,9 @@ export function escapeForPrompt(s: string): string {
 }
 
 export const LIMITS = {
-  TRANSCRIPT_CHARS: 50_000,
+  // Sonnet 4.5 tem 200K tokens de context. 200K chars ≈ 50K tokens, cabe.
+  // Necessário pra aceitar transcrições longas (aulas de 1h30+).
+  TRANSCRIPT_CHARS: 200_000,
   SLIDES_TOTAL_CHARS: 80_000,
   MESSAGE_CHARS: 4_000,
   MAX_MESSAGES: 30,

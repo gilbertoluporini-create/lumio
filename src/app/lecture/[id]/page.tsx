@@ -592,6 +592,16 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       }).catch((err) =>
         console.error("[lecture] summary upsert failed", err),
       );
+      // Dispara geração de imagens em fire-and-forget (não bloqueia o toast).
+      // Mesmo padrão usado em /lumi quando gera resumo via chat.
+      if (lecture?.id && !s.images?.length) {
+        void fetch("/api/ai/summary-images", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ lectureId: lecture.id, count: 3 }),
+          keepalive: true,
+        }).catch((e) => console.warn("[lecture] summary-images failed", e));
+      }
       if (t) toast.success("Resumo gerado.", { id: t });
       else toast.success("Resumo atualizado.");
       setView("summary");
