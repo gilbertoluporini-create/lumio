@@ -573,6 +573,8 @@ function LumiAssistant({ user }: { user: User }) {
             throw new Error(errMsg);
           }
 
+          Analytics.assetGenerated(kind);
+
           const titleBase = context.lectureTitle
             ? `${context.lectureTitle}`
             : context.subjectName

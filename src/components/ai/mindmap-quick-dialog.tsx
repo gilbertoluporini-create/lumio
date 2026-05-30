@@ -31,6 +31,7 @@ import { toast } from "sonner";
 import { createLectureAsync } from "@/lib/db";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { computeCost } from "@/lib/coins-pricing";
+import { Analytics } from "@/lib/analytics";
 
 export type MindmapQuickSource = {
   lectureIds: string[];
@@ -109,6 +110,8 @@ export function MindmapQuickDialog({
         toast.error(json.error ?? "Falha na geração.", { id: tId });
         return;
       }
+
+      Analytics.assetGenerated("mindmap", true);
 
       const centralTopic = json.content?.centralTopic ?? subjectName ?? "Tópico";
       const title = `Mapa mental — ${centralTopic}`.slice(0, 200);

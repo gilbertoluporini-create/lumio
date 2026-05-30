@@ -69,6 +69,7 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Document, Lecture, Subject } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { fireConfetti } from "@/lib/confetti";
+import { Analytics } from "@/lib/analytics";
 import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
 
 /* ------------------------------------------------------------------ */
@@ -704,6 +705,8 @@ export function ContentWizard({
         toast.error(json.error ?? "Falha na geração.");
         return;
       }
+
+      Analytics.assetGenerated(mode, withImages);
 
       // Auto-save: pula a tela de preview e leva direto pro /resumo[id]
       // Prioridade pra resolver a matéria:
