@@ -32,17 +32,40 @@ export type PublishResult = { id: string; permalink: string | null };
 export type NetworkResults = Partial<Record<Network, PublishResult>>;
 export type NetworkErrors = Partial<Record<Network, string>>;
 
-// Lista ordenada de imagens pro carrossel: capa (1x1) + slides 2..10 contíguos.
+// Lista ordenada de imagens pro carrossel: capa + slides 2..10 contíguos.
 // 1 url = post simples; 2+ = carrossel.
-function carouselImageUrls(draft: DraftForPublish): string[] {
+//
+// coverPref escolhe a ratio da CAPA quando o post é single (sem slides extras).
+// Quando há slides 2+, força 1x1 — IG exige mesma proporção em todas as
+// imagens do carousel, e os slides extras são 1x1 nativos.
+function carouselImageUrls(
+  draft: DraftForPublish,
+  coverPref: "square" | "portrait" | "landscape" = "square",
+): string[] {
   const urls: string[] = [];
-  const cover = draft.images.ratio_1x1?.url;
-  if (cover) urls.push(cover);
+
+  // descobre se há slides extras (2..10)
+  const slides: string[] = [];
   for (let n = 2; n <= 10; n++) {
     const s = draft.images[`slide_${n}`];
-    if (s?.url) urls.push(s.url);
+    if (s?.url) slides.push(s.url);
     else break;
   }
+
+  // capa: se há slides → 1x1 forçado (carousel). Senão → preferência.
+  let coverUrl: string | undefined;
+  if (slides.length > 0) {
+    coverUrl = draft.images.ratio_1x1?.url;
+  } else if (coverPref === "portrait") {
+    coverUrl = draft.images.ratio_portrait?.url || draft.images.ratio_1x1?.url;
+  } else if (coverPref === "landscape") {
+    coverUrl = draft.images.ratio_landscape?.url || draft.images.ratio_1x1?.url;
+  } else {
+    coverUrl = draft.images.ratio_1x1?.url;
+  }
+
+  if (coverUrl) urls.push(coverUrl);
+  urls.push(...slides);
   return urls;
 }
 
@@ -91,7 +114,8 @@ async function publishInstagram(
     | undefined;
   if (!ig?.caption) throw new Error("instagram caption ausente");
 
-  const urls = carouselImageUrls(draft);
+  // IG single: usa portrait 4:5 (mais real estate no feed). Carousel força 1x1.
+  const urls = carouselImageUrls(draft, "portrait");
   if (urls.length === 0) throw new Error("imagem 1:1 ausente");
 
   const hashtags = Array.isArray(ig.hashtags)
@@ -194,7 +218,8 @@ async function publishFacebook(
     | undefined;
   // FB usa caption própria se existir, senão herda da IG
   const captionRaw = fb?.caption ?? ig?.caption;
-  const urls = carouselImageUrls(draft);
+  // FB single: landscape (16:9) fica melhor no feed. Carousel força 1x1.
+  const urls = carouselImageUrls(draft, "landscape");
   if (!captionRaw || urls.length === 0)
     throw new Error("FB: caption ou imagem 1:1 ausente");
 

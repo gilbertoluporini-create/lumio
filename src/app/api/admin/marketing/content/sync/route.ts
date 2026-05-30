@@ -44,11 +44,12 @@ export const maxDuration = 120;
 const BUCKET = "marketing-images";
 const POSTS_DIR = path.join(process.cwd(), "content", "marketing", "posts");
 
-type RatioFile = { ratio: "1x1" | "landscape" | "portrait"; filename: string };
+type RatioFile = { ratio: "1x1" | "landscape" | "portrait" | "story"; filename: string };
 const RATIO_FILES: RatioFile[] = [
   { ratio: "1x1", filename: "1x1.jpg" },
   { ratio: "landscape", filename: "landscape.jpg" },
   { ratio: "portrait", filename: "portrait.jpg" },
+  { ratio: "story", filename: "story.jpg" },
 ];
 
 type PostMetadata = {
