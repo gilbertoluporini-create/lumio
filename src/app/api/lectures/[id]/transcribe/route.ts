@@ -5,8 +5,10 @@ import { transcribeAudioBuffer } from "@/lib/transcribe-audio";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-// 3h de áudio com chunks de 10min em paralelo: ~2-4 min. Damos folga.
-export const maxDuration = 800;
+// 3h de áudio com chunks de 10min em paralelo: ~2-4 min. Capado em 300s
+// (limite do plano Hobby da Vercel). Pra liberar áudios muito longos,
+// upgrade pro Pro permite até 900s.
+export const maxDuration = 300;
 
 const STORAGE_BUCKET = "lectures-audio";
 
