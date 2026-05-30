@@ -63,7 +63,7 @@ type SidebarNavItem = {
   Icon?: typeof Calendar;
   isCoin?: boolean;
   badgeCount?: number | null;
-  badgeTone?: "violet";
+  badgeTone?: "violet" | "sky";
 };
 
 function SidebarLink({
@@ -132,7 +132,9 @@ function SidebarLink({
               : "",
             badgeTone === "violet"
               ? "bg-primary/15 text-primary"
-              : "bg-secondary text-foreground",
+              : badgeTone === "sky"
+                ? "bg-sky-500/15 text-sky-600 dark:text-sky-300"
+                : "bg-secondary text-foreground",
           )}
         >
           {badgeCount}
@@ -160,6 +162,7 @@ export function AppShell({
   const [hydrated, setHydrated] = useState(false);
   const [primarySubject, setPrimarySubject] = useState<string | null>(null);
   const [lumiChatCount, setLumiChatCount] = useState<number>(0);
+  const [planInflight, setPlanInflight] = useState<number>(0);
 
   // Hydrate sidebar state from localStorage
   useEffect(() => {
@@ -238,6 +241,29 @@ export function AppShell({
     return unsub;
   }, [user.id]);
 
+  // Track Study Plan items em geração (badge sky no menu).
+  // Refresh a cada 15s — cron worker processa 1 item/min, então não vale
+  // pollar mais agressivo que isso aqui no shell global.
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      fetch("/api/study-plans/inflight-count", { cache: "no-store" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => {
+          if (active && data && typeof data.count === "number") {
+            setPlanInflight(data.count);
+          }
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const t = setInterval(refresh, 15_000);
+    return () => {
+      active = false;
+      clearInterval(t);
+    };
+  }, [user.id]);
+
   // Fetch primary subject (primeira matéria do user) pra mostrar no avatar
   useEffect(() => {
     let active = true;
@@ -276,7 +302,13 @@ export function AppShell({
     },
     { href: "/schedule", label: "Calendário", Icon: Calendar },
     { href: "/resumos", label: "Resumos", Icon: FileText },
-    { href: "/planos", label: "Plano de Estudos", Icon: Target },
+    {
+      href: "/planos",
+      label: "Plano de Estudos",
+      Icon: Target,
+      badgeCount: planInflight,
+      badgeTone: "sky",
+    },
     { href: "/flashcards", label: "Flashcards", Icon: Layers },
     { href: "/quiz", label: "Quiz", Icon: Sparkles },
     { href: "/gravacoes", label: "Gravações", Icon: Mic },
