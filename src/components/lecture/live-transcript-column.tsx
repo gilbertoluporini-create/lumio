@@ -619,20 +619,17 @@ export function LiveTranscriptColumn({
   );
 }
 
-type SummaryFormat = "topics" | "educational";
-
 function SummaryInlineView({
-  summary,
-  generating,
-  onGenerate,
   educational,
   generatingEducational,
   onGenerateEducational,
   hasEntries,
   onOpenFull,
 }: {
+  // Mantidos pra compatibilidade — não usados hoje. A tab embutida só
+  // mostra o resumo educativo (markdown estilo biblioteca de resumos).
   summary?: LectureSummary;
-  generating: boolean;
+  generating?: boolean;
   onGenerate?: () => void;
   educational?: { markdown: string; generatedAt: string };
   generatingEducational: boolean;
@@ -640,55 +637,11 @@ function SummaryInlineView({
   hasEntries: boolean;
   onOpenFull?: () => void;
 }) {
-  // Sub-tab default: se há educational, mostra ele; senão por tópicos
-  const initialFormat: SummaryFormat = educational
-    ? "educational"
-    : summary
-      ? "topics"
-      : "educational";
-  const [format, setFormat] = useState<SummaryFormat>(initialFormat);
-
-  // Sincroniza quando recém-gerado um dos dois
-  useEffect(() => {
-    if (educational && !summary) setFormat("educational");
-    else if (summary && !educational) setFormat("topics");
-  }, [educational, summary]);
-
   return (
     <div className="space-y-4 px-1 py-1">
-      {/* Toggle entre os dois formatos */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-1 rounded-lg bg-secondary/60 p-1">
-          <button
-            onClick={() => setFormat("educational")}
-            className={cn(
-              "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-              format === "educational"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Educativo
-            {educational && (
-              <span className="ml-1 text-violet-500">•</span>
-            )}
-          </button>
-          <button
-            onClick={() => setFormat("topics")}
-            className={cn(
-              "rounded-md px-3 py-1 text-xs font-medium transition-colors",
-              format === "topics"
-                ? "bg-background shadow-sm text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            Por tópicos
-            {summary && (
-              <span className="ml-1 text-violet-500">•</span>
-            )}
-          </button>
-        </div>
-        {onOpenFull && (educational || summary) && (
+      {/* Header com botão Abrir em tela cheia */}
+      {educational && onOpenFull && (
+        <div className="flex items-center justify-end">
           <Button
             onClick={onOpenFull}
             variant="outline"
@@ -698,24 +651,14 @@ function SummaryInlineView({
             <Expand className="h-3 w-3" />
             Abrir em tela cheia
           </Button>
-        )}
-      </div>
-
-      {format === "educational" ? (
-        <EducationalSummaryPane
-          markdown={educational?.markdown}
-          generating={generatingEducational}
-          hasEntries={hasEntries}
-          onGenerate={onGenerateEducational}
-        />
-      ) : (
-        <TopicsSummaryPane
-          summary={summary}
-          generating={generating}
-          hasEntries={hasEntries}
-          onGenerate={onGenerate}
-        />
+        </div>
       )}
+      <EducationalSummaryPane
+        markdown={educational?.markdown}
+        generating={generatingEducational}
+        hasEntries={hasEntries}
+        onGenerate={onGenerateEducational}
+      />
     </div>
   );
 }
@@ -793,171 +736,3 @@ function EducationalSummaryPane({
   );
 }
 
-function TopicsSummaryPane({
-  summary,
-  generating,
-  hasEntries,
-  onGenerate,
-}: {
-  summary?: LectureSummary;
-  generating: boolean;
-  hasEntries: boolean;
-  onGenerate?: () => void;
-}) {
-  if (!summary) {
-    return (
-      <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-5">
-        <div className="flex items-start gap-3">
-          <div className="h-9 w-9 shrink-0 rounded-lg bg-secondary flex items-center justify-center">
-            <Sparkles className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold">Resumo por tópicos</p>
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Resumo estruturado por slide/bloco lógico — síntese geral, pontos
-              centrais em bullets e detalhamento por tópico com Q&A relacionadas
-              do chat.
-            </p>
-            <Button
-              onClick={onGenerate}
-              disabled={!hasEntries || generating || !onGenerate}
-              variant="outline"
-              size="sm"
-              className="mt-3 gap-1.5"
-            >
-              {generating ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Gerando...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  Gerar resumo por tópicos (10 coins)
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between gap-2 text-[11px]">
-        <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-          <Sparkles className="h-3 w-3" />
-          Resumo por tópicos
-        </span>
-        {onGenerate && (
-          <button
-            onClick={onGenerate}
-            disabled={generating}
-            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-          >
-            {generating ? "Regerando..." : "Regerar (10 coins)"}
-          </button>
-        )}
-      </div>
-
-      {summary.generalSummary && (
-        <div className="rounded-xl border border-border/60 bg-background/40 p-4">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
-            Síntese
-          </p>
-          <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {summary.generalSummary}
-            </ReactMarkdown>
-          </div>
-        </div>
-      )}
-
-      {summary.highlights && summary.highlights.length > 0 && (
-        <div className="rounded-xl border border-border/60 bg-background/40 p-4">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
-            Pontos centrais
-          </p>
-          <ul className="space-y-1.5">
-            {summary.highlights.map((h, i) => (
-              <li
-                key={i}
-                className="text-sm leading-relaxed flex gap-2 text-foreground/90"
-              >
-                <span className="text-violet-500 shrink-0">•</span>
-                <span className="min-w-0">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm]}
-                    components={{
-                      p: ({ children }) => <span>{children}</span>,
-                    }}
-                  >
-                    {h}
-                  </ReactMarkdown>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {summary.sections && summary.sections.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-            Por slide / tópico
-          </p>
-          {summary.sections.map((s, i) => (
-            <div
-              key={i}
-              className="rounded-xl border border-border/60 bg-card p-4"
-            >
-              <p className="text-sm font-semibold mb-2">
-                {s.slideNumber ? `${s.slideNumber}. ` : ""}
-                {s.slideTitle || `Bloco ${i + 1}`}
-              </p>
-              <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/90">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {s.spokenContent}
-                </ReactMarkdown>
-              </div>
-              {s.relatedQA && s.relatedQA.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
-                  {s.relatedQA.map((qa, j) => (
-                    <div
-                      key={j}
-                      className="text-xs space-y-1 rounded-md bg-secondary/40 p-2"
-                    >
-                      <p className="font-semibold text-foreground/80">
-                        Q: {qa.question}
-                      </p>
-                      <p className="text-muted-foreground">A: {qa.answer}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {summary.images && summary.images.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-            Imagens geradas
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {summary.images.map((img, i) => (
-              <img
-                key={i}
-                src={img.url}
-                alt={img.alt ?? `Imagem ${i + 1}`}
-                className="rounded-lg border border-border/60 w-full h-auto"
-              />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
