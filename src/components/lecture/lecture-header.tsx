@@ -5,12 +5,13 @@ import {
   Check,
   ChevronLeft,
   Download,
+  FileText,
   FolderInput,
+  Loader2,
   Mic,
   MoreHorizontal,
   Save,
   Share2,
-  Sparkles,
   Square,
   Trash2,
   type LucideIcon,
@@ -48,6 +49,9 @@ export function LectureHeader({
   onExportPdf,
   onDelete,
   onMove,
+  onAttachSlides,
+  attachingSlides,
+  hasSlides,
   onBack,
 }: {
   title: string;
@@ -68,6 +72,10 @@ export function LectureHeader({
   onExportPdf: () => void;
   onDelete: () => void;
   onMove?: () => void;
+  /** Dispara picker de PDF de slides. Botão só aparece quando !hasSlides. */
+  onAttachSlides?: () => void;
+  attachingSlides?: boolean;
+  hasSlides?: boolean;
   onBack: () => void;
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
@@ -164,47 +172,29 @@ export function LectureHeader({
           </div>
 
           <div className="flex items-center gap-1.5 flex-wrap">
-            <div className="inline-flex rounded-md border border-border/70 bg-card p-0.5">
-              {(
-                [
-                  { id: "live", label: "Aula" },
-                  { id: "summary", label: "Resumo" },
-                ] as const
-              ).map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => onChangeView(t.id)}
-                  className={cn(
-                    "px-3 py-1.5 text-xs font-medium rounded-sm transition-colors flex items-center gap-1.5",
-                    view === t.id
-                      ? "bg-secondary text-foreground"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {t.label}
-                  {t.id === "summary" && hasSummary && (
-                    <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  )}
-                </button>
-              ))}
-            </div>
-
-            {view === "live" && (
-              <Button variant="ghost" size="sm" onClick={onSave}>
-                <Save className="h-4 w-4" /> Salvar
-              </Button>
-            )}
-            {view === "summary" && onGenerateSummary && (
+            {/* Toggle Aula/Resumo removido — Resumo agora vive embutido como
+                aba do LiveTranscriptColumn (ao lado de Transcrição revisada/crua).
+                Salvar continua disponível sempre. */}
+            {onAttachSlides && !hasSlides && (
               <Button
-                variant="gradient"
+                variant="outline"
                 size="sm"
-                onClick={onGenerateSummary}
-                disabled={generatingSummary}
+                onClick={onAttachSlides}
+                disabled={attachingSlides}
+                className="gap-1.5"
               >
-                <Sparkles className="h-4 w-4" />
-                {hasSummary ? "Regenerar" : "Gerar resumo"}
+                {attachingSlides ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <FileText className="h-4 w-4" />
+                )}
+                {attachingSlides ? "Anexando…" : "Anexar PDF"}
               </Button>
             )}
+
+            <Button variant="ghost" size="sm" onClick={onSave}>
+              <Save className="h-4 w-4" /> Salvar
+            </Button>
 
             {hasSummary && (
               <Button
@@ -239,7 +229,7 @@ export function LectureHeader({
                 )}
                 {onMove && (
                   <DropdownMenuItem onClick={onMove}>
-                    <FolderInput className="h-4 w-4" /> Mover pra outra matéria
+                    <FolderInput className="h-4 w-4" /> Mover
                   </DropdownMenuItem>
                 )}
                 <DropdownMenuSeparator />

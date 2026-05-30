@@ -1023,6 +1023,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
             note: "Move a AULA INTEIRA (transcrição, resumo, flashcards, quiz, mapa) pra a nova matéria.",
           })
         }
+        onAttachSlides={() => slidesInputRef.current?.click()}
+        attachingSlides={attaching}
+        hasSlides={hasSlides}
         onBack={() => router.push("/gravacoes")}
       />
 
@@ -1111,36 +1114,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 )}
               </div>
             </div>
-
-            {!hasSlides && (
-              <div className="rounded-2xl border border-dashed border-border/60 bg-card/30 p-6 flex items-center justify-between gap-4 flex-wrap">
-                <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
-                    <Sparkles className="h-5 w-5 text-violet-500" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold">
-                      Anexe os slides pra ativar a sincronização
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      Cada frase será correlacionada com o slide aberto no momento.
-                    </p>
-                  </div>
-                </div>
-                <Button
-                  onClick={() => slidesInputRef.current?.click()}
-                  variant="gradient"
-                  size="sm"
-                  disabled={attaching}
-                >
-                  {attaching ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    "Anexar PDF"
-                  )}
-                </Button>
-              </div>
-            )}
 
             {audioUrl && !isLive && (
               <CollapsibleSection
