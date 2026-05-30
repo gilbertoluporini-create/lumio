@@ -2,10 +2,11 @@
  * POST /api/ai/summary-images
  *
  * Dado um lectureId que já tem summary gerado, extrai 2-3 conceitos visuais
- * do markdown via Haiku, chama /api/ai/generate-images, e salva as URLs em
- * lecture.summary.images.
+ * do markdown via Haiku, chama OpenAI GPT Image (com refs do PDF/slides quando
+ * disponíveis) e salva as URLs em lecture.summary.images.
  *
- * Body: { lectureId: string, count?: 2|3|4 }
+ * Body: { lectureId: string, count?: 2|3|4,
+ *         referenceImages?: Array<{ filename?: string, dataUrl?: string }> }
  * Response: { images: LectureSummaryImage[] }
  */
 
@@ -15,43 +16,93 @@ import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import { logAiUsage } from "@/lib/ai-usage";
 import {
+  DEFAULT_OPENAI_IMAGE_MODEL,
+  editImageWithReferences,
   generateImageOpenAI,
   isOpenAIImageConfigured,
-  wrapPromptForMedicalDiagram,
+  wrapPromptForPremiumEducationalImage,
 } from "@/lib/openai-image";
-import type { LectureSummary } from "@/lib/types";
+import type { LectureSummary, LectureSummaryImage } from "@/lib/types";
 
 const STORAGE_BUCKET = "ai-images";
 
 /**
- * Gera N imagens via OpenAI gpt-image-1 e faz upload pro bucket `ai-images`.
- * Retorna URLs públicas. Roda em paralelo. Falhas individuais não derrubam o lote.
+ * Converte dataURL (base64) em buffer pro endpoint /v1/images/edits.
+ * Aceita JPEG/PNG/WebP. Retorna null se formato inválido.
+ */
+function dataUrlToReference(
+  ref: { filename?: string; dataUrl?: string },
+): { buffer: Buffer; filename: string } | null {
+  if (!ref.dataUrl || typeof ref.dataUrl !== "string") return null;
+  const match = ref.dataUrl.match(
+    /^data:image\/(?:jpeg|jpg|png|webp);base64,(.+)$/i,
+  );
+  if (!match) return null;
+  return {
+    buffer: Buffer.from(match[1], "base64"),
+    filename: ref.filename?.slice(0, 120) || "pdf-page.jpg",
+  };
+}
+
+/**
+ * Gera N imagens via OpenAI GPT Image e faz upload pro bucket `ai-images`.
+ * Roda em paralelo; falhas individuais viram null. Retorna array ALINHADO
+ * com `prompts` (mesmo índice) pra preservar a associação conceito↔imagem.
+ * Se `referenceImages` vier preenchido, usa /v1/images/edits (modo "AI vê o
+ * PDF"); senão, usa /v1/images/generations puro.
  */
 async function generateAndUploadViaOpenAI(
   prompts: string[],
   userId: string,
-): Promise<string[]> {
+  referenceImages: Array<{ filename?: string; dataUrl?: string }> = [],
+): Promise<(string | null)[]> {
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return [];
+  if (!apiKey) return prompts.map(() => null);
   const admin = createAdminClient();
 
+  // Pre-decode as referências uma vez (vai pra todos os prompts)
+  const references = referenceImages
+    .map(dataUrlToReference)
+    .filter((r): r is { buffer: Buffer; filename: string } => r !== null)
+    .slice(0, 16);
+
   const results = await Promise.all(
-    prompts.map(async (rawPrompt, i) => {
+    prompts.map(async (prompt, i) => {
       try {
-        const { b64 } = await generateImageOpenAI({
-          prompt: wrapPromptForMedicalDiagram(rawPrompt),
-          quality: "medium",
-          size: "1024x1024",
-          apiKey,
-        });
+        let b64: string;
+        if (references.length > 0) {
+          const wrapped = wrapPromptForPremiumEducationalImage(prompt);
+          const edit = await editImageWithReferences({
+            prompt: [
+              wrapped,
+              "",
+              "Use the attached PDF page screenshots as visual/source references. Preserve the relevant subject matter, terminology, diagrams, tables, and visual context from those pages, but create a clean new educational image rather than copying the page.",
+            ].join("\n"),
+            references,
+            quality: "medium",
+            size: "1024x1024",
+            outputFormat: "webp",
+            apiKey,
+          });
+          b64 = edit.b64;
+        } else {
+          const gen = await generateImageOpenAI({
+            prompt: wrapPromptForPremiumEducationalImage(prompt),
+            quality: "medium",
+            size: "1024x1024",
+            outputFormat: "webp",
+            apiKey,
+          });
+          b64 = gen.b64;
+        }
         const buffer = Buffer.from(b64, "base64");
         const key = `${userId}/${Date.now()}-${i}-${Math.random()
           .toString(36)
-          .slice(2, 8)}.png`;
+          .slice(2, 8)}.webp`;
         const { error: upErr } = await admin.storage
           .from(STORAGE_BUCKET)
           .upload(key, buffer, {
-            contentType: "image/png",
+            contentType: "image/webp",
             upsert: false,
           });
         if (upErr) {
@@ -69,20 +120,20 @@ async function generateAndUploadViaOpenAI(
     }),
   );
 
-  const urls = results.filter((u): u is string => !!u);
-  if (urls.length > 0) {
+  const okCount = results.filter(Boolean).length;
+  if (okCount > 0) {
     try {
       await logAiUsage({
         userId,
         endpoint: "summary-images",
-        model: "gpt-image-1",
-        imagesCount: urls.length,
+        model: DEFAULT_OPENAI_IMAGE_MODEL,
+        imagesCount: okCount,
       });
     } catch {
       /* ignora — telemetria não pode quebrar fluxo */
     }
   }
-  return urls;
+  return results;
 }
 
 export const runtime = "nodejs";
@@ -92,7 +143,15 @@ export const maxDuration = 180;
 const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 
 type ConceptExtraction = {
-  concepts: Array<{ title: string; prompt: string; caption?: string }>;
+  concepts: Array<{
+    title: string;
+    /** Trecho literal do resumo que a imagem ilustra — usado pra garantir
+     *  que a cena gerada bate com o que está escrito naquela seção. */
+    anchor?: string;
+    prompt: string;
+    caption?: string;
+    sectionIndex?: number | null;
+  }>;
 };
 
 type SourceContext = {
@@ -101,15 +160,35 @@ type SourceContext = {
   markdown: string;
   transcript?: string;
   slidesText?: string;
+  sections: Array<{ index: number; title: string }>;
   count: number;
 };
+
+/**
+ * Extrai títulos das seções `## ` do markdown como fallback quando o summary
+ * não tem `sections[]` estruturado.
+ */
+function sectionTitlesFromMarkdown(
+  markdown: string,
+): Array<{ index: number; title: string }> {
+  const titles: Array<{ index: number; title: string }> = [];
+  const re = /^##\s+(.+)$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(markdown)) !== null) {
+    const title = match[1]
+      .replace(/^\d+\.\s*/, "")
+      .replace(/^Pontos-chave.*/i, "")
+      .replace(/^Aplicação cl[ií]nica.*/i, "")
+      .trim();
+    if (title) titles.push({ index: titles.length, title });
+  }
+  return titles;
+}
 
 async function extractVisualConcepts(
   ctx: SourceContext,
 ): Promise<ConceptExtraction> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  // Sem Anthropic E sem OpenAI: aborta. Com qualquer uma das duas,
-  // createMessage faz o roteamento certo.
   if (!apiKey && !process.env.OPENAI_API_KEY) return { concepts: [] };
 
   // Monta bloco de fontes com prioridade: summary > transcript > slides
@@ -122,45 +201,45 @@ async function extractVisualConcepts(
     sources.push(`# SLIDES DO PROFESSOR\n${ctx.slidesText.slice(0, 4000)}`);
   }
 
-  const sys = `Você é um curador visual ESPECIALISTA em material didático de medicina/saúde/ciências para estudantes universitários brasileiros.
+  const sectionsList =
+    ctx.sections.length > 0
+      ? ctx.sections.map((s) => `${s.index}: ${s.title}`).join("\n")
+      : "(o resumo não tem seções nomeadas)";
 
-OBJETIVO: a partir do conteúdo de UMA AULA específica (transcrição, slides e resumo), extrair ${ctx.count} conceitos que ficariam EXCELENTES visualizados como infográficos médicos profissionais — fidedignos ao conteúdo real da aula.
+  const sys = `Você é um diretor de arte didático. Sua tarefa: ler o RESUMO da aula (markdown) abaixo e gerar ${ctx.count} pedidos de imagem que ILUSTRAM EXATAMENTE o que o resumo está explicando — não conceitos gerais da matéria, mas o conteúdo específico daquela seção.
 
-REGRAS DE ANCORAMENTO (críticas):
-- Cada conceito deve estar EXPLICITAMENTE mencionado nas fontes (transcrição, slides ou resumo).
-- Use termos técnicos EXATOS da aula. Se o professor disse "polo superior da tireoide", use isso, não "thyroid upper pole" genérico.
-- Inclua nomes de estruturas anatômicas específicas mencionadas (artérias, veias, nervos, etc).
-- Se a aula menciona valores numéricos, ciclos com etapas, classificações — inclua isso no prompt da imagem.
+PROCESSO OBRIGATÓRIO pra cada uma das ${ctx.count} imagens:
+1. ESCOLHA uma seção diferente do resumo (sectionIndex). Distribua entre seções diferentes — nunca duas na mesma.
+2. LEIA o parágrafo dessa seção com cuidado. Identifique o conceito CONCRETO que ela descreve (uma estrutura, um processo passo-a-passo, uma comparação, uma via metabólica, etc).
+3. EXTRAIA o trecho-âncora literal — uma frase curta DO RESUMO (15-30 palavras) que descreve o que será visualizado. Esse trecho é a verdade-base: a cena pedida tem que representar literalmente esse trecho.
+4. ESCREVA o prompt da imagem em inglês (70-130 palavras), descrevendo a cena que representa o trecho-âncora, usando os termos técnicos EXATOS que aparecem no resumo (estruturas, etapas, números, nomes). Deixe o estilo visual aberto — peça "high-quality educational illustration" e deixe o modelo escolher o melhor idioma visual pro conteúdo (flat editorial, semi-3D, isométrico, esquemático). NÃO trave em flat 2D bege se o conteúdo pede outra coisa.
 
-PRIORIZE conceitos que sejam:
-- Estruturas anatômicas específicas mencionadas (com nomes exatos)
-- Fluxos/ciclos com etapas numeradas (ex: ciclo da PCR, etapas da hemostasia)
-- Comparações lado-a-lado (ex: tipos de leucemia, fases do sono)
-- Mecanismos com setas/relações (ex: eixo HHA, feedback negativo)
-- Tabelas/classificações visualizáveis em grid
+REGRA DE FIDELIDADE (a mais importante):
+- Se a seção fala "ciclo da ureia tem 5 etapas: carbamoil-fosfato → citrulina → argininossuccinato → arginina → ornitina", o prompt deve descrever EXATAMENTE essas 5 etapas nessa ordem. Não invente etapa 6.
+- Se a seção fala de eixo hipotálamo-hipófise-tireoide com feedback negativo, NÃO desenhe uma tireoide solta sem o eixo.
+- Se você não consegue extrair um trecho-âncora claro de uma seção, escolha outra seção. Melhor menos imagens fiéis do que mais imagens descoladas.
 
-EVITE: textos longos, definições puramente verbais, conceitos abstratos sem componente visual.
+LABELS NA IMAGEM (permitidos, com cuidado):
+- Labels são bem-vindos quando ajudam a compreensão. Curtos (1-3 palavras) e em pt-BR.
+- Se tiver dúvida da grafia/acentuação pt-BR, prefira abreviações universais (ALT, AST, NH3, ATP, DNA, RNA, ECG) ou omita aquele label específico.
+- NUNCA escreva frases completas, parágrafos, captions, instruções ou descrições dentro da imagem. Espanhol nunca.
 
-ESTILO DOS PROMPTS (em inglês pra gpt-image-1, com LABELS em português):
-- Comece descrevendo o tipo de figura, ESCOLHENDO UM ÚNICO formato por imagem:
-  "anatomical cross-section diagram" | "labeled anatomical structure" |
-  "numbered process flow diagram" | "side-by-side comparison diagram" |
-  "schematic mechanism with arrows" | "tabular classification grid"
-- Liste OS LABELS exatos em português que devem aparecer (máximo 6 por imagem, frases muito curtas, 1-3 palavras cada)
-- Descreva cores funcionais quando fizer sentido (vermelho=artéria, azul=veia, verde=normal, amarelo=destaque)
-- Indique a vista (frontal / posterior / transversal / sagital) quando aplicável
-- DESCREVA APENAS O CONTEÚDO. Não inclua estilo no prompt (estilo é injetado depois pelo wrapper).
-- PROIBIDO usar nos prompts: "photorealistic", "3D render", "vibrant", "glossy", "neon", "stylized", "documentary photography", "shallow depth of field", "cinematic"
+EVITE SEMPRE: estética exagerada/futurista, "student studying", livros genéricos, laptop, pessoa olhando tela, ícones soltos, stock photo, mascote, collage sem hierarquia, texto longo, parágrafos, balões de fala, bandeiras, qualquer palavra em espanhol. Em temas médicos/biológicos, NÃO mostre fluidos corporais caindo em copos, tubos, beakers ou recipientes; represente excreção/transporte de forma limpa e esquemática com setas, vias anatômicas e ícones.
 
-TEMA DA AULA: "${ctx.lectureTitle}" — Matéria: ${ctx.subjectName}
+SEÇÕES DO RESUMO (você DEVE escolher uma destas):
+${sectionsList}
+
+TEMA: "${ctx.lectureTitle}" — Matéria: ${ctx.subjectName}
 
 Retorne APENAS JSON puro (sem markdown, sem cercas):
 {
   "concepts": [
     {
       "title": "Curto em pt-BR (3-6 palavras)",
-      "prompt": "Detailed English prompt with Portuguese labels for Imagen, including: 1) diagram type, 2) main subject, 3) labels in Portuguese, 4) color coding, 5) view/perspective",
-      "caption": "Frase curta pt-BR (8-15 palavras) explicando o que a imagem mostra do conteúdo da aula"
+      "anchor": "Trecho LITERAL do resumo (15-30 palavras) que a imagem ilustra. Copie tal qual aparece no markdown.",
+      "prompt": "English scene description (70-130 words). Must visually represent the anchor sentence, using exact technical terms.",
+      "caption": "Frase curta pt-BR (8-15 palavras) do que a imagem mostra — pode ser o anchor parafraseado.",
+      "sectionIndex": <índice da seção (obrigatório, número válido)>
     }
   ]
 }`;
@@ -195,6 +274,14 @@ Retorne APENAS JSON puro (sem markdown, sem cercas):
   try {
     return JSON.parse(cleaned) as ConceptExtraction;
   } catch {
+    const fallbackMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (fallbackMatch) {
+      try {
+        return JSON.parse(fallbackMatch[0]) as ConceptExtraction;
+      } catch {
+        /* falha — devolve vazio */
+      }
+    }
     return { concepts: [] };
   }
 }
@@ -216,9 +303,17 @@ export async function POST(req: Request) {
   const cap = await checkDailyCostCap(user.id);
   if (!cap.ok) return dailyCapResponse(cap);
 
-  let body: { lectureId?: string; count?: number };
+  let body: {
+    lectureId?: string;
+    count?: number;
+    referenceImages?: Array<{ filename?: string; dataUrl?: string }>;
+  };
   try {
-    body = (await req.json()) as { lectureId?: string; count?: number };
+    body = (await req.json()) as {
+      lectureId?: string;
+      count?: number;
+      referenceImages?: Array<{ filename?: string; dataUrl?: string }>;
+    };
   } catch {
     return Response.json({ error: "JSON inválido." }, { status: 400 });
   }
@@ -279,6 +374,16 @@ export async function POST(req: Request) {
         .join("\n\n")
     : "";
 
+  // Seções numeradas pra o Haiku ancorar cada imagem na seção certa
+  // (intercalação inline no resumo em vez de galeria agrupada).
+  const sectionsForMap = (lectureSummary.sections ?? []).map((s, i) => ({
+    index: i,
+    title: s.slideTitle?.trim() || `Seção ${i + 1}`,
+  }));
+  const markdownSections = sectionTitlesFromMarkdown(
+    lectureSummary.generalSummary,
+  );
+
   // 1) Extrair conceitos ancorados no contexto completo
   const { concepts } = await extractVisualConcepts({
     lectureTitle: (lectureRow.title as string) ?? "Aula",
@@ -286,24 +391,76 @@ export async function POST(req: Request) {
     markdown: lectureSummary.generalSummary,
     transcript: (lectureRow.transcript as string | null) ?? undefined,
     slidesText,
+    sections: sectionsForMap.length > 0 ? sectionsForMap : markdownSections,
     count,
   });
   if (!concepts || concepts.length === 0) {
     return Response.json({ images: [] });
   }
 
-  // 2) Geração de imagens — prefere OpenAI gpt-image-1 (mais fotográfico,
-  // melhor texto, menos "cara de IA"). Fallback: Imagen 4 via generate-images.
-  let urls: string[] = [];
+  // Distribuição uniforme FORÇADA das imagens ao longo do resumo.
+  // Sem isso, quando o LLM concentra (ex: 0,1,2 num resumo de 5 seções),
+  // o final fica vazio. Aqui geramos N posições igualmente espaçadas
+  // (i+1)/(N+1) × totalSections — 3 imagens em 5 seções viram seções
+  // [1, 2, 3] (espaçadas), não [0,1,2]. Respeita a escolha do LLM só
+  // quando ela está a no máximo 1 seção de distância da ideal.
+  const totalSections =
+    sectionsForMap.length > 0 ? sectionsForMap.length : markdownSections.length;
+  if (totalSections > 1) {
+    const idealPositions = concepts.map((_, i) =>
+      Math.round(((i + 1) * totalSections) / (concepts.length + 1)),
+    );
+    const seen = new Set<number>();
+    concepts.forEach((c, i) => {
+      let target = Math.min(totalSections - 1, Math.max(0, idealPositions[i]));
+      const raw = c.sectionIndex;
+      if (
+        typeof raw === "number" &&
+        raw >= 0 &&
+        raw < totalSections &&
+        Math.abs(raw - target) <= 1 &&
+        !seen.has(raw)
+      ) {
+        target = raw;
+      }
+      // Resolve colisão andando pra frente
+      let guard = 0;
+      while (seen.has(target) && guard < totalSections) {
+        target = (target + 1) % totalSections;
+        guard++;
+      }
+      c.sectionIndex = target;
+      seen.add(target);
+    });
+  }
+
+  // 2) Blindagem: cada prompt enviado pro modelo de imagem leva o
+  // trecho-âncora literal na frente, forçando a cena a representar
+  // exatamente o que aquela seção do resumo diz.
+  const promptsWithAnchor = concepts.map((c) => {
+    const anchor = (c.anchor ?? "").trim();
+    if (!anchor) return c.prompt;
+    return [
+      `MUST faithfully illustrate this exact passage from the lecture summary (do not deviate, do not generalize, do not add concepts not in this passage):`,
+      `"${anchor}"`,
+      ``,
+      c.prompt,
+    ].join("\n");
+  });
+
+  // 3) Geração de imagens — prefere OpenAI gpt-image. Retorno ALINHADO
+  // com `concepts` (mesmo índice) pra preservar a associação conceito↔imagem↔seção.
+  let urlsAligned: (string | null)[] = [];
   if (isOpenAIImageConfigured()) {
-    urls = await generateAndUploadViaOpenAI(
-      concepts.map((c) => c.prompt),
+    urlsAligned = await generateAndUploadViaOpenAI(
+      promptsWithAnchor,
       user.id,
+      Array.isArray(body.referenceImages) ? body.referenceImages : [],
     );
   }
 
   // Fallback Imagen quando OpenAI não configurado OU falhou completamente
-  if (urls.length === 0) {
+  if (!urlsAligned.some(Boolean)) {
     const origin = req.headers.get("x-forwarded-proto")
       ? `${req.headers.get("x-forwarded-proto")}://${req.headers.get("host")}`
       : `http://${req.headers.get("host")}`;
@@ -316,7 +473,7 @@ export async function POST(req: Request) {
         cookie: cookieHeader,
       },
       body: JSON.stringify({
-        prompts: concepts.map((c) => c.prompt),
+        prompts: promptsWithAnchor,
       }),
     });
 
@@ -329,21 +486,29 @@ export async function POST(req: Request) {
       );
     }
     const json = (await imagesResp.json()) as { urls?: string[] };
-    urls = json.urls ?? [];
+    const fbUrls = json.urls ?? [];
+    urlsAligned = concepts.map((_, i) => fbUrls[i] ?? null);
   }
 
-  if (urls.length === 0) {
+  // 4) Combinar URLs + captions/alts/sectionIndex, preservando o conceito.
+  const images: LectureSummaryImage[] = [];
+  concepts.forEach((c, i) => {
+    const url = urlsAligned[i];
+    if (!url) return;
+    images.push({
+      url,
+      alt: c.title ?? `Ilustração ${i + 1}`,
+      // Caption: anchor (trecho literal do resumo) > title se o LLM esqueceu.
+      caption: c.caption ?? c.anchor ?? c.title,
+      sectionIndex: typeof c.sectionIndex === "number" ? c.sectionIndex : null,
+    });
+  });
+
+  if (images.length === 0) {
     return Response.json({ images: [] });
   }
 
-  // 3) Combinar URLs + captions/alts
-  const images = urls.map((url, i) => ({
-    url,
-    alt: concepts[i]?.title ?? `Ilustração ${i + 1}`,
-    caption: concepts[i]?.caption ?? concepts[i]?.title,
-  }));
-
-  // 4) Salvar em summaries (source of truth)
+  // 5) Salvar em summaries (source of truth)
   const updatedSummary: LectureSummary = {
     ...lectureSummary,
     images,
