@@ -614,6 +614,16 @@ function AssetsStep({
   );
 }
 
+/** "1h 23min", "47 min" ou "—" se durationSec não tiver. */
+function formatLectureDuration(durationSec: number | undefined): string {
+  if (!durationSec || durationSec < 1) return "Aula sem duração registrada";
+  const totalMin = Math.round(durationSec / 60);
+  if (totalMin < 60) return `${totalMin} min de aula`;
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return m === 0 ? `${h}h de aula` : `${h}h ${m}min de aula`;
+}
+
 function SourcesStep({
   tab,
   onTabChange,
@@ -701,7 +711,7 @@ function SourcesStep({
             id: l.id,
             title: l.title,
             sub: l.transcript
-              ? `${Math.round((l.transcript.length / 1500) * 100) / 100} min de aula`
+              ? formatLectureDuration(l.durationSec)
               : "Aula sem transcrição (não pode ser usada)",
             disabled: !l.transcript || l.transcript.trim().length < 200,
           }))}
