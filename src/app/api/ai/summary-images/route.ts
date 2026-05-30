@@ -9,7 +9,7 @@
  * Response: { images: LectureSummaryImage[] }
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
@@ -108,9 +108,9 @@ async function extractVisualConcepts(
   ctx: SourceContext,
 ): Promise<ConceptExtraction> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) return { concepts: [] };
-
-  const client = new Anthropic({ apiKey });
+  // Sem Anthropic E sem OpenAI: aborta. Com qualquer uma das duas,
+  // createMessage faz o roteamento certo.
+  if (!apiKey && !process.env.OPENAI_API_KEY) return { concepts: [] };
 
   // Monta bloco de fontes com prioridade: summary > transcript > slides
   const sources: string[] = [];
@@ -165,17 +165,20 @@ Retorne APENAS JSON puro (sem markdown, sem cercas):
   ]
 }`;
 
-  const resp = await client.messages.create({
-    model: HAIKU_MODEL,
-    max_tokens: 1500,
-    system: sys,
-    messages: [
-      {
-        role: "user",
-        content: `FONTES DA AULA:\n\n${sources.join("\n\n---\n\n")}\n\nGere ${ctx.count} conceitos visuais ancorados nessas fontes.`,
-      },
-    ],
-  });
+  const resp = await createMessage(
+    {
+      model: HAIKU_MODEL,
+      max_tokens: 1500,
+      system: sys,
+      messages: [
+        {
+          role: "user",
+          content: `FONTES DA AULA:\n\n${sources.join("\n\n---\n\n")}\n\nGere ${ctx.count} conceitos visuais ancorados nessas fontes.`,
+        },
+      ],
+    },
+    { anthropicKey: apiKey },
+  );
 
   const text =
     resp.content

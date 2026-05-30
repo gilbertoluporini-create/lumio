@@ -16,7 +16,7 @@
  *  7. Retorna { mode, content, imageUrls?, coinsCharged, balanceAfter }.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
+import { createMessage } from "@/lib/llm-fallback";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { chargeCoins, creditCoins, getBalance } from "@/lib/coins";
 import { computeCost, type AIMode } from "@/lib/coins-pricing";
@@ -614,9 +614,11 @@ export async function POST(req: Request) {
   }
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
+  // Não bloqueia mais se Anthropic ausente — createMessage cai pra OpenAI.
+  // Bloqueia só se NENHUMA das duas keys estiver configurada.
+  if (!apiKey && !process.env.OPENAI_API_KEY) {
     return Response.json(
-      { error: "ANTHROPIC_API_KEY não configurada." },
+      { error: "Nenhuma API de IA configurada (ANTHROPIC_API_KEY/OPENAI_API_KEY)." },
       { status: 503 },
     );
   }
@@ -658,7 +660,6 @@ export async function POST(req: Request) {
   }
 
   try {
-    const client = new Anthropic({ apiKey });
     const systemPrompt = getSystemPrompt(mode);
     const userMessage = buildUserMessage(mode, body, sources);
 
@@ -673,18 +674,23 @@ export async function POST(req: Request) {
 
     const model = mode === "summary" ? MODEL_SUMMARY : MODEL_FAST;
 
-    const resp = await client.messages.create({
-      model,
-      max_tokens: maxTokens,
-      system: [
-        {
-          type: "text",
-          text: systemPrompt,
-          cache_control: { type: "ephemeral" },
-        },
-      ],
-      messages: [{ role: "user", content: userMessage }],
-    });
+    // createMessage tenta Anthropic; cai pra OpenAI quando crédito Anthropic
+    // acabou (401/billing/quota/529/5xx). Mantém call site idêntico.
+    const resp = await createMessage(
+      {
+        model,
+        max_tokens: maxTokens,
+        system: [
+          {
+            type: "text",
+            text: systemPrompt,
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+        messages: [{ role: "user", content: userMessage }],
+      },
+      { anthropicKey: apiKey },
+    );
 
     const textBlock = resp.content.find((b) => b.type === "text");
     const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
