@@ -2,20 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Activity, BarChart3, Coins, TrendingUp } from "lucide-react";
+import { Activity, BarChart3, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/admin/marketing", label: "Vendas & Funil", Icon: TrendingUp },
   { href: "/admin/metrics", label: "Métricas", Icon: BarChart3 },
-  { href: "/admin/usage", label: "Uso & Margem", Icon: Coins },
   { href: "/admin/realtime", label: "Tempo real", Icon: Activity },
 ];
 
 /**
  * Barra de abas compartilhada das telas de Analytics. Renderizada no topo de
- * /admin/marketing, /admin/metrics, /admin/usage e /admin/realtime — dá a
- * sensação de "uma tela só com 4 abas" sem mover páginas nem mudar URLs.
+ * /admin/marketing, /admin/metrics e /admin/realtime — dá a sensação de
+ * "uma tela só com 3 abas" sem mover páginas nem mudar URLs.
  */
 export function AnalyticsTabs() {
   const pathname = usePathname();

@@ -14,7 +14,6 @@ import {
   Menu,
   Settings,
   ShieldAlert,
-  UserPlus,
   Users,
   X,
 } from "lucide-react";
@@ -55,7 +54,6 @@ const NAV_SECTIONS: NavSection[] = [
         matchPaths: [
           "/admin/marketing",
           "/admin/metrics",
-          "/admin/usage",
           "/admin/realtime",
         ],
       },
@@ -71,7 +69,6 @@ const NAV_SECTIONS: NavSection[] = [
         Icon: Award,
         accent: "fuchsia",
       },
-      { href: "/admin/leads", label: "Leads", Icon: UserPlus },
       { href: "/admin/tickets", label: "Tickets", Icon: Mail },
     ],
   },
