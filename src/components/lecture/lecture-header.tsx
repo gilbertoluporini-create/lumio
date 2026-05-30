@@ -81,7 +81,7 @@ export function LectureHeader({
   }
 
   return (
-    <div className="sticky top-0 z-30 bg-background/85 backdrop-blur border-b border-border/60 px-4 py-3">
+    <div className="border-b border-border/60 px-4 py-3">
       <div className="mx-auto max-w-[1600px] flex flex-col gap-3">
         <button
           onClick={onBack}
