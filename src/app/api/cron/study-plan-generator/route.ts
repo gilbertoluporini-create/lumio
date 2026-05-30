@@ -16,8 +16,9 @@
 
 import { NextResponse } from "next/server";
 import { createMessage } from "@/lib/llm-fallback";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
+import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { logAiUsage } from "@/lib/ai-usage";
 import type { LectureSummary } from "@/lib/types";
 
@@ -219,18 +220,15 @@ async function processSummaryItem(
   return { ok: true };
 }
 
-/* ----------------------------- Handler ----------------------------- */
+/* ----------------------------- Worker core ----------------------------- */
 
-export async function GET(request: Request) {
-  // Auth Vercel Cron em prod
-  const auth = request.headers.get("authorization") ?? "";
-  const expected = process.env.CRON_SECRET;
-  if (process.env.NODE_ENV === "production" && expected) {
-    if (auth !== `Bearer ${expected}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-  }
-
+/**
+ * Loop principal — pega até MAX_PER_RUN items pending e processa.
+ * Se restrictPlanIds for passado, filtra items SÓ daqueles planos (modo
+ * client-triggered: user logado processa só os planos dele).
+ * Sem restrictPlanIds: processa qualquer item (modo Vercel Cron / admin).
+ */
+async function runWorker(restrictPlanIds: string[] | null) {
   const admin = createAdminClient();
   const summary = {
     processed: 0,
@@ -241,15 +239,17 @@ export async function GET(request: Request) {
 
   for (let i = 0; i < MAX_PER_RUN; i++) {
     // 1) Pega 1 item pending com source (document OU lecture), ordem FIFO.
-    //    Usa or() pra cobrir os dois casos.
-    const { data: itemRaw } = await admin
+    let q = admin
       .from("study_plan_items")
       .select("id, plan_id, kind, source_document_id, source_lecture_id, title")
       .eq("status", "pending")
       .or("source_document_id.not.is.null,source_lecture_id.not.is.null")
       .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+    if (restrictPlanIds && restrictPlanIds.length > 0) {
+      q = q.in("plan_id", restrictPlanIds);
+    }
+    const { data: itemRaw } = await q.maybeSingle();
     if (!itemRaw) break;
     const item = itemRaw as PlanItemRow;
 
@@ -346,5 +346,61 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json(summary);
+  return summary;
+}
+
+/* ----------------------------- Handlers ----------------------------- */
+
+/**
+ * GET — Vercel Cron path. Auth via Bearer CRON_SECRET. Processa qualquer item.
+ * (Atualmente sem schedule no vercel.json porque plano Hobby não suporta
+ * cron sub-diário — mantemos o handler funcional pra upgrade futuro.)
+ */
+export async function GET(request: Request) {
+  const auth = request.headers.get("authorization") ?? "";
+  const expected = process.env.CRON_SECRET;
+  if (process.env.NODE_ENV === "production" && expected) {
+    if (auth !== `Bearer ${expected}`) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+  }
+  const result = await runWorker(null);
+  return NextResponse.json(result);
+}
+
+/**
+ * POST — endpoint chamado pelo CLIENTE (/planos/[id]) enquanto há items
+ * pending. Auth via sessão Supabase. Processa SÓ planos do user logado.
+ * Substitui o cron Vercel enquanto a conta for Hobby.
+ */
+export async function POST(request: Request) {
+  const ip = getClientIp(request);
+  const limited = limitOrThrow(`sp-worker:ip:${ip}`, 10, 60_000);
+  if (limited) return limited;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Faça login." }, { status: 401 });
+  }
+
+  const userLimit = limitOrThrow(`sp-worker:user:${user.id}`, 12, 60_000);
+  if (userLimit) return userLimit;
+
+  // Lista planos do user — passamos os IDs pro worker filtrar
+  const admin = createAdminClient();
+  const { data: plansRaw } = await admin
+    .from("study_plans")
+    .select("id")
+    .eq("user_id", user.id);
+  const planIds = ((plansRaw ?? []) as Array<{ id: string }>).map((p) => p.id);
+
+  if (planIds.length === 0) {
+    return NextResponse.json({ processed: 0, failed: 0, skipped: 0, unsupported: 0 });
+  }
+
+  const result = await runWorker(planIds);
+  return NextResponse.json(result);
 }

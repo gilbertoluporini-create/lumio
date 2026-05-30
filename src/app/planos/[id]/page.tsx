@@ -173,6 +173,28 @@ function PlanoView({ user }: { user: User }) {
     return () => clearInterval(t);
   }, [hasInflight, reload]);
 
+  // Trigger client-side do worker enquanto há items pending. Substitui
+  // Vercel Cron porque conta Hobby não suporta cron sub-diário. Cada call
+  // processa até 3 items por execução. Roda a cada 12s (mais espaçado que o
+  // reload de 5s pra dar tempo de cada Claude call retornar).
+  useEffect(() => {
+    if (!hasInflight) return;
+    let alive = true;
+    const trigger = () => {
+      if (!alive) return;
+      fetch("/api/cron/study-plan-generator", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+      }).catch(() => {});
+    };
+    trigger();
+    const t = setInterval(trigger, 12_000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, [hasInflight]);
+
   const progress = useMemo(() => progressPercent(items), [items]);
   const days = useMemo(
     () => (plan ? daysUntilExam(plan.examDate) : null),
