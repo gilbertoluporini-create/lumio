@@ -68,6 +68,15 @@ function normalizeMime(mime: string, filename: string): string {
   return "application/octet-stream";
 }
 
+function shortName(name: string, max = 48): string {
+  if (name.length <= max) return name;
+  const dot = name.lastIndexOf(".");
+  if (dot < 0 || dot < name.length - 8) return name.slice(0, max - 1) + "…";
+  const ext = name.slice(dot);
+  const stem = name.slice(0, max - 1 - ext.length);
+  return `${stem}…${ext}`;
+}
+
 export type UploadAudioCardProps = {
   userId: string;
   subjectId: string | null;
@@ -140,9 +149,13 @@ export function UploadAudioCard({
 
       const supabase = createClient();
       const contentType = normalizeMime(file.type, file.name);
+      // Cria novo Blob com mime normalizado — algumas validações do Supabase
+      // Storage inspecionam o type do File diretamente (ignorando o param
+      // contentType) e rejeitam audio/x-m4a apesar do bucket aceitar audio/mp4.
+      const normalizedBlob = new Blob([file], { type: contentType });
       const { error: upErr } = await supabase.storage
         .from(STORAGE_BUCKET)
-        .upload(storagePath, file, {
+        .upload(storagePath, normalizedBlob, {
           upsert: true,
           contentType,
           cacheControl: "3600",
@@ -218,7 +231,9 @@ export function UploadAudioCard({
                 <AudioLines className="h-5 w-5" />
               </span>
               <div className="min-w-0 flex-1 overflow-hidden">
-                <p className="truncate text-sm font-medium">{file.name}</p>
+                <p className="truncate text-sm font-medium" title={file.name}>
+                  {shortName(file.name)}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
                   {prettyBytes(file.size)}
                   {file.type && ` · ${file.type}`}
