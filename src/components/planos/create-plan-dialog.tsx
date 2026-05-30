@@ -96,6 +96,52 @@ type EstimateResponse = {
   }>;
 };
 
+/**
+ * Upload binário via XMLHttpRequest pro endpoint /storage/v1/object/* do
+ * Supabase — único caminho atual pra ter `progress` event real (o método
+ * .upload() do supabase-js não expõe isso).
+ *
+ * Usa header `x-upsert: true` pra equivaler ao `upsert: true` do client.
+ * Auth: Bearer com access_token do user (não anon).
+ */
+function uploadWithProgress(opts: {
+  url: string;
+  file: File;
+  accessToken: string;
+  onProgress: (pct: number) => void;
+}): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", opts.url);
+    xhr.setRequestHeader("Authorization", `Bearer ${opts.accessToken}`);
+    xhr.setRequestHeader("x-upsert", "true");
+    xhr.setRequestHeader(
+      "Content-Type",
+      opts.file.type || "application/pdf",
+    );
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable) {
+        opts.onProgress(Math.round((e.loaded / e.total) * 100));
+      }
+    });
+    xhr.addEventListener("load", () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        opts.onProgress(100);
+        resolve();
+      } else {
+        reject(new Error(`HTTP ${xhr.status}: ${xhr.responseText.slice(0, 200)}`));
+      }
+    });
+    xhr.addEventListener("error", () =>
+      reject(new Error("Erro de rede no upload.")),
+    );
+    xhr.addEventListener("abort", () =>
+      reject(new Error("Upload cancelado.")),
+    );
+    xhr.send(opts.file);
+  });
+}
+
 export function CreatePlanDialog({
   userId,
   open,
@@ -126,6 +172,10 @@ export function CreatePlanDialog({
   const [pickedLectures, setPickedLectures] = useState<Set<string>>(new Set());
   const [loadingSources, setLoadingSources] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
+  const [uploadPhase, setUploadPhase] = useState<
+    "extracting" | "uploading" | "saving" | null
+  >(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
 
   // Step 4 — estimate / submit
   const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
@@ -230,8 +280,10 @@ export function CreatePlanDialog({
     }
 
     setUploadingPdf(true);
+    setUploadPhase("extracting");
+    setUploadProgress(0);
     try {
-      // 1) Extrai texto pra IA usar como contexto.
+      // 1) Extrai texto pra IA usar como contexto (fase 1).
       const { extractPdfText } = await import("@/lib/pdf-extract");
       let sourceText = "";
       let pageCount: number | undefined;
@@ -244,7 +296,6 @@ export function CreatePlanDialog({
       }
 
       // 2) Cria document row com subject_id da matéria do plano.
-      //    folder_id null → vai pra raiz da matéria em /documentos.
       const doc = await createDocumentAsync({
         userId,
         subjectId,
@@ -259,18 +310,29 @@ export function CreatePlanDialog({
         return;
       }
 
-      // 3) Storage upload + source_url.
+      // 3) Storage upload via XHR com progresso real (fase 2 — visível).
+      setUploadPhase("uploading");
       try {
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
         const storageKey = `${userId}/${doc.id}.pdf`;
-        const { error: upErr } = await supabase.storage
-          .from("user-documents")
-          .upload(storageKey, file, {
-            contentType: "application/pdf",
-            upsert: true,
-          });
-        if (upErr) throw upErr;
+
+        const { data: sessionData } = await supabase.auth.getSession();
+        const accessToken = sessionData?.session?.access_token;
+        if (!accessToken) throw new Error("Sem sessão ativa.");
+
+        const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        if (!base) throw new Error("SUPABASE URL ausente.");
+
+        await uploadWithProgress({
+          url: `${base}/storage/v1/object/user-documents/${storageKey}`,
+          file,
+          accessToken,
+          onProgress: setUploadProgress,
+        });
+
+        // Salva source_url depois do upload OK.
+        setUploadPhase("saving");
         const { data: pub } = supabase.storage
           .from("user-documents")
           .getPublicUrl(storageKey);
@@ -283,7 +345,9 @@ export function CreatePlanDialog({
         }
       } catch (err) {
         console.warn("[plan-wizard] storage upload failed", err);
-        toast.warning("Documento criado, mas o arquivo não subiu pro storage.");
+        toast.warning(
+          `Documento criado, mas o arquivo não subiu pro storage (${(err as Error).message}).`,
+        );
       }
 
       // 4) Adiciona na lista local + marca como selecionado.
@@ -298,6 +362,8 @@ export function CreatePlanDialog({
       toast.error(`Erro: ${(err as Error).message}`);
     } finally {
       setUploadingPdf(false);
+      setUploadPhase(null);
+      setUploadProgress(0);
     }
   }
 
@@ -423,6 +489,8 @@ export function CreatePlanDialog({
               onToggleLecture={toggleLecture}
               loading={loadingSources}
               uploadingPdf={uploadingPdf}
+              uploadPhase={uploadPhase}
+              uploadProgress={uploadProgress}
               onUploadPdf={handleUploadNewPdf}
             />
           )}
@@ -640,6 +708,8 @@ function SourcesStep({
   onToggleLecture,
   loading,
   uploadingPdf,
+  uploadPhase,
+  uploadProgress,
   onUploadPdf,
 }: {
   documents: Document[];
@@ -650,6 +720,8 @@ function SourcesStep({
   onToggleLecture: (id: string) => void;
   loading: boolean;
   uploadingPdf: boolean;
+  uploadPhase: "extracting" | "uploading" | "saving" | null;
+  uploadProgress: number;
   onUploadPdf: (file: File) => Promise<void>;
 }) {
   if (loading) {
@@ -677,7 +749,12 @@ function SourcesStep({
         label="Subir novo PDF"
         hint="Vai pra /documentos da matéria automaticamente"
       />
-      <UploadPdfDropzone uploading={uploadingPdf} onUpload={onUploadPdf} />
+      <UploadPdfDropzone
+        uploading={uploadingPdf}
+        phase={uploadPhase}
+        progress={uploadProgress}
+        onUpload={onUploadPdf}
+      />
 
       {/* Seção 2: PDFs já na matéria */}
       <SectionHeader
@@ -754,25 +831,44 @@ function SectionHeader({
 
 function UploadPdfDropzone({
   uploading,
+  phase,
+  progress,
   onUpload,
 }: {
   uploading: boolean;
+  phase: "extracting" | "uploading" | "saving" | null;
+  progress: number;
   onUpload: (file: File) => Promise<void>;
 }) {
+  const phaseLabel: Record<NonNullable<typeof phase>, string> = {
+    extracting: "Lendo PDF…",
+    uploading: `Enviando · ${progress}%`,
+    saving: "Salvando…",
+  };
   return (
     <label
       htmlFor="plan-wizard-upload"
       className={cn(
-        "flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed p-4 cursor-pointer transition-colors",
+        "flex flex-col items-center justify-center gap-1.5 rounded-lg border-2 border-dashed p-4 transition-colors",
         uploading
           ? "border-primary/40 bg-primary/5 cursor-wait"
-          : "border-border/60 bg-card/40 hover:border-primary/40 hover:bg-secondary/40",
+          : "border-border/60 bg-card/40 cursor-pointer hover:border-primary/40 hover:bg-secondary/40",
       )}
     >
       {uploading ? (
         <>
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          <p className="text-xs font-medium">Subindo PDF…</p>
+          <p className="text-xs font-medium">
+            {phase ? phaseLabel[phase] : "Subindo…"}
+          </p>
+          {phase === "uploading" && (
+            <div className="w-full max-w-xs h-1.5 rounded-full bg-primary/10 overflow-hidden">
+              <div
+                className="h-full bg-primary transition-[width] duration-150 ease-out"
+                style={{ width: `${Math.max(2, progress)}%` }}
+              />
+            </div>
+          )}
         </>
       ) : (
         <>
