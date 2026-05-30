@@ -1926,139 +1926,17 @@ function SavedPdfsSection({
               reaproveitar nas próximas gerações.
             </div>
           ) : (
-            <ul className="divide-y divide-border/40">
-              {sortedDocuments.map((d) => {
-                const subj = d.subjectId ? subjects.get(d.subjectId) : undefined;
-                const sel = selectedDocumentIds.has(d.id);
-                const hasText = (d.sourceText ?? "").trim().length > 0;
-                const isRepairing = repairingDocId === d.id;
-                if (!hasText) {
-                  return (
-                    <li
-                      key={`doc:${d.id}`}
-                      className="px-4 py-2.5 flex items-center gap-3"
-                    >
-                      <div className="h-4 w-4 rounded border border-amber-500/40 bg-amber-500/10 shrink-0" />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium truncate">
-                          {d.title}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
-                          <span>{subj?.name ?? "Sem matéria"}</span>
-                          <Badge
-                            variant="outline"
-                            className="text-[9px] py-0 px-1 h-3.5 font-mono border-amber-500/40 text-amber-600 dark:text-amber-400"
-                          >
-                            sem texto
-                          </Badge>
-                        </div>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0 h-7 px-2 text-[11px]"
-                        onClick={() => onRepairDocument(d.id)}
-                        disabled={isRepairing}
-                      >
-                        {isRepairing ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          <Upload className="h-3 w-3" />
-                        )}
-                        {isRepairing ? "Extraindo..." : "Anexar PDF"}
-                      </Button>
-                    </li>
-                  );
-                }
-                return (
-                  <li key={`doc:${d.id}`}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleDocument(d.id)}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
-                        sel
-                          ? "bg-primary/5 hover:bg-primary/10"
-                          : "hover:bg-secondary/30",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "h-4 w-4 rounded border flex items-center justify-center shrink-0",
-                          sel
-                            ? "bg-primary border-primary text-white"
-                            : "border-border",
-                        )}
-                      >
-                        {sel && <Check className="h-3 w-3" />}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium truncate">
-                          {d.title}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
-                          <span>{subj?.name ?? "Sem matéria"}</span>
-                          <Badge
-                            variant="outline"
-                            className="text-[9px] py-0 px-1 h-3.5 font-mono"
-                          >
-                            {d.pageCount
-                              ? `${d.pageCount} ${d.pageCount === 1 ? "página" : "páginas"}`
-                              : "PDF"}
-                          </Badge>
-                        </div>
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-              {withSlides.map((l) => {
-                const subj = subjects.get(l.subjectId);
-                const sel = selectedLectureIds.has(l.id);
-                const slideCount = l.slides?.length ?? 0;
-                const fileLabel = l.slidesFileName || `Slides — ${l.title}`;
-                return (
-                  <li key={`lec:${l.id}`}>
-                    <button
-                      type="button"
-                      onClick={() => onToggleLecture(l.id)}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
-                        sel
-                          ? "bg-primary/5 hover:bg-primary/10"
-                          : "hover:bg-secondary/30",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "h-4 w-4 rounded border flex items-center justify-center shrink-0",
-                          sel
-                            ? "bg-primary border-primary text-white"
-                            : "border-border",
-                        )}
-                      >
-                        {sel && <Check className="h-3 w-3" />}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm font-medium truncate">
-                          {fileLabel}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
-                          <span>{subj?.name ?? "Sem matéria"}</span>
-                          <Badge
-                            variant="outline"
-                            className="text-[9px] py-0 px-1 h-3.5 font-mono"
-                          >
-                            {slideCount} {slideCount === 1 ? "página" : "páginas"}
-                          </Badge>
-                        </div>
-                      </div>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+            <GroupedLibraryItems
+              documents={sortedDocuments}
+              lecturesWithSlides={withSlides}
+              subjects={subjects}
+              selectedDocumentIds={selectedDocumentIds}
+              selectedLectureIds={selectedLectureIds}
+              onToggleDocument={onToggleDocument}
+              onToggleLecture={onToggleLecture}
+              onRepairDocument={onRepairDocument}
+              repairingDocId={repairingDocId}
+            />
           )}
         </div>
       )}
@@ -2093,6 +1971,226 @@ function SelectField({
           </option>
         ))}
       </select>
+    </div>
+  );
+}
+
+/* ----- Grouped library items (PDFs salvos + lectures com slides) ----- */
+
+function GroupedLibraryItems({
+  documents,
+  lecturesWithSlides,
+  subjects,
+  selectedDocumentIds,
+  selectedLectureIds,
+  onToggleDocument,
+  onToggleLecture,
+  onRepairDocument,
+  repairingDocId,
+}: {
+  documents: Document[];
+  lecturesWithSlides: Lecture[];
+  subjects: Map<string, Subject>;
+  selectedDocumentIds: Set<string>;
+  selectedLectureIds: Set<string>;
+  onToggleDocument: (id: string) => void;
+  onToggleLecture: (id: string) => void;
+  onRepairDocument: (id: string) => void;
+  repairingDocId: string | null;
+}) {
+  type LibItem =
+    | { kind: "doc"; id: string; doc: Document; subj: Subject | undefined }
+    | { kind: "lec"; id: string; lec: Lecture; subj: Subject | undefined };
+
+  const groups = useMemo(() => {
+    const m = new Map<
+      string,
+      { key: string; name: string; emoji: string; items: LibItem[] }
+    >();
+    const ensure = (subj: Subject | undefined) => {
+      const key = subj?.id ?? "__none__";
+      if (!m.has(key)) {
+        m.set(key, {
+          key,
+          name: subj?.name ?? "Sem matéria",
+          emoji: subj?.emoji ?? "",
+          items: [],
+        });
+      }
+      return m.get(key)!;
+    };
+    for (const d of documents) {
+      const subj = d.subjectId ? subjects.get(d.subjectId) : undefined;
+      ensure(subj).items.push({ kind: "doc", id: d.id, doc: d, subj });
+    }
+    for (const l of lecturesWithSlides) {
+      const subj = subjects.get(l.subjectId);
+      ensure(subj).items.push({ kind: "lec", id: l.id, lec: l, subj });
+    }
+    // Ordena: matéria primeiro (alfa) → "Sem matéria" no fim
+    return [...m.values()].sort((a, b) => {
+      if (a.key === "__none__") return 1;
+      if (b.key === "__none__") return -1;
+      return a.name.localeCompare(b.name, "pt-BR");
+    });
+  }, [documents, lecturesWithSlides, subjects]);
+
+  return (
+    <div>
+      {groups.map((g) => {
+        const selectedInGroup = g.items.filter((it) =>
+          it.kind === "doc"
+            ? selectedDocumentIds.has(it.id)
+            : selectedLectureIds.has(it.id),
+        ).length;
+        return (
+          <div key={g.key}>
+            <div className="sticky top-0 z-10 flex items-center gap-2 border-b border-border/40 bg-secondary/40 px-4 py-1.5 backdrop-blur">
+              {g.emoji && (
+                <span className="text-[12px] leading-none">{g.emoji}</span>
+              )}
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                {g.name}
+              </span>
+              <span className="text-[9px] font-mono text-muted-foreground opacity-60">
+                · {g.items.length}
+                {selectedInGroup > 0 ? ` · ${selectedInGroup} sel.` : ""}
+              </span>
+            </div>
+            <ul className="divide-y divide-border/40">
+              {g.items.map((it) => {
+                if (it.kind === "doc") {
+                  const d = it.doc;
+                  const sel = selectedDocumentIds.has(d.id);
+                  const hasText = (d.sourceText ?? "").trim().length > 0;
+                  const isRepairing = repairingDocId === d.id;
+                  if (!hasText) {
+                    return (
+                      <li
+                        key={`doc:${d.id}`}
+                        className="px-4 py-2.5 flex items-center gap-3"
+                      >
+                        <div className="h-4 w-4 rounded border border-amber-500/40 bg-amber-500/10 shrink-0" />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">
+                            {d.title}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] py-0 px-1 h-3.5 font-mono border-amber-500/40 text-amber-600 dark:text-amber-400"
+                            >
+                              sem texto
+                            </Badge>
+                          </div>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 h-7 px-2 text-[11px]"
+                          onClick={() => onRepairDocument(d.id)}
+                          disabled={isRepairing}
+                        >
+                          {isRepairing ? (
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                          ) : (
+                            <Upload className="h-3 w-3" />
+                          )}
+                          {isRepairing ? "Extraindo..." : "Anexar PDF"}
+                        </Button>
+                      </li>
+                    );
+                  }
+                  return (
+                    <li key={`doc:${d.id}`}>
+                      <button
+                        type="button"
+                        onClick={() => onToggleDocument(d.id)}
+                        className={cn(
+                          "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
+                          sel
+                            ? "bg-primary/5 hover:bg-primary/10"
+                            : "hover:bg-secondary/30",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "h-4 w-4 rounded border flex items-center justify-center shrink-0",
+                            sel
+                              ? "bg-primary border-primary text-white"
+                              : "border-border",
+                          )}
+                        >
+                          {sel && <Check className="h-3 w-3" />}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm font-medium truncate">
+                            {d.title}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
+                            <Badge
+                              variant="outline"
+                              className="text-[9px] py-0 px-1 h-3.5 font-mono"
+                            >
+                              {d.pageCount
+                                ? `${d.pageCount} ${d.pageCount === 1 ? "página" : "páginas"}`
+                                : "PDF"}
+                            </Badge>
+                          </div>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                }
+                const l = it.lec;
+                const sel = selectedLectureIds.has(l.id);
+                const slideCount = l.slides?.length ?? 0;
+                const fileLabel = l.slidesFileName || `Slides — ${l.title}`;
+                return (
+                  <li key={`lec:${l.id}`}>
+                    <button
+                      type="button"
+                      onClick={() => onToggleLecture(l.id)}
+                      className={cn(
+                        "w-full flex items-center gap-3 px-4 py-2.5 text-left transition-colors",
+                        sel
+                          ? "bg-primary/5 hover:bg-primary/10"
+                          : "hover:bg-secondary/30",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "h-4 w-4 rounded border flex items-center justify-center shrink-0",
+                          sel
+                            ? "bg-primary border-primary text-white"
+                            : "border-border",
+                        )}
+                      >
+                        {sel && <Check className="h-3 w-3" />}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-medium truncate">
+                          {fileLabel}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate inline-flex items-center gap-1.5">
+                          <Badge
+                            variant="outline"
+                            className="text-[9px] py-0 px-1 h-3.5 font-mono"
+                          >
+                            {slideCount}{" "}
+                            {slideCount === 1 ? "página" : "páginas"}
+                          </Badge>
+                        </div>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        );
+      })}
     </div>
   );
 }
