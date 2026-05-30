@@ -25,6 +25,7 @@ import {
   FileText,
   Folder,
   Filter,
+  FolderInput,
   FlaskConical,
   Gavel,
   Globe,
@@ -79,6 +80,10 @@ import {
   listSummariesAsync,
 } from "@/lib/summaries";
 import { listDocumentsAsync } from "@/lib/documents";
+import {
+  MoveToFolderDialog,
+  type MoveTarget,
+} from "@/components/documents/move-to-folder-dialog";
 import {
   subscribeFavorites,
   toggleFavorite as toggleFavoriteLib,
@@ -247,6 +252,7 @@ function ResumosView({ user }: { user: User }) {
   const [favorites, setFavorites] = useState<string[]>([]);
   const [newSummaryOpen, setNewSummaryOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -325,6 +331,15 @@ function ResumosView({ user }: { user: User }) {
     },
     [user.id],
   );
+
+  const handleMoveSummary = useCallback((item: ResumoItem) => {
+    setMoveTarget({
+      kind: "summary",
+      id: item.summary.id,
+      title: item.title,
+      currentSubjectId: item.subjectId ?? null,
+    });
+  }, []);
 
   const subjectById = useMemo(() => {
     const map: Record<string, Subject> = {};
@@ -725,6 +740,7 @@ function ResumosView({ user }: { user: User }) {
                     isDeleting={deletingId === item.summary.id}
                     onToggleFavorite={toggleFavorite}
                     onDeleteSummary={handleDeleteSummary}
+                    onMoveSummary={handleMoveSummary}
                   />
                 ))}
               </div>
@@ -771,6 +787,22 @@ function ResumosView({ user }: { user: User }) {
           } else {
             router.push("/resumos");
           }
+        }}
+      />
+
+      {/* Mover resumo entre matérias */}
+      <MoveToFolderDialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null);
+        }}
+        userId={user.id}
+        subjects={subjects}
+        target={moveTarget}
+        onMoved={() => {
+          setMoveTarget(null);
+          // Refresh: re-busca pra refletir a nova matéria
+          void listSummariesAsync(user.id).then(setSummaries);
         }}
       />
     </div>
@@ -966,6 +998,7 @@ function SummaryTableRow({
   isDeleting,
   onToggleFavorite,
   onDeleteSummary,
+  onMoveSummary,
 }: {
   item: ResumoItem;
   subject: Subject | undefined;
@@ -973,6 +1006,7 @@ function SummaryTableRow({
   isDeleting: boolean;
   onToggleFavorite: (id: string) => void;
   onDeleteSummary: (item: ResumoItem) => void;
+  onMoveSummary: (item: ResumoItem) => void;
 }) {
   const status: SummaryStatus = "completed";
   const date = new Date(item.updatedAt);
@@ -1146,6 +1180,16 @@ function SummaryTableRow({
             >
               <Download className="h-3.5 w-3.5" />
               Exportar PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                onMoveSummary(item);
+              }}
+              className="gap-2"
+            >
+              <FolderInput className="h-3.5 w-3.5" />
+              Mover pra outra matéria
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={(e) => {
