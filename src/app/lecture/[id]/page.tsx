@@ -1254,7 +1254,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
               title="Insights da aula"
               subtitle="Pontos-chave, tópicos, próximos passos e estatísticas"
               icon={<Lightbulb className="h-4 w-4" />}
-              defaultOpen={false}
+              defaultOpen={true}
               badge={
                 sync.insights?.keyTerms.length ? (
                   <span className="text-[10px] font-mono text-muted-foreground">
