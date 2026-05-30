@@ -153,13 +153,80 @@ export function LumiVoiceMode({
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
+  /**
+   * Refs de cleanup pra matar o "Lumi falando sozinho" — bug em que setTimeout
+   * de reopen do mic disparava após o componente desmontar e criava um
+   * SpeechRecognition zumbi rodando fora da árvore React.
+   *
+   * - reopenTimerRef: único timer que segura o setTimeout(start, ...) usado
+   *   nos 3 caminhos (audio.onended, utter.onend, endTurn-after-silence).
+   *   Cada novo agendamento cancela o anterior.
+   * - isMountedRef: false após cleanup → bloqueia start() em timers fantasma
+   *   que conseguiram disparar antes do clearTimeout.
+   * - stopRef: pra chamar stop() do hook no cleanup sem fechar a dep do
+   *   useEffect (que rodaria o cleanup toda vez que stop mudasse).
+   */
+  const reopenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMountedRef = useRef(true);
+  const stopRef = useRef<(() => void) | null>(null);
   useEffect(() => {
+    stopRef.current = stop;
+  }, [stop]);
+
+  /** Cooldown maior reduz feedback loop quando user está no speaker (eco). */
+  const REOPEN_COOLDOWN_MS = 800;
+
+  /**
+   * Agenda reabertura do mic depois do Lumi falar.
+   * Centraliza o setTimeout pra todos os 3 caminhos (audio.onended,
+   * browser-tts onend, endTurn-after-silence) — sempre cancela o anterior
+   * e usa isMountedRef como guarda contra disparo pós-unmount.
+   */
+  const scheduleMicReopen = useCallback(
+    (delayMs: number = REOPEN_COOLDOWN_MS) => {
+      if (reopenTimerRef.current) clearTimeout(reopenTimerRef.current);
+      reopenTimerRef.current = setTimeout(() => {
+        reopenTimerRef.current = null;
+        if (!isMountedRef.current) return;
+        try {
+          start();
+        } catch (err) {
+          console.warn("[voice-mode] scheduled reopen failed", err);
+          setVoiceState("idle");
+        }
+      }, delayMs);
+    },
+    [start],
+  );
+
+  useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
+      // Mata timers pendentes ANTES de cancelar TTS — evita race.
+      if (reopenTimerRef.current) {
+        clearTimeout(reopenTimerRef.current);
+        reopenTimerRef.current = null;
+      }
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current);
+        silenceTimerRef.current = null;
+      }
+      // Zera handlers antes de pause/cancel pra que callbacks fantasma
+      // (audio.onended ao pausar / utter.onend ao cancelar) não rodem
+      // e re-agendem reopens.
+      if (audioRef.current) {
+        audioRef.current.onended = null;
+        audioRef.current.onerror = null;
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         window.speechSynthesis.cancel();
       }
-      audioRef.current?.pause();
-      audioRef.current = null;
+      // Mata o recognition explicitamente — o hook já tem cleanup próprio,
+      // mas garantir aqui evita janela onde o rec sobrevive ao unmount.
+      stopRef.current?.();
     };
   }, []);
 
@@ -178,19 +245,13 @@ export function LumiVoiceMode({
       utter.pitch = 1;
       utter.onstart = () => setVoiceState("speaking");
       const finishAndMaybeReopen = () => {
+        if (!isMountedRef.current) return;
         if (continuousRef.current && supported) {
           finalBufferRef.current = "";
           setFinalText("");
           setInterim("");
           setVoiceState("listening");
-          setTimeout(() => {
-            try {
-              start();
-            } catch (err) {
-              console.warn("[voice-mode] browser-tts reopen failed", err);
-              setVoiceState("idle");
-            }
-          }, 250);
+          scheduleMicReopen();
         } else {
           setVoiceState("idle");
         }
@@ -199,7 +260,7 @@ export function LumiVoiceMode({
       utter.onerror = finishAndMaybeReopen;
       window.speechSynthesis.speak(utter);
     },
-    [start, supported],
+    [scheduleMicReopen, supported],
   );
 
   /**
@@ -289,22 +350,15 @@ export function LumiVoiceMode({
         audioRef.current = audio;
         audio.onended = () => {
           audioRef.current = null;
-          // Modo contínuo: reabre mic automaticamente após IA terminar.
-          // Delay de 250ms pra evitar race entre abort() do recognizer antigo
-          // e start() do novo (Chrome reclama "recognition already started").
+          // Guard contra dispar pós-unmount (ex.: usuário sai do voice mode
+          // bem na hora que o áudio termina e essa callback fica na fila).
+          if (!isMountedRef.current) return;
           if (continuousRef.current && supported) {
             finalBufferRef.current = "";
             setFinalText("");
             setInterim("");
             setVoiceState("listening");
-            setTimeout(() => {
-              try {
-                start();
-              } catch (err) {
-                console.warn("[voice-mode] auto-restart failed", err);
-                setVoiceState("idle");
-              }
-            }, 250);
+            scheduleMicReopen();
           } else {
             setVoiceState("idle");
           }
@@ -327,7 +381,7 @@ export function LumiVoiceMode({
         speakBrowser(trimmed);
       }
     },
-    [speakBrowser, addUsage, start, supported],
+    [speakBrowser, addUsage, scheduleMicReopen, supported],
   );
 
   const sendToAi = useCallback(
@@ -454,22 +508,16 @@ export function LumiVoiceMode({
       }
       // Sem texto significativo
       if (!isManual && continuousRef.current && supported) {
-        // VAD detectou silêncio → reabre mic pra esperar fala
+        // VAD detectou silêncio → reabre mic pra esperar fala (curto: 200ms,
+        // não tem TTS pra eco-cancelar, só evita race com abort do rec antigo).
         setVoiceState("listening");
-        setTimeout(() => {
-          try {
-            start();
-          } catch (err) {
-            console.warn("[voice-mode] reopen-after-silence failed", err);
-            setVoiceState("idle");
-          }
-        }, 200);
+        scheduleMicReopen(200);
       } else {
         // Clique manual ou modo manual → encerra de vez
         setVoiceState("idle");
       }
     },
-    [interim, sendToAi, stop, start, supported],
+    [interim, sendToAi, stop, scheduleMicReopen, supported],
   );
 
   // Expose pra o silence timer
