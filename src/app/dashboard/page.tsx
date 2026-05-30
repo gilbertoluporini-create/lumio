@@ -695,6 +695,19 @@ function Dashboard({ user }: { user: User }) {
     }
     setLectureTitle("");
     setLectureSubject(subjectId ?? subjects[0].id);
+    setLectureMode("live");
+    setLectureOpen(true);
+  }
+
+  function startUploadAudio(subjectId?: string) {
+    if (subjects.length === 0) {
+      toast.error("Crie uma matéria primeiro.");
+      setNewOpen(true);
+      return;
+    }
+    setLectureTitle("");
+    setLectureSubject(subjectId ?? subjects[0].id);
+    setLectureMode("upload");
     setLectureOpen(true);
   }
 
@@ -761,9 +774,12 @@ function Dashboard({ user }: { user: User }) {
           </div>
         </div>
 
-        <div className="flex gap-2 shrink-0">
+        <div className="flex gap-2 shrink-0 flex-wrap">
           <Button variant="gradient" onClick={() => startNewLecture()}>
             <Mic className="h-4 w-4" /> Gravar aula
+          </Button>
+          <Button variant="outline" onClick={() => startUploadAudio()}>
+            <Upload className="h-4 w-4" /> Subir áudio
           </Button>
           <Button variant="outline" onClick={() => setWizardOpen(true)}>
             <Sparkles className="h-4 w-4" /> Novo resumo
@@ -1153,7 +1169,7 @@ function Dashboard({ user }: { user: User }) {
 
             {lectureMode === "upload" && (
               <UploadAudioCard
-                user={user}
+                userId={user.id}
                 subjectId={lectureSubject || null}
                 fallbackTitle={lectureTitle}
                 onSuccess={() => setLectureOpen(false)}

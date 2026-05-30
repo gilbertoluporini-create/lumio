@@ -2,7 +2,7 @@
 
 import { createElement, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, Mic } from "lucide-react";
+import { Loader2, Mic, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import {
@@ -18,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { createLectureAsync } from "@/lib/db";
 import { cn } from "@/lib/utils";
+import { UploadAudioCard } from "@/components/lecture/upload-audio-card";
 import type { Subject } from "@/lib/types";
 
 export function NewLectureDialog({
@@ -26,23 +27,27 @@ export function NewLectureDialog({
   userId,
   subjects,
   defaultSubjectId,
+  defaultMode = "live",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
   subjects: Subject[];
   defaultSubjectId?: string;
+  defaultMode?: "live" | "upload";
 }) {
   const router = useRouter();
   const [title, setTitle] = useState("");
   const [subjectId, setSubjectId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const [mode, setMode] = useState<"live" | "upload">(defaultMode);
 
   useEffect(() => {
     if (!open) return;
     setTitle("");
     setSubjectId(defaultSubjectId ?? subjects[0]?.id ?? "");
-  }, [open, defaultSubjectId, subjects]);
+    setMode(defaultMode);
+  }, [open, defaultSubjectId, defaultMode, subjects]);
 
   async function handleConfirm() {
     if (!subjectId) {
@@ -72,7 +77,9 @@ export function NewLectureDialog({
         <DialogHeader>
           <DialogTitle>Nova aula</DialogTitle>
           <DialogDescription>
-            Em segundos a transcrição começa.
+            {mode === "live"
+              ? "Em segundos a transcrição começa."
+              : "Suba um áudio que você já gravou — até ~3h."}
           </DialogDescription>
         </DialogHeader>
 
@@ -81,71 +88,114 @@ export function NewLectureDialog({
             Crie uma matéria primeiro no dashboard.
           </p>
         ) : (
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="new-lecture-title">Título</Label>
-              <Input
-                id="new-lecture-title"
-                autoFocus
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder={`Aula ${new Date().toLocaleDateString("pt-BR")}`}
-              />
+          <>
+            {/* Tabs Gravar / Subir */}
+            <div className="flex gap-1 rounded-lg bg-secondary/60 p-1">
+              <button
+                type="button"
+                onClick={() => setMode("live")}
+                className={cn(
+                  "flex-1 inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  mode === "live"
+                    ? "bg-background shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Mic className="h-3.5 w-3.5" />
+                Gravar ao vivo
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("upload")}
+                className={cn(
+                  "flex-1 inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                  mode === "upload"
+                    ? "bg-background shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Subir áudio
+              </button>
             </div>
-            <div className="space-y-1.5">
-              <Label>Matéria</Label>
-              <div className="flex flex-wrap gap-2">
-                {subjects.map((s) => {
-                  const sel = s.id === subjectId;
-                  const Icon = getSubjectIcon(s.name);
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setSubjectId(s.id)}
-                      className={cn(
-                        "inline-flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-sm transition-all",
-                        sel
-                          ? "border-primary bg-primary/10 text-foreground"
-                          : "border-border bg-background hover:bg-secondary/40",
-                      )}
-                    >
-                      <span
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="new-lecture-title">Título</Label>
+                <Input
+                  id="new-lecture-title"
+                  autoFocus
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  placeholder={`Aula ${new Date().toLocaleDateString("pt-BR")}`}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Matéria</Label>
+                <div className="flex flex-wrap gap-2">
+                  {subjects.map((s) => {
+                    const sel = s.id === subjectId;
+                    const Icon = getSubjectIcon(s.name);
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setSubjectId(s.id)}
                         className={cn(
-                          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br shadow-sm",
-                          s.color,
+                          "inline-flex items-center gap-2 rounded-full border py-1.5 pl-1.5 pr-3 text-sm transition-all",
+                          sel
+                            ? "border-primary bg-primary/10 text-foreground"
+                            : "border-border bg-background hover:bg-secondary/40",
                         )}
                       >
-                        {createElement(Icon, {
-                          className: "h-3.5 w-3.5 text-white",
-                          strokeWidth: 2.4,
-                        })}
-                      </span>
-                      {s.name}
-                    </button>
-                  );
-                })}
+                        <span
+                          className={cn(
+                            "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-gradient-to-br shadow-sm",
+                            s.color,
+                          )}
+                        >
+                          {createElement(Icon, {
+                            className: "h-3.5 w-3.5 text-white",
+                            strokeWidth: 2.4,
+                          })}
+                        </span>
+                        {s.name}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+
+              {mode === "upload" && (
+                <UploadAudioCard
+                  userId={userId}
+                  subjectId={subjectId || null}
+                  fallbackTitle={title}
+                  onSuccess={() => onOpenChange(false)}
+                />
+              )}
             </div>
-          </div>
+          </>
         )}
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>
-          <Button
-            variant="gradient"
-            onClick={handleConfirm}
-            disabled={submitting || subjects.length === 0}
-          >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Mic className="h-4 w-4" />
-            )}
-            Começar
-          </Button>
+          {mode === "live" && subjects.length > 0 && (
+            <Button
+              variant="gradient"
+              onClick={handleConfirm}
+              disabled={submitting}
+            >
+              {submitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
+              Começar
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

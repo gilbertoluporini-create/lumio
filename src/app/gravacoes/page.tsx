@@ -18,6 +18,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
@@ -143,6 +144,7 @@ function GravacoesView({ user }: { user: User }) {
   const [filterSubject, setFilterSubject] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [newLectureOpen, setNewLectureOpen] = useState(false);
+  const [newLectureMode, setNewLectureMode] = useState<"live" | "upload">("live");
 
   useEffect(() => {
     let active = true;
@@ -245,13 +247,26 @@ function GravacoesView({ user }: { user: User }) {
             Todas as aulas transcritas pelo Lumio com busca inteligente. Clique em qualquer aula pra abrir o conteúdo completo.
           </p>
         </div>
-        <Button
-          variant="gradient"
-          onClick={() => setNewLectureOpen(true)}
-          className="shrink-0"
-        >
-          <Mic className="h-4 w-4" /> Nova gravação
-        </Button>
+        <div className="flex gap-2 shrink-0 flex-wrap">
+          <Button
+            variant="gradient"
+            onClick={() => {
+              setNewLectureMode("live");
+              setNewLectureOpen(true);
+            }}
+          >
+            <Mic className="h-4 w-4" /> Nova gravação
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => {
+              setNewLectureMode("upload");
+              setNewLectureOpen(true);
+            }}
+          >
+            <Upload className="h-4 w-4" /> Subir áudio
+          </Button>
+        </div>
       </div>
 
       {lectures.length === 0 ? (
@@ -353,6 +368,7 @@ function GravacoesView({ user }: { user: User }) {
         onOpenChange={setNewLectureOpen}
         userId={user.id}
         subjects={subjects}
+        defaultMode={newLectureMode}
       />
     </div>
   );

@@ -7,7 +7,6 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { createLectureAsync } from "@/lib/db";
-import type { User } from "@/lib/types";
 
 const STORAGE_BUCKET = "lectures-audio";
 const MAX_BYTES = 500 * 1024 * 1024; // 500 MB — cabe ~3h MP3 128kbps ou ~6h em 64kbps
@@ -45,7 +44,7 @@ function extOf(filename: string, mime: string): string {
 }
 
 export type UploadAudioCardProps = {
-  user: User;
+  userId: string;
   subjectId: string | null;
   fallbackTitle: string;
   /** Chamado quando upload + dispatch terminaram com sucesso e estamos prontos pra navegar. */
@@ -53,7 +52,7 @@ export type UploadAudioCardProps = {
 };
 
 export function UploadAudioCard({
-  user,
+  userId,
   subjectId,
   fallbackTitle,
   onSuccess,
@@ -103,7 +102,7 @@ export function UploadAudioCard({
       // 1) cria a lecture (rate limit + monthly check já existem nessa rota)
       setPending("creating");
       const title = fallbackTitle.trim() || `Áudio ${new Date().toLocaleDateString("pt-BR")}`;
-      const lecture = await createLectureAsync(user.id, {
+      const lecture = await createLectureAsync(userId, {
         subjectId,
         title,
       });
@@ -112,7 +111,7 @@ export function UploadAudioCard({
       setPending("uploading");
       setProgress(5);
       const ext = extOf(file.name, file.type);
-      const storagePath = `${user.id}/${lecture.id}.${ext}`;
+      const storagePath = `${userId}/${lecture.id}.${ext}`;
 
       const supabase = createClient();
       const { error: upErr } = await supabase.storage
