@@ -39,6 +39,7 @@ import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { BackToHub } from "@/components/app/back-to-hub";
 import { Button } from "@/components/ui/button";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -420,7 +421,13 @@ function PlanoView({ user }: { user: User }) {
 
   async function handleDeletePlan() {
     if (!plan) return;
-    if (!confirm("Excluir este plano e todos os itens? Essa ação não dá pra desfazer.")) return;
+    const ok = await confirmAction({
+      title: "Excluir este plano?",
+      description: "Todos os itens do plano serão removidos. Essa ação não dá pra desfazer.",
+      destructive: true,
+      confirmText: "Excluir plano",
+    });
+    if (!ok) return;
     try {
       await deletePlanAsync(plan.id);
       toast.success("Plano excluído.");

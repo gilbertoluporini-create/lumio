@@ -22,6 +22,7 @@ import {
 import { toast } from "sonner";
 
 import { AuthGuard } from "@/components/app/auth-guard";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { AppShell } from "@/components/app/app-shell";
 import { BackToHub } from "@/components/app/back-to-hub";
 import { Badge } from "@/components/ui/badge";
@@ -169,9 +170,12 @@ function DocumentView({
 
   async function handleDelete() {
     if (!doc) return;
-    const confirmed = window.confirm(
-      `Excluir o documento "${doc.title}"?\n\nO resumo gerado a partir dele também será excluído.`,
-    );
+    const confirmed = await confirmAction({
+      title: `Excluir o documento "${doc.title}"?`,
+      description: "O resumo gerado a partir dele também será excluído.",
+      destructive: true,
+      confirmText: "Excluir documento",
+    });
     if (!confirmed) return;
     setDeleting(true);
     try {

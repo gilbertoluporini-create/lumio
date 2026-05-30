@@ -6,6 +6,7 @@ import {
 } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "sonner";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ThemeScript } from "@/components/theme-script";
 import { SmoothScroll } from "@/components/landing/smooth-scroll";
 import { AnalyticsScripts } from "@/components/analytics/analytics-scripts";
@@ -213,6 +214,7 @@ export default function RootLayout({
           richColors
           closeButton
         />
+        <ConfirmDialog />
         <AnalyticsScripts />
         <Suspense fallback={null}>
           <AuthTracker />

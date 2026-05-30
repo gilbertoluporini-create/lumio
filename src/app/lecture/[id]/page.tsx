@@ -9,6 +9,7 @@ import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter, LumiScene } from "@/components/brand/lumi";
 import { Button } from "@/components/ui/button";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import {
   LectureSummaryView,
   summaryToMarkdown,
@@ -558,7 +559,13 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
 
   // ===== FIX BUG: remove slides — sincroniza e refetch =====
   async function removeSlides() {
-    if (!confirm("Remover os slides anexados?")) return;
+    const ok = await confirmAction({
+      title: "Remover os slides anexados?",
+      description: "Você pode reanexar um PDF depois.",
+      destructive: true,
+      confirmText: "Remover",
+    });
+    if (!ok) return;
     setSlides(undefined);
     setSlidesFileName(undefined);
     setCurrentSlideIdx(0);
@@ -873,7 +880,13 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   // ===== Header handlers =====
   async function handleDelete() {
     if (!lecture) return;
-    if (!confirm("Excluir esta aula? Esta ação não pode ser desfeita.")) return;
+    const ok = await confirmAction({
+      title: "Excluir esta aula?",
+      description: "Essa ação não pode ser desfeita.",
+      destructive: true,
+      confirmText: "Excluir aula",
+    });
+    if (!ok) return;
     try {
       await deleteLectureAsync(user.id, lecture.id);
       toast.success("Aula excluída.");

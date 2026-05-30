@@ -14,6 +14,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 
 type TicketRow = {
   id: string;
@@ -275,7 +276,12 @@ function TicketDetailDrawer({
   }
 
   async function doDelete() {
-    if (!confirm("Excluir esse ticket?")) return;
+    const ok = await confirmAction({
+      title: "Excluir esse ticket?",
+      destructive: true,
+      confirmText: "Excluir",
+    });
+    if (!ok) return;
     setPending("delete");
     try {
       const res = await fetch(`/api/support/tickets/${ticket.id}`, {

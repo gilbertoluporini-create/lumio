@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { toast } from "sonner";
 import {
   EVENT_TYPE_META,
@@ -141,13 +142,13 @@ export function EventDetailsDialog({
       toast.error("Esta aula vem da grade da matéria — edite na matéria.");
       return;
     }
-    if (
-      !window.confirm(
-        `Excluir "${event.title}"? Esta ação não pode ser desfeita.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmAction({
+      title: `Excluir "${event.title}"?`,
+      description: "Essa ação não pode ser desfeita.",
+      destructive: true,
+      confirmText: "Excluir evento",
+    });
+    if (!ok) return;
     setDeleting(true);
     try {
       await deleteEventAsync(userId, event.id);

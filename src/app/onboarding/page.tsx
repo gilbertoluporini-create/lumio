@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import {
   Card,
@@ -457,8 +458,14 @@ export default function OnboardingPage() {
                 </p>
                 {subjects.length > 0 && (
                   <button
-                    onClick={() => {
-                      if (confirm("Limpar todas?")) setSubjects([]);
+                    onClick={async () => {
+                      const ok = await confirmAction({
+                        title: "Limpar todas as matérias?",
+                        description: "Você vai precisar adicionar de novo.",
+                        destructive: true,
+                        confirmText: "Limpar tudo",
+                      });
+                      if (ok) setSubjects([]);
                     }}
                     className="text-xs text-muted-foreground hover:text-destructive transition-colors"
                   >

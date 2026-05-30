@@ -58,6 +58,7 @@ import { AppShell } from "@/components/app/app-shell";
 import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Button } from "@/components/ui/button";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
 import { CountUp } from "@/components/ui/count-up";
 import {
@@ -671,13 +672,14 @@ function Dashboard({ user }: { user: User }) {
   }
 
   async function handleDeleteSubject(s: Subject) {
-    if (
-      !confirm(
-        `Excluir a matéria "${s.name}" e todas suas aulas? Esta ação não pode ser desfeita.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmAction({
+      title: `Excluir a matéria "${s.name}"?`,
+      description:
+        "Todas as aulas, resumos e assets dela serão removidos. Essa ação não pode ser desfeita.",
+      destructive: true,
+      confirmText: "Excluir matéria",
+    });
+    if (!ok) return;
     try {
       await deleteSubjectAsync(user.id, s.id);
       await refresh();

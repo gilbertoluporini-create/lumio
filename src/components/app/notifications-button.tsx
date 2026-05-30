@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Bell, Check, CheckCheck, Loader2, MessageSquare, Trash2 } from "lucide-react";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { cn } from "@/lib/utils";
 import {
   DropdownMenu,
@@ -135,9 +136,12 @@ export function NotificationsButton({ userEmail }: { userEmail?: string } = {}) 
     if (clearing || items.length === 0) return;
     // Admin precisa confirmar (proteção contra acidente em conta operacional)
     if (isAdmin) {
-      const ok = window.confirm(
-        "Tem certeza de que deseja excluir TODAS as notificações? Essa ação é irreversível.",
-      );
+      const ok = await confirmAction({
+        title: "Excluir TODAS as notificações?",
+        description: "Essa ação é irreversível.",
+        destructive: true,
+        confirmText: "Excluir todas",
+      });
       if (!ok) return;
     }
     setClearing(true);

@@ -4,6 +4,7 @@ import { createElement, useCallback, useEffect, useMemo, useState } from "react"
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import {
   Activity,
   ArrowRight,
@@ -309,12 +310,12 @@ function ResumosView({ user }: { user: User }) {
 
   const handleDeleteSummary = useCallback(
     async (item: ResumoItem) => {
-      const confirmed =
-        typeof window !== "undefined"
-          ? window.confirm(
-              `Excluir o resumo "${item.title}"?\n\nA fonte original (${item.origin === "lecture" ? "aula" : "documento"}) será mantida.`,
-            )
-          : true;
+      const confirmed = await confirmAction({
+        title: `Excluir o resumo "${item.title}"?`,
+        description: `A fonte original (${item.origin === "lecture" ? "aula" : "documento"}) será mantida.`,
+        destructive: true,
+        confirmText: "Excluir resumo",
+      });
       if (!confirmed) return;
       setDeletingId(item.summary.id);
       try {

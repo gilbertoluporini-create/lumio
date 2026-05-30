@@ -52,6 +52,7 @@ import {
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
@@ -448,9 +449,12 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
 
   const handleDeleteSummary = useCallback(async () => {
     if (!lecture) return;
-    const ok = window.confirm(
-      `Excluir o resumo de "${lecture.title}"?\n\nA aula e a transcrição serão mantidas.`,
-    );
+    const ok = await confirmAction({
+      title: `Excluir o resumo de "${lecture.title}"?`,
+      description: "A aula e a transcrição serão mantidas.",
+      destructive: true,
+      confirmText: "Excluir resumo",
+    });
     if (!ok) return;
     try {
       const sm = await getSummaryByLectureIdAsync(user.id, lecture.id);

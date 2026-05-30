@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 
 type AdminUserRow = {
   id: string;
@@ -174,13 +175,14 @@ export function UserDetailDrawer({
   }
 
   async function doDelete() {
-    if (
-      !confirm(
-        `Excluir DEFINITIVAMENTE ${user.email}? Esta ação cancela a subscription Stripe e remove o usuário. Não pode ser desfeita.`,
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmAction({
+      title: `Excluir DEFINITIVAMENTE ${user.email}?`,
+      description:
+        "Esta ação cancela a subscription no Stripe e remove o usuário do sistema. Não pode ser desfeita.",
+      destructive: true,
+      confirmText: "Excluir usuário",
+    });
+    if (!ok) return;
     setActionPending("delete");
     try {
       const res = await fetch(`/api/admin/users/${user.id}`, {

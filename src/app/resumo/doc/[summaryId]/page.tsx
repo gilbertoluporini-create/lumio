@@ -35,6 +35,7 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 
 import { AuthGuard } from "@/components/app/auth-guard";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { AppShell } from "@/components/app/app-shell";
 import { BackToHub } from "@/components/app/back-to-hub";
 import { Badge } from "@/components/ui/badge";
@@ -201,9 +202,12 @@ function ResumoDocView({
 
   async function handleDelete() {
     if (!summary) return;
-    const confirmed = window.confirm(
-      `Excluir o resumo "${summary.title}"?\n\nO documento original será mantido.`,
-    );
+    const confirmed = await confirmAction({
+      title: `Excluir o resumo "${summary.title}"?`,
+      description: "O documento original será mantido.",
+      destructive: true,
+      confirmText: "Excluir resumo",
+    });
     if (!confirmed) return;
     setDeleting(true);
     try {

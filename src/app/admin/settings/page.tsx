@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 
 type AppConfig = {
   coin_costs: {
@@ -75,8 +76,13 @@ export default function AdminSettingsPage() {
     }
   }
 
-  function reset() {
-    if (!confirm("Resetar pros valores padrão?")) return;
+  async function reset() {
+    const ok = await confirmAction({
+      title: "Resetar pros valores padrão?",
+      description: "Suas configurações atuais serão substituídas pelos defaults.",
+      confirmText: "Resetar",
+    });
+    if (!ok) return;
     setConfig(DEFAULTS);
     localStorage.removeItem(STORAGE_KEY);
     toast.success("Resetado.");

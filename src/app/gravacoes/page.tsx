@@ -26,6 +26,7 @@ import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { NewLectureDialog } from "@/components/documents/new-lecture-dialog";
 import {
@@ -517,9 +518,13 @@ function LectureTableRow({
   }
 
   async function handleDelete() {
-    const confirmed = window.confirm(
-      `Excluir a aula "${lecture.title}"?\n\nIsso remove transcrição, áudio, slides e o resumo gerado a partir dela.`,
-    );
+    const confirmed = await confirmAction({
+      title: `Excluir a aula "${lecture.title}"?`,
+      description:
+        "Isso remove transcrição, áudio, slides e o resumo gerado a partir dela.",
+      destructive: true,
+      confirmText: "Excluir aula",
+    });
     if (!confirmed) return;
     setDeleting(true);
     try {
