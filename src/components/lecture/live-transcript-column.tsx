@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { estimateChunkCount } from "@/lib/transcript-chunking";
 import type {
   LectureSummary,
   TranscriptEntry,
@@ -279,6 +280,56 @@ export function LiveTranscriptColumn({
   const FLAT_PAGE = 80;
   const [flatLimit, setFlatLimit] = useState<number>(FLAT_PAGE);
 
+  // Timestamps de quando as ações de IA começaram — persistidos em
+  // sessionStorage pra sobreviver a HMR (dev) e tab-switches. FakeProgress lê
+  // pra calcular elapsed sem reiniciar quando o componente filho remonta.
+  const structuringKey = "lumio.structuring.startedAt";
+  const educationalKey = "lumio.educational.startedAt";
+  const [structuringStartedAt, setStructuringStartedAt] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const v = window.sessionStorage.getItem(structuringKey);
+    return v ? Number(v) : null;
+  });
+  const [educationalStartedAt, setEducationalStartedAt] = useState<number | null>(() => {
+    if (typeof window === "undefined") return null;
+    const v = window.sessionStorage.getItem(educationalKey);
+    return v ? Number(v) : null;
+  });
+
+  useEffect(() => {
+    if (structuring) {
+      if (structuringStartedAt === null) {
+        const t = Date.now();
+        setStructuringStartedAt(t);
+        window.sessionStorage.setItem(structuringKey, String(t));
+      }
+    } else if (structuringStartedAt !== null) {
+      setStructuringStartedAt(null);
+      window.sessionStorage.removeItem(structuringKey);
+    }
+  }, [structuring, structuringStartedAt]);
+
+  useEffect(() => {
+    if (generatingEducational) {
+      if (educationalStartedAt === null) {
+        const t = Date.now();
+        setEducationalStartedAt(t);
+        window.sessionStorage.setItem(educationalKey, String(t));
+      }
+    } else if (educationalStartedAt !== null) {
+      setEducationalStartedAt(null);
+      window.sessionStorage.removeItem(educationalKey);
+    }
+  }, [generatingEducational, educationalStartedAt]);
+
+  // Quantos chunks a revisão IA vai gerar pra essa transcrição (5 coins
+  // por chunk). Aulas <25min = 1 chunk = 5c; 1h+ vira 2-4 chunks.
+  const aiChunkCount = useMemo(
+    () => Math.max(1, estimateChunkCount(entries)),
+    [entries],
+  );
+  const aiCoinCost = aiChunkCount * 5;
+
   function setViewModePersisted(v: ViewMode) {
     setViewMode(v);
     if (typeof window !== "undefined") {
@@ -451,6 +502,7 @@ export function LiveTranscriptColumn({
             educational={summaryEducational}
             educationalImages={summaryImages}
             generatingEducational={!!generatingEducational}
+            educationalStartedAtMs={educationalStartedAt}
             onGenerateEducational={onGenerateEducational}
             hasEntries={entries.length > 0}
             onOpenFull={onOpenSummaryFull}
@@ -485,7 +537,9 @@ export function LiveTranscriptColumn({
                       disabled={structuring}
                       className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
                     >
-                      {structuring ? "Regerando..." : "Regerar (5 coins)"}
+                      {structuring
+                        ? "Regerando..."
+                        : `Regerar (${aiCoinCost} coins)`}
                     </button>
                   )}
                 </div>
@@ -525,30 +579,47 @@ export function LiveTranscriptColumn({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold">
-                      Quer capítulos com títulos reais?
+                      {topics.length > 0
+                        ? "Texto cru com typos? Refine com IA."
+                        : "Quer capítulos com títulos reais?"}
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                      A IA revisa typos, ajusta pontuação e separa em capítulos
-                      por tópico — não por janela de tempo.
+                      {topics.length > 0
+                        ? "Os capítulos abaixo vêm da detecção automática durante a gravação. A IA corrige typos, ajusta pontuação e reescreve em parágrafos coerentes."
+                        : "A IA revisa typos, ajusta pontuação e separa em capítulos por tópico — não por janela de tempo."}
                     </p>
-                    <Button
-                      onClick={onStructureRequest}
-                      disabled={structuring || entries.length === 0}
-                      size="sm"
-                      className="mt-2 h-7 gap-1.5 text-[11px]"
-                    >
-                      {structuring ? (
-                        <>
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          Revisando...
-                        </>
-                      ) : (
-                        <>
+                    {structuring ? (
+                      <FakeProgress
+                        // Chunks paralelos: tempo total ≈ tempo de 1 chunk
+                        // (chunk de ~25min costuma levar 60-150s no Sonnet 4.5).
+                        estimateSec={150}
+                        label={
+                          aiChunkCount > 1
+                            ? `Revisando ${aiChunkCount} partes em paralelo`
+                            : "Revisando com IA"
+                        }
+                        hint="Pode fechar a aba — continua rodando no servidor."
+                        startedAtMs={structuringStartedAt ?? Date.now()}
+                      />
+                    ) : (
+                      <div className="mt-2 flex items-center gap-2 flex-wrap">
+                        <Button
+                          onClick={onStructureRequest}
+                          disabled={entries.length === 0}
+                          size="sm"
+                          className="h-7 gap-1.5 text-[11px]"
+                        >
                           <Wand2 className="h-3 w-3" />
-                          Revisar com IA (5 coins)
-                        </>
-                      )}
-                    </Button>
+                          Revisar com IA ({aiCoinCost} coins)
+                        </Button>
+                        {aiChunkCount > 1 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            Aula longa: {aiChunkCount} partes processadas em
+                            paralelo
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -740,6 +811,7 @@ function SummaryInlineView({
   educational,
   educationalImages,
   generatingEducational,
+  educationalStartedAtMs,
   onGenerateEducational,
   hasEntries,
   onOpenFull,
@@ -752,6 +824,7 @@ function SummaryInlineView({
   educational?: { markdown: string; generatedAt: string };
   educationalImages?: import("@/lib/types").LectureSummaryImage[];
   generatingEducational: boolean;
+  educationalStartedAtMs?: number | null;
   onGenerateEducational?: () => void;
   hasEntries: boolean;
   onOpenFull?: () => void;
@@ -776,9 +849,76 @@ function SummaryInlineView({
         markdown={educational?.markdown}
         images={educationalImages}
         generating={generatingEducational}
+        startedAtMs={educationalStartedAtMs ?? null}
         hasEntries={hasEntries}
         onGenerate={onGenerateEducational}
       />
+    </div>
+  );
+}
+
+/**
+ * Barra de progresso "fake" pra ações longas de IA — avança rapidamente até
+ * ~70% e desacelera assintótico em direção a ~92% sem nunca chegar em 100%.
+ *
+ * `startedAtMs` vem do pai pra que o progresso não reinicie quando o usuário
+ * muda de aba (chapters → flat → chapters) e o componente remonta — calcula
+ * elapsed pelo timestamp original, não pelo mount.
+ */
+function FakeProgress({
+  estimateSec,
+  label,
+  hint,
+  startedAtMs,
+}: {
+  estimateSec: number;
+  label: string;
+  hint?: string;
+  startedAtMs: number;
+}) {
+  const [progress, setProgress] = useState(2);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    function tick() {
+      const seconds = Math.max(0, (Date.now() - startedAtMs) / 1000);
+      setElapsed(seconds);
+      const t = seconds / estimateSec;
+      const eased = 1 - Math.exp(-1.6 * t);
+      setProgress(Math.min(92, Math.round(eased * 100)));
+    }
+    tick();
+    const id = window.setInterval(tick, 350);
+    return () => window.clearInterval(id);
+  }, [estimateSec, startedAtMs]);
+
+  const mm = Math.floor(elapsed / 60);
+  const ss = Math.floor(elapsed % 60);
+  const elapsedLabel =
+    mm > 0 ? `${mm}m${ss.toString().padStart(2, "0")}s` : `${ss}s`;
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-violet-500/15">
+        <div
+          className="h-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-300 ease-out"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <div className="flex items-center justify-between gap-2 text-[10px]">
+        <span className="inline-flex items-center gap-1 text-violet-700 dark:text-violet-300 font-medium">
+          <Loader2 className="h-3 w-3 animate-spin" />
+          {label}
+        </span>
+        <span className="font-mono text-muted-foreground tabular-nums">
+          {progress}% · {elapsedLabel}
+        </span>
+      </div>
+      {hint && (
+        <p className="text-[10px] text-muted-foreground/80 leading-relaxed">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
@@ -787,12 +927,14 @@ function EducationalSummaryPane({
   markdown,
   images,
   generating,
+  startedAtMs,
   hasEntries,
   onGenerate,
 }: {
   markdown?: string;
   images?: import("@/lib/types").LectureSummaryImage[];
   generating: boolean;
+  startedAtMs?: number | null;
   hasEntries: boolean;
   onGenerate?: () => void;
 }) {
@@ -810,25 +952,25 @@ function EducationalSummaryPane({
               estruturado em seções, com aprofundamento dos conceitos, exemplos
               clínicos e imagens ilustrativas geradas pela IA.
             </p>
-            <Button
-              onClick={onGenerate}
-              disabled={!hasEntries || generating || !onGenerate}
-              variant="gradient"
-              size="sm"
-              className="mt-3 gap-1.5"
-            >
-              {generating ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Gerando (pode levar 1-2 min)...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="h-4 w-4" />
-                  Gerar resumo educativo (12 coins)
-                </>
-              )}
-            </Button>
+            {generating ? (
+              <FakeProgress
+                estimateSec={180}
+                label="Gerando resumo educativo"
+                hint="Pode levar 1-3 min pra aulas longas. Pode fechar a aba — continua rodando no servidor."
+                startedAtMs={startedAtMs ?? Date.now()}
+              />
+            ) : (
+              <Button
+                onClick={onGenerate}
+                disabled={!hasEntries || !onGenerate}
+                variant="gradient"
+                size="sm"
+                className="mt-3 gap-1.5"
+              >
+                <Sparkles className="h-4 w-4" />
+                Gerar resumo educativo (12 coins)
+              </Button>
+            )}
           </div>
         </div>
       </div>

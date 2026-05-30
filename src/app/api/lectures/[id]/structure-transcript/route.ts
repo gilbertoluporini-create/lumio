@@ -6,6 +6,7 @@ import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { assertLectureOwnership } from "@/lib/lecture-auth";
 import { logAiUsage } from "@/lib/ai-usage";
+import { splitIntoChunks, type TranscriptChunk } from "@/lib/transcript-chunking";
 import type {
   TranscriptEntry,
   TranscriptChapters,
@@ -14,7 +15,9 @@ import type {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+// 300s pra aulas longas (1h+): Sonnet 4.5 pode levar 4-6 min revisando
+// transcrições de 20K+ tokens. 120s estava abortando em prod silenciosamente.
+export const maxDuration = 300;
 
 const SYSTEM_PROMPT = `Você é um editor de transcrições de aulas universitárias em português brasileiro.
 
@@ -195,70 +198,155 @@ export async function POST(
     if (subj?.name) subjectName = String(subj.name);
   }
 
-  // Cobra coins
-  const cost = COIN_COSTS.transcript_structure;
-  const charged = await chargeCoins(userId, cost, "transcript_structure", {
+  // ----- Chunking: divide a transcrição em pedaços de ~25min -----
+  // Aulas curtas (<25min) viram 1 chunk só (custo = 5 coins, igual antes).
+  // Aulas longas viram 2-4 chunks processados em paralelo. Cada chunk custa
+  // 5 coins. Cobramos upfront e reembolsamos chunks que falharem.
+  const chunks = splitIntoChunks(entries);
+  if (chunks.length === 0) {
+    return NextResponse.json(
+      { error: "Transcrição vazia." },
+      { status: 400 },
+    );
+  }
+
+  const perChunkCost = COIN_COSTS.transcript_structure; // 5
+  const totalCost = perChunkCost * chunks.length;
+  const charged = await chargeCoins(userId, totalCost, "transcript_structure", {
     lectureId,
+    chunks: chunks.length,
   });
   if (!charged.ok) {
     return NextResponse.json(
       {
         error: "Coins insuficientes.",
         balance: charged.balance,
-        required: cost,
+        required: totalCost,
+        chunks: chunks.length,
       },
       { status: 402 },
     );
   }
 
-  const promptLines = entriesToPromptLines(entries);
-  const system = SYSTEM_PROMPT.replace(
+  const baseSystem = SYSTEM_PROMPT.replace(
     "{{SUBJECT}}",
     escapeForPrompt(subjectName),
   ).replace("{{TITLE}}", escapeForPrompt(lectureRow.title || "Aula"));
 
-  try {
-    const resp = await createMessage({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 16000,
-      system: [
-        { type: "text", text: system, cache_control: { type: "ephemeral" } },
-      ],
-      messages: [
+  // Roda chunks em paralelo. Cada Promise resolve em chapters[] ou null se
+  // falhar (modelo travou, JSON inválido, etc).
+  type ChunkResult = {
+    chunk: TranscriptChunk;
+    chapters: TranscriptRevisedChapter[] | null;
+    inputTokens: number;
+    outputTokens: number;
+    error?: string;
+  };
+
+  async function processChunk(chunk: TranscriptChunk): Promise<ChunkResult> {
+    const chunkContext =
+      chunks.length === 1
+        ? ""
+        : `\n\nNOTA IMPORTANTE: você está revisando a PARTE ${chunk.index + 1} de ${chunks.length} desta aula (do segundo ${Math.floor(
+            chunk.startSec,
+          )} ao ${Math.floor(chunk.endSec)}). Não invente conteúdo de outras partes. Os startSec devem ser ABSOLUTOS (a partir do início da aula, não do início desta parte).`;
+    const promptLines = entriesToPromptLines(chunk.entries);
+    try {
+      const resp = await createMessage(
         {
-          role: "user",
-          content: `Transcrição crua com timestamps:\n\n${escapeForPrompt(promptLines)}`,
+          model: "claude-sonnet-4-5-20250929",
+          max_tokens: 16000,
+          system: [
+            {
+              type: "text",
+              text: baseSystem + chunkContext,
+              cache_control: { type: "ephemeral" },
+            },
+          ],
+          messages: [
+            {
+              role: "user",
+              content: `Transcrição crua com timestamps:\n\n${escapeForPrompt(promptLines)}`,
+            },
+          ],
         },
-      ],
-    });
-
-    const textBlock = resp.content.find((b) => b.type === "text");
-    const rawText =
-      textBlock && textBlock.type === "text" ? textBlock.text : "";
-    const chapters = tryParseChapters(rawText);
-
-    if (!chapters || chapters.length === 0) {
-      // Reverte coins se o modelo não retornou JSON válido
-      await creditCoins(userId, cost, "refund", {
-        lectureId,
-        kind: "transcript_structure_parse_failed",
-      });
-      console.error(
-        "[structure-transcript] parse failed, raw preview:",
-        rawText.slice(0, 500),
+        // Timeout por chunk: 3min (chunk de ~25min deve responder em 60-120s
+        // confortavelmente). Se travar, falha rápido e libera o slot.
+        { timeoutMs: 180_000 },
       );
+      const textBlock = resp.content.find((b) => b.type === "text");
+      const rawText =
+        textBlock && textBlock.type === "text" ? textBlock.text : "";
+      const parsed = tryParseChapters(rawText);
+      return {
+        chunk,
+        chapters: parsed,
+        inputTokens: resp.usage?.input_tokens ?? 0,
+        outputTokens: resp.usage?.output_tokens ?? 0,
+      };
+    } catch (err) {
+      console.error(
+        `[structure-transcript] chunk ${chunk.index + 1}/${chunks.length} failed`,
+        err,
+      );
+      return {
+        chunk,
+        chapters: null,
+        inputTokens: 0,
+        outputTokens: 0,
+        error: (err as Error)?.message ?? "unknown",
+      };
+    }
+  }
+
+  try {
+    const results = await Promise.all(chunks.map((c) => processChunk(c)));
+
+    const failedCount = results.filter((r) => !r.chapters).length;
+    const successCount = results.length - failedCount;
+
+    // Reembolsa coins dos chunks que falharam.
+    if (failedCount > 0) {
+      await creditCoins(userId, perChunkCost * failedCount, "refund", {
+        lectureId,
+        kind: "transcript_structure_chunk_failed",
+        failedCount,
+      });
+    }
+
+    if (successCount === 0) {
       return NextResponse.json(
-        { error: "Não foi possível estruturar a transcrição. Tente de novo." },
+        {
+          error:
+            "Não conseguimos processar nenhuma parte da aula. Tente de novo.",
+        },
         { status: 502 },
       );
     }
 
+    // Merge: capítulos vêm em ordem dos chunks; dentro de cada chunk já vêm
+    // ordenados por startSec. Só concatena. Re-genera IDs únicos se houver
+    // colisão (pouco provável mas barato fazer).
+    const merged: TranscriptRevisedChapter[] = [];
+    const seenIds = new Set<string>();
+    for (const r of results) {
+      if (!r.chapters) continue;
+      for (const ch of r.chapters) {
+        let id = ch.id;
+        let suffix = 2;
+        while (seenIds.has(id)) {
+          id = `${ch.id}-${suffix++}`;
+        }
+        seenIds.add(id);
+        merged.push({ ...ch, id });
+      }
+    }
+
     const payload: TranscriptChapters = {
-      chapters,
+      chapters: merged,
       generatedAt: new Date().toISOString(),
     };
 
-    // Salva no banco
     const { error: upErr } = await admin
       .from("lectures")
       .update({ transcript_chapters: payload })
@@ -267,20 +355,27 @@ export async function POST(
       console.error("[structure-transcript] db update failed", upErr);
     }
 
-    // Log de uso (best-effort)
+    // Log de uso agregado dos chunks bem-sucedidos.
+    const totalIn = results.reduce((s, r) => s + r.inputTokens, 0);
+    const totalOut = results.reduce((s, r) => s + r.outputTokens, 0);
     void logAiUsage({
       userId,
       endpoint: "/api/lectures/[id]/structure-transcript",
       model: "claude-sonnet-4-5-20250929",
-      inputTokens: resp.usage?.input_tokens ?? 0,
-      outputTokens: resp.usage?.output_tokens ?? 0,
-      coinsCharged: cost,
+      inputTokens: totalIn,
+      outputTokens: totalOut,
+      coinsCharged: perChunkCost * successCount,
     }).catch(() => {});
 
-    return NextResponse.json({ chapters: payload });
+    return NextResponse.json({
+      chapters: payload,
+      chunksProcessed: successCount,
+      chunksFailed: failedCount,
+      coinsRefunded: perChunkCost * failedCount,
+    });
   } catch (err) {
-    // Reverte coins em qualquer erro
-    await creditCoins(userId, cost, "refund", {
+    // Erro inesperado fora do per-chunk handler — reembolso total.
+    await creditCoins(userId, totalCost, "refund", {
       lectureId,
       kind: "transcript_structure_error",
     });

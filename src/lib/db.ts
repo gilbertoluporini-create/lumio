@@ -333,7 +333,13 @@ function fireFirstLectureOnce(userId: string): void {
 
 export async function createLectureAsync(
   userId: string,
-  data: { subjectId: string; title: string; folderId?: string | null },
+  data: {
+    subjectId: string;
+    title: string;
+    folderId?: string | null;
+    /** 'upload' inicia transcription_status='pending' pro overlay aparecer. */
+    source?: "live" | "upload";
+  },
 ): Promise<Lecture> {
   if (!isSupabaseConfigured()) {
     const lec = localCreateLecture(userId, {
@@ -351,6 +357,7 @@ export async function createLectureAsync(
       subjectId: data.subjectId,
       title: data.title,
       folderId: data.folderId ?? null,
+      source: data.source ?? "live",
     }),
   });
   const json = await res.json();

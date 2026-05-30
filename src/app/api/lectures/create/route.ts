@@ -11,6 +11,15 @@ type Body = {
   title: string;
   /** Pasta dentro da matéria (opcional). null/undefined = raiz. */
   folderId?: string | null;
+  /**
+   * 'live' (padrão) = aula gravada via Web Speech / mic; transcription_status
+   * inicia como 'completed' (texto vem do client).
+   * 'upload' = aula via upload de áudio; transcription_status inicia como
+   * 'pending' pra que o TranscribingOverlay apareça enquanto o worker
+   * server-side roda o /transcribe. Evita race onde a UI vê 'completed'
+   * (default) antes do /transcribe disparar e flipar pra 'transcribing'.
+   */
+  source?: "live" | "upload";
 };
 
 const RESET_INTERVAL_DAYS = 30;
@@ -124,6 +133,7 @@ export async function POST(req: Request) {
     }
 
     // 3) Cria a aula
+    const isUpload = body.source === "upload";
     const { data: lecture, error: insErr } = await admin
       .from("lectures")
       .insert({
@@ -135,6 +145,14 @@ export async function POST(req: Request) {
         duration_sec: 0,
         status: "draft",
         messages: [],
+        // Upload de áudio começa em estado pending pra TranscribingOverlay
+        // aparecer assim que /lecture/[id] abrir; live mantém defaults da
+        // migration 025 (source='live', transcription_status='completed').
+        ...(isUpload && {
+          source: "upload",
+          transcription_status: "pending",
+          transcription_progress: 0,
+        }),
       })
       .select(
         "id, user_id, subject_id, folder_id, title, transcript, duration_sec, status, slides_file_name, slides, messages, audio_url, created_at, updated_at",

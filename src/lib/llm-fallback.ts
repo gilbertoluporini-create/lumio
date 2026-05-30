@@ -351,15 +351,20 @@ async function callOpenAIAsAnthropic(
  * Drop-in pra `client.messages.create(params)` (não-streaming).
  * Tenta Anthropic; em erro recuperável, refaz na OpenAI e devolve no
  * formato Anthropic.
+ *
+ * `timeoutMs` (default 240s = 4min) evita request pendurar 10-15min em
+ * cenários onde Sonnet trava ou Anthropic está degradado. Caller deve
+ * cobrir o caso de erro (reembolso de coins, etc).
  */
 export async function createMessage(
   params: Anthropic.MessageCreateParamsNonStreaming,
-  opts: { anthropicKey?: string } = {},
+  opts: { anthropicKey?: string; timeoutMs?: number } = {},
 ): Promise<Anthropic.Message> {
   const anthropicKey = opts.anthropicKey ?? process.env.ANTHROPIC_API_KEY;
+  const timeout = opts.timeoutMs ?? 240_000;
   if (anthropicKey) {
     try {
-      const client = new Anthropic({ apiKey: anthropicKey });
+      const client = new Anthropic({ apiKey: anthropicKey, timeout });
       return await client.messages.create(params);
     } catch (err) {
       if (!isAnthropicRecoverableError(err)) throw err;
