@@ -18,14 +18,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  BookOpen,
   Check,
   ChevronDown,
   Coins,
   FileText,
   FileUp,
   Folder,
+  Library,
   Loader2,
   Mic,
+  Plus,
   Sparkles,
   Upload,
   X,
@@ -1385,23 +1388,47 @@ function Step1Sources({
     .reduce((n, l) => n + (l.slides?.length ?? 0), 0);
 
   return (
-    <div className="p-6 space-y-5">
-      {/* Aulas gravadas */}
-      <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+    <div className="p-6 space-y-6">
+      {/* ============ GROUP A: REAPROVEITAR ============ */}
+      <div className="space-y-2.5">
+        <div className="flex items-center gap-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <Library className="h-3 w-3" />
+          <span>Reaproveitar o que você já tem</span>
+          <span className="ml-auto font-mono text-[9px] opacity-60">
+            grátis usar
+          </span>
+        </div>
+
+      {/* Aulas gravadas — violeta */}
+      <div
+        className={cn(
+          "rounded-xl border bg-card overflow-hidden transition-colors",
+          selectedCount > 0
+            ? "border-violet-500/50 ring-1 ring-violet-500/20"
+            : "border-border/60",
+        )}
+      >
         <button
           type="button"
           onClick={() => setLectureListOpen((v) => !v)}
           className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/30 text-left"
         >
-          <div className="h-9 w-9 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center shrink-0">
-            <Mic className="h-4 w-4 text-primary" />
+          <div className="h-9 w-9 rounded-lg bg-violet-500/10 dark:bg-violet-500/15 flex items-center justify-center shrink-0">
+            <Mic className="h-4 w-4 text-violet-600 dark:text-violet-400" />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-sm font-medium">Aula gravada</div>
+            <div className="text-sm font-medium inline-flex items-center gap-2">
+              Aulas que você gravou
+              {selectedCount > 0 && (
+                <Badge className="text-[9px] py-0 px-1.5 h-4 bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30">
+                  {selectedCount} selecionada{selectedCount === 1 ? "" : "s"}
+                </Badge>
+              )}
+            </div>
             <div className="text-[11px] text-muted-foreground">
-              {selectedCount === 0
-                ? `${lectures.length} aula${lectures.length === 1 ? "" : "s"} com transcrição disponível`
-                : `${selectedCount} selecionada${selectedCount === 1 ? "" : "s"}`}
+              {lectures.length === 0
+                ? "Nenhuma aula com transcrição"
+                : `${lectures.length} aula${lectures.length === 1 ? "" : "s"} disponível${lectures.length === 1 ? "" : "is"} · transcrição já processada`}
             </div>
           </div>
           <ChevronDown
@@ -1510,27 +1537,42 @@ function Step1Sources({
         onRepairDocument={onRepairDocument}
         repairingDocId={repairingDocId}
       />
+      </div>
 
+      {/* ============ GROUP B: ADICIONAR NOVO ============ */}
+      <div className="space-y-2.5">
+        <div className="flex items-center gap-2 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <Plus className="h-3 w-3" />
+          <span>Subir um arquivo novo agora</span>
+          <span className="ml-auto font-mono text-[9px] opacity-60">
+            +{COIN_COSTS.perExtraSource} coins por PDF extra
+          </span>
+        </div>
 
-      {/* Upload PDF */}
-      <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+      {/* Upload PDF — esmeralda */}
+      <div
+        className={cn(
+          "rounded-xl border bg-card overflow-hidden transition-colors",
+          uploadedPdfs.length > 0
+            ? "border-emerald-500/50 ring-1 ring-emerald-500/20"
+            : "border-border/60",
+        )}
+      >
         <div className="flex items-center gap-3 px-4 py-3">
-          <div className="h-9 w-9 rounded-lg bg-primary/10 dark:bg-primary/15 flex items-center justify-center shrink-0">
-            <FileUp className="h-4 w-4 text-primary" />
+          <div className="h-9 w-9 rounded-lg bg-emerald-500/10 dark:bg-emerald-500/15 flex items-center justify-center shrink-0">
+            <FileUp className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div className="min-w-0 flex-1">
             <div className="text-sm font-medium inline-flex items-center gap-2">
-              Upload de PDFs
-              <Badge
-                variant="outline"
-                className="text-[9px] py-0 px-1.5 h-4 font-mono"
-              >
-                vários ok
-              </Badge>
+              Subir PDF do seu computador
+              {uploadedPdfs.length > 0 && (
+                <Badge className="text-[9px] py-0 px-1.5 h-4 bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30">
+                  {uploadedPdfs.length} subido{uploadedPdfs.length === 1 ? "" : "s"}
+                </Badge>
+              )}
             </div>
             <div className="text-[11px] text-muted-foreground">
-              Pode selecionar vários de uma vez · cada PDF extra adiciona{" "}
-              {COIN_COSTS.perExtraSource} coins.
+              Vários de uma vez · fica salvo na biblioteca pra reaproveitar
             </div>
           </div>
           <Button
@@ -1575,6 +1617,7 @@ function Step1Sources({
             ))}
           </ul>
         )}
+      </div>
       </div>
 
       {/* Instruções customizadas */}
@@ -1832,21 +1875,35 @@ function SavedPdfsSection({
     sortedDocuments.filter((d) => selectedDocumentIds.has(d.id)).length;
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+    <div
+      className={cn(
+        "rounded-xl border bg-card overflow-hidden transition-colors",
+        selectedCount > 0
+          ? "border-sky-500/50 ring-1 ring-sky-500/20"
+          : "border-border/60",
+      )}
+    >
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/30 text-left"
       >
-        <div className="h-9 w-9 rounded-lg bg-secondary/40 flex items-center justify-center shrink-0">
-          <Folder className="h-4 w-4 text-muted-foreground" />
+        <div className="h-9 w-9 rounded-lg bg-sky-500/10 dark:bg-sky-500/15 flex items-center justify-center shrink-0">
+          <BookOpen className="h-4 w-4 text-sky-600 dark:text-sky-400" />
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium">PDF da pasta Documentos</div>
+          <div className="text-sm font-medium inline-flex items-center gap-2">
+            PDFs já salvos na biblioteca
+            {selectedCount > 0 && (
+              <Badge className="text-[9px] py-0 px-1.5 h-4 bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30">
+                {selectedCount} selecionado{selectedCount === 1 ? "" : "s"}
+              </Badge>
+            )}
+          </div>
           <div className="text-[11px] text-muted-foreground">
-            {selectedCount === 0
-              ? `${totalItems} PDF${totalItems === 1 ? "" : "s"} salvo${totalItems === 1 ? "" : "s"} na sua biblioteca`
-              : `${selectedCount} selecionado${selectedCount === 1 ? "" : "s"}`}
+            {totalItems === 0
+              ? "Nenhum PDF salvo ainda — suba abaixo"
+              : `${totalItems} PDF${totalItems === 1 ? "" : "s"} pronto${totalItems === 1 ? "" : "s"} pra reusar`}
           </div>
         </div>
         <ChevronDown
