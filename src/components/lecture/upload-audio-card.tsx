@@ -167,6 +167,19 @@ export function UploadAudioCard({
 
       // 3) dispara transcribe (server fica processando)
       setPending("dispatching");
+      // Marca status='pending' ANTES do dispatch fire-and-forget pra evitar
+      // race: DB default é 'completed' (migration 025), então sem isso o
+      // overlay polla, vê 'completed' na primeira pollage (antes do
+      // /transcribe ter setado 'transcribing'), e desliga o polling pra
+      // sempre — deixando o user numa tela vazia.
+      await supabase
+        .from("lectures")
+        .update({
+          transcription_status: "pending",
+          transcription_progress: 0,
+          transcription_error: null,
+        })
+        .eq("id", lecture.id);
       // NOTA: a rota leva alguns minutos. Não esperamos a resposta aqui —
       // pegamos só o "kickoff" 202; a UI da lecture faz polling do status.
       void fetch(`/api/lectures/${lecture.id}/transcribe`, {

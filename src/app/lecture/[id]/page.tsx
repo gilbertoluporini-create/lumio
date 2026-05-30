@@ -815,7 +815,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     try {
       await deleteLectureAsync(user.id, lecture.id);
       toast.success("Aula excluída.");
-      router.replace("/dashboard");
+      router.replace("/gravacoes");
     } catch (err) {
       toast.error(`Erro: ${(err as Error).message}`);
     }
