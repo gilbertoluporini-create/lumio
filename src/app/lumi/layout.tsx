@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { buildPageMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = buildPageMetadata({
-  title: "Lumi · Lumio",
+  title: "Lumi",
   description:
     "Converse com Lumi, sua IA de estudo com voz, anexos e contexto da matéria.",
   path: "/lumi",

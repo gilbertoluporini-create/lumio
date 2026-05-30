@@ -37,6 +37,7 @@ import { JobsTray } from "@/components/jobs/jobs-tray";
 import { PlanPremiumCard } from "@/components/app/plan-premium-card";
 import { PendingGenerationGuard } from "@/components/app/pending-generation-guard";
 import { CreatePasswordPrompt } from "@/components/app/create-password-prompt";
+import { SupportFab } from "@/components/support/support-fab";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -525,6 +526,7 @@ export function AppShell({
       {/* Usuários que entram com Google não têm senha — oferece criar uma
           de fallback após o login (pulável, reaparece até criar). */}
       <CreatePasswordPrompt />
+      <SupportFab user={user} />
     </div>
   );
 }

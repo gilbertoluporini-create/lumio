@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/server";
 import { requireAdmin, logAdminAction } from "@/lib/admin";
 import { sendSupportTicketReply } from "@/lib/email";
+import { notifyUser } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -51,7 +52,7 @@ export async function PATCH(
 
   const { data: existing, error: readErr } = await admin
     .from("support_tickets")
-    .select("id, user_email, user_name, subject, status")
+    .select("id, user_id, user_email, user_name, subject, status")
     .eq("id", id)
     .maybeSingle();
   if (readErr || !existing) {
@@ -59,6 +60,7 @@ export async function PATCH(
   }
   const ticket = existing as {
     id: string;
+    user_id: string | null;
     user_email: string;
     user_name: string | null;
     subject: string;
@@ -107,6 +109,19 @@ export async function PATCH(
     } catch (err) {
       console.error("[support] reply email failed", err);
     }
+  }
+
+  // Notificação in-app pro autor do ticket (sininho)
+  if (parsed.data.reply && ticket.user_id) {
+    const preview = parsed.data.reply.slice(0, 140);
+    await notifyUser({
+      userId: ticket.user_id,
+      type: "ticket_reply",
+      title: `Resposta do suporte: ${ticket.subject}`,
+      body: preview.length < parsed.data.reply.length ? `${preview}…` : preview,
+      href: "/help",
+      metadata: { ticketId: id },
+    });
   }
 
   await logAdminAction({

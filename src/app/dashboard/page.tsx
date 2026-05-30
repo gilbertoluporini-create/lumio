@@ -83,6 +83,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { SubjectIconPicker } from "@/components/app/subject-icon-picker";
+import { UploadAudioCard } from "@/components/lecture/upload-audio-card";
 import {
   createLectureAsync,
   createSubjectAsync,
@@ -487,6 +488,7 @@ function Dashboard({ user }: { user: User }) {
   const [lectureOpen, setLectureOpen] = useState(false);
   const [lectureTitle, setLectureTitle] = useState("");
   const [lectureSubject, setLectureSubject] = useState<string>("");
+  const [lectureMode, setLectureMode] = useState<"live" | "upload">("live");
   const [newName, setNewName] = useState("");
   const [iconName, setIconName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1066,9 +1068,42 @@ function Dashboard({ user }: { user: User }) {
           <DialogHeader>
             <DialogTitle>Nova aula</DialogTitle>
             <DialogDescription>
-              Em segundos a transcrição começa.
+              {lectureMode === "live"
+                ? "Em segundos a transcrição começa."
+                : "Suba um áudio que você já gravou — até ~3h."}
             </DialogDescription>
           </DialogHeader>
+
+          {/* Tabs Gravar / Subir */}
+          <div className="flex gap-1 rounded-lg bg-secondary/60 p-1">
+            <button
+              type="button"
+              onClick={() => setLectureMode("live")}
+              className={cn(
+                "flex-1 inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                lectureMode === "live"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Mic className="h-3.5 w-3.5" />
+              Gravar ao vivo
+            </button>
+            <button
+              type="button"
+              onClick={() => setLectureMode("upload")}
+              className={cn(
+                "flex-1 inline-flex items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors",
+                lectureMode === "upload"
+                  ? "bg-background shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Upload className="h-3.5 w-3.5" />
+              Subir áudio
+            </button>
+          </div>
+
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label htmlFor="title">Título</Label>
@@ -1115,14 +1150,26 @@ function Dashboard({ user }: { user: User }) {
                 })}
               </div>
             </div>
+
+            {lectureMode === "upload" && (
+              <UploadAudioCard
+                user={user}
+                subjectId={lectureSubject || null}
+                fallbackTitle={lectureTitle}
+                onSuccess={() => setLectureOpen(false)}
+              />
+            )}
           </div>
+
           <DialogFooter>
             <Button variant="ghost" onClick={() => setLectureOpen(false)}>
               Cancelar
             </Button>
-            <Button variant="gradient" onClick={handleCreateLecture}>
-              <Mic className="h-4 w-4" /> Começar
-            </Button>
+            {lectureMode === "live" && (
+              <Button variant="gradient" onClick={handleCreateLecture}>
+                <Mic className="h-4 w-4" /> Começar
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

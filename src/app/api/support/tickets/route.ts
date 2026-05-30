@@ -3,6 +3,7 @@ import { z } from "zod";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { isAdminEmail } from "@/lib/admin";
 import { sendSupportTicketNotification } from "@/lib/email";
+import { notifyAdmins } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -114,6 +115,15 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     console.error("[support] notification email failed", err);
   }
+
+  // Notificação in-app pros admins (sininho)
+  await notifyAdmins({
+    type: "ticket_new",
+    title: `Novo ticket: ${parsed.data.subject}`,
+    body: `${ticketName ?? userEmail} · ${parsed.data.category}`,
+    href: "/admin/tickets",
+    metadata: { ticketId: row.id, category: parsed.data.category },
+  });
 
   return NextResponse.json({
     ok: true,

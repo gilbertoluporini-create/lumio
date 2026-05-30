@@ -62,6 +62,7 @@ import {
 } from "@/components/lecture/bottom-cards/next-actions";
 import { StatsCard } from "@/components/lecture/bottom-cards/stats-card";
 import { useTranscriptSync } from "@/components/lecture/use-transcript-sync";
+import { TranscribingOverlay } from "@/components/lecture/transcribing-overlay";
 
 const SUGGESTED_PROMPTS = [
   "Faz um resumo da aula",
@@ -984,6 +985,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           </>
         )}
       </div>
+      <TranscribingOverlay lectureId={lectureId} />
     </>
   );
 }
