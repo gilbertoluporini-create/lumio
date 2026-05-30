@@ -2,7 +2,7 @@
 
 import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertCircle, Loader2, Sparkles } from "lucide-react";
+import { AlertCircle, Headphones, Lightbulb, Loader2, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthGuard } from "@/components/app/auth-guard";
@@ -63,6 +63,7 @@ import {
 import { StatsCard } from "@/components/lecture/bottom-cards/stats-card";
 import { useTranscriptSync } from "@/components/lecture/use-transcript-sync";
 import { TranscribingOverlay } from "@/components/lecture/transcribing-overlay";
+import { CollapsibleSection } from "@/components/lecture/collapsible-section";
 
 const SUGGESTED_PROMPTS = [
   "Faz um resumo da aula",
@@ -943,33 +944,54 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
             )}
 
             {audioUrl && !isLive && (
-              <div className="rounded-2xl border border-border/60 bg-card p-4">
+              <CollapsibleSection
+                id={`audio-${lectureId}`}
+                title="Áudio da aula"
+                subtitle={`${formatDuration(durationSec)} · ouvir + navegar`}
+                icon={<Headphones className="h-4 w-4" />}
+                defaultOpen={false}
+              >
                 <AudioPlayer src={audioUrl} initialDurationSec={durationSec} />
-              </div>
+              </CollapsibleSection>
             )}
 
-            <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
-              <KeyPointsCard
-                terms={sync.insights?.keyTerms ?? []}
-                activeTerm={search || undefined}
-                onSelectTerm={(t) => setSearch(t)}
-              />
-              <TopicsListCard
-                topics={sync.insights?.topics ?? []}
-                onSelect={handleSelectTopic}
-              />
-              <NextActionsCard
-                loading={actionLoading}
-                onAction={handleNextAction}
-                disabled={sync.entries.length === 0}
-              />
-              <StatsCard
-                slidesCount={slides?.length ?? 0}
-                durationSec={durationSec}
-                transcribedPct={transcribedPct}
-                doubtsCount={doubtsCount}
-              />
-            </div>
+            <CollapsibleSection
+              id={`insights-${lectureId}`}
+              title="Insights da aula"
+              subtitle="Pontos-chave, tópicos, próximos passos e estatísticas"
+              icon={<Lightbulb className="h-4 w-4" />}
+              defaultOpen={false}
+              badge={
+                sync.insights?.keyTerms.length ? (
+                  <span className="text-[10px] font-mono text-muted-foreground">
+                    {sync.insights.keyTerms.length} termos · {sync.insights.topics?.length ?? 0} tópicos
+                  </span>
+                ) : null
+              }
+            >
+              <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-4">
+                <KeyPointsCard
+                  terms={sync.insights?.keyTerms ?? []}
+                  activeTerm={search || undefined}
+                  onSelectTerm={(t) => setSearch(t)}
+                />
+                <TopicsListCard
+                  topics={sync.insights?.topics ?? []}
+                  onSelect={handleSelectTopic}
+                />
+                <NextActionsCard
+                  loading={actionLoading}
+                  onAction={handleNextAction}
+                  disabled={sync.entries.length === 0}
+                />
+                <StatsCard
+                  slidesCount={slides?.length ?? 0}
+                  durationSec={durationSec}
+                  transcribedPct={transcribedPct}
+                  doubtsCount={doubtsCount}
+                />
+              </div>
+            </CollapsibleSection>
 
             {audioUploading && (
               <div className="text-xs text-muted-foreground text-center inline-flex items-center justify-center gap-1.5">
