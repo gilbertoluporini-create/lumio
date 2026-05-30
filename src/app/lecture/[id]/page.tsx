@@ -125,9 +125,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [structuringTranscript, setStructuringTranscript] = useState(false);
   const [generatingEducational, setGeneratingEducational] = useState(false);
 
-  const [view, setView] = useState<LectureHeaderView>(
-    initialTab === "summary" ? "summary" : "live",
-  );
+  // `?tab=summary` mantém a view "live" do header MAS pede pro LiveTranscriptColumn
+  // abrir já na aba Resumo embutida (em vez da SummaryPane antiga de cards).
+  const [view, setView] = useState<LectureHeaderView>("live");
+  const initialTranscriptView = initialTab === "summary" ? "summary" : undefined;
 
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<MarkerFilter>("all");
@@ -1036,6 +1037,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 onFilterChange={setActiveFilter}
                 onPlay={handlePlay}
                 onJumpToSlide={handleJumpToSlide}
+                initialViewMode={initialTranscriptView}
               />
 
               <div className="space-y-4 min-w-0 lg:sticky lg:top-4 lg:self-start">

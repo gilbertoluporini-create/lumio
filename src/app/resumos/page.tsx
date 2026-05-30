@@ -901,7 +901,13 @@ function FeaturedSummaryCard({
 
           <div className="mt-6 flex flex-wrap items-center gap-2">
             <Button asChild variant="gradient" size="sm">
-              <Link href={href}>
+              <Link
+                href={
+                  fromLecture && item.lectureHref
+                    ? `${item.lectureHref}?tab=summary`
+                    : href
+                }
+              >
                 Continuar leitura <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </Button>

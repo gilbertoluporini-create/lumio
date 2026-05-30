@@ -221,6 +221,7 @@ export function LiveTranscriptColumn({
   onPlay,
   onJumpToSlide,
   onAddMarker,
+  initialViewMode,
 }: {
   entries: TranscriptEntry[];
   interim: string;
@@ -246,10 +247,13 @@ export function LiveTranscriptColumn({
   onPlay?: (offsetSec: number) => void;
   onJumpToSlide?: (idx: number) => void;
   onAddMarker?: () => void;
+  initialViewMode?: ViewMode;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // Default sempre "chapters" (revisada). Usuário pode alternar pra "flat" (crua).
+  // initialViewMode (de ?tab=summary) tem prioridade sobre localStorage no primeiro mount.
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
+    if (initialViewMode) return initialViewMode;
     if (typeof window === "undefined") return "chapters";
     const saved = window.localStorage.getItem("lumio.transcript.view") as ViewMode | null;
     return saved || "chapters";
