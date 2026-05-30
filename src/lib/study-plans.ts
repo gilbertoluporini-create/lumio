@@ -21,7 +21,15 @@ export type StudyPlanItemKind =
   | "routine"
   | "note";
 
-export type StudyPlanItemStatus = "pending" | "in_progress" | "done";
+export type StudyPlanItemStatus =
+  | "pending"
+  | "in_progress"
+  | "done"
+  /** Aguardando o cron worker — item criado pelo wizard, source_document_id
+   *  preenchido, mas ainda não gerou o asset (resumo/flashcards/quiz/mapa). */
+  | "generating"
+  /** Geração falhou (sem coins, parse fail, timeout). errorMessage explica. */
+  | "failed";
 
 export type StudyPlan = {
   id: string;
@@ -30,6 +38,9 @@ export type StudyPlan = {
   title: string;
   examDate: string | null; // "YYYY-MM-DD"
   status: StudyPlanStatus;
+  /** Kinds que o wizard pediu pra gerar (ex: ["summary","flashcards","quiz"]).
+   *  Usado pelo wizard pra "regerar plano" reabrir com mesmas escolhas. */
+  assetKinds: StudyPlanItemKind[];
   createdAt: string;
   updatedAt: string;
 };
@@ -45,6 +56,10 @@ export type StudyPlanItem = {
   status: StudyPlanItemStatus;
   dueAt: string | null;
   completedAt: string | null;
+  /** Documento (PDF) que origina esse item. Cron worker lê pra gerar o asset. */
+  sourceDocumentId: string | null;
+  /** Motivo do failed (se aplica). */
+  errorMessage: string | null;
   createdAt: string;
 };
 
@@ -55,6 +70,7 @@ type StudyPlanRow = {
   title: string;
   exam_date: string | null;
   status: StudyPlanStatus;
+  asset_kinds: StudyPlanItemKind[] | null;
   created_at: string;
   updated_at: string;
 };
@@ -70,13 +86,15 @@ type StudyPlanItemRow = {
   status: StudyPlanItemStatus;
   due_at: string | null;
   completed_at: string | null;
+  source_document_id: string | null;
+  error_message: string | null;
   created_at: string;
 };
 
 const PLAN_COLS =
-  "id, user_id, subject_id, title, exam_date, status, created_at, updated_at";
+  "id, user_id, subject_id, title, exam_date, status, asset_kinds, created_at, updated_at";
 const ITEM_COLS =
-  "id, plan_id, position, kind, asset_id, title, description, status, due_at, completed_at, created_at";
+  "id, plan_id, position, kind, asset_id, title, description, status, due_at, completed_at, source_document_id, error_message, created_at";
 
 function rowToPlan(r: StudyPlanRow): StudyPlan {
   return {
@@ -86,6 +104,7 @@ function rowToPlan(r: StudyPlanRow): StudyPlan {
     title: r.title,
     examDate: r.exam_date,
     status: r.status,
+    assetKinds: r.asset_kinds ?? [],
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -103,6 +122,8 @@ function rowToItem(r: StudyPlanItemRow): StudyPlanItem {
     status: r.status,
     dueAt: r.due_at,
     completedAt: r.completed_at,
+    sourceDocumentId: r.source_document_id,
+    errorMessage: r.error_message,
     createdAt: r.created_at,
   };
 }
