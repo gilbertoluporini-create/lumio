@@ -28,6 +28,57 @@ const CHUNK_FALLBACK_SEC = 600; // 10 min por capítulo sintético quando não h
 const RAW_PARAGRAPH_SEC = 60; // 1 min por parágrafo na vista "Transcrição crua"
 const CHAPTER_PARAGRAPH_SEC = 120; // 2 min por parágrafo dentro de cada capítulo
 
+/**
+ * Injeta as imagens do resumo (vindas com sectionIndex apontando pra um H2)
+ * INLINE no markdown, logo após o cabeçalho da seção correspondente. Espelha
+ * a lógica server-side de /api/ai/summary-images, mas roda no client pra
+ * funcionar mesmo quando o markdown salvo no banco está sem as imagens
+ * injetadas (race com geração assíncrona).
+ */
+function injectImagesIntoMarkdown(
+  markdown: string,
+  images: import("@/lib/types").LectureSummaryImage[],
+): string {
+  if (!images || images.length === 0) return markdown;
+  const lines = markdown.split("\n");
+  const h2Indexes = lines
+    .map((line, index) => ({ line, index }))
+    .filter((item) => item.line.startsWith("## "));
+
+  let offset = 0;
+  const used = new Set<number>();
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    if (typeof img.sectionIndex !== "number") continue;
+    const target = h2Indexes[img.sectionIndex];
+    if (!target) continue;
+    const insertAt = target.index + 1 + offset;
+    const insertLines = [
+      "",
+      `![${img.alt || img.caption || "Ilustração"}](${img.url})`,
+    ];
+    if (img.caption) insertLines.push(`*${img.caption}*`);
+    insertLines.push("");
+    lines.splice(insertAt, 0, ...insertLines);
+    offset += insertLines.length;
+    used.add(i);
+  }
+
+  // Imagens sem sectionIndex válido: cai em galeria no final
+  const leftovers = images.filter((_, i) => !used.has(i));
+  if (leftovers.length > 0) {
+    lines.push("", "---", "");
+    for (const img of leftovers) {
+      lines.push(
+        `![${img.alt || img.caption || "Ilustração"}](${img.url})`,
+        img.caption ? `*${img.caption}*` : "",
+        "",
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
 type RawParagraph = {
   startSec: number;
   text: string;
@@ -738,34 +789,22 @@ function EducationalSummaryPane({
         )}
       </div>
       <article className="prose prose-sm dark:prose-invert max-w-none rounded-xl border border-border/60 bg-background/40 p-5 leading-relaxed">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          components={{
+            img: ({ src, alt }) => (
+              <img
+                src={typeof src === "string" ? src : ""}
+                alt={alt ?? ""}
+                className="rounded-lg border border-border/60 w-full max-w-lg mx-auto my-4 block"
+                loading="lazy"
+              />
+            ),
+          }}
+        >
+          {injectImagesIntoMarkdown(markdown, images ?? [])}
+        </ReactMarkdown>
       </article>
-      {images && images.length > 0 && (
-        <div className="space-y-2">
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-            Imagens ilustrativas
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {images.map((img, i) => (
-              <figure
-                key={i}
-                className="rounded-lg border border-border/60 bg-background/40 overflow-hidden"
-              >
-                <img
-                  src={img.url}
-                  alt={img.alt ?? `Imagem ${i + 1}`}
-                  className="w-full h-auto"
-                />
-                {img.caption && (
-                  <figcaption className="px-3 py-2 text-[11px] text-muted-foreground border-t border-border/40">
-                    {img.caption}
-                  </figcaption>
-                )}
-              </figure>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
