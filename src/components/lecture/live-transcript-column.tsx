@@ -1,11 +1,14 @@
 "use client";
 
 import { useMemo, useRef, useEffect, useState } from "react";
-import { Bookmark, ChevronDown, Filter, Loader2, Play, Search, Sparkles, Wand2 } from "lucide-react";
+import { Bookmark, ChevronDown, Expand, Filter, Loader2, Play, Search, Sparkles, Wand2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
+  LectureSummary,
   TranscriptEntry,
   TranscriptMarker,
   TranscriptRevisedChapter,
@@ -13,7 +16,7 @@ import type {
 } from "@/lib/types";
 
 type MarkerFilter = TranscriptMarker | "all";
-type ViewMode = "flat" | "chapters";
+type ViewMode = "flat" | "chapters" | "summary";
 
 const FILTERS: { id: MarkerFilter; label: string; dot: string }[] = [
   { id: "concept", label: "Conceitos-chave", dot: "bg-violet-500" },
@@ -154,6 +157,10 @@ export function LiveTranscriptColumn({
   revisedChapters,
   structuring,
   onStructureRequest,
+  summary,
+  generatingSummary,
+  onGenerateSummary,
+  onOpenSummaryFull,
   onSearchChange,
   onFilterChange,
   onPlay,
@@ -171,6 +178,10 @@ export function LiveTranscriptColumn({
   revisedChapters?: TranscriptRevisedChapter[];
   structuring?: boolean;
   onStructureRequest?: () => void;
+  summary?: LectureSummary;
+  generatingSummary?: boolean;
+  onGenerateSummary?: () => void;
+  onOpenSummaryFull?: () => void;
   onSearchChange: (v: string) => void;
   onFilterChange: (m: MarkerFilter) => void;
   onPlay?: (offsetSec: number) => void;
@@ -265,6 +276,18 @@ export function LiveTranscriptColumn({
             >
               Transcrição crua
             </button>
+            <button
+              onClick={() => setViewModePersisted("summary")}
+              className={cn(
+                "rounded-md px-3 py-1 text-xs font-medium transition-colors inline-flex items-center gap-1",
+                viewMode === "summary"
+                  ? "bg-background shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Sparkles className="h-3 w-3" />
+              Resumo
+            </button>
           </div>
           {isLive && (
             <span className="inline-flex items-center gap-1.5 text-[10px] text-rose-600 dark:text-rose-400 font-medium">
@@ -273,23 +296,25 @@ export function LiveTranscriptColumn({
             </span>
           )}
         </div>
-        <div className="mt-3 flex items-center gap-2">
-          <div className="relative flex-1">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-            <Input
-              value={search}
-              onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="Buscar na transcrição..."
-              className="h-9 pl-8 pr-12 text-sm"
-            />
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-muted-foreground/60 border border-border/60 rounded px-1.5 py-0.5">
-              ⌘F
-            </span>
-          </div>
-          <Button variant="outline" size="sm" className="h-9 gap-1.5">
-            <Filter className="h-3.5 w-3.5" /> Filtros
-          </Button>
-        </div>
+        {viewMode !== "summary" && (
+          <>
+            <div className="mt-3 flex items-center gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => onSearchChange(e.target.value)}
+                  placeholder="Buscar na transcrição..."
+                  className="h-9 pl-8 pr-12 text-sm"
+                />
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-mono text-muted-foreground/60 border border-border/60 rounded px-1.5 py-0.5">
+                  ⌘F
+                </span>
+              </div>
+              <Button variant="outline" size="sm" className="h-9 gap-1.5">
+                <Filter className="h-3.5 w-3.5" /> Filtros
+              </Button>
+            </div>
         <div className="mt-3 flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 flex-wrap">
             <button
@@ -328,13 +353,23 @@ export function LiveTranscriptColumn({
             <Bookmark className="h-3 w-3" /> Adicionar marcador
           </Button>
         </div>
+          </>
+        )}
       </div>
 
       <div
         ref={scrollRef}
         className="flex-1 overflow-y-auto p-3 scrollbar-thin min-h-[420px]"
       >
-        {filtered.length === 0 && !interim ? (
+        {viewMode === "summary" ? (
+          <SummaryInlineView
+            summary={summary}
+            generating={!!generatingSummary}
+            hasEntries={entries.length > 0}
+            onGenerate={onGenerateSummary}
+            onOpenFull={onOpenSummaryFull}
+          />
+        ) : filtered.length === 0 && !interim ? (
           <div className="h-full flex flex-col items-center justify-center text-center py-16 px-6">
             <div className="h-12 w-12 rounded-2xl bg-violet-500/10 flex items-center justify-center mb-3">
               <Sparkles className="h-5 w-5 text-violet-500" />
@@ -571,6 +606,191 @@ export function LiveTranscriptColumn({
         </span>
         <span>Idioma: Português (Brasil)</span>
       </div>
+    </div>
+  );
+}
+
+function SummaryInlineView({
+  summary,
+  generating,
+  hasEntries,
+  onGenerate,
+  onOpenFull,
+}: {
+  summary?: LectureSummary;
+  generating: boolean;
+  hasEntries: boolean;
+  onGenerate?: () => void;
+  onOpenFull?: () => void;
+}) {
+  if (!summary) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center text-center py-16 px-6">
+        <div className="h-12 w-12 rounded-2xl bg-violet-500/10 flex items-center justify-center mb-3">
+          <Sparkles className="h-5 w-5 text-violet-500" />
+        </div>
+        <p className="text-sm font-semibold">Nenhum resumo ainda</p>
+        <p className="mt-1.5 text-xs text-muted-foreground max-w-xs">
+          {hasEntries
+            ? "A IA lê a transcrição e os slides anexados e gera um resumo estruturado."
+            : "Grave ou suba o áudio antes de gerar o resumo."}
+        </p>
+        <Button
+          onClick={onGenerate}
+          disabled={!hasEntries || generating || !onGenerate}
+          variant="gradient"
+          size="sm"
+          className="mt-4 gap-1.5"
+        >
+          {generating ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Gerando...
+            </>
+          ) : (
+            <>
+              <Sparkles className="h-4 w-4" />
+              Gerar resumo (10 coins)
+            </>
+          )}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5 px-1 py-1">
+      {/* Header com botão "Abrir tela cheia" */}
+      <div className="flex items-center justify-between gap-2 sticky top-0 bg-card/95 backdrop-blur z-10 pb-2 -mt-1">
+        <div className="inline-flex items-center gap-1.5 text-[11px] text-violet-700 dark:text-violet-300">
+          <Sparkles className="h-3 w-3" />
+          Resumo gerado por IA
+        </div>
+        <div className="flex items-center gap-1.5">
+          {onGenerate && (
+            <button
+              onClick={onGenerate}
+              disabled={generating}
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {generating ? "Regerando..." : "Regerar"}
+            </button>
+          )}
+          {onOpenFull && (
+            <Button
+              onClick={onOpenFull}
+              variant="outline"
+              size="sm"
+              className="h-7 gap-1 text-[11px]"
+            >
+              <Expand className="h-3 w-3" />
+              Abrir em tela cheia
+            </Button>
+          )}
+        </div>
+      </div>
+
+      {/* Síntese geral */}
+      {summary.generalSummary && (
+        <div className="rounded-xl border border-border/60 bg-background/40 p-4">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+            Síntese
+          </p>
+          <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {summary.generalSummary}
+            </ReactMarkdown>
+          </div>
+        </div>
+      )}
+
+      {/* Highlights */}
+      {summary.highlights && summary.highlights.length > 0 && (
+        <div className="rounded-xl border border-border/60 bg-background/40 p-4">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-2">
+            Pontos centrais
+          </p>
+          <ul className="space-y-1.5">
+            {summary.highlights.map((h, i) => (
+              <li
+                key={i}
+                className="text-sm leading-relaxed flex gap-2 text-foreground/90"
+              >
+                <span className="text-violet-500 shrink-0">•</span>
+                <span className="min-w-0">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      p: ({ children }) => <span>{children}</span>,
+                    }}
+                  >
+                    {h}
+                  </ReactMarkdown>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Sections (slides ou blocos lógicos) */}
+      {summary.sections && summary.sections.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+            Por slide / tópico
+          </p>
+          {summary.sections.map((s, i) => (
+            <div
+              key={i}
+              className="rounded-xl border border-border/60 bg-card p-4"
+            >
+              <p className="text-sm font-semibold mb-2">
+                {s.slideNumber ? `${s.slideNumber}. ` : ""}
+                {s.slideTitle || `Bloco ${i + 1}`}
+              </p>
+              <div className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed text-foreground/90">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {s.spokenContent}
+                </ReactMarkdown>
+              </div>
+              {s.relatedQA && s.relatedQA.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-border/40 space-y-2">
+                  {s.relatedQA.map((qa, j) => (
+                    <div
+                      key={j}
+                      className="text-xs space-y-1 rounded-md bg-secondary/40 p-2"
+                    >
+                      <p className="font-semibold text-foreground/80">
+                        Q: {qa.question}
+                      </p>
+                      <p className="text-muted-foreground">A: {qa.answer}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Imagens (se houver) */}
+      {summary.images && summary.images.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+            Imagens geradas
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {summary.images.map((img, i) => (
+              <img
+                key={i}
+                src={img.url}
+                alt={img.alt ?? `Imagem ${i + 1}`}
+                className="rounded-lg border border-border/60 w-full h-auto"
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -942,6 +942,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 revisedChapters={lecture.transcriptChapters?.chapters}
                 onStructureRequest={structureTranscript}
                 structuring={structuringTranscript}
+                summary={summary}
+                generatingSummary={generatingSummary}
+                onGenerateSummary={() => generateSummary()}
+                onOpenSummaryFull={() => setView("summary")}
                 onSearchChange={setSearch}
                 onFilterChange={setActiveFilter}
                 onPlay={handlePlay}
