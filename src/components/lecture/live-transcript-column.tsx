@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useEffect, useState } from "react";
-import { Bookmark, ChevronDown, Expand, Filter, Loader2, Play, Search, Sparkles, Wand2 } from "lucide-react";
+import { Bookmark, ChevronDown, Expand, FileText, Filter, Loader2, Play, Search, Sparkles, Wand2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
@@ -208,6 +208,9 @@ export function LiveTranscriptColumn({
   revisedChapters,
   structuring,
   onStructureRequest,
+  slidesCount = 0,
+  onSyncSlides,
+  syncingSlides,
   summary,
   generatingSummary,
   onGenerateSummary,
@@ -234,6 +237,11 @@ export function LiveTranscriptColumn({
   revisedChapters?: TranscriptRevisedChapter[];
   structuring?: boolean;
   onStructureRequest?: () => void;
+  /** Quantidade de slides anexados — usada pra mostrar o botão de sincronia. */
+  slidesCount?: number;
+  /** Dispara sincronia IA capítulos↔slides (cobra 3 coins). */
+  onSyncSlides?: () => void;
+  syncingSlides?: boolean;
   summary?: LectureSummary;
   generatingSummary?: boolean;
   onGenerateSummary?: () => void;
@@ -465,20 +473,49 @@ export function LiveTranscriptColumn({
           <div className="space-y-3">
             {/* Banner: revisão por IA */}
             {revisedChapters && revisedChapters.length > 0 ? (
-              <div className="flex items-center justify-between gap-2 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2 text-[11px]">
-                <span className="inline-flex items-center gap-1.5 text-violet-700 dark:text-violet-300">
-                  <Wand2 className="h-3 w-3" />
-                  Revisada e separada por IA
-                </span>
-                {onStructureRequest && (
-                  <button
-                    onClick={onStructureRequest}
-                    disabled={structuring}
-                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-                  >
-                    {structuring ? "Regerando..." : "Regerar (5 coins)"}
-                  </button>
-                )}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2 text-[11px]">
+                  <span className="inline-flex items-center gap-1.5 text-violet-700 dark:text-violet-300">
+                    <Wand2 className="h-3 w-3" />
+                    Revisada e separada por IA
+                  </span>
+                  {onStructureRequest && (
+                    <button
+                      onClick={onStructureRequest}
+                      disabled={structuring}
+                      className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                    >
+                      {structuring ? "Regerando..." : "Regerar (5 coins)"}
+                    </button>
+                  )}
+                </div>
+                {/* Sincronizar capítulos ↔ slides do PDF anexado.
+                    Aparece quando: tem slides E pelo menos 1 capítulo ainda
+                    não foi correlacionado a um slide. */}
+                {slidesCount > 0 &&
+                  onSyncSlides &&
+                  revisedChapters.some((c) => typeof c.slideIndex !== "number") && (
+                    <div className="flex items-center justify-between gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-[11px]">
+                      <span className="inline-flex items-center gap-1.5 text-sky-700 dark:text-sky-300">
+                        <FileText className="h-3 w-3" />
+                        Sincronizar capítulos com os {slidesCount} slides anexados
+                      </span>
+                      <button
+                        onClick={onSyncSlides}
+                        disabled={syncingSlides}
+                        className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                      >
+                        {syncingSlides ? (
+                          <>
+                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
+                            Sincronizando...
+                          </>
+                        ) : (
+                          "Sincronizar com IA (3 coins)"
+                        )}
+                      </button>
+                    </div>
+                  )}
               </div>
             ) : onStructureRequest ? (
               <div className="rounded-lg border border-dashed border-violet-500/40 bg-violet-500/5 p-3">
@@ -527,6 +564,7 @@ export function LiveTranscriptColumn({
                     summary: rc.summary,
                     number: String(i + 1).padStart(2, "0"),
                     paragraphs: rc.paragraphs,
+                    slideIndex: rc.slideIndex,
                   }))
                 : chapters.map((ch, i) => ({
                     id: ch.id,
@@ -538,6 +576,7 @@ export function LiveTranscriptColumn({
                       ch.entries,
                       CHAPTER_PARAGRAPH_SEC,
                     ),
+                    slideIndex: undefined as number | undefined,
                   }))
               ).map((ch) => {
                 const open = openChapters[ch.id] ?? false;
@@ -580,6 +619,15 @@ export function LiveTranscriptColumn({
                           )}
                         </div>
                       </button>
+                      {typeof ch.slideIndex === "number" && onJumpToSlide && (
+                        <button
+                          onClick={() => onJumpToSlide(ch.slideIndex as number)}
+                          className="inline-flex items-center gap-1 rounded-md border border-sky-500/40 bg-sky-500/5 px-2 py-1 text-[10px] font-medium text-sky-700 dark:text-sky-300 hover:bg-sky-500/10 transition-colors shrink-0"
+                        >
+                          <FileText className="h-2.5 w-2.5" />
+                          Slide {ch.slideIndex + 1}
+                        </button>
+                      )}
                       {hasAudio && onPlay && (
                         <button
                           onClick={() => onPlay(ch.startSec)}

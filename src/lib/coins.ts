@@ -32,6 +32,7 @@ export const COIN_COSTS = {
   mindmap: 6,               // alinhado com coins-pricing.ts
   routine: 12,              // rotina de estudo semanal em PDF (Lumio brand)
   study_plan: 8,            // trilha de plano de estudos desenhada pela Lumi
+  slide_sync: 3,            // correlaciona slides do PDF anexado com capítulos (Haiku)
 } as const;
 
 export type CoinReason =
@@ -51,6 +52,7 @@ export type CoinReason =
   | "transcript_refine"
   | "transcript_structure"
   | "summary_educational"
+  | "slide_sync"
   | "welcome_bonus"
   | "admin_grant"
   | "refund";

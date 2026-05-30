@@ -161,6 +161,9 @@ export type TranscriptRevisedChapter = {
   /** 1-2 frases descrevendo o que essa parte aborda. */
   summary?: string;
   paragraphs: TranscriptChapterParagraph[];
+  /** Índice 0-based do slide correlacionado a este capítulo. Preenchido
+   *  pelo endpoint sync-slides quando o user anexa o PDF depois da gravação. */
+  slideIndex?: number;
 };
 
 export type TranscriptChapters = {

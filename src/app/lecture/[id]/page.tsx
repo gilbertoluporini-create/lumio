@@ -123,6 +123,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [summary, setSummary] = useState<LectureSummary | undefined>(undefined);
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [structuringTranscript, setStructuringTranscript] = useState(false);
+  const [syncingSlides, setSyncingSlides] = useState(false);
   const [generatingEducational, setGeneratingEducational] = useState(false);
 
   // `?tab=summary` mantém a view "live" do header MAS pede pro LiveTranscriptColumn
@@ -665,6 +666,47 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     }
   }
 
+  // ===== Sync slides ↔ chapters (IA, 3 coins) =====
+  // Roda quando o user anexou um PDF DEPOIS da gravação. Faz o mapeamento
+  // capítulo→slide via Haiku e atualiza transcriptChapters[i].slideIndex.
+  async function syncSlides() {
+    if (syncingSlides || !lecture) return;
+    if (!slides || slides.length === 0) {
+      toast.error("Anexe um PDF de slides antes.");
+      return;
+    }
+    if (!lecture.transcriptChapters?.chapters?.length) {
+      toast.error("Gere a transcrição revisada antes de sincronizar.");
+      return;
+    }
+    setSyncingSlides(true);
+    const t = toast.loading("Sincronizando capítulos com os slides…");
+    try {
+      const res = await fetch(`/api/lectures/${lecture.id}/sync-slides`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.chapters) {
+        const msg =
+          res.status === 402
+            ? `Coins insuficientes (precisa de ${data.required}, você tem ${data.balance}).`
+            : data?.error || `HTTP ${res.status}`;
+        toast.error(msg, { id: t });
+        return;
+      }
+      setLecture((prev) =>
+        prev ? { ...prev, transcriptChapters: data.chapters } : prev,
+      );
+      toast.success("Capítulos sincronizados com os slides.", { id: t });
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`, { id: t });
+    } finally {
+      setSyncingSlides(false);
+    }
+  }
+
   // ===== Summary =====
   async function generateSummary(opts?: { silent?: boolean }) {
     if (generatingSummary) return;
@@ -1025,6 +1067,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 revisedChapters={lecture.transcriptChapters?.chapters}
                 onStructureRequest={structureTranscript}
                 structuring={structuringTranscript}
+                slidesCount={slides?.length ?? 0}
+                onSyncSlides={syncSlides}
+                syncingSlides={syncingSlides}
                 summary={summary}
                 generatingSummary={generatingSummary}
                 onGenerateSummary={() => generateSummary()}

@@ -27,6 +27,11 @@ export const COIN_COSTS = {
   /** Cap diário de voice replies por usuário (anti-abuse + custo controlado). */
   voiceReplyDailyCap: 30,
   /**
+   * Sincronização IA de slides ↔ capítulos da transcrição revisada. 1 chamada
+   * Haiku (~3K input / ~500 output) por aula. Custo real ~$0.005.
+   */
+  slideSync: 3,
+  /**
    * Custo extra por fonte ADICIONAL acima da primeira.
    * Cada PDF/aula extra que entra na geração aumenta input tokens
    * (e qualidade — vale cobrar). Aplicado quando totalSources > 1.
