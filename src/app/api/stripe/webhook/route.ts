@@ -196,15 +196,16 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
       sessionId: session.id,
     });
 
-    // Programa embaixadores: se esse user foi indicado, marca redemption como paid.
+    // Programa embaixadores: acumula comissão recorrente do mês corrente.
+    // (também marca redemption como paid na primeira venda, idempotente)
     try {
-      await markReferralPaid({
+      await accrueAmbassadorCommission({
         referredUserId: userId,
-        plan,
         amountBrl: amountTotal / 100,
+        plan,
       });
     } catch (err) {
-      console.error("[webhook] markReferralPaid failed", err);
+      console.error("[webhook] accrueAmbassadorCommission failed", err);
     }
   } else {
     // Pagamento único (não há subscription) — ainda assim marca como ativo
@@ -291,6 +292,18 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   } catch (err) {
     console.error("[webhook] creditPlanCoins on renew failed", err);
   }
+
+  // Programa embaixadores: acumula comissão da renovação no payout do mês.
+  // amount_paid é em centavos, já com desconto do cupom aplicado.
+  try {
+    await accrueAmbassadorCommission({
+      referredUserId: userId,
+      amountBrl: invoice.amount_paid / 100,
+      plan,
+    });
+  } catch (err) {
+    console.error("[webhook] accrueAmbassadorCommission on renew failed", err);
+  }
 }
 
 /**
@@ -363,50 +376,124 @@ async function upsertSubscriptionFromStripe(
 }
 
 /**
- * Marca redemption como paid + calcula reward_brl.
- * Reward MVP: 1 mês do plano que o referido pagou (Starter=R$39, Pro=R$69, Power=R$119, Annual=R$69).
- * Lógica de APLICAR o crédito fica manual no início (admin vê fila e aciona).
+ * Modelo v2 (Chagas-style): comissão recorrente baseada em commission_rate
+ * do embaixador. Cada pagamento (checkout inicial + renovações) acumula
+ * num ambassador_payouts mensal.
+ *
+ * - Acha redemption pelo referred_user_id
+ * - Lê commission_rate do referral_code do embaixador
+ * - Calcula commission = amountBrl * commission_rate
+ * - UPSERT ambassador_payouts pra (referral_code_id, period_start=início do mês):
+ *     gross_revenue_brl += amountBrl
+ *     commission_brl    += commission
+ * - Idempotente por chave única (referral_code_id, period_start) — migration 028
+ * - Também atualiza redemption.status='paid' na 1ª venda
+ *
+ * Admin paga PIX manual no fim do mês via /admin/embaixadores/payouts.
  */
-async function markReferralPaid({
+async function accrueAmbassadorCommission({
   referredUserId,
-  plan,
   amountBrl,
+  plan,
 }: {
   referredUserId: string;
-  plan: PlanName;
   amountBrl: number;
+  plan: PlanName;
 }) {
+  if (amountBrl <= 0) return;
+
   const admin = createAdminClient();
 
-  // Procura redemption pendente
+  // 1) Acha redemption desse referido
   const { data: redemption } = await admin
     .from("referral_redemptions")
     .select("id, status, referral_code_id, referrer_user_id")
     .eq("referred_user_id", referredUserId)
     .maybeSingle();
 
-  if (!redemption) return;
-  if (redemption.status === "paid") return; // idempotente
+  if (!redemption) return; // user não veio de embaixador
 
-  // Reward fixo por plano (1 mês do plano do referido, capeado em R$69)
-  const rewardByPlan: Record<PlanName, number> = {
-    starter: 39,
-    pro: 69,
-    power: 69, // cap em 1 mês Pro mesmo se ele pagou Power (ajustável depois)
-    annual: 69,
+  const r = redemption as {
+    id: string;
+    status: string;
+    referral_code_id: string;
+    referrer_user_id: string;
   };
-  const rewardBrl = rewardByPlan[plan] ?? 39;
 
-  await admin
-    .from("referral_redemptions")
-    .update({
-      status: "paid",
-      paid_at: new Date().toISOString(),
-      plan,
-      reward_brl: rewardBrl,
-      metadata: { paid_amount_brl: amountBrl },
-    })
-    .eq("id", redemption.id);
+  // 2) Lê commission_rate + pix_key do embaixador
+  const { data: code } = await admin
+    .from("referral_codes")
+    .select("commission_rate, pix_key")
+    .eq("id", r.referral_code_id)
+    .maybeSingle();
+
+  const commissionRate =
+    (code as { commission_rate?: number } | null)?.commission_rate ?? 0.25;
+  const pixKey = (code as { pix_key?: string | null } | null)?.pix_key ?? null;
+
+  const commissionBrl = Math.round(amountBrl * commissionRate * 100) / 100;
+
+  // 3) Período do mês corrente (UTC pra alinhar com Stripe)
+  const now = new Date();
+  const periodStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  );
+  const periodEnd = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0),
+  );
+  const periodStartStr = periodStart.toISOString().slice(0, 10);
+  const periodEndStr = periodEnd.toISOString().slice(0, 10);
+
+  // 4) UPSERT: se já existe payout do mês pra esse embaixador, soma. Senão cria.
+  const { data: existing } = await admin
+    .from("ambassador_payouts")
+    .select("id, gross_revenue_brl, commission_brl")
+    .eq("referral_code_id", r.referral_code_id)
+    .eq("period_start", periodStartStr)
+    .maybeSingle();
+
+  if (existing) {
+    const ex = existing as {
+      id: string;
+      gross_revenue_brl: number;
+      commission_brl: number;
+    };
+    const updates: Record<string, unknown> = {
+      gross_revenue_brl: Number(ex.gross_revenue_brl) + amountBrl,
+      commission_brl: Number(ex.commission_brl) + commissionBrl,
+      commission_rate: commissionRate,
+      updated_at: new Date().toISOString(),
+    };
+    // Só atualiza pix_key se embaixador cadastrou (NOT NULL na tabela)
+    if (pixKey) updates.pix_key = pixKey;
+    await admin.from("ambassador_payouts").update(updates).eq("id", ex.id);
+  } else {
+    await admin.from("ambassador_payouts").insert({
+      referral_code_id: r.referral_code_id,
+      ambassador_user_id: r.referrer_user_id,
+      period_start: periodStartStr,
+      period_end: periodEndStr,
+      gross_revenue_brl: amountBrl,
+      commission_rate: commissionRate,
+      commission_brl: commissionBrl,
+      pix_key: pixKey ?? "", // NOT NULL — embaixador cadastra depois
+      status: "pending",
+    });
+  }
+
+  // 5) Marca redemption.status='paid' na primeira venda (idempotente)
+  if (r.status !== "paid") {
+    await admin
+      .from("referral_redemptions")
+      .update({
+        status: "paid",
+        paid_at: new Date().toISOString(),
+        plan,
+        reward_brl: commissionBrl,
+        metadata: { first_amount_brl: amountBrl, commission_rate: commissionRate },
+      })
+      .eq("id", r.id);
+  }
 }
 
 /**

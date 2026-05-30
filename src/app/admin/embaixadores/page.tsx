@@ -1,8 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Award,
+  Banknote,
   Check,
   Copy,
   Loader2,
@@ -70,6 +72,13 @@ export default function AmbassadorsAdminPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Link
+            href="/admin/embaixadores/payouts"
+            className="inline-flex items-center gap-1.5 rounded-md border border-emerald-900/60 bg-emerald-950/30 hover:bg-emerald-950/50 px-3 py-1.5 text-xs font-mono text-emerald-300"
+          >
+            <Banknote className="h-3.5 w-3.5" />
+            Payouts
+          </Link>
           <button
             onClick={fetchAmbassadors}
             disabled={loading}
