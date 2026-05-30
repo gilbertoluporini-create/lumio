@@ -1080,7 +1080,7 @@ function Dashboard({ user }: { user: User }) {
 
       {/* Dialog Nova aula */}
       <Dialog open={lectureOpen} onOpenChange={setLectureOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-lg overflow-hidden">
           <DialogHeader>
             <DialogTitle>Nova aula</DialogTitle>
             <DialogDescription>

@@ -73,7 +73,7 @@ export function NewLectureDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className="max-w-lg overflow-hidden">
         <DialogHeader>
           <DialogTitle>Nova aula</DialogTitle>
           <DialogDescription>

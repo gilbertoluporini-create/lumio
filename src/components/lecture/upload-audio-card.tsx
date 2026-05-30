@@ -43,6 +43,31 @@ function extOf(filename: string, mime: string): string {
   return "bin";
 }
 
+/**
+ * Normaliza variantes de MIME (audio/x-*, audio/wave, etc) pros tipos canônicos
+ * aceitos por buckets Supabase com whitelist. M4A vindo do macOS chega como
+ * audio/x-m4a — bucket geralmente só aceita audio/mp4.
+ */
+function normalizeMime(mime: string, filename: string): string {
+  const m = (mime || "").toLowerCase();
+  if (m === "audio/x-m4a" || m === "audio/m4a") return "audio/mp4";
+  if (m === "audio/x-wav" || m === "audio/wave") return "audio/wav";
+  if (m === "audio/x-aac") return "audio/aac";
+  if (m === "audio/x-flac") return "audio/flac";
+  if (m === "audio/mp3") return "audio/mpeg";
+  if (m) return m;
+  // sem mime: deduz pela extensão
+  const ext = filename.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
+  if (ext === "m4a" || ext === "mp4") return "audio/mp4";
+  if (ext === "mp3") return "audio/mpeg";
+  if (ext === "wav") return "audio/wav";
+  if (ext === "ogg") return "audio/ogg";
+  if (ext === "webm") return "audio/webm";
+  if (ext === "aac") return "audio/aac";
+  if (ext === "flac") return "audio/flac";
+  return "application/octet-stream";
+}
+
 export type UploadAudioCardProps = {
   userId: string;
   subjectId: string | null;
@@ -114,11 +139,12 @@ export function UploadAudioCard({
       const storagePath = `${userId}/${lecture.id}.${ext}`;
 
       const supabase = createClient();
+      const contentType = normalizeMime(file.type, file.name);
       const { error: upErr } = await supabase.storage
         .from(STORAGE_BUCKET)
         .upload(storagePath, file, {
           upsert: true,
-          contentType: file.type || "application/octet-stream",
+          contentType,
           cacheControl: "3600",
         });
       if (upErr) {
@@ -161,7 +187,7 @@ export function UploadAudioCard({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="w-full min-w-0 space-y-3">
       <div
         onClick={() => !isBusy && inputRef.current?.click()}
         onDragOver={(e) => {
@@ -171,7 +197,7 @@ export function UploadAudioCard({
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
         className={cn(
-          "group relative cursor-pointer rounded-xl border-2 border-dashed p-5 text-center transition-colors",
+          "group relative w-full max-w-full cursor-pointer overflow-hidden rounded-xl border-2 border-dashed p-5 text-center transition-colors",
           dragOver
             ? "border-primary bg-primary/5"
             : "border-border/60 hover:border-primary/60 hover:bg-secondary/30",
@@ -186,14 +212,14 @@ export function UploadAudioCard({
           onChange={(e) => handleSelect(e.target.files?.[0] ?? null)}
         />
         {file ? (
-          <div className="flex items-center justify-between gap-3 text-left">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="flex w-full min-w-0 items-center justify-between gap-3 text-left">
+            <div className="flex min-w-0 flex-1 items-center gap-3">
               <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
                 <AudioLines className="h-5 w-5" />
               </span>
-              <div className="min-w-0">
-                <p className="text-sm font-medium truncate">{file.name}</p>
-                <p className="text-xs text-muted-foreground">
+              <div className="min-w-0 flex-1 overflow-hidden">
+                <p className="truncate text-sm font-medium">{file.name}</p>
+                <p className="truncate text-xs text-muted-foreground">
                   {prettyBytes(file.size)}
                   {file.type && ` · ${file.type}`}
                 </p>
