@@ -157,28 +157,38 @@ function SignUpInner() {
       <CardContent className="space-y-4">
         {supaOn && (
           <>
-            <Button
-              type="button"
-              variant="outline"
-              size="lg"
-              className="w-full"
-              onClick={onGoogle}
-              disabled={googleLoading || loading}
-            >
-              {googleLoading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <>
-                  <GoogleIcon className="h-4 w-4" /> Continuar com Google
-                </>
-              )}
-            </Button>
             <div className="relative">
+              <div className="absolute -top-2 left-1/2 -translate-x-1/2 z-10">
+                <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-primary to-fuchsia-500 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white shadow-md">
+                  Mais rápido · 5s
+                </span>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="lg"
+                className="w-full h-12 border-2 border-primary/40 bg-background hover:bg-primary/5 hover:border-primary/60 shadow-lg shadow-primary/10 font-semibold text-base"
+                onClick={onGoogle}
+                disabled={googleLoading || loading}
+              >
+                {googleLoading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <>
+                    <GoogleIcon className="h-5 w-5" /> Continuar com Google
+                  </>
+                )}
+              </Button>
+              <p className="mt-1.5 text-center text-[11px] text-muted-foreground">
+                Sem confirmação de email · 1 clique e tá dentro
+              </p>
+            </div>
+            <div className="relative pt-1">
               <div className="absolute inset-0 flex items-center">
                 <span className="w-full border-t border-border/60" />
               </div>
               <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card/80 px-2 text-muted-foreground">ou</span>
+                <span className="bg-card/80 px-2 text-muted-foreground">ou com email</span>
               </div>
             </div>
           </>
