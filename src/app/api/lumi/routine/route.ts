@@ -361,6 +361,7 @@ export async function POST(req: Request) {
     const block = resp.content.find((b) => b.type === "text");
     raw = block && block.type === "text" ? block.text : "";
   } catch (err) {
+    console.error("[lumi/routine] LLM call failed:", err);
     try {
       await creditCoins(user.id, COIN_COSTS.routine, "refund", {
         reason: "routine_llm_failed",
@@ -439,6 +440,7 @@ export async function POST(req: Request) {
   try {
     pdfBytes = await renderRoutinePdf(routineDoc);
   } catch (err) {
+    console.error("[lumi/routine] PDF render failed:", err);
     try {
       await creditCoins(user.id, COIN_COSTS.routine, "refund", {
         reason: "routine_pdf_failed",

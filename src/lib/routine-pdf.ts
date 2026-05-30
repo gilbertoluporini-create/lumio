@@ -47,9 +47,33 @@ const MARGIN_X = 48;
 const MARGIN_TOP = 56;
 const MARGIN_BOT = 48;
 
-/** Normaliza pra caracteres que WinAnsi (Helvetica) suporta. */
+/**
+ * Normaliza pra caracteres que WinAnsi (Helvetica) suporta.
+ * pdf-lib lança "WinAnsi cannot encode" pra qualquer char fora do mapa —
+ * LLM gosta de meter →, •, ≈, ☆, emojis. Trocamos os comuns por equivalentes
+ * ASCII e, no fim, removemos tudo que sobrar fora do WinAnsi.
+ */
 function sanitize(text: string): string {
-  return text.replace(/[‘’]/g, "'").replace(/[“”]/g, '"');
+  const mapped = text
+    .replace(/[‘’‚‛]/g, "'")
+    .replace(/[“”„‟]/g, '"')
+    .replace(/[–—−]/g, "-")
+    .replace(/…/g, "...")
+    .replace(/[•·▪►◆◼]/g, "-")
+    .replace(/→/g, "->")
+    .replace(/←/g, "<-")
+    .replace(/↔/g, "<->")
+    .replace(/≈/g, "~")
+    .replace(/≥/g, ">=")
+    .replace(/≤/g, "<=")
+    .replace(/×/g, "x")
+    .replace(/÷/g, "/")
+    .replace(/ /g, " ")
+    .replace(/​|‌|‍|﻿/g, "");
+  // Stripa qualquer char fora do range que Helvetica/WinAnsi codifica
+  // sem erro. WinAnsi cobre Latin-1 + alguns símbolos em 0x80–0x9F.
+  // Mantém ASCII, letras latinas acentuadas e os símbolos comuns; remove o resto.
+  return mapped.replace(/[^\x09\x0A\x0D\x20-\x7E\xA0-\xFF€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/g, "");
 }
 
 /** Quebra texto em linhas que cabem em maxWidth. */
