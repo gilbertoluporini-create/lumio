@@ -174,11 +174,16 @@ export async function POST(req: NextRequest) {
     } else {
       try {
         const stripe = getStripe();
+        // Stripe coupon.name limita em 40 chars. Truncamos pro cupom caber.
+        // Email completo vai pro metadata abaixo.
+        const baseName = `Embaixador ${couponUpper}`;
+        const couponName =
+          baseName.length > 40 ? baseName.slice(0, 40) : baseName;
         // Coupon (template do desconto)
         const coupon = await stripe.coupons.create({
           percent_off,
           duration: "forever",
-          name: `Embaixador ${couponUpper} — ${userRow.email}`,
+          name: couponName,
           metadata: {
             ambassador_user_id: userRow.id,
             ambassador_email: userRow.email,
