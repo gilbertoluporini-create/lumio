@@ -491,7 +491,27 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           method: "POST",
           body: fd,
         });
-        const data = await res.json();
+        // 413 ou outros erros do gateway Vercel retornam HTML/texto plain.
+        // Tentamos JSON; se falhar, lemos como texto pra dar mensagem útil.
+        const raw = await res.text();
+        let data: { slides?: Slide[]; fileName?: string; error?: string } = {};
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          // não-JSON: provavelmente 413/504. Mostra mensagem clara.
+          if (res.status === 413) {
+            toast.error(
+              `PDF muito grande pro servidor. Tenta um PDF menor que ${PDF_VISION_LIMIT_MB}MB ou divide em partes.`,
+              { id: t },
+            );
+          } else {
+            toast.error(
+              `Erro ao processar slides (HTTP ${res.status}). Tenta de novo em alguns segundos.`,
+              { id: t },
+            );
+          }
+          return;
+        }
         if (!res.ok) {
           toast.error(data?.error || "Erro ao processar slides.", { id: t });
           return;

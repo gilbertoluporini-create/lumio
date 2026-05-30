@@ -63,11 +63,13 @@ export const LIMITS = {
   PDF_BYTES: 50 * 1024 * 1024,
   /**
    * Cap específico pra `/api/extract-slides` que sobe PDF inteiro pro server
-   * (Vision Sonnet analisa imagens dos slides). Vercel limita body de
-   * serverless function. Acima disso o client deve fazer fallback pra extração
-   * só de texto via pdfjs (sem Vision).
+   * (Vision Sonnet analisa imagens dos slides). Vercel Serverless Function
+   * tem body limit default de ~4.5MB — acima disso retorna 413 "Request
+   * Entity Too Large" antes do handler rodar. Mantemos 4MB pra ter margem
+   * confortável. PDFs maiores caem no fallback client-side (extração só de
+   * texto via pdfjs sem Vision).
    */
-  PDF_VISION_BYTES: 10 * 1024 * 1024,
+  PDF_VISION_BYTES: 4 * 1024 * 1024,
   IMAGE_BYTES: 10 * 1024 * 1024,
   PDF_MAX_PAGES_HINT: 300,
 };
