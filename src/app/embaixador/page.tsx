@@ -1,7 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Gift, Sparkles, TrendingUp, Trophy } from "lucide-react";
+import {
+  ArrowRight,
+  Banknote,
+  Sparkles,
+  TrendingUp,
+  Trophy,
+  Percent,
+} from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,12 +29,17 @@ export default function EmbaixadorLandingPage() {
           </Link>
           <div className="flex items-center gap-1.5">
             <ThemeToggle />
-            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="hidden sm:inline-flex"
+            >
               <Link href="/login">Já tenho conta</Link>
             </Button>
             <Magnetic strength={0.18}>
               <Button asChild variant="gradient" size="sm">
-                <Link href="/signup">
+                <Link href="https://wa.me/?text=Oi%20Lumio%2C%20quero%20ser%20embaixador">
                   Quero ser embaixador <ArrowRight className="h-3.5 w-3.5" />
                 </Link>
               </Button>
@@ -57,8 +69,8 @@ export default function EmbaixadorLandingPage() {
               transition={{ duration: 0.6 }}
               className="text-[42px] sm:text-5xl md:text-6xl lg:text-[64px] font-semibold text-display leading-[1.02]"
             >
-              Ganhe Pro grátis{" "}
-              <span className="gradient-text font-bold">indicando amigos</span>.
+              Ganhe 25% de comissão{" "}
+              <span className="gradient-text font-bold">indicando o Lumio</span>.
             </motion.h1>
 
             <motion.p
@@ -67,9 +79,10 @@ export default function EmbaixadorLandingPage() {
               transition={{ delay: 0.2, duration: 0.6 }}
               className="mt-6 max-w-xl text-lg text-muted-foreground leading-relaxed"
             >
-              A cada amigo que assina, você ganha <strong className="text-foreground">1 mês Pro grátis</strong>.
-              Top embaixador do mês ganha <strong className="text-foreground">plano Power vitalício</strong>.
-              Sem limite. Sem letra miúda.
+              Cupom personalizado pros seus seguidores ganharem{" "}
+              <strong className="text-foreground">10% off</strong>. Você ganha{" "}
+              <strong className="text-foreground">25% recorrente via PIX</strong>{" "}
+              todo mês que eles renovarem. Sem limite, sem prazo.
             </motion.p>
 
             <motion.div
@@ -79,16 +92,24 @@ export default function EmbaixadorLandingPage() {
               className="mt-8 flex flex-col sm:flex-row items-start sm:items-center gap-3"
             >
               <Magnetic strength={0.22}>
-                <Button asChild variant="gradient" size="xl" className="min-w-[240px]">
-                  <Link href="/signup">
-                    Quero meu código <ArrowRight className="h-4 w-4" />
+                <Button
+                  asChild
+                  variant="gradient"
+                  size="xl"
+                  className="min-w-[260px]"
+                >
+                  <Link href="https://wa.me/?text=Oi%20Lumio%2C%20quero%20ser%20embaixador">
+                    Quero ser embaixador <ArrowRight className="h-4 w-4" />
                   </Link>
                 </Button>
               </Magnetic>
               <span className="text-sm text-muted-foreground">
-                Já tem conta?{" "}
-                <Link href="/account/embaixador" className="text-foreground underline underline-offset-4">
-                  Pegar meu código
+                Já sou embaixador?{" "}
+                <Link
+                  href="/account/embaixador"
+                  className="text-foreground underline underline-offset-4"
+                >
+                  Acessar painel
                 </Link>
               </span>
             </motion.div>
@@ -105,18 +126,55 @@ export default function EmbaixadorLandingPage() {
         </div>
       </section>
 
-      {/* RECOMPENSAS */}
-      <section className="relative z-10 mx-auto max-w-6xl px-6 py-16">
+      {/* QUANTO DÁ PRA GANHAR */}
+      <section className="relative z-10 mx-auto max-w-5xl px-6 py-16">
         <Reveal className="text-center mb-12 max-w-2xl mx-auto">
           <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground font-medium mb-3">
-            — Recompensas —
+            — Quanto dá pra ganhar —
           </p>
           <h2 className="text-3xl md:text-4xl font-semibold text-display">
-            Cada amigo vale{" "}
-            <span className="gradient-text">um mês grátis</span>.
+            <span className="gradient-text">25% recorrente</span> — sem teto.
           </h2>
+          <p className="mt-4 text-muted-foreground">
+            Cada assinante que entrar pelo seu cupom rende comissão TODO MÊS que
+            ele renovar. Acumulativo.
+          </p>
         </Reveal>
 
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {EARNINGS.map((e) => (
+            <Reveal key={e.label}>
+              <div
+                className={`h-full rounded-2xl border p-7 ${
+                  e.highlight
+                    ? "border-primary/50 bg-gradient-to-br from-primary/10 to-card"
+                    : "border-border/60 bg-card/60 backdrop-blur"
+                }`}
+              >
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
+                  {e.label}
+                </p>
+                <p className="text-4xl font-bold tabular-nums text-display mb-2">
+                  R$ {e.monthly}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  /mês recorrente · R$ {e.yearly}/ano
+                </p>
+                <p className="mt-4 text-xs text-foreground/70 leading-relaxed">
+                  {e.desc}
+                </p>
+              </div>
+            </Reveal>
+          ))}
+        </div>
+
+        <p className="mt-6 text-center text-xs text-muted-foreground">
+          Cálculo: 25% de R$ 69 (plano Pro) × N assinantes ativos.
+        </p>
+      </section>
+
+      {/* RECOMPENSAS */}
+      <section className="relative z-10 mx-auto max-w-6xl px-6 py-16">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {REWARDS.map((r) => (
             <Reveal key={r.title}>
@@ -125,7 +183,9 @@ export default function EmbaixadorLandingPage() {
                   <r.icon className="h-5 w-5 text-primary" />
                 </div>
                 <h3 className="text-lg font-semibold mb-2">{r.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{r.desc}</p>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {r.desc}
+                </p>
               </div>
             </Reveal>
           ))}
@@ -176,7 +236,9 @@ export default function EmbaixadorLandingPage() {
                   {f.q}
                   <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
                 </summary>
-                <p className="mt-3 text-sm text-muted-foreground leading-relaxed">{f.a}</p>
+                <p className="mt-3 text-sm text-muted-foreground leading-relaxed">
+                  {f.a}
+                </p>
               </details>
             </Reveal>
           ))}
@@ -188,20 +250,26 @@ export default function EmbaixadorLandingPage() {
         <div className="relative rounded-3xl border border-primary/40 bg-gradient-to-br from-primary/10 via-card to-card p-10 md:p-16 text-center overflow-hidden">
           <Badge variant="secondary" className="mb-5 gap-1">
             <Trophy className="h-3 w-3" />
-            Top do mês ganha Power vitalício
+            Programa por convite
           </Badge>
           <h2 className="text-3xl md:text-5xl font-bold text-display max-w-3xl mx-auto">
-            Pega seu código.{" "}
-            <span className="gradient-text">Começa hoje.</span>
+            Bora ganhar dinheiro{" "}
+            <span className="gradient-text">indicando algo bom?</span>
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-muted-foreground text-base md:text-lg">
-            30s pra criar conta. Sem cartão. Seu código fica pronto na hora.
+            Manda DM pra @lumioapp com seu @ do Insta + tamanho de audiência. A
+            gente responde em até 24h com seu cupom personalizado.
           </p>
           <div className="mt-9 flex justify-center">
             <Magnetic strength={0.18}>
-              <Button asChild variant="gradient" size="xl" className="min-w-[260px]">
-                <Link href="/signup">
-                  Quero meu código <ArrowRight className="h-4 w-4" />
+              <Button
+                asChild
+                variant="gradient"
+                size="xl"
+                className="min-w-[280px]"
+              >
+                <Link href="https://wa.me/?text=Oi%20Lumio%2C%20quero%20ser%20embaixador">
+                  Quero ser embaixador <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
             </Magnetic>
@@ -215,10 +283,16 @@ export default function EmbaixadorLandingPage() {
             © {new Date().getFullYear()} Lumio
           </p>
           <div className="flex gap-5 text-xs text-muted-foreground">
-            <Link href="/terms" className="hover:text-foreground transition-colors">
+            <Link
+              href="/terms"
+              className="hover:text-foreground transition-colors"
+            >
               Termos
             </Link>
-            <Link href="/privacy" className="hover:text-foreground transition-colors">
+            <Link
+              href="/privacy"
+              className="hover:text-foreground transition-colors"
+            >
               Privacidade
             </Link>
             <Link href="/" className="hover:text-foreground transition-colors">
@@ -231,70 +305,94 @@ export default function EmbaixadorLandingPage() {
   );
 }
 
+const EARNINGS = [
+  {
+    label: "5 assinantes Pro",
+    monthly: "86",
+    yearly: "1.035",
+    desc: "5 amigos da tua turma que assinaram. Conservador — provavelmente você fecha isso em 1 mês postando 2x/semana.",
+    highlight: false,
+  },
+  {
+    label: "10 assinantes Pro",
+    monthly: "172",
+    yearly: "2.070",
+    desc: "Realista pra micro-influencer (1K-10K seguidores) postando consistentemente por 2 meses.",
+    highlight: true,
+  },
+  {
+    label: "30 assinantes Pro",
+    monthly: "517",
+    yearly: "6.210",
+    desc: "Embaixador top — perfis ativos com Reels viralizando. Possível em 3-4 meses de dedicação.",
+    highlight: false,
+  },
+];
+
 const REWARDS = [
   {
-    icon: Gift,
-    title: "1 mês Pro grátis",
-    desc: "Por cada amigo que assina qualquer plano pago. Aplicado automaticamente na próxima renovação.",
+    icon: Percent,
+    title: "25% recorrente",
+    desc: "Sobre o valor de cada assinatura ativa que veio pelo seu cupom. Todo mês, sem expiração.",
+  },
+  {
+    icon: Banknote,
+    title: "PIX mensal automático",
+    desc: "Até o dia 5 de cada mês, comissão cai na sua chave PIX. Sem mínimo de saque.",
   },
   {
     icon: TrendingUp,
-    title: "Sem limite",
-    desc: "Indicou 10 amigos pagantes? 10 meses grátis. Indicou 50? 50 meses. Sério, sem teto.",
-  },
-  {
-    icon: Trophy,
-    title: "Power vitalício",
-    desc: "Top embaixador do mês (mais amigos pagantes trazidos) ganha plano Power pra sempre + selo no perfil.",
+    title: "Sem limite, sem prazo",
+    desc: "Indique 5, 50 ou 500. Enquanto eles assinarem, você recebe. Não tem teto nem deadline.",
   },
 ];
 
 const STEPS = [
   {
-    title: "Cria conta no Lumio",
-    desc: "30 segundos. Sem cartão. Seu código LUMI-XXXX já vem pronto.",
+    title: "Aplica via WhatsApp/DM",
+    desc: "Manda mensagem pra @lumioapp com seu @ do Insta + tamanho de audiência + tipo de conteúdo que posta.",
   },
   {
-    title: "Compartilha código ou link",
-    desc: "WhatsApp da turma, story do Insta, DM. Onde quiser. Seu link tem track de cliques e signups.",
+    title: "A gente aprova e cria seu cupom",
+    desc: "Cupom personalizado com seu nome (ex: LARI10) — dá 10% off pros seus seguidores no checkout.",
   },
   {
-    title: "Amigo cria conta usando seu link",
-    desc: "Ele entra com 30 dias Pro grátis de boas-vindas. Você fica com o crédito reservado.",
+    title: "Você cadastra sua chave PIX",
+    desc: "No painel /account/embaixador. Pra gente saber pra onde mandar a comissão.",
   },
   {
-    title: "Amigo vira pagante → você ganha",
-    desc: "Quando ele assina qualquer plano, 1 mês Pro grátis cai na sua conta. Acompanha tudo no painel.",
+    title: "Divulga, ganha, recebe PIX",
+    desc: "Posta nos seus canais com seu cupom. Cada assinante que entrar rende 25% recorrente todo mês.",
   },
 ];
 
 const FAQS = [
   {
-    q: "Tem limite de quantos amigos posso indicar?",
-    a: "Não. Indica 5, 50 ou 500. Cada amigo pagante = 1 mês Pro grátis pra você. Cumulativo.",
+    q: "Quanto eu ganho por assinante?",
+    a: "25% do valor da assinatura, recorrente. Plano Starter (R$ 39) = R$ 9,75/mês. Plano Pro (R$ 69) = R$ 17,25/mês. Plano Power (R$ 119) = R$ 29,75/mês. Anuais pagam comissão sobre o valor cheio no momento da renovação.",
   },
   {
-    q: "Quando recebo o crédito?",
-    a: "Assim que o amigo vira pagante (paga a 1ª mensalidade ou anuidade), o crédito é registrado. Aplicado automaticamente na sua próxima renovação.",
+    q: "Quando recebo o pagamento?",
+    a: "PIX até o dia 5 de cada mês, referente ao mês anterior. Sem mínimo — se você acumulou R$ 5, recebe R$ 5. Se acumulou R$ 5.000, recebe R$ 5.000.",
   },
   {
-    q: "Posso usar o programa se já sou pagante?",
-    a: "Sim. Você acumula meses grátis pra renovações futuras. Se acumular mais do que sua assinatura cobre, a gente prorroga.",
+    q: "O que o meu seguidor ganha usando meu cupom?",
+    a: "10% de desconto recorrente em qualquer plano do Lumio. Aparece automático no checkout do Stripe — ele só digita o cupom no campo de promoção.",
   },
   {
-    q: "O que o amigo ganha?",
-    a: "Quem entra com seu link ganha 30 dias do plano Pro grátis. Não precisa cartão.",
+    q: "Por quanto tempo recebo a comissão de cada assinante?",
+    a: "Enquanto ele continuar pagando. Se ele cancelar, a comissão para. Se voltar com seu cupom de novo, retoma. Sem deadline da nossa parte.",
   },
   {
-    q: "Vale se eu indicar família, mesmo IP?",
-    a: "Vale, mas a gente faz checagem anti-fraude (mesmo IP repetido com padrões suspeitos pode bloquear o crédito). Em casos legítimos (irmão, parceiro), conta normal.",
+    q: "Tem exclusividade? Posso ser embaixador de outros apps?",
+    a: "Sem exclusividade. Pode ser de quantos quiser. Mas claro — se promover Chagas e Lumio no mesmo post, seu seguidor fica confuso. Recomendamos focar.",
   },
   {
-    q: "Como funciona o Power vitalício do top embaixador?",
-    a: "Todo mês, quem trouxer mais amigos pagantes ganha plano Power pra sempre + selo Embaixador Oficial no perfil. Empate vai pra quem chegou primeiro no mês.",
+    q: "Como sei quantas pessoas usaram meu cupom?",
+    a: "Painel em /account/embaixador mostra cliques, signups, pagantes e comissão acumulada do mês em tempo real. Atualiza automático.",
   },
   {
-    q: "Posso sacar em dinheiro em vez de plano?",
-    a: "Hoje só meses grátis. Embaixadores com 20+ amigos pagantes podem pedir conversão pra Pix manualmente (R$30 por amigo pagante). Fala com a gente.",
+    q: "Como aplico?",
+    a: "Manda DM pra @lumioapp ou WhatsApp pelo botão acima. Diz seu @ do Insta, faculdade, e que tipo de conteúdo você posta. Resposta em até 24h.",
   },
 ];

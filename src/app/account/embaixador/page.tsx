@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   Check,
   Copy,
-  Gift,
   Loader2,
   MousePointerClick,
   Share2,
@@ -13,6 +12,9 @@ import {
   TrendingUp,
   UserCheck,
   Users,
+  Wallet,
+  CircleAlert,
+  Banknote,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
@@ -20,7 +22,7 @@ import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import type { User } from "@/lib/types";
+import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 type Redemption = {
@@ -33,16 +35,31 @@ type Redemption = {
   reward_applied: boolean;
 };
 
+type Payout = {
+  id: string;
+  period_start: string;
+  period_end: string;
+  commission_brl: number;
+  status: "pending" | "paid" | "failed" | "cancelled";
+  pix_paid_at: string | null;
+  pix_transaction_id: string | null;
+};
+
 type ReferralData = {
   code: string;
   url: string;
+  coupon_code: string | null;
+  pix_key: string | null;
+  commission_rate: number;
   stats: {
     total_clicks: number;
     total_signups: number;
     total_paid: number;
     total_reward_brl: number;
+    estimated_commission_brl: number;
   };
   redemptions: Redemption[];
+  payouts: Payout[];
 };
 
 export default function EmbaixadorPage() {
@@ -57,19 +74,18 @@ export default function EmbaixadorPage() {
   );
 }
 
-// Acesso direto pela URL por quem não é embaixador → manda pro dashboard.
 function NotAmbassadorRedirect() {
   const router = useRouter();
   useEffect(() => {
-    const t = setTimeout(() => router.replace("/dashboard"), 1800);
+    const t = setTimeout(() => router.replace("/embaixador"), 1800);
     return () => clearTimeout(t);
   }, [router]);
   return (
     <div className="mx-auto max-w-md px-5 py-20 text-center">
       <h1 className="text-lg font-semibold">Área exclusiva de embaixadores</h1>
       <p className="mt-2 text-sm text-muted-foreground">
-        O programa de embaixadores é por convite. Redirecionando você pro
-        dashboard…
+        O programa de embaixadores é por convite. Te levo pra página de
+        aplicação…
       </p>
     </div>
   );
@@ -78,7 +94,9 @@ function NotAmbassadorRedirect() {
 function EmbaixadorView() {
   const [data, setData] = useState<ReferralData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState<"code" | "url" | null>(null);
+  const [copied, setCopied] = useState<"code" | "url" | "coupon" | null>(null);
+  const [pixInput, setPixInput] = useState("");
+  const [savingPix, setSavingPix] = useState(false);
 
   useEffect(() => {
     fetch("/api/referral/mine")
@@ -88,35 +106,70 @@ function EmbaixadorView() {
           toast.error(d.error);
         } else {
           setData(d);
+          setPixInput(d.pix_key ?? "");
         }
       })
       .catch(() => toast.error("Falha ao carregar embaixador."))
       .finally(() => setLoading(false));
   }, []);
 
-  function copy(value: string, kind: "code" | "url") {
+  function copy(value: string, kind: "code" | "url" | "coupon") {
     navigator.clipboard.writeText(value);
     setCopied(kind);
-    toast.success(kind === "code" ? "Código copiado." : "Link copiado.");
+    const labels = { code: "Código", url: "Link", coupon: "Cupom" };
+    toast.success(`${labels[kind]} copiado.`);
     setTimeout(() => setCopied(null), 2000);
   }
 
   async function share() {
     if (!data) return;
-    const text = `Tô usando o Lumio pra transcrever minhas aulas e gerar resumo, flashcard e quiz automaticamente. Cria conta com meu código e ganha 30 dias Pro grátis: ${data.url}`;
+    const couponPart = data.coupon_code
+      ? ` Usa o cupom ${data.coupon_code} no checkout pra ganhar 10% off.`
+      : "";
+    const text = `Tô usando o Lumio pra transcrever minhas aulas e gerar resumo, flashcard e quiz automaticamente.${couponPart} Link: ${data.url}`;
     if (typeof navigator !== "undefined" && "share" in navigator) {
       try {
-        await (navigator as Navigator & { share: (data: ShareData) => Promise<void> }).share({
+        await (
+          navigator as Navigator & { share: (data: ShareData) => Promise<void> }
+        ).share({
           title: "Vem pro Lumio",
           text,
           url: data.url,
         });
         return;
       } catch {
-        // user cancelou ou navegador não suporta
+        /* ignore */
       }
     }
     copy(text, "url");
+  }
+
+  async function savePix() {
+    if (savingPix) return;
+    const trimmed = pixInput.trim();
+    if (!trimmed) {
+      toast.error("Digite uma chave PIX.");
+      return;
+    }
+    setSavingPix(true);
+    try {
+      const res = await fetch("/api/referral/mine", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ pix_key: trimmed }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        toast.error(json.error ?? "Falha ao salvar PIX.");
+        return;
+      }
+      toast.success("Chave PIX salva. Comissões serão enviadas aqui.");
+      setData((prev) => (prev ? { ...prev, pix_key: trimmed } : prev));
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setSavingPix(false);
+    }
   }
 
   if (loading) {
@@ -135,6 +188,10 @@ function EmbaixadorView() {
     );
   }
 
+  const commissionPct = Math.round(data.commission_rate * 100);
+  const hasCoupon = !!data.coupon_code;
+  const hasPix = !!data.pix_key;
+
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-8">
       {/* Header */}
@@ -143,14 +200,16 @@ function EmbaixadorView() {
           <div className="flex items-center gap-2 mb-2">
             <Badge variant="secondary" className="gap-1">
               <Sparkles className="h-3 w-3" />
-              Programa Embaixador
+              Programa Embaixador · {commissionPct}% recorrente
             </Badge>
           </div>
           <h1 className="text-3xl md:text-4xl font-semibold text-display">
-            Indique amigos. <span className="gradient-text">Ganhe Pro grátis.</span>
+            Indique amigos.{" "}
+            <span className="gradient-text">Receba PIX todo mês.</span>
           </h1>
           <p className="mt-2 text-muted-foreground max-w-xl">
-            A cada amigo que assina, você ganha 1 mês Pro grátis. Sem limite.
+            Você ganha {commissionPct}% de comissão recorrente sobre cada
+            assinante que entrar pelo seu cupom. Sem limite, sem prazo.
           </p>
         </div>
         <div className="hidden md:block">
@@ -158,14 +217,76 @@ function EmbaixadorView() {
         </div>
       </div>
 
-      {/* Código + Link */}
+      {/* Setup alerts */}
+      {(!hasCoupon || !hasPix) && (
+        <div className="rounded-2xl border border-amber-500/40 bg-amber-500/5 p-5">
+          <div className="flex items-start gap-3">
+            <CircleAlert className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="font-semibold text-foreground mb-2">
+                Setup incompleto
+              </p>
+              <ul className="text-sm text-muted-foreground space-y-1">
+                {!hasCoupon && (
+                  <li>
+                    · Seu cupom personalizado ainda não foi gerado. Manda DM pra{" "}
+                    <strong className="text-foreground">@lumioapp</strong> pra
+                    receber.
+                  </li>
+                )}
+                {!hasPix && (
+                  <li>
+                    · Cadastra sua chave PIX abaixo pra receber comissão mensal.
+                  </li>
+                )}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cupom personalizado (se existe) */}
+      {hasCoupon && (
+        <div className="rounded-2xl border border-primary/40 bg-gradient-to-br from-primary/10 via-card to-card p-6">
+          <p className="text-[11px] uppercase tracking-wider text-primary font-medium mb-2">
+            Seu cupom Stripe — divulga ele
+          </p>
+          <div className="flex items-center gap-3">
+            <code className="text-3xl md:text-4xl font-bold tracking-wider text-primary tabular-nums">
+              {data.coupon_code}
+            </code>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => copy(data.coupon_code!, "coupon")}
+              className="ml-auto"
+            >
+              {copied === "coupon" ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Copy className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Quem digitar esse cupom no checkout ganha{" "}
+            <strong className="text-foreground">10% off</strong>. Você ganha{" "}
+            <strong className="text-foreground">
+              {commissionPct}% recorrente
+            </strong>{" "}
+            sobre o valor pago, todo mês que ele renovar.
+          </p>
+        </div>
+      )}
+
+      {/* Código + Link (tracking) */}
       <div className="grid grid-cols-1 md:grid-cols-[1fr_1.5fr] gap-4">
         <div className="rounded-2xl border border-border/60 bg-card p-6">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
-            Seu código
+            Código de tracking
           </p>
           <div className="flex items-center gap-3">
-            <code className="text-2xl md:text-3xl font-bold tracking-wider text-primary tabular-nums">
+            <code className="text-xl md:text-2xl font-bold tracking-wider text-foreground/80 tabular-nums">
               {data.code}
             </code>
             <Button
@@ -185,7 +306,7 @@ function EmbaixadorView() {
 
         <div className="rounded-2xl border border-border/60 bg-card p-6">
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
-            Seu link
+            Seu link de divulgação
           </p>
           <div className="flex items-center gap-2">
             <code className="text-sm text-foreground/80 truncate flex-1 font-mono">
@@ -217,7 +338,11 @@ function EmbaixadorView() {
           label="Cliques"
           value={data.stats.total_clicks}
         />
-        <StatCard icon={Users} label="Signups" value={data.stats.total_signups} />
+        <StatCard
+          icon={Users}
+          label="Signups"
+          value={data.stats.total_signups}
+        />
         <StatCard
           icon={UserCheck}
           label="Pagantes"
@@ -225,11 +350,49 @@ function EmbaixadorView() {
           accent
         />
         <StatCard
-          icon={Gift}
-          label="Recompensa"
-          value={`R$ ${data.stats.total_reward_brl.toFixed(0)}`}
+          icon={Wallet}
+          label="Comissão do mês"
+          value={`R$ ${data.stats.estimated_commission_brl.toFixed(2)}`}
           accent
         />
+      </div>
+
+      {/* PIX setup */}
+      <div className="rounded-2xl border border-border/60 bg-card p-6 md:p-8">
+        <div className="flex items-center gap-2 mb-4">
+          <Banknote className="h-5 w-5 text-primary" />
+          <h2 className="text-xl font-semibold text-display">
+            Chave PIX para recebimento
+          </h2>
+        </div>
+        <p className="text-sm text-muted-foreground mb-4">
+          Comissão é paga em PIX até o dia 5 de cada mês. Aceitamos CPF, e-mail,
+          celular ou chave aleatória.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Input
+            placeholder="Ex: 12345678900 ou seu@email.com"
+            value={pixInput}
+            onChange={(e) => setPixInput(e.target.value)}
+            className="flex-1"
+          />
+          <Button
+            onClick={savePix}
+            disabled={savingPix || pixInput.trim() === (data.pix_key ?? "")}
+            variant="gradient"
+          >
+            {savingPix ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              "Salvar PIX"
+            )}
+          </Button>
+        </div>
+        {hasPix && (
+          <p className="mt-3 text-xs text-emerald-600 dark:text-emerald-400">
+            ✓ Chave salva: <code className="font-mono">{data.pix_key}</code>
+          </p>
+        )}
       </div>
 
       {/* Como funciona */}
@@ -252,6 +415,20 @@ function EmbaixadorView() {
         </ol>
       </div>
 
+      {/* Histórico de pagamentos */}
+      {data.payouts.length > 0 && (
+        <div className="rounded-2xl border border-border/60 bg-card p-6 md:p-8">
+          <h2 className="text-xl font-semibold text-display mb-5">
+            Pagamentos recebidos
+          </h2>
+          <div className="space-y-2">
+            {data.payouts.map((p) => (
+              <PayoutRow key={p.id} payout={p} />
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Redemptions */}
       {data.redemptions.length > 0 && (
         <div className="rounded-2xl border border-border/60 bg-card p-6 md:p-8">
@@ -271,12 +448,23 @@ function EmbaixadorView() {
         <div className="flex items-start gap-3">
           <TrendingUp className="h-5 w-5 text-primary mt-0.5" />
           <div>
-            <p className="font-semibold text-foreground mb-2">Dicas pra escalar</p>
+            <p className="font-semibold text-foreground mb-2">
+              Dicas pra escalar
+            </p>
             <ul className="text-sm text-muted-foreground space-y-1.5">
-              <li>· Posta o link no story do Insta uma vez por semana</li>
-              <li>· Compartilha no grupo da sua faculdade/turma no WhatsApp</li>
-              <li>· Manda no DM pra quem reclama que tá enterrado em PDF</li>
-              <li>· Top embaixador do mês ganha plano Power vitalício</li>
+              <li>
+                · Sempre usa o cupom{" "}
+                <strong>{data.coupon_code ?? "[seu cupom]"}</strong> no caption +
+                comentário fixo + bio
+              </li>
+              <li>· Posta 2-3x por semana — volume vence qualidade média</li>
+              <li>· Cross-post Instagram → TikTok aumenta alcance 3x</li>
+              <li>· Vídeo de macete didático é o que mais converte</li>
+              <li>
+                · Cada assinante Pro (R$ 69) = R${" "}
+                {(69 * data.commission_rate).toFixed(2)}/mês na sua conta
+                (recorrente)
+              </li>
             </ul>
           </div>
         </div>
@@ -316,7 +504,7 @@ function StatCard({
       </div>
       <p
         className={cn(
-          "display-num text-3xl font-bold tabular-nums",
+          "display-num text-2xl md:text-3xl font-bold tabular-nums",
           accent ? "text-primary" : "text-foreground",
         )}
       >
@@ -327,12 +515,27 @@ function StatCard({
 }
 
 function RedemptionRow({ redemption: r }: { redemption: Redemption }) {
-  const statusMeta: Record<Redemption["status"], { label: string; className: string }> = {
+  const statusMeta: Record<
+    Redemption["status"],
+    { label: string; className: string }
+  > = {
     signed_up: { label: "Criou conta", className: "text-muted-foreground" },
-    activated: { label: "Ativado", className: "text-blue-600 dark:text-blue-400" },
-    paid: { label: "Pagante", className: "text-emerald-600 dark:text-emerald-400" },
-    churned: { label: "Cancelou", className: "text-amber-600 dark:text-amber-400" },
-    fraud: { label: "Bloqueado", className: "text-rose-600 dark:text-rose-400" },
+    activated: {
+      label: "Ativado",
+      className: "text-blue-600 dark:text-blue-400",
+    },
+    paid: {
+      label: "Pagante",
+      className: "text-emerald-600 dark:text-emerald-400",
+    },
+    churned: {
+      label: "Cancelou",
+      className: "text-amber-600 dark:text-amber-400",
+    },
+    fraud: {
+      label: "Bloqueado",
+      className: "text-rose-600 dark:text-rose-400",
+    },
   };
   const meta = statusMeta[r.status];
   const date = new Date(r.signed_up_at).toLocaleDateString("pt-BR", {
@@ -349,16 +552,14 @@ function RedemptionRow({ redemption: r }: { redemption: Redemption }) {
         <div className="min-w-0">
           <p className="text-sm font-medium truncate">Indicação · {date}</p>
           {r.plan && (
-            <p className="text-xs text-muted-foreground">
-              Plano: {r.plan}
-            </p>
+            <p className="text-xs text-muted-foreground">Plano: {r.plan}</p>
           )}
         </div>
       </div>
       <div className="flex items-center gap-3">
         {r.reward_brl > 0 && (
           <span className="text-sm font-medium text-primary tabular-nums">
-            +R$ {r.reward_brl.toFixed(0)}
+            +R$ {r.reward_brl.toFixed(2)}
           </span>
         )}
         <span className={cn("text-xs font-medium", meta.className)}>
@@ -369,21 +570,74 @@ function RedemptionRow({ redemption: r }: { redemption: Redemption }) {
   );
 }
 
+function PayoutRow({ payout: p }: { payout: Payout }) {
+  const periodLabel = `${new Date(p.period_start).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  })} → ${new Date(p.period_end).toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "short",
+  })}`;
+  const statusMeta: Record<
+    Payout["status"],
+    { label: string; className: string }
+  > = {
+    pending: {
+      label: "Pendente",
+      className: "text-amber-600 dark:text-amber-400",
+    },
+    paid: {
+      label: "Pago",
+      className: "text-emerald-600 dark:text-emerald-400",
+    },
+    failed: {
+      label: "Falhou",
+      className: "text-rose-600 dark:text-rose-400",
+    },
+    cancelled: {
+      label: "Cancelado",
+      className: "text-muted-foreground",
+    },
+  };
+  const meta = statusMeta[p.status];
+
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 px-3 rounded-lg hover:bg-muted/40 transition-colors">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium">{periodLabel}</p>
+        {p.pix_transaction_id && (
+          <p className="text-[11px] text-muted-foreground font-mono truncate">
+            TX: {p.pix_transaction_id}
+          </p>
+        )}
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-bold text-primary tabular-nums">
+          R$ {p.commission_brl.toFixed(2)}
+        </span>
+        <span className={cn("text-xs font-medium", meta.className)}>
+          {meta.label}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 const STEPS = [
   {
-    title: "Compartilha seu código ou link",
-    desc: "Manda pra amigos da faculdade, no story do Insta, no grupo da turma.",
+    title: "Compartilha seu cupom e link",
+    desc: "Posta no Insta, TikTok, grupos. Sempre menciona o cupom — quem usar ganha 10% off e você ganha comissão.",
   },
   {
-    title: "Amigo cria conta usando seu link",
-    desc: "Ele ganha 30 dias Pro grátis logo no signup.",
+    title: "Buyer usa o cupom no checkout",
+    desc: "Stripe aplica 10% de desconto automaticamente. Tu não precisa fazer nada.",
   },
   {
-    title: "Quando ele vira pagante, você ganha",
-    desc: "1 mês Pro grátis na sua próxima renovação. Sem limite — convida quantos quiser.",
+    title: "Comissão acumula a cada renovação",
+    desc: "Toda vez que o assinante renovar, você ganha 25% do valor pago. Recorrente, todo mês.",
   },
   {
-    title: "Top embaixador do mês",
-    desc: "Quem trouxer mais pagantes no mês ganha plano Power vitalício + selo Embaixador no perfil.",
+    title: "PIX no fim do mês",
+    desc: "Até o dia 5 do mês seguinte, a comissão cai na sua chave PIX. Sem mínimo.",
   },
 ];
