@@ -800,9 +800,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const isLive = speech.state === "listening";
   const hasSlides = !!slides && slides.length > 0;
   const showSlidesColumn = hasSlides && showPdfBesides;
-  const gridCols = showSlidesColumn
-    ? "lg:grid-cols-[1fr_1.2fr_360px]"
-    : "lg:grid-cols-[1fr_360px]";
 
   return (
     <>
@@ -873,12 +870,13 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
           />
         ) : (
           <>
-            <div className={`grid gap-6 ${gridCols}`}>
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_400px]">
               <LiveTranscriptColumn
                 entries={sync.entries}
                 interim={interim}
                 isLive={isLive}
                 keyTerms={sync.insights?.keyTerms ?? []}
+                topics={sync.insights?.topics ?? []}
                 hasAudio={!!audioUrl}
                 search={search}
                 activeFilter={activeFilter}
@@ -888,29 +886,31 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 onJumpToSlide={handleJumpToSlide}
               />
 
-              {showSlidesColumn && (
-                <SlidesColumn
-                  slides={slides}
-                  attaching={attaching}
-                  showPdfBesides={showPdfBesides}
-                  onTogglePdfBesides={setShowPdfBesides}
-                  currentIdx={currentSlideIdx}
-                  onSelect={setCurrentSlideIdx}
-                  onAttachClick={() => slidesInputRef.current?.click()}
-                  onRemove={removeSlides}
-                  syncedSlideIdx={syncedSlideIdx}
+              <div className="space-y-4 min-w-0 lg:sticky lg:top-4 lg:self-start">
+                <ChatColumn
+                  messages={messages}
+                  streamingReply={streamingReply}
+                  suggestions={suggestions}
+                  input={input}
+                  onInputChange={setInput}
+                  onSend={sendMessage}
+                  sending={sending}
                 />
-              )}
 
-              <ChatColumn
-                messages={messages}
-                streamingReply={streamingReply}
-                suggestions={suggestions}
-                input={input}
-                onInputChange={setInput}
-                onSend={sendMessage}
-                sending={sending}
-              />
+                {showSlidesColumn && (
+                  <SlidesColumn
+                    slides={slides}
+                    attaching={attaching}
+                    showPdfBesides={showPdfBesides}
+                    onTogglePdfBesides={setShowPdfBesides}
+                    currentIdx={currentSlideIdx}
+                    onSelect={setCurrentSlideIdx}
+                    onAttachClick={() => slidesInputRef.current?.click()}
+                    onRemove={removeSlides}
+                    syncedSlideIdx={syncedSlideIdx}
+                  />
+                )}
+              </div>
             </div>
 
             {!hasSlides && (
