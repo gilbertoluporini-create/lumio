@@ -8,6 +8,7 @@ import {
   BarChart3,
   CalendarDays,
   HeartPulse,
+  Images,
   LayoutDashboard,
   LogOut,
   Mail,
@@ -47,6 +48,11 @@ const NAV_SECTIONS: NavSection[] = [
         label: "Calendário de posts",
         Icon: CalendarDays,
         accent: "fuchsia",
+      },
+      {
+        href: "/admin/marketing/coverage",
+        label: "Cobertura de mídias",
+        Icon: Images,
       },
       {
         href: "/admin/marketing",
