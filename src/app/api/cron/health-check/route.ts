@@ -70,6 +70,105 @@ async function fetchElevenLabsBalance(): Promise<{
   }
 }
 
+type ProviderBalance = {
+  remaining_usd: number | null;
+  usage_mtd_usd: number | null;
+  fetched_at: string;
+};
+
+function monthStartIso(): string {
+  const now = new Date();
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0),
+  ).toISOString();
+}
+
+/**
+ * Anthropic Cost Report — requer ANTHROPIC_ADMIN_KEY (sk-ant-admin-...).
+ * Endpoint: GET /v1/organizations/cost_report
+ * Soma o gasto USD do mês corrente até agora.
+ */
+async function fetchAnthropicUsage(): Promise<ProviderBalance | null> {
+  const adminKey = process.env.ANTHROPIC_ADMIN_KEY;
+  if (!adminKey) return null;
+  try {
+    const url = new URL("https://api.anthropic.com/v1/organizations/cost_report");
+    url.searchParams.set("starting_at", monthStartIso());
+    url.searchParams.set("ending_at", new Date().toISOString());
+    const r = await fetch(url.toString(), {
+      headers: {
+        "x-api-key": adminKey,
+        "anthropic-version": "2023-06-01",
+      },
+    });
+    if (!r.ok) {
+      console.warn("[cron/health] anthropic cost_report non-ok", r.status);
+      return null;
+    }
+    const data = (await r.json()) as {
+      data?: Array<{
+        results?: Array<{ amount?: { value?: number; currency?: string } }>;
+      }>;
+    };
+    let totalUsd = 0;
+    for (const bucket of data.data ?? []) {
+      for (const res of bucket.results ?? []) {
+        const v = res.amount?.value;
+        if (typeof v === "number") totalUsd += v;
+      }
+    }
+    return {
+      remaining_usd: null, // Anthropic não expõe saldo restante via Admin API
+      usage_mtd_usd: Number(totalUsd.toFixed(4)),
+      fetched_at: new Date().toISOString(),
+    };
+  } catch (err) {
+    console.warn("[cron/health] anthropic fetch failed", err);
+    return null;
+  }
+}
+
+/**
+ * OpenAI Costs API — requer OPENAI_ADMIN_KEY (sk-admin-...).
+ * Endpoint: GET /v1/organization/costs
+ */
+async function fetchOpenAIUsage(): Promise<ProviderBalance | null> {
+  const adminKey = process.env.OPENAI_ADMIN_KEY;
+  if (!adminKey) return null;
+  try {
+    const startUnix = Math.floor(new Date(monthStartIso()).getTime() / 1000);
+    const url = new URL("https://api.openai.com/v1/organization/costs");
+    url.searchParams.set("start_time", String(startUnix));
+    const r = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${adminKey}` },
+    });
+    if (!r.ok) {
+      console.warn("[cron/health] openai costs non-ok", r.status);
+      return null;
+    }
+    const data = (await r.json()) as {
+      data?: Array<{
+        results?: Array<{ amount?: { value?: number; currency?: string } }>;
+      }>;
+    };
+    let totalUsd = 0;
+    for (const bucket of data.data ?? []) {
+      for (const res of bucket.results ?? []) {
+        const v = res.amount?.value;
+        if (typeof v === "number") totalUsd += v;
+      }
+    }
+    return {
+      remaining_usd: null, // OpenAI não expõe saldo via Costs API
+      usage_mtd_usd: Number(totalUsd.toFixed(4)),
+      fetched_at: new Date().toISOString(),
+    };
+  } catch (err) {
+    console.warn("[cron/health] openai fetch failed", err);
+    return null;
+  }
+}
+
 async function get24hAggregateUsd(): Promise<{
   totalUsd: number;
   byEndpoint: Array<{ endpoint: string; usd: number; calls: number }>;
@@ -182,9 +281,11 @@ export async function GET(request: Request) {
     }
   }
 
-  const [elevenlabs, agg] = await Promise.all([
+  const [elevenlabs, agg, anthropic, openai] = await Promise.all([
     fetchElevenLabsBalance(),
     get24hAggregateUsd(),
+    fetchAnthropicUsage(),
+    fetchOpenAIUsage(),
   ]);
 
   const snapshot = {
@@ -193,6 +294,11 @@ export async function GET(request: Request) {
     total_usd_24h: agg.totalUsd,
     by_endpoint_24h: agg.byEndpoint,
     elevenlabs,
+    providers: {
+      anthropic,
+      openai,
+      google_ai: null,
+    },
   };
   await saveSnapshot(snapshot);
 

@@ -28,10 +28,25 @@ type FeatureKey =
   | "features.imagen.enabled"
   | "features.ai_generate.enabled";
 
+type ProviderKey = "anthropic" | "openai" | "google_ai" | "elevenlabs" | "other";
+
+type ProviderRow = {
+  provider: ProviderKey;
+  usd24h: number;
+  calls24h: number;
+  usdMtd: number;
+  /** Saldo restante em USD via Admin API (null se não configurado). */
+  remainingUsd: number | null;
+  /** Gasto MTD reportado pela Admin API do provider (null se não configurado). */
+  usageMtdReportedUsd: number | null;
+  fetchedAt: string | null;
+};
+
 type HealthStats = {
   capUsd: number;
   totalUsd24h: number;
   totalUsd7d: number;
+  totalUsdMtd: number;
   voiceReplies24h: number;
   imagesGenerated24h: number;
   capHits24h: number;
@@ -42,6 +57,7 @@ type HealthStats = {
     pctOfCap: number;
   }>;
   byEndpoint: Array<{ endpoint: string; usd: number; calls: number }>;
+  providers: ProviderRow[];
   flags: Record<FeatureKey, boolean>;
   elevenlabs: {
     remaining_chars?: number;
@@ -58,6 +74,14 @@ type HealthStats = {
     threshold?: number;
   } | null;
   fetchedAt: string;
+};
+
+const PROVIDER_META: Record<ProviderKey, { label: string; sub: string }> = {
+  anthropic: { label: "Anthropic", sub: "Claude (Opus/Sonnet/Haiku)" },
+  openai: { label: "OpenAI", sub: "GPT + GPT Image" },
+  google_ai: { label: "Google AI", sub: "Gemini" },
+  elevenlabs: { label: "ElevenLabs", sub: "Voice (TTS)" },
+  other: { label: "Outros", sub: "Não classificado" },
 };
 
 type PricingSuggestion = {
@@ -92,7 +116,7 @@ const FEATURES: Array<{ key: FeatureKey; label: string; icon: typeof Mic; descri
     key: "features.imagen.enabled",
     label: "Geração de imagens",
     icon: ImageIcon,
-    description: "Google Imagen 4. ~$0.04/imagem — endpoint mais caro.",
+    description: "OpenAI GPT Image em alta qualidade — endpoint mais caro.",
   },
   {
     key: "features.ai_generate.enabled",
@@ -468,6 +492,66 @@ export function HealthDashboard() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Custo por provider — tempo real (24h + mês corrente) */}
+      <div className="rounded-2xl border border-border/60 bg-card p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <CircleDollarSign className="h-4 w-4 text-emerald-500" />
+          <h2 className="text-sm font-semibold">Custo por provider</h2>
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          Gasto agregado por provedor de IA (calculado a partir do{" "}
+          <code className="font-mono">ai_usage_log</code>). Saldo restante
+          aparece quando <code className="font-mono">ANTHROPIC_ADMIN_KEY</code>{" "}
+          / <code className="font-mono">OPENAI_ADMIN_KEY</code> estão
+          configuradas — atualizado pelo cron diário.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          {(stats.providers ?? [])
+            .filter((p) => p.provider !== "other" || p.usd24h > 0 || p.usdMtd > 0)
+            .map((p) => {
+              const meta = PROVIDER_META[p.provider];
+              const hasBalance = typeof p.remainingUsd === "number";
+              return (
+                <div
+                  key={p.provider}
+                  className="rounded-xl border border-border/40 bg-background/40 p-3"
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {meta.label}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">
+                      {meta.sub}
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <div className="text-xl font-semibold tabular-nums">
+                      ${p.usd24h.toFixed(2)}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">24h</div>
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground tabular-nums">
+                    ${p.usdMtd.toFixed(2)} · mês · {p.calls24h} calls/24h
+                  </div>
+                  {hasBalance && (
+                    <div className="mt-2 pt-2 border-t border-border/30 text-[11px]">
+                      <span className="text-muted-foreground">Saldo: </span>
+                      <span className="font-semibold tabular-nums">
+                        ${(p.remainingUsd ?? 0).toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                  {!hasBalance && p.provider !== "elevenlabs" && p.provider !== "other" && (
+                    <div className="mt-2 pt-2 border-t border-border/30 text-[10px] text-muted-foreground">
+                      Configure {p.provider === "anthropic" ? "ANTHROPIC_ADMIN_KEY" : p.provider === "openai" ? "OPENAI_ADMIN_KEY" : "GOOGLE_AI_ADMIN_KEY"} pra ver saldo
+                    </div>
+                  )}
+                </div>
+              );
+            })}
         </div>
       </div>
 

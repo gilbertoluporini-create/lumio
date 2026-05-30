@@ -22,13 +22,23 @@ async function getPdfJs() {
   return pdfjs;
 }
 
-export async function renderPdfToImages(file: File): Promise<RenderedPage[]> {
+/**
+ * Renderiza páginas do PDF como JPEG dataURL.
+ * @param file  PDF
+ * @param maxPages  Opcional — para após N páginas (default: todas).
+ *                  Útil pra summary-images que só usa 1-2 páginas como referência.
+ */
+export async function renderPdfToImages(
+  file: File,
+  maxPages?: number,
+): Promise<RenderedPage[]> {
   const pdfjs = await getPdfJs();
   const buf = await file.arrayBuffer();
   const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buf) });
   const doc = await loadingTask.promise;
   const pages: RenderedPage[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
+  const limit = Math.min(doc.numPages, maxPages ?? doc.numPages);
+  for (let i = 1; i <= limit; i++) {
     const page = await doc.getPage(i);
     const baseViewport = page.getViewport({ scale: 1 });
     const scale = Math.min(MAX_WIDTH / baseViewport.width, 2);

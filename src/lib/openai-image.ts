@@ -1,15 +1,10 @@
 /**
- * Wrapper de geração de imagem via OpenAI gpt-image-1.
+ * Wrapper de geração de imagem via OpenAI GPT Image.
  *
  * Endpoint: POST https://api.openai.com/v1/images/generations
  * Doc: https://platform.openai.com/docs/api-reference/images/create
  *
- * Custos (gpt-image-1 jan/2026):
- *  - low:    ~$0.011/img  (1024x1024, low quality)
- *  - medium: ~$0.042/img  (1024x1024, medium)
- *  - high:   ~$0.167/img  (1024x1024, high)
- *
- * A função retorna base64 PNG. Caller decide se faz upload pro Storage
+ * A função retorna base64. Caller decide se faz upload pro Storage
  * ou serve inline.
  */
 
@@ -17,6 +12,20 @@ const OPENAI_IMAGE_URL = "https://api.openai.com/v1/images/generations";
 
 export type ImageQuality = "low" | "medium" | "high";
 export type ImageSize = "1024x1024" | "1024x1536" | "1536x1024";
+export type ImageModel =
+  | "gpt-image-2"
+  | "chatgpt-image-latest"
+  | "gpt-image-1.5"
+  | "gpt-image-1"
+  | "gpt-image-1-mini";
+export type ImageOutputFormat = "png" | "jpeg" | "webp";
+
+export const DEFAULT_OPENAI_IMAGE_MODEL: ImageModel =
+  (process.env.OPENAI_IMAGE_MODEL as ImageModel | undefined) ??
+  // gpt-image-1 = qualidade boa, 5-10x mais barato que gpt-image-2.
+  // gpt-image-2 cobrava ~$0.50/imagem (high+refs); gpt-image-1 medium ~$0.04.
+  // Override via env OPENAI_IMAGE_MODEL=gpt-image-2 quando o ROI compensar.
+  "gpt-image-1";
 
 type OpenAIImageResponse = {
   created: number;
@@ -27,6 +36,7 @@ type OpenAIImageResponse = {
 export type OpenAIImageResult = {
   b64: string;
   revisedPrompt?: string;
+  model: ImageModel;
 };
 
 /**
@@ -35,7 +45,8 @@ export type OpenAIImageResult = {
  * empurram o modelo pra realismo.
  *
  * Use pra capas de artigos / fotos de contexto educacional real.
- * NÃO use pra diagramas médicos/científicos — use `wrapPromptForMedicalDiagram`.
+ * NÃO use pra diagramas educacionais/científicos — pra esses, o prompt do
+ * Haiku (illustrate / summary-images) já vai pronto e direto pro modelo.
  */
 export function wrapPromptForRealism(rawPrompt: string): string {
   return [
@@ -46,26 +57,9 @@ export function wrapPromptForRealism(rawPrompt: string): string {
 }
 
 /**
- * Wrapper específico pra infográficos médico-acadêmicos PREMIUM.
- *
- * Estética de coleção: editorial sofisticado, fundo claro com gradientes
- * sutis, paleta azul-marinho/verde-água/lilás, ilustração biomédica 3D
- * limpa + infografia vetorial elegante, formato 16:9 horizontal.
- *
- * HISTÓRICO DE PROBLEMAS:
- * - v1 (Netter flat): faltava sofisticação editorial
- * - v2 (briefing com seções em CAPS): o gpt-image-1 RENDERIZAVA as labels
- *   das seções dentro da imagem ("aspect_ratio 3:4", "Type 5", "max_words",
- *   "sunsif" etc apareciam como texto da figura). Causa: o modelo lê
- *   labels em maiúsculas como instruções a desenhar.
- * - v3 (atual): prosa contínua em inglês, sem labels enumeradas, com
- *   restrições FORTES sobre texto na imagem (max 6 labels, max 2 palavras
- *   cada, sem instruções/metadados vazando).
- *
- * LIMITAÇÃO CONHECIDA: gpt-image-1 erra ortografia pt-BR (acentos,
- * "transaminação" vira "trransaminação"). Mitigação: labels curtíssimas,
- * apenas termos técnicos universais (ATP, NH3, CO2, alanina). Texto longo
- * em pt-BR deve vir em overlay externo, NÃO na imagem gerada.
+ * Wrapper específico pra /api/ai/illustrate (diagramas médicos, zero texto).
+ * Mantido por compatibilidade com o endpoint illustrate; summary-images
+ * usa wrapPromptForPremiumEducationalImage (estilo livre + cor).
  */
 export function wrapPromptForMedicalDiagram(rawPrompt: string): string {
   return [
@@ -79,15 +73,118 @@ export function wrapPromptForMedicalDiagram(rawPrompt: string): string {
   ].join("\n");
 }
 
+export function wrapPromptForPremiumEducationalImage(rawPrompt: string): string {
+  return [
+    rawPrompt.trim(),
+    "",
+    "Style: high-quality, polished educational illustration — like the top results you'd see from ChatGPT-generated images for textbook chapters. The artist chooses the visual idiom that best fits the content (clean flat editorial, semi-3D, isometric, schematic). Aim for visually striking composition with strong color and good contrast.",
+    "",
+    "Background: clean and vibrant. Choose a color that fits the subject — pure white, soft blue, soft mint, lavender, light gray, soft pink etc. AVOID defaulting to beige/cream/sepia — those look dated. The background should make the subject pop, not muddy it.",
+    "",
+    "CONTENT FIDELITY — strict:",
+    "- Every visual element must correspond to something explicitly described in the prompt above. Do NOT invent extra steps, intermediate components, decorative blobs or filler shapes that don't represent something concrete.",
+    "- Follow the structure/flow/count described — if 5 steps are mentioned, show 5 (not 6, not 4).",
+    "- One clear focal point and one unambiguous reading order.",
+    "",
+    "TEXT POLICY — important:",
+    "- IF the scene needs ≤3 short labels: include them (1-2 words each, pt-BR or universal abbreviations).",
+    "- IF the scene would need >3 labels OR long phrases: DO NOT write text at all — communicate visually via shapes, color, arrows, position. Text gets misspelled when there's too much.",
+    "- Universal abbreviations always allowed: DNA, RNA, ATP, NH3, H2O, CO2, pH, ECG, ALT, AST, Latin anatomical names.",
+    "- Never write full sentences, paragraphs, captions or instructions inside the image. No Spanish.",
+    "- If unsure of pt-BR spelling/accents → omit the label entirely.",
+    "",
+    "Avoid: misspelled words, watermarks, logos, signatures, generic stock-photo look, AI texture artifacts (warped hands, melting features), photorealistic medical imagery with gore/blood, fluids pouring into beakers/erlenmeyers when not in the source content, default beige/cream backgrounds, muddy desaturated palette.",
+  ].join("\n");
+}
+
 export async function generateImageOpenAI({
   prompt,
   quality = "medium",
   size = "1024x1024",
+  model = DEFAULT_OPENAI_IMAGE_MODEL,
+  outputFormat = "webp",
   apiKey,
 }: {
   prompt: string;
   quality?: ImageQuality;
   size?: ImageSize;
+  model?: ImageModel;
+  outputFormat?: ImageOutputFormat;
+  apiKey: string;
+}): Promise<OpenAIImageResult> {
+  async function callImageModel(targetModel: ImageModel) {
+    const resp = await fetch(OPENAI_IMAGE_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: targetModel,
+        prompt,
+        n: 1,
+        size,
+        quality,
+        // GPT Image models retornam b64_json por padrão; formato explícito ajuda
+        // o caller a salvar no mime/ext corretos.
+        output_format: outputFormat,
+      }),
+    });
+
+    let json: OpenAIImageResponse;
+    try {
+      json = (await resp.json()) as OpenAIImageResponse;
+    } catch {
+      throw new Error(`OpenAI image: resposta inválida (HTTP ${resp.status})`);
+    }
+
+    if (!resp.ok) {
+      const msg = json.error?.message ?? `HTTP ${resp.status}`;
+      throw new Error(`OpenAI image: ${msg}`);
+    }
+
+    const first = json.data?.[0];
+    if (!first?.b64_json) {
+      throw new Error("OpenAI image: resposta sem b64_json.");
+    }
+
+    return {
+      b64: first.b64_json,
+      revisedPrompt: first.revised_prompt,
+      model: targetModel,
+    };
+  }
+
+  try {
+    return await callImageModel(model);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const canFallback =
+      model !== "gpt-image-1" &&
+      (message.includes("must be verified") ||
+        message.includes("organization must be verified") ||
+        message.includes("does not have access"));
+    if (!canFallback) throw err;
+    console.warn(
+      `[openai-image] ${model} indisponível; tentando fallback gpt-image-1`,
+    );
+    return callImageModel("gpt-image-1");
+  }
+}
+
+export async function generateImageOpenAIWithoutFallback({
+  prompt,
+  quality = "medium",
+  size = "1024x1024",
+  model = DEFAULT_OPENAI_IMAGE_MODEL,
+  outputFormat = "webp",
+  apiKey,
+}: {
+  prompt: string;
+  quality?: ImageQuality;
+  size?: ImageSize;
+  model?: ImageModel;
+  outputFormat?: ImageOutputFormat;
   apiKey: string;
 }): Promise<OpenAIImageResult> {
   const resp = await fetch(OPENAI_IMAGE_URL, {
@@ -97,13 +194,14 @@ export async function generateImageOpenAI({
       authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: "gpt-image-1",
+      model,
       prompt,
       n: 1,
       size,
       quality,
-      // gpt-image-1 retorna b64_json por padrão; explicito por segurança
-      output_format: "png",
+      // GPT Image models retornam b64_json por padrão; formato explícito ajuda
+      // o caller a salvar no mime/ext corretos.
+      output_format: outputFormat,
     }),
   });
 
@@ -127,6 +225,7 @@ export async function generateImageOpenAI({
   return {
     b64: first.b64_json,
     revisedPrompt: first.revised_prompt,
+    model,
   };
 }
 
@@ -135,7 +234,7 @@ export function isOpenAIImageConfigured(): boolean {
 }
 
 /**
- * Wrapper de gpt-image-1 `/v1/images/edits` com IMAGENS DE REFERÊNCIA.
+ * Wrapper de GPT Image `/v1/images/edits` com IMAGENS DE REFERÊNCIA.
  *
  * Diferença pro `generateImageOpenAI`:
  *  - `generateImageOpenAI` = texto puro → imagem do zero
@@ -146,7 +245,7 @@ export function isOpenAIImageConfigured(): boolean {
  * (ex: mascote Lumi em poses diferentes mantendo MESMA aparência).
  *
  * Endpoint: POST https://api.openai.com/v1/images/edits
- * Model: gpt-image-1 (gpt-image-1-mini não suporta múltiplas imagens)
+ * Model default: gpt-image-2 (pode sobrescrever com OPENAI_IMAGE_MODEL)
  * Custos: similares ao generations (~$0.04-0.08/img medium quality)
  *
  * Limitações:
@@ -159,12 +258,16 @@ export async function editImageWithReferences({
   references,
   quality = "medium",
   size = "1024x1024",
+  model = DEFAULT_OPENAI_IMAGE_MODEL,
+  outputFormat = "webp",
   apiKey,
 }: {
   prompt: string;
   references: Array<{ buffer: Buffer; filename: string }>;
   quality?: ImageQuality;
   size?: ImageSize;
+  model?: ImageModel;
+  outputFormat?: ImageOutputFormat;
   apiKey: string;
 }): Promise<OpenAIImageResult> {
   if (references.length === 0) {
@@ -175,11 +278,12 @@ export async function editImageWithReferences({
   }
 
   const form = new FormData();
-  form.append("model", "gpt-image-1");
+  form.append("model", model);
   form.append("prompt", prompt);
   form.append("n", "1");
   form.append("size", size);
   form.append("quality", quality);
+  form.append("output_format", outputFormat);
 
   for (const ref of references) {
     // Web FormData aceita Blob. Buffer → Blob.
@@ -207,6 +311,26 @@ export async function editImageWithReferences({
 
   if (!resp.ok) {
     const msg = json.error?.message ?? `HTTP ${resp.status}`;
+    const canFallback =
+      model !== "gpt-image-1" &&
+      (msg.includes("must be verified") ||
+        msg.includes("organization must be verified") ||
+        msg.includes("does not have access") ||
+        msg.includes("unsupported"));
+    if (canFallback) {
+      console.warn(
+        `[openai-image] edits ${model} indisponível; tentando fallback gpt-image-1`,
+      );
+      return editImageWithReferences({
+        prompt,
+        references,
+        quality,
+        size,
+        model: "gpt-image-1",
+        outputFormat,
+        apiKey,
+      });
+    }
     throw new Error(`OpenAI image edits: ${msg}`);
   }
 
@@ -218,5 +342,6 @@ export async function editImageWithReferences({
   return {
     b64: first.b64_json,
     revisedPrompt: first.revised_prompt,
+    model,
   };
 }

@@ -91,6 +91,9 @@ type UploadedPdf = {
   name: string;
   text: string;
   pages: number;
+  /** Páginas renderizadas como JPEG dataURL — usadas como referência visual
+   *  pro pipeline de imagens (summary-images via gpt-image-1 /edits). */
+  pageImages?: Array<{ pageNumber: number; imageDataUrl: string }>;
   /** File original — só na sessão; sobe pro Storage no submit do wizard */
   file: File;
 };
@@ -361,6 +364,7 @@ export function ContentWizard({
       const { extractPdfText, PdfExtractException } = await import(
         "@/lib/pdf-extract"
       );
+      const { renderPdfToImages } = await import("@/lib/pdf-render");
       const newOnes: UploadedPdf[] = [];
       for (const file of Array.from(files)) {
         if (file.size > LIMITS.PDF_BYTES) {
@@ -369,11 +373,21 @@ export function ContentWizard({
         }
         try {
           const { text, pages } = await extractPdfText(file);
+          // Renderiza até 2 páginas como JPEG dataURL pra GPT Image usar como
+          // referência visual em /api/ai/summary-images (modo /v1/images/edits).
+          // Sem isso, imagens são geradas só do texto extraído e ficam genéricas.
+          const pageImages = await renderPdfToImages(file, 2).catch((err) => {
+            console.warn("[wizard] renderPdfToImages failed", file.name, err);
+            return [] as Array<{ pageNumber: number; imageDataUrl: string }>;
+          });
           newOnes.push({
             id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             name: file.name,
             text,
             pages,
+            pageImages: pageImages
+              .filter((p) => p.imageDataUrl)
+              .slice(0, 2),
             file,
           });
         } catch (err) {
@@ -671,6 +685,16 @@ export function ContentWizard({
         .map((d) => d.sourceText ?? "")
         .filter((t) => t.length > 0),
     ];
+    // Páginas dos PDFs como referência visual (até 2) pro pipeline de imagens.
+    // Vai SÓ pra /api/ai/summary-images; NÃO pra /api/ai/generate (payload grande).
+    const referenceImages = uploadedPdfs
+      .flatMap((p) =>
+        (p.pageImages ?? []).map((img) => ({
+          filename: `${p.name.replace(/[^a-z0-9.-]+/gi, "-")}-p${img.pageNumber}.jpg`,
+          dataUrl: img.imageDataUrl,
+        })),
+      )
+      .slice(0, 2);
 
     const options: Record<string, unknown> = {
       withImages: withImages && imagesAvailable,
@@ -823,7 +847,12 @@ export function ContentWizard({
           void fetch("/api/ai/summary-images", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ lectureId: baseLecture.id, count: 3 }),
+            body: JSON.stringify({
+              lectureId: baseLecture.id,
+              count: 3,
+              // PDF pages como referência visual (modo /v1/images/edits).
+              ...(referenceImages.length > 0 ? { referenceImages } : {}),
+            }),
             keepalive: true,
           }).catch(() => {});
         } else if (uploadedPdfs.length > 0) {
@@ -909,6 +938,20 @@ export function ContentWizard({
             summaryId: sm?.id,
             mode,
           });
+          // Mesmo flow do PDF avulso: dispara imagens em background usando o
+          // próprio PDF como referência visual (gpt-image-1 /edits).
+          if (sm?.id) {
+            void fetch("/api/ai/summary-images", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                summaryId: sm.id,
+                count: 3,
+                ...(referenceImages.length > 0 ? { referenceImages } : {}),
+              }),
+              keepalive: true,
+            }).catch(() => {});
+          }
         } else {
           // Sem PDF novo: resumo de documento(s) JÁ existente(s) na pasta.
           // Reusa o primeiro documento como fonte — NÃO duplica o PDF.

@@ -30,7 +30,41 @@ type HealthSnapshot = {
     total_chars?: number;
     tier?: string;
   } | null;
+  providers?: {
+    anthropic?: ProviderBalance | null;
+    openai?: ProviderBalance | null;
+    google_ai?: ProviderBalance | null;
+  };
 };
+
+type ProviderBalance = {
+  /** Saldo restante em USD se a Admin API expôs (cron). */
+  remaining_usd?: number | null;
+  /** Gasto via Admin API no mês corrente (cron). */
+  usage_mtd_usd?: number | null;
+  /** Quando foi consultado. */
+  fetched_at?: string;
+};
+
+type ProviderKey = "anthropic" | "openai" | "google_ai" | "elevenlabs" | "other";
+
+function deriveProvider(model: string | null): ProviderKey {
+  if (!model) return "other";
+  const m = model.toLowerCase();
+  if (m.startsWith("claude")) return "anthropic";
+  if (
+    m.startsWith("gpt") ||
+    m.startsWith("o1") ||
+    m.startsWith("o3") ||
+    m.startsWith("chatgpt") ||
+    m.includes("openai")
+  ) {
+    return "openai";
+  }
+  if (m.startsWith("gemini") || m.includes("google")) return "google_ai";
+  if (m.includes("eleven")) return "elevenlabs";
+  return "other";
+}
 
 type LastAlert = { iso?: string; usd?: number; threshold?: number };
 
@@ -48,15 +82,21 @@ export async function GET() {
   const since24h = new Date(now - 24 * 60 * 60 * 1000).toISOString();
   const since7d = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  // Usage 24h (cost + tokens + images + endpoint)
+  // Mês corrente — boundary local ao primeiro dia 00:00 UTC pra consistência
+  const monthStart = new Date(
+    Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1),
+  ).toISOString();
+
+  // Usage 24h (cost + tokens + images + endpoint + model)
   const { data: usage24hRaw } = await admin
     .from("ai_usage_log")
-    .select("user_id, endpoint, cost_usd, input_tokens, output_tokens, images_count")
+    .select("user_id, endpoint, model, cost_usd, input_tokens, output_tokens, images_count")
     .gte("created_at", since24h);
   const usage24h =
     (usage24hRaw as Array<{
       user_id: string | null;
       endpoint: string | null;
+      model: string | null;
       cost_usd: number | string | null;
       input_tokens: number | null;
       output_tokens: number | null;
@@ -67,6 +107,7 @@ export async function GET() {
   let imagesGenerated24h = 0;
   const byEndpointMap = new Map<string, { usd: number; calls: number }>();
   const byUserMap = new Map<string, number>();
+  const byProvider24h = new Map<ProviderKey, { usd: number; calls: number }>();
   for (const row of usage24h) {
     const u = Number(row.cost_usd ?? 0);
     totalUsd24h += u;
@@ -79,6 +120,30 @@ export async function GET() {
     if (row.user_id) {
       byUserMap.set(row.user_id, (byUserMap.get(row.user_id) ?? 0) + u);
     }
+    const prov = deriveProvider(row.model);
+    const provEntry = byProvider24h.get(prov) ?? { usd: 0, calls: 0 };
+    provEntry.usd += u;
+    provEntry.calls += 1;
+    byProvider24h.set(prov, provEntry);
+  }
+
+  // Mês corrente — agrega cost_usd por provider
+  const { data: usageMtdRaw } = await admin
+    .from("ai_usage_log")
+    .select("model, cost_usd")
+    .gte("created_at", monthStart);
+  const usageMtd =
+    (usageMtdRaw as Array<{
+      model: string | null;
+      cost_usd: number | string | null;
+    }> | null) ?? [];
+  const byProviderMtd = new Map<ProviderKey, number>();
+  let totalUsdMtd = 0;
+  for (const row of usageMtd) {
+    const u = Number(row.cost_usd ?? 0);
+    totalUsdMtd += u;
+    const prov = deriveProvider(row.model);
+    byProviderMtd.set(prov, (byProviderMtd.get(prov) ?? 0) + u);
   }
 
   // 7d total
@@ -154,15 +219,44 @@ export async function GET() {
     .maybeSingle();
   const lastAlert = (alertRow as { value?: LastAlert } | null)?.value ?? null;
 
+  // Provider breakdown — junta gasto local (ai_usage_log) com balance real do snapshot
+  const providersSnapshot = snapshot?.value?.providers ?? {};
+  const providerKeys: ProviderKey[] = [
+    "anthropic",
+    "openai",
+    "google_ai",
+    "elevenlabs",
+    "other",
+  ];
+  const providers = providerKeys.map((key) => {
+    const usd24h = byProvider24h.get(key);
+    const usdMtd = byProviderMtd.get(key) ?? 0;
+    const snap =
+      key === "anthropic" || key === "openai" || key === "google_ai"
+        ? providersSnapshot[key]
+        : null;
+    return {
+      provider: key,
+      usd24h: Number((usd24h?.usd ?? 0).toFixed(4)),
+      calls24h: usd24h?.calls ?? 0,
+      usdMtd: Number(usdMtd.toFixed(4)),
+      remainingUsd: snap?.remaining_usd ?? null,
+      usageMtdReportedUsd: snap?.usage_mtd_usd ?? null,
+      fetchedAt: snap?.fetched_at ?? null,
+    };
+  });
+
   return NextResponse.json({
     capUsd: CAP_USD,
     totalUsd24h: Number(totalUsd24h.toFixed(4)),
     totalUsd7d: Number(totalUsd7d.toFixed(4)),
+    totalUsdMtd: Number(totalUsdMtd.toFixed(4)),
     voiceReplies24h: voiceReplies24h ?? 0,
     imagesGenerated24h,
     capHits24h,
     topSpenders,
     byEndpoint,
+    providers,
     flags,
     elevenlabs: snapshot?.value?.elevenlabs ?? null,
     snapshotFetchedAt: snapshot?.value?.fetched_at ?? null,

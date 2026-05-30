@@ -1191,8 +1191,21 @@ function Dashboard({ user }: { user: User }) {
         onOpenChange={setWizardOpen}
         mode="summary"
         userId={user.id}
-        onCreated={({ lectureId }) => {
-          router.push(`/lecture/${lectureId}`);
+        onCreated={({ lectureId, summaryId, documentId }) => {
+          // Origem com aula gravada → tela da aula (mostra summary tab)
+          if (lectureId) {
+            router.push(`/lecture/${lectureId}`);
+            return;
+          }
+          // PDF sem aula → tela do resumo direto
+          if (summaryId) {
+            router.push(`/resumo/doc/${summaryId}`);
+            return;
+          }
+          // Fallback: documento sem summary (raro)
+          if (documentId) {
+            router.push(`/document/${documentId}`);
+          }
         }}
       />
     </div>
