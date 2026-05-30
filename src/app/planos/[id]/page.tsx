@@ -36,6 +36,7 @@ import {
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { BackToHub } from "@/components/app/back-to-hub";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -423,6 +424,9 @@ function PlanoView({ user }: { user: User }) {
     // Em desktop reduzimos py e o mb dos blocos pra que o caso comum
     // (header + progress + 4-8 itens) caiba sem forçar scroll.
     <div className="mx-auto w-full max-w-[900px] px-4 py-6 lg:px-8 lg:py-5">
+      {/* Voltar pra aba do menu (Plano de Estudos) */}
+      <BackToHub className="mb-3" />
+
       {/* Breadcrumb */}
       <Link
         href="/planos"

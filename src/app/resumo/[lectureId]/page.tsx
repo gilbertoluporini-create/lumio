@@ -85,6 +85,7 @@ import {
 } from "@/lib/favorites";
 import { summaryToMarkdown } from "@/components/app/lecture-summary-view";
 import { getSubjectIcon } from "@/lib/subject-icon";
+import { BackToHub } from "@/components/app/back-to-hub";
 import type {
   Lecture,
   LectureSummary,
@@ -669,6 +670,9 @@ function ResumoView({ user, lectureId }: { user: User; lectureId: string }) {
         />
       </div>
     <div className="mx-auto max-w-[1600px] px-4 md:px-6 lg:px-8 py-6 md:py-8">
+      {/* Voltar pra aba do menu */}
+      <BackToHub className="mb-3" />
+
       {/* Breadcrumb */}
       <nav className="mb-3 text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
         <Link href="/resumos" className="hover:text-foreground transition-colors">

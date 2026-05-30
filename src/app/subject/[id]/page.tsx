@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { BackToHub } from "@/components/app/back-to-hub";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { LumiIcon, type LumiIconName } from "@/components/brand/lumi-icon";
 import { getSubjectIcon } from "@/lib/subject-icon";
@@ -416,6 +417,9 @@ function SubjectView({
 
   return (
     <div className="mx-auto max-w-7xl px-5 py-8">
+      {/* Voltar pra aba do menu (Meus documentos) */}
+      <BackToHub className="mb-3" />
+
       {/* Breadcrumb */}
       <div className="flex items-center gap-1.5 text-sm text-muted-foreground mb-5">
         <Link href="/dashboard" className="hover:text-foreground transition-colors">

@@ -40,6 +40,7 @@ import {
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { BackToHub } from "@/components/app/back-to-hub";
 import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
 import { Badge } from "@/components/ui/badge";
@@ -369,6 +370,9 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
 
   return (
     <div className="mx-auto max-w-[1400px] px-4 md:px-6 py-6 md:py-8">
+      {/* Voltar pra aba do menu */}
+      <BackToHub className="mb-3" />
+
       {/* Breadcrumb */}
       <nav className="mb-3 text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
         <Link href="/quiz" className="hover:text-foreground transition-colors">

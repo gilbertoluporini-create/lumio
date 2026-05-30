@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { BackToHub } from "@/components/app/back-to-hub";
 import { Button } from "@/components/ui/button";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { formatRelativeTime } from "@/lib/utils";
@@ -148,16 +149,9 @@ function TicketDetailView({
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-6 sm:py-10">
-      {/* Header */}
-      <div className="mb-6 flex items-center gap-2">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => router.push("/help")}
-          className="gap-1.5"
-        >
-          <ArrowLeft className="h-4 w-4" /> Voltar
-        </Button>
+      {/* Voltar pra aba do menu (Ajuda) */}
+      <div className="mb-6">
+        <BackToHub />
       </div>
 
       <div className="mb-6">

@@ -23,6 +23,7 @@ import { toast } from "sonner";
 
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { BackToHub } from "@/components/app/back-to-hub";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ContentWizard } from "@/components/ai/content-wizard";
@@ -208,12 +209,8 @@ function DocumentView({
 
   return (
     <div className="mx-auto max-w-4xl px-5 py-8">
-      <Link
-        href="/documents"
-        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-4"
-      >
-        <ArrowLeft className="h-3.5 w-3.5" /> Documentos
-      </Link>
+      {/* Voltar pra aba do menu (Meus documentos) */}
+      <BackToHub className="mb-4" />
 
       {/* Header */}
       <div className="flex items-start justify-between gap-3 flex-wrap mb-6">

@@ -981,7 +981,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
             note: "Move a AULA INTEIRA (transcrição, resumo, flashcards, quiz, mapa) pra a nova matéria.",
           })
         }
-        onBack={() => router.push("/dashboard")}
+        onBack={() => router.push("/gravacoes")}
       />
 
       <div className="mx-auto max-w-[1600px] px-4 py-5 space-y-5">
