@@ -74,9 +74,6 @@ export function Testimonials() {
                     {t.context}
                   </p>
                 </div>
-                <span className="ml-auto inline-flex items-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[9px] font-mono font-medium px-2 py-0.5 uppercase tracking-wider">
-                  Verificado
-                </span>
               </div>
             </motion.div>
           </StaggerItem>
