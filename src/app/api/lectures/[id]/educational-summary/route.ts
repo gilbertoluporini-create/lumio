@@ -118,7 +118,7 @@ export async function POST(
   const admin = createAdminClient();
   const { data: lectureRow, error: lecErr } = await admin
     .from("lectures")
-    .select("title, subject_id, transcript_entries, transcript_chapters")
+    .select("title, subject_id, transcript_entries, transcript_chapters, slides")
     .eq("id", lectureId)
     .maybeSingle();
   if (lecErr || !lectureRow) {
@@ -243,14 +243,36 @@ export async function POST(
       });
     }
 
-    // Fire-and-forget images (mesmo padrão do correlate)
+    // Fire-and-forget images. Se a aula tem slides com imageDataUrl, manda
+    // como referenceImages pra entrar no caminho /v1/images/edits do
+    // summary-images — assim aulas com slides geram imagens com o mesmo
+    // estilo das imagens do wizard (resumo via PDF).
+    type SlideRow = {
+      pageNumber?: number;
+      title?: string;
+      text?: string;
+      imageDataUrl?: string;
+    };
+    const slidesArr = (lectureRow.slides ?? []) as SlideRow[];
+    const referenceImages = slidesArr
+      .filter((s) => typeof s.imageDataUrl === "string" && s.imageDataUrl)
+      .slice(0, 2)
+      .map((s) => ({
+        filename: `slide-${s.pageNumber ?? "?"}.jpg`,
+        dataUrl: s.imageDataUrl as string,
+      }));
+
     void fetch(new URL("/api/ai/summary-images", req.url).toString(), {
       method: "POST",
       headers: {
         "content-type": "application/json",
         cookie: req.headers.get("cookie") ?? "",
       },
-      body: JSON.stringify({ lectureId, count: 3 }),
+      body: JSON.stringify({
+        lectureId,
+        count: 3,
+        ...(referenceImages.length > 0 ? { referenceImages } : {}),
+      }),
       keepalive: true,
     }).catch((e) =>
       console.warn("[educational-summary] images dispatch failed", e),
