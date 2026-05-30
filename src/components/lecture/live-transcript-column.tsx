@@ -10,7 +10,6 @@ import type {
   TranscriptMarker,
   TranscriptTopic,
 } from "@/lib/types";
-import { TranscriptEntryRow } from "./transcript-entry";
 
 type MarkerFilter = TranscriptMarker | "all";
 type ViewMode = "flat" | "chapters";
@@ -23,13 +22,17 @@ const FILTERS: { id: MarkerFilter; label: string; dot: string }[] = [
 
 const CHUNK_FALLBACK_SEC = 600; // 10 min por capítulo sintético quando não há topics
 const RAW_PARAGRAPH_SEC = 60; // 1 min por parágrafo na vista "Transcrição crua"
+const CHAPTER_PARAGRAPH_SEC = 120; // 2 min por parágrafo dentro de cada capítulo
 
 type RawParagraph = {
   startSec: number;
   text: string;
 };
 
-function groupIntoParagraphs(entries: TranscriptEntry[]): RawParagraph[] {
+function groupIntoParagraphs(
+  entries: TranscriptEntry[],
+  windowSec: number,
+): RawParagraph[] {
   if (entries.length === 0) return [];
   const groups: RawParagraph[] = [];
   let bucket: TranscriptEntry[] = [];
@@ -48,7 +51,7 @@ function groupIntoParagraphs(entries: TranscriptEntry[]): RawParagraph[] {
       bucket.push(e);
       continue;
     }
-    if (e.startSec - bucketStart >= RAW_PARAGRAPH_SEC) {
+    if (e.startSec - bucketStart >= windowSec) {
       flush();
       bucketStart = e.startSec;
     }
@@ -196,13 +199,6 @@ export function LiveTranscriptColumn({
     });
   }, [entries, search, activeFilter]);
 
-  // Limita keyTerms passadas pro regex de highlight — evita regex caro
-  // em listas com 1k+ entries quando a IA gera muitos termos.
-  const cappedKeyTerms = useMemo(
-    () => keyTerms.slice(0, 20),
-    [keyTerms],
-  );
-
   // Reset paginação quando filtros mudam
   useEffect(() => {
     setFlatLimit(FLAT_PAGE);
@@ -229,7 +225,6 @@ export function LiveTranscriptColumn({
     }
   }, [entries.length, interim, isLive, viewMode]);
 
-  const lastEntryId = entries[entries.length - 1]?.id;
 
   return (
     <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden">
@@ -391,21 +386,36 @@ export function LiveTranscriptColumn({
                       </button>
                     )}
                   </div>
-                  {open && (
-                    <div className="border-t border-border/60 p-2 space-y-1 bg-background/40">
-                      {ch.entries.map((e) => (
-                        <TranscriptEntryRow
-                          key={e.id}
-                          entry={e}
-                          isActive={e.id === lastEntryId && isLive}
-                          keyTerms={cappedKeyTerms}
-                          hasAudio={hasAudio}
-                          onPlay={onPlay}
-                          onJumpToSlide={onJumpToSlide}
-                        />
-                      ))}
-                    </div>
-                  )}
+                  {open && (() => {
+                    const chapterParagraphs = groupIntoParagraphs(
+                      ch.entries,
+                      CHAPTER_PARAGRAPH_SEC,
+                    );
+                    return (
+                      <div className="border-t border-border/60 px-4 py-4 space-y-4 bg-background/40">
+                        {chapterParagraphs.map((p) => (
+                          <div key={p.startSec} className="flex gap-3">
+                            <button
+                              onClick={() => onPlay?.(p.startSec)}
+                              disabled={!hasAudio || !onPlay}
+                              className={cn(
+                                "shrink-0 font-mono text-[11px] tabular-nums pt-0.5",
+                                hasAudio && onPlay
+                                  ? "text-muted-foreground hover:text-primary transition-colors cursor-pointer"
+                                  : "text-muted-foreground/60 cursor-default",
+                              )}
+                              aria-label={hasAudio ? "Tocar a partir daqui" : undefined}
+                            >
+                              {formatTs(p.startSec)}
+                            </button>
+                            <p className="text-sm leading-relaxed text-foreground/90 min-w-0">
+                              {p.text}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
                 </div>
               );
             })}
@@ -416,7 +426,7 @@ export function LiveTranscriptColumn({
               // Modo "Transcrição crua": modo leitura — parágrafos por minuto,
               // timestamp clicável no início, sem speaker/markers/highlights.
               // Pra aulas longas, pagina por parágrafos (não por entries).
-              const paragraphs = groupIntoParagraphs(filtered);
+              const paragraphs = groupIntoParagraphs(filtered, RAW_PARAGRAPH_SEC);
               const PAR_PAGE = 30;
               const sliced =
                 isLive || paragraphs.length <= flatLimit
