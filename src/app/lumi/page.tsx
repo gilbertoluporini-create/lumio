@@ -1136,7 +1136,7 @@ function LumiAssistant({ user }: { user: User }) {
   const isListening = speechState === "listening";
 
   return (
-    <div className="relative mx-auto flex w-full max-w-[1200px] flex-col px-4 lg:px-8 h-[calc(100dvh_-_60px_-_env(safe-area-inset-top))] overflow-hidden md:h-auto md:overflow-visible md:py-4">
+    <div className="relative mx-auto flex w-full max-w-[1200px] flex-col px-4 lg:px-8 h-[calc(100dvh_-_60px_-_env(safe-area-inset-top))] overflow-hidden md:py-4">
       <input
         ref={fileInputRef}
         type="file"
@@ -1220,10 +1220,10 @@ function LumiAssistant({ user }: { user: User }) {
         />
       ) : hasMessages ? (
         /* Chat view */
-        <div className="flex flex-1 min-h-0 flex-col bg-card md:flex-none md:min-h-[600px] md:rounded-2xl md:border md:border-border/60">
+        <div className="flex flex-1 min-h-0 flex-col overflow-hidden bg-card md:rounded-2xl md:border md:border-border/60">
           <div
             ref={scrollRef}
-            className="flex-1 min-h-0 overflow-y-auto px-4 py-6 md:px-10 md:max-h-[calc(100vh_-_280px)]"
+            className="flex-1 min-h-0 overflow-y-auto px-4 py-6 md:px-10"
           >
             <div className="mx-auto flex max-w-3xl flex-col gap-6">
               {messages.map((m) => (

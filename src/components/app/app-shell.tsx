@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Sparkles,
   Star,
+  Target,
   Users,
   UserIcon,
 } from "lucide-react";
@@ -275,6 +276,7 @@ export function AppShell({
     },
     { href: "/schedule", label: "Calendário", Icon: Calendar },
     { href: "/resumos", label: "Resumos", Icon: FileText },
+    { href: "/planos", label: "Plano de Estudos", Icon: Target },
     { href: "/flashcards", label: "Flashcards", Icon: Layers },
     { href: "/quiz", label: "Quiz", Icon: Sparkles },
     { href: "/gravacoes", label: "Gravações", Icon: Mic },
