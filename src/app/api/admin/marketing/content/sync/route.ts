@@ -34,6 +34,7 @@
 import { NextResponse } from "next/server";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import sharp from "sharp";
 import { requireAdmin } from "@/lib/admin";
 import { createAdminClient } from "@/lib/supabase/server";
 
@@ -44,12 +45,22 @@ export const maxDuration = 120;
 const BUCKET = "marketing-images";
 const POSTS_DIR = path.join(process.cwd(), "content", "marketing", "posts");
 
-type RatioFile = { ratio: "1x1" | "landscape" | "portrait"; filename: string };
+type RatioName = "1x1" | "landscape" | "portrait";
+type RatioFile = { ratio: RatioName; filename: string };
 const RATIO_FILES: RatioFile[] = [
   { ratio: "1x1", filename: "1x1.jpg" },
   { ratio: "landscape", filename: "landscape.jpg" },
   { ratio: "portrait", filename: "portrait.jpg" },
 ];
+
+// Targets pro auto-gen a partir do 1x1: landscape 16:9 pra X/LinkedIn/FB
+// widescreen, portrait 4:5 pra IG portrait. Composição: fundo = 1x1 com blur
+// pesado (cover do target) + 1x1 nítido centralizado. Sem distorção, sem
+// borda morta, estilo stories profissional.
+const AUTO_TARGETS: Record<"landscape" | "portrait", { w: number; h: number }> = {
+  landscape: { w: 1920, h: 1080 },
+  portrait: { w: 1080, h: 1350 },
+};
 
 type PostMetadata = {
   id: string;
@@ -117,13 +128,12 @@ function validateMetadata(meta: unknown, slug: string): PostMetadata {
   };
 }
 
-async function uploadImage(
+async function uploadBuffer(
   supabase: ReturnType<typeof createAdminClient>,
   slug: string,
   ratio: string,
-  filePath: string,
+  buffer: Buffer,
 ): Promise<string> {
-  const buffer = await readFile(filePath);
   const key = `synced/${slug}/${ratio}.jpg`;
   const { error } = await supabase.storage
     .from(BUCKET)
@@ -134,6 +144,29 @@ async function uploadImage(
   if (error) throw new Error(`upload ${ratio} falhou: ${error.message}`);
   const { data: pub } = supabase.storage.from(BUCKET).getPublicUrl(key);
   return pub.publicUrl;
+}
+
+async function generateAutoVariant(
+  source1x1: Buffer,
+  target: { w: number; h: number },
+): Promise<Buffer> {
+  // imagem nítida 1:1 que vai ao centro, dimensionada pelo menor lado do target
+  const centerSize = Math.min(target.w, target.h);
+  const center = await sharp(source1x1)
+    .resize(centerSize, centerSize, { fit: "cover" })
+    .toBuffer();
+
+  // fundo: mesmo 1x1 esticado pra cobrir o target com blur pesado
+  const background = await sharp(source1x1)
+    .resize(target.w, target.h, { fit: "cover" })
+    .blur(40)
+    .modulate({ brightness: 0.85 }) // escurece levemente pra realçar o centro
+    .toBuffer();
+
+  return sharp(background)
+    .composite([{ input: center, gravity: "center" }])
+    .jpeg({ quality: 88, mozjpeg: true })
+    .toBuffer();
 }
 
 async function syncOnePost(
@@ -158,34 +191,75 @@ async function syncOnePost(
   const existingImages =
     (existing?.images as Record<
       string,
-      { url: string; uploaded_at: string } | undefined
+      { url: string; uploaded_at: string; auto_from_1x1?: boolean } | undefined
     > | null) || {};
 
-  // upload das imagens que existirem (pula se não mudou desde o último upload)
-  const images: Record<string, { url: string; uploaded_at: string }> = {};
+  // upload das imagens que existirem (pula se não mudou desde o último upload).
+  // Guardamos o buffer do 1x1 fresh pra reusar no auto-gen das variantes.
+  const images: Record<
+    string,
+    { url: string; uploaded_at: string; auto_from_1x1?: boolean }
+  > = {};
+  const foundOnDisk = new Set<RatioName>();
+  let buffer1x1: Buffer | null = null;
+  let mtime1x1: Date | null = null;
+
   for (const { ratio, filename } of RATIO_FILES) {
     const imgPath = path.join(folder, filename);
     let fileStat;
     try {
       fileStat = await stat(imgPath);
     } catch {
-      continue; // arquivo não existe, pula
+      continue; // arquivo não existe, pula (pode virar auto-gen depois)
     }
+    foundOnDisk.add(ratio);
+    if (ratio === "1x1") mtime1x1 = fileStat.mtime;
+
     const prev = existingImages[`ratio_${ratio}`];
+    const prevManual = prev && !prev.auto_from_1x1;
     if (
-      prev?.url &&
+      prevManual &&
       prev.uploaded_at &&
       fileStat.mtime <= new Date(prev.uploaded_at)
     ) {
       // arquivo não mudou desde o último sync → reusa URL existente
       images[`ratio_${ratio}`] = prev;
+      if (ratio === "1x1") buffer1x1 = await readFile(imgPath);
       continue;
     }
-    const url = await uploadImage(supabase, slug, ratio, imgPath);
+    const buffer = await readFile(imgPath);
+    if (ratio === "1x1") buffer1x1 = buffer;
+    const url = await uploadBuffer(supabase, slug, ratio, buffer);
     images[`ratio_${ratio}`] = {
       url,
       uploaded_at: new Date().toISOString(),
     };
+  }
+
+  // Auto-gen das variantes faltantes a partir do 1x1. Se o usuário colocar
+  // landscape.jpg/portrait.jpg na pasta, esse arquivo manual ganha — só geramos
+  // o que não veio do disco. Cache via mtime do 1x1: se ele não mudou e a
+  // variante anterior também era auto, reusa.
+  if (buffer1x1 && mtime1x1) {
+    for (const ratio of ["landscape", "portrait"] as const) {
+      if (foundOnDisk.has(ratio)) continue;
+      const prev = existingImages[`ratio_${ratio}`];
+      if (
+        prev?.auto_from_1x1 &&
+        prev.uploaded_at &&
+        mtime1x1 <= new Date(prev.uploaded_at)
+      ) {
+        images[`ratio_${ratio}`] = prev;
+        continue;
+      }
+      const variant = await generateAutoVariant(buffer1x1, AUTO_TARGETS[ratio]);
+      const url = await uploadBuffer(supabase, slug, ratio, variant);
+      images[`ratio_${ratio}`] = {
+        url,
+        uploaded_at: new Date().toISOString(),
+        auto_from_1x1: true,
+      };
+    }
   }
 
   // slides extras do carrossel (slide-2.jpg, slide-3.jpg, ...) — opcionais e
@@ -209,7 +283,8 @@ async function syncOnePost(
       images[keyName] = prev;
       continue;
     }
-    const url = await uploadImage(supabase, slug, `slide-${n}`, imgPath);
+    const slideBuf = await readFile(imgPath);
+    const url = await uploadBuffer(supabase, slug, `slide-${n}`, slideBuf);
     images[keyName] = { url, uploaded_at: new Date().toISOString() };
   }
 
