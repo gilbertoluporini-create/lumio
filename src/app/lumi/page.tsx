@@ -97,7 +97,7 @@ import { jobKindLabel, startJob } from "@/lib/asset-jobs";
 import { calculateStreak } from "@/lib/streak";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Lecture, Subject, User } from "@/lib/types";
-import { stripChatFormatting } from "@/lib/utils";
+import { cn, stripChatFormatting } from "@/lib/utils";
 
 type SuggestionChip = {
   id: QuickAction["id"];
@@ -1135,8 +1135,19 @@ function LumiAssistant({ user }: { user: User }) {
   const streakCount = streak.current;
   const isListening = speechState === "listening";
 
+  // Trava a página em 100dvh APENAS quando há chat ativo. No empty state e
+  // no voice mode, libera (page scroll natural) — senão o título do empty
+  // state fica cortado no desktop por causa de min-h conflitante.
+  const lockViewport = hasMessages && !voiceMode;
   return (
-    <div className="relative mx-auto flex w-full max-w-[1200px] flex-col px-4 lg:px-8 h-[calc(100dvh_-_60px_-_env(safe-area-inset-top))] overflow-hidden md:py-4">
+    <div
+      className={cn(
+        "relative mx-auto flex w-full max-w-[1200px] flex-col px-4 lg:px-8",
+        lockViewport
+          ? "h-[calc(100dvh_-_60px_-_env(safe-area-inset-top))] overflow-hidden md:py-4"
+          : "py-4 md:py-4",
+      )}
+    >
       <input
         ref={fileInputRef}
         type="file"
