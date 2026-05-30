@@ -15,6 +15,7 @@ import {
   Settings,
   ShieldAlert,
   Users,
+  Wallet,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -75,6 +76,12 @@ const NAV_SECTIONS: NavSection[] = [
   {
     label: "Sistema",
     items: [
+      {
+        href: "/admin/balanco",
+        label: "Balanço",
+        Icon: Wallet,
+        accent: "fuchsia",
+      },
       {
         href: "/admin/health",
         label: "Saúde & Custos",
