@@ -1,12 +1,50 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
-import { createAdminClient } from "@/lib/supabase/server";
+import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { requireAdmin, logAdminAction } from "@/lib/admin";
 import { sendSupportTicketReply } from "@/lib/email";
 import { notifyUser } from "@/lib/notifications";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/**
+ * GET /api/support/tickets/[id] — devolve o ticket completo pro DONO.
+ * Usado pela página /help/tickets/[id] (user visualiza conversa + responde).
+ */
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const { id } = await params;
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const admin = createAdminClient();
+  const { data, error } = await admin
+    .from("support_tickets")
+    .select(
+      "id, user_id, subject, category, message, status, priority, admin_reply, replied_at, resolved_at, user_followup_message, user_followup_at, user_resolved, created_at, updated_at",
+    )
+    .eq("id", id)
+    .single();
+
+  if (error || !data) {
+    return NextResponse.json(
+      { error: "Ticket não encontrado." },
+      { status: 404 },
+    );
+  }
+  if (data.user_id !== user.id) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+  return NextResponse.json({ ticket: data });
+}
 
 const STATUSES = ["open", "in_progress", "resolved", "closed"] as const;
 const PRIORITIES = ["low", "normal", "high"] as const;
@@ -119,7 +157,8 @@ export async function PATCH(
       type: "ticket_reply",
       title: `Resposta do suporte: ${ticket.subject}`,
       body: preview.length < parsed.data.reply.length ? `${preview}…` : preview,
-      href: "/help",
+      // Abre a página do ticket com botões "Resolveu / Não resolveu".
+      href: `/help/tickets/${id}`,
       metadata: { ticketId: id },
     });
   }
