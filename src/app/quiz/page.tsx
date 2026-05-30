@@ -31,6 +31,7 @@ import {
   Library,
   Lightbulb,
   Mic,
+  FolderInput,
   MoreVertical,
   Music,
   Palette,
@@ -65,6 +66,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { listLecturesAsync, listSubjectsAsync } from "@/lib/db";
+import {
+  MoveToFolderDialog,
+  type MoveTarget,
+} from "@/components/documents/move-to-folder-dialog";
 import {
   formatPracticeTime,
   getAccuracyByAsset,
@@ -397,6 +402,7 @@ function QuizView({ user }: { user: User }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
   const [lectures, setLectures] = useState<Lecture[]>([]);
   const [quizzes, setQuizzes] = useState<QuizAssetRow[]>([]);
   const [attempts, setAttempts] = useState<QuizAttempt[]>([]);
@@ -1162,6 +1168,21 @@ function QuizView({ user }: { user: User }) {
                             </Link>
                           </DropdownMenuItem>
                         )}
+                        {lec && (
+                          <DropdownMenuItem
+                            onClick={() =>
+                              setMoveTarget({
+                                kind: "lecture",
+                                id: lec.id,
+                                title: `Quiz de "${lec.title ?? "aula"}"`,
+                                currentSubjectId: lec.subjectId ?? null,
+                                note: "Isso move a AULA INTEIRA (transcrição, resumo, flashcards, mapa) pra a nova matéria — não só o quiz.",
+                              })
+                            }
+                          >
+                            <FolderInput className="h-4 w-4" /> Mover pra outra matéria
+                          </DropdownMenuItem>
+                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>
@@ -1205,6 +1226,21 @@ function QuizView({ user }: { user: User }) {
         userId={user.id}
         onCreated={() => {
           router.refresh();
+        }}
+      />
+
+      {/* Mover quiz (move a lecture inteira) entre matérias */}
+      <MoveToFolderDialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null);
+        }}
+        userId={user.id}
+        subjects={subjects}
+        target={moveTarget}
+        onMoved={() => {
+          setMoveTarget(null);
+          void reload();
         }}
       />
     </div>

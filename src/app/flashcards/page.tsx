@@ -31,6 +31,7 @@ import {
   Lightbulb,
   Meh,
   Microscope,
+  FolderInput,
   MoreHorizontal,
   Music,
   Palette,
@@ -67,6 +68,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { listLecturesAsync, listSubjectsAsync } from "@/lib/db";
+import {
+  MoveToFolderDialog,
+  type MoveTarget,
+} from "@/components/documents/move-to-folder-dialog";
 import {
   countDueForDeck,
   countStudiedToday,
@@ -266,6 +271,7 @@ function FlashcardsHubView({ user }: { user: User }) {
   const firstName = user.name.split(" ")[0] || "estudante";
 
   const [decks, setDecks] = useState<Deck[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
   const [loading, setLoading] = useState(true);
 
   // SRS state
@@ -278,6 +284,7 @@ function FlashcardsHubView({ user }: { user: User }) {
   const [search, setSearch] = useState("");
 
   // Sessão ativa
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
   const [activeDeck, setActiveDeck] = useState<Deck | null>(null);
   const [sessionQueue, setSessionQueue] = useState<number[]>([]);
   const [queuePos, setQueuePos] = useState(0);
@@ -325,6 +332,7 @@ function FlashcardsHubView({ user }: { user: User }) {
     }
 
     const rows = (data ?? []) as FlashcardAssetRow[];
+    setSubjects(subjectsRes);
     const subjectMap = new Map<string, Subject>(
       subjectsRes.map((s) => [s.id, s]),
     );
@@ -862,6 +870,15 @@ function FlashcardsHubView({ user }: { user: User }) {
               }
             }}
             onOpen={(d) => router.push(`/deck/${d.assetId}`)}
+            onMove={(d) =>
+              setMoveTarget({
+                kind: "lecture",
+                id: d.lectureId,
+                title: `Flashcards de "${d.lectureTitle}"`,
+                currentSubjectId: d.subjectId,
+                note: "Isso move a AULA INTEIRA (transcrição, resumo, quiz, mapa) pra a nova matéria — não só os flashcards.",
+              })
+            }
           />
         </div>
       </div>
@@ -873,6 +890,21 @@ function FlashcardsHubView({ user }: { user: User }) {
         userId={user.id}
         onCreated={() => {
           // Recarrega a lista pra mostrar o novo deck.
+          void reload();
+        }}
+      />
+
+      {/* Mover deck (move a lecture inteira) entre matérias */}
+      <MoveToFolderDialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null);
+        }}
+        userId={user.id}
+        subjects={subjects}
+        target={moveTarget}
+        onMoved={() => {
+          setMoveTarget(null);
           void reload();
         }}
       />
@@ -1584,12 +1616,14 @@ function DeckTable({
   activeDeckId,
   onSelect,
   onOpen,
+  onMove,
 }: {
   decks: Deck[];
   cardStates: CardState[];
   activeDeckId: string | null;
   onSelect: (d: Deck) => void;
   onOpen: (d: Deck) => void;
+  onMove: (d: Deck) => void;
 }) {
   if (decks.length === 0) {
     return (
@@ -1622,6 +1656,7 @@ function DeckTable({
             active={d.assetId === activeDeckId}
             onSelect={() => onSelect(d)}
             onOpen={() => onOpen(d)}
+            onMove={() => onMove(d)}
           />
         ))}
       </div>
@@ -1635,12 +1670,14 @@ function DeckRow({
   active,
   onSelect,
   onOpen,
+  onMove,
 }: {
   deck: Deck;
   cardStates: CardState[];
   active: boolean;
   onSelect: () => void;
   onOpen: () => void;
+  onMove: () => void;
 }) {
   const Icon = getSubjectIcon(deck.subjectName);
   const level = levelOfDeck(deck.cards.length);
@@ -1739,6 +1776,9 @@ function DeckRow({
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => toast.info("Em breve.")}>
               <Clock className="h-4 w-4" /> Histórico de revisões
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onMove}>
+              <FolderInput className="h-4 w-4" /> Mover pra outra matéria
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
