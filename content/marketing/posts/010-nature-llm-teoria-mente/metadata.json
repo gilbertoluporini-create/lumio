@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "Nature (maio/2024) publicou: GPT-4 superou humanos em 4 das 5 tarefas clássicas de teoria da mente (Sally-Anne, false belief, ironia).\n\nTeoria da mente = capacidade de entender que outros têm crenças/intenções diferentes. Crianças desenvolvem aos 4 anos.\n\nNão prova que LLM \"pensa\". Mas o comportamento emerge sem treino específico."
+    },
+    "x": {
+      "thread": [
+        "A revista Nature publicou em maio/2024 um estudo bombástico:\n\nLLMs (GPT-4 e Claude) performaram igual ou melhor que humanos em testes de teoria da mente.\n\nIsso mexe com o que significa \"entender\". 🧵",
+        "Teoria da mente = entender que outros têm crenças diferentes das suas. Crianças desenvolvem aos ~4 anos.\n\nO teste:\n→ 5 tarefas clássicas (Sally-Anne, false belief)\n→ Humanos vs GPT-4 vs Claude 3\n\nGPT-4 e Claude bateram humanos em várias.",
+        "Implicação NÃO é que LLMs \"pensam\". É que comportamentos que considerávamos exclusivos de mente humana podem emergir de sistemas estatísticos massivos.\n\nO que isso significa pra IA? Pra educação? Pra filosofia da mente?\n\nAinda não sabemos. Mas mudou o terreno.\n\n#Nature #LLM #AI"
+      ]
+    },
+    "linkedin": {
+      "headline": "Nature: LLMs passaram em testes de teoria da mente. E agora?",
+      "body": "Em maio de 2024, a revista Nature publicou um estudo que vai virar referência em filosofia da mente por décadas.\n\nTítulo: \"Testing theory of mind in large language models and humans\".\nAutores: James Strachan (Universidade de Hamburgo) + 11 coautores.\n\nO que é teoria da mente?\nÉ a capacidade cognitiva de entender que outras pessoas têm crenças, desejos e intenções diferentes das suas. Crianças tipicamente desenvolvem essa habilidade entre os 3 e 5 anos. Por muito tempo foi considerada uma das marcas distintivas da cognição humana.\n\nO experimento:\n→ Aplicaram 5 tarefas clássicas de teoria da mente (Sally-Anne, false belief tasks, faux pas, etc.)\n→ Testaram em humanos adultos vs GPT-4 vs Claude 3 vs Llama 2\n→ Métrica: capacidade de raciocinar corretamente sobre estados mentais alheios\n\nO resultado: GPT-4 e Claude 3 performaram igual ou MELHOR que humanos em várias das tarefas. Em algumas, superaram a média humana significativamente.\n\nImplicações:\n→ NÃO significa que LLMs \"têm consciência\" ou \"pensam\" — esse é outro debate\n→ SIGNIFICA que comportamentos cognitivos sofisticados podem emergir de sistemas estatísticos massivos sem precisar de \"compreensão\" no sentido tradicional\n→ Muda a régua do que consideramos exclusivo de mente biológica\n→ Levanta questões éticas e práticas pra IA em contextos sociais (educação, terapia, atendimento)\n\nO terreno mudou. E a velocidade da mudança é o que assusta.\n\n#Nature #IA #LLM #Pesquisa #FilosofiaDaMente"
     }
   }
 }

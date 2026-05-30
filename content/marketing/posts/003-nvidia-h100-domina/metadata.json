@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "Uma única NVIDIA H100 custa US$ 30 mil. A Meta comprou 350 mil em 2024 — US$ 10,5 bilhões só em GPU.\n\nA NVIDIA detém ~95% do mercado de chips de IA. CUDA (software de 18 anos), memória HBM3 e NVLink são os pilares.\n\nA próxima geração (Blackwell B200) já está chegando."
+    },
+    "x": {
+      "thread": [
+        "Uma única NVIDIA H100 custa US$ 30 mil.\n\nA Meta comprou 350 MIL delas em 2024.\n\nIsso são US$ 10,5 bilhões em GPU. Só na Meta. 🧵",
+        "Por que TODO mundo treina IA na NVIDIA?\n\n1. CUDA — software de 18 anos. Todo framework (PyTorch, TF) depende dele.\n\n2. HBM3 — 80GB de RAM por GPU. AMD/Intel ficaram 2 gerações pra trás.\n\n3. NVLink — conecta milhares de GPUs como se fossem uma. Ninguém tem equivalente.",
+        "Resultado: NVIDIA detém ~95% do mercado de chips de treino de IA.\n\nJensen Huang virou o homem mais influente da indústria.\n\nA próxima geração (Blackwell B200) já tá saindo.\n\nE a fila pra comprar é longa.\n\n#NVIDIA #IA"
+      ]
+    },
+    "linkedin": {
+      "headline": "Por que 95% do treino de IA mundial roda em NVIDIA",
+      "body": "Uma única NVIDIA H100 custa US$ 30 mil. A Meta comprou 350 mil em 2024 — US$ 10,5 bilhões só em GPU.\n\nA NVIDIA detém ~95% do mercado de chips pra treinar IA. Não é coincidência. São 3 moats técnicos profundos:\n\n1. CUDA — software proprietário que existe há 18 anos. PyTorch, TensorFlow, JAX — todo framework de ML do mundo depende dele. Construir alternativa exige rebuild de uma década de ecossistema.\n\n2. Memória HBM3 — 80GB de RAM ultra-rápida por GPU. AMD lançou MI300X em 2024 tentando competir; ficou 1-2 gerações atrás em performance real.\n\n3. NVLink — interconnect proprietário que liga milhares de GPUs como se fossem uma só. Pra treinar GPT-5 você precisa de 100K+ GPUs sincronizadas. Sem NVLink, não rola.\n\nEsses 3 moats juntos viraram a NVIDIA na segunda maior empresa do mundo (US$ 3,4 trilhões de market cap em 2024, atrás só da Apple). Jensen Huang virou bilionário (US$ 110B de fortuna pessoal).\n\nE a próxima geração (Blackwell B200) já tá entrando em produção. A fila de pedidos é enorme.\n\nA lição estratégica: monopólio sustentável raramente vem de 1 fator. É a interseção de software + hardware + ecossistema que cria moat de verdade.\n\n#NVIDIA #IA #Tecnologia #Hardware #Estratégia"
     }
   }
 }

@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "Dúvida no meio da aula? O Lumi tá ouvindo junto. Você pergunta por voz, de fone, e ele responde com base no que o professor acabou de dizer.\n\nTipo um colega que prestou muita atenção e nunca esquece. Sem parar de ouvir a aula pra pesquisar.\n\nExperimenta na próxima aula — link na bio."
+    },
+    "x": {
+      "thread": [
+        "Você tá numa aula. Surge uma dúvida no meio.\n\nVocê NÃO precisa parar de ouvir o professor pra abrir o Google.\n\nO Lumi tá ouvindo junto. Você pergunta, ele responde — na hora. 🧵",
+        "\"O que ele quis dizer com aquele conceito?\" → resposta direta.\n\n\"Não entendi essa parte\" → ele reexplica baseado no que o PRÓPRIO professor falou minutos atrás.\n\nTipo um colega que prestou muita atenção e nunca esquece.\n\nVocê pergunta de fone, por voz. Discreto.",
+        "Sem tirar o olho do professor. Sem perder o fio da aula.\n\nVoice mode foi a feature que mais mudou como estudante usa o Lumio.\n\nDe ferramenta de pós-aula → ferramenta de durante-aula.\n\n→ Testa na sua próxima aula. Link na bio.\n\n#Lumio #VoiceMode"
+      ]
+    },
+    "linkedin": {
+      "headline": "O voice mode mudou como estudante usa o Lumio",
+      "body": "A versão original do Lumio era ferramenta de PÓS-aula: grava, transcreve, gera resumo. Útil, mas reativo.\n\nO voice mode mudou isso. Virou ferramenta de DURANTE-aula.\n\nO uso real (observado):\n→ Aluno num auditório, fone no ouvido\n→ Professor falando rápido um conceito complexo\n→ Aluno tem dúvida, mas não quer interromper nem tirar o olho do quadro\n→ Pergunta no microfone, baixinho: \"o que ele quis dizer com X?\"\n→ Lumi responde em voz baseado no que o PRÓPRIO professor já falou na aula\n\nÉ tipo ter um colega ao lado que prestou MUITA atenção, processa rápido, e nunca esquece.\n\nA arquitetura técnica:\n→ STT em tempo real captura o áudio do professor\n→ Pergunta do aluno entra como overlay contextual\n→ LLM responde ancorado no transcript da aula em andamento, não em conhecimento genérico\n→ TTS devolve por voz no fone\n\nLatência: ~2-3 segundos. Aluno volta pra aula sem perder o fio.\n\nO insight de UX: voz é fundamentalmente DIFERENTE de texto pra esse contexto. Digitar exige olhar pra tela. Voz não. Você mantém olho no professor, ouvido no fone, mãos livres pra anotar se quiser.\n\nO comportamento mudou. Estudante começou a usar Lumio enquanto a aula rola, não só depois.\n\nE quando a aula acaba, todo o material (resumo, flashcards, quiz) já tá pronto — incluindo as próprias dúvidas que ele perguntou virando conteúdo de revisão.\n\nVoice mode foi a feature que mais mudou comportamento real de uso. Vale como case de UX.\n\n#Lumio #VoiceMode #UXDesign #EdTech #IA"
     }
   }
 }

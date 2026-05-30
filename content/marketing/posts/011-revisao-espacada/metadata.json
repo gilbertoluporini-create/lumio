@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "Em 1985, Piotr Wozniak (Polônia) criou o SM-2: algoritmo que revisa cada conceito EXATAMENTE quando você está prestes a esquecer.\n\nVirou base do SuperMemo, Anki, RemNote. Cepeda et al. (2008): revisão espaçada retém 200% mais que estudo massed.\n\nO Lumi usa SM-2 modificado nos flashcards gerados automaticamente."
+    },
+    "x": {
+      "thread": [
+        "Em 1985, um polonês de 23 anos quebrou a curva do esquecimento.\n\nPiotr Wozniak criou o algoritmo SM-2 — base do Anki, SuperMemo, Lumio e todo app sério de revisão. 🧵",
+        "A ideia é simples mas brilhante: revisar EXATAMENTE quando você está prestes a esquecer.\n\nNem antes (perde tempo), nem depois (já esqueceu).\n\nO algoritmo ajusta:\n→ Errou: revisa em 1d\n→ Acertou com dificuldade: 6d\n→ Acertou fácil: 15d\n→ Muito fácil: 1 mês",
+        "Depois de 3-4 revisões corretas, o conteúdo virou memória de longo prazo. Você não precisa mais revisar com frequência.\n\nResultado: 1h/dia de revisão espaçada > 8h/semana de estudo concentrado.\n\nO Lumio aplica SM-2 automaticamente nos flashcards que gera.\n\n#RevisaoEspacada"
+      ]
+    },
+    "linkedin": {
+      "headline": "O algoritmo de 1985 que ainda é base de toda revisão eficaz",
+      "body": "Em 1985, um estudante polonês de 23 anos chamado Piotr Wozniak, da Universidade de Poznań, criou um algoritmo que mudou pra sempre como humanos podem memorizar.\n\nO nome técnico é SM-2 (SuperMemo 2). É a base matemática que sustenta Anki, RemNote, SuperMemo, Lumio — todo app sério de revisão usa alguma variação.\n\nA ideia é simples: revisar um conceito EXATAMENTE no momento em que seu cérebro está prestes a esquecer. Nem antes (desperdício de tempo), nem depois (já esqueceu, recomeçar do zero).\n\nO algoritmo ajusta o intervalo de revisão baseado em quão fácil foi lembrar na última vez:\n→ Errou completamente: revisa em 1 dia\n→ Acertou com dificuldade: 6 dias\n→ Acertou facilmente: 15 dias\n→ Acertou muito facilmente: 1 mês\n→ Mantém assim, escalando exponencialmente\n\nDepois de 3-4 revisões corretas em intervalos crescentes, o conteúdo migra pra memória de longo prazo. Você não precisa mais revisar com frequência — alguns conceitos viram \"sabidos pra sempre\".\n\nMatemática prática:\n→ Estudar 8h direto antes da prova: você esquece 70% em 1 semana\n→ Revisar 30min/dia em intervalos calculados: retenção de longo prazo de 90%+\n\nA grande revolução não foi cognitiva — foi computacional. Antes de software, manter calendário de revisão pra centenas de conceitos era impossível na prática. Hoje, qualquer app moderno faz isso automaticamente.\n\nNo Lumio, quando você gera flashcards de uma aula, o sistema aplica SM-2 automaticamente. Você só revisa quando aparecer na tela.\n\nCiência de 40 anos atrás + tecnologia de 2026 = método mais eficaz de memorização que humanidade conhece.\n\n#RevisaoEspacada #Aprendizagem #Educação #EdTech #ProdutividadeNosEstudos"
     }
   }
 }

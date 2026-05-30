@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "Você esquece 70% do que estuda em 24h. Não é preguiça — é a Curva de Ebbinghaus (1885).\n\nRevisão espaçada quebra essa curva: 1 revisão em 1 dia → retém 90%. 30min/dia por 1 semana retém 4x mais que 4h no dia anterior à prova.\n\nO Lumi monta a revisão automaticamente a partir da sua aula gravada."
+    },
+    "x": {
+      "thread": [
+        "Você esquece 70% do que estuda em 24 horas.\n\nIsso não é preguiça. É como o cérebro funciona.\n\nHermann Ebbinghaus mapeou isso em 1885. 🧵",
+        "A Curva do Esquecimento:\n\n→ 20 min: perdeu 40%\n→ 24h: perdeu 70%\n→ 1 semana: sobra ~20%\n\nMas tem solução. Revisar quebra a curva:\n\n→ Revisar em 1d → retém 90%\n→ Revisar em 3d → retém 95%\n→ Revisar em 7d → vira memória de longo prazo",
+        "É por isso que estudar 4h na véspera é o pior método possível.\n\nE por isso que revisão espaçada (Anki, SuperMemo) funciona.\n\nNo Lumio a gente automatiza isso. Você grava a aula uma vez, o sistema cuida das revisões.\n\n#EstudoEficiente #Memória"
+      ]
+    },
+    "linkedin": {
+      "headline": "Por que você esquece 70% do que estuda em 24h (e o que fazer)",
+      "body": "Em 1885, um alemão chamado Hermann Ebbinghaus passou anos memorizando sílabas sem sentido pra mapear como a memória humana decai. O resultado virou a famosa Curva do Esquecimento.\n\nOs números são desconfortáveis:\n→ 20 minutos depois: você já perdeu ~40% do conteúdo\n→ 24 horas: perdeu ~70%\n→ 1 semana: sobra apenas ~20%\n\nNão é preguiça nem falta de inteligência. É arquitetura biológica.\n\nA boa notícia: revisar QUEBRA a curva. E não precisa ser muita revisão — precisa ser no momento certo:\n→ 1ª revisão em 1 dia → retenção sobe pra ~90%\n→ 2ª revisão em 3 dias → ~95%\n→ 3ª revisão em 7 dias → conteúdo migra pra memória de longo prazo\n\nÉ por isso que estudar 4 horas na véspera da prova é o método menos eficiente possível — você está enchendo memória de curto prazo que vai escoar nas próximas 48h.\n\nE por isso que apps como Anki, SuperMemo, e o Lumio funcionam: automatizam a revisão espaçada baseada em ciência da memória de mais de 140 anos.\n\nQuando você grava uma aula no Lumio, o sistema gera flashcards e te mostra eles nos intervalos certos pra fixação. É ciência de 1885 aplicada com tecnologia de 2026.\n\n#Educação #Aprendizagem #Neurociência #EstudoEficiente #EdTech"
     }
   }
 }

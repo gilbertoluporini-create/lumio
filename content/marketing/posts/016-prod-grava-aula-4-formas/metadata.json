@@ -1,16 +1,41 @@
 {
   "id": "016-prod-grava-aula-4-formas",
   "scheduled_for": "2026-05-29T19:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "bts",
   "title": "PRODUTO: 1 aula gravada = 4 formas de revisar",
   "content": {
     "instagram": {
       "caption": "Você grava a aula UMA vez. O Lumi te devolve 4 formas de revisar:\n\n📄 Resumo — pra ler antes da prova\n🎴 Flashcards — pra fixar com repetição espaçada\n❓ Quiz — pra testar o que você lembra\n🧠 Mapa mental — pra ver as conexões\n\nVocê não anota nada. Não digita nada. Só grava e escolhe como quer revisar.\n\nDe 2 horas de aula pra um material organizado em minutos.\n\n→ 50 coins grátis pra testar. Link na bio.\n\n— time Lumio",
-      "hashtags": ["estudante", "faculdade", "flashcards", "resumosdeaula", "mapamental", "quiz", "estudocomia", "lumio", "lumioapp", "estudoeficiente", "produtividadenosestudos"]
+      "hashtags": [
+        "estudante",
+        "faculdade",
+        "flashcards",
+        "resumosdeaula",
+        "mapamental",
+        "quiz",
+        "estudocomia",
+        "lumio",
+        "lumioapp",
+        "estudoeficiente",
+        "produtividadenosestudos"
+      ]
     },
     "facebook": {
       "caption": "Você grava a aula UMA vez. O Lumi devolve 4 formas de revisar: resumo, flashcards, quiz e mapa mental.\n\nVocê não anota nem digita nada. De 2h de aula pra material organizado em minutos.\n\n50 coins grátis pra testar — link na bio."
+    },
+    "x": {
+      "thread": [
+        "Você grava a aula UMA vez. O Lumio devolve 4 formas de revisar:\n\n📄 Resumo\n🎴 Flashcards\n❓ Quiz\n🧠 Mapa mental\n\nVocê não anota nada. Não digita nada. Só grava.",
+        "De 2 horas de aula → material organizado em minutos.\n\nResumo pra ler antes da prova.\nFlashcards pra fixar com repetição espaçada.\nQuiz pra testar memória ativa.\nMapa mental pra ver conexões.\n\n50 coins grátis pra testar. Link na bio.\n\n#Lumio #Estudos"
+      ]
+    },
+    "linkedin": {
+      "headline": "1 aula gravada = 4 formas de revisar. Sem digitar nada.",
+      "body": "O insight central do Lumio é simples: estudante já gasta tempo escutando aula. O esforço repetido depois (anotar, transcrever, fazer resumo, criar flashcard) é redundante e mata produtividade.\n\nA proposta: grava a aula UMA vez. Recebe 4 formatos de revisão automaticamente.\n\n📄 RESUMO — texto estruturado pra leitura antes da prova\n🎴 FLASHCARDS — cartões pra fixação via active recall + revisão espaçada\n❓ QUIZ — questões pra testar o que ficou na memória\n🧠 MAPA MENTAL — visualização das conexões entre conceitos\n\nNenhum dos 4 exige esforço adicional do estudante. O áudio entra, os 4 saem.\n\nPor que isso importa?\n\nA pesquisa em ciência cognitiva é unânime: aprendizado real exige MÚLTIPLAS exposições ao conteúdo em formatos diferentes. Ler resumo é exposição passiva. Testar com quiz é active recall. Revisar com flashcard é repetição espaçada. Cada formato ativa um circuito neural diferente.\n\nO problema histórico: produzir esses 4 formatos manualmente leva horas por aula. Estudante simplesmente não faz. Vai direto pra reler o caderno na véspera — método cientificamente comprovado como menos eficiente.\n\nO Lumio automatiza o trabalho braçal. Estudante foca no que importa: revisar e fixar.\n\nDe 2 horas de aula gravada pra material organizado em minutos.\n\n50 coins grátis pra testar — sem cartão, sem trial cobrado escondido.\n\n#Lumio #EdTech #Educação #Aprendizagem #FeitoNoBrasil"
     }
   }
 }

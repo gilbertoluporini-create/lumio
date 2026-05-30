@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "GPT-5 estimado em US$ 1 bilhão pra treinar. GPT-3 custou US$ 5M, GPT-4 US$ 100M, GPT-5 US$ 1B — fator 10x por geração.\n\nOpenAI estima precisar US$ 100 bilhões até 2030. Microsoft, SoftBank (Stargate US$ 40B), Oracle financiam.\n\nReceita 2024: US$ 3,7B. Precisaria multiplicar por 30x pra ROI fazer sentido."
+    },
+    "x": {
+      "thread": [
+        "GPT-5 vai custar US$ 1 BILHÃO pra treinar.\n\nSam Altman não confirma o valor, mas SemiAnalysis e Epoch AI estimam US$ 700M-1,5B.\n\nA escalada é exponencial. 🧵",
+        "Cada geração custa ~10x a anterior:\n\n→ GPT-3 (2020): US$ 5M\n→ GPT-4 (2023): US$ 100M\n→ GPT-5 (2025): US$ 1 BILHÃO\n\nOpenAI projeta precisar de US$ 100B até 2030 só pra competir.\n\nQuem paga? Microsoft, SoftBank (Stargate), Oracle, fundos soberanos.",
+        "A curva é tão íngreme que provavelmente vai forçar uma das 3 coisas:\n\n1. Consolidação extrema (2-3 players)\n2. Eficiência radical (DeepSeek-style)\n3. Modelos menores e especializados\n\nA aposta tá rolando agora.\n\n#GPT5 #IA"
+      ]
+    },
+    "linkedin": {
+      "headline": "GPT-5 vai custar US$ 1 bilhão. Quem paga essa conta?",
+      "body": "Sam Altman não confirma o valor exato, mas analistas convergem: o treino do GPT-5 vai custar entre US$ 700 milhões e US$ 1,5 bilhão. SemiAnalysis e Epoch AI publicaram análises detalhadas.\n\nA escalada de custo é exponencial:\n→ GPT-3 (2020): US$ 5M\n→ GPT-4 (2023): US$ 100M\n→ GPT-5 (2025, estimado): US$ 1B\n\nCada geração custa ~10x a anterior. Se a curva continuar, GPT-6 custaria US$ 10 bilhões. GPT-7, US$ 100 bilhões.\n\nA OpenAI já projetou publicamente a necessidade de US$ 100 bilhões em capital até 2030 só pra continuar competindo em fronteira.\n\nQuem está bancando essa conta?\n→ Microsoft: US$ 13B em investimentos diretos na OpenAI\n→ SoftBank: US$ 40B no projeto Stargate\n→ Oracle: investidor crescente na infra de AI\n→ Fundos soberanos do Oriente Médio (Mubadala, PIF)\n\nA pergunta estratégica que poucos fazem: essa curva é sustentável?\n\nA resposta provável é não — e isso vai forçar uma de três coisas:\n\n1. Consolidação extrema: só 2-3 players com bolso pra continuar (OpenAI, Anthropic, Google)\n2. Eficiência radical: tipo o que DeepSeek fez (18x mais barato com mesmo resultado)\n3. Mudança de paradigma: o futuro pode ser modelos menores e especializados, não monolitos cada vez maiores\n\nA aposta tá rolando agora, em tempo real, com bilhões de dólares no jogo.\n\n#IA #OpenAI #GPT5 #Tecnologia #Economia"
     }
   }
 }

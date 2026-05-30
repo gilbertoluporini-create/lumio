@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "Em janeiro de 2025, a DeepSeek (China) lançou o R1: equivalente ao GPT-4o, treinado com US$ 5,5 milhões (vs US$ 100 milhões do GPT-4).\n\nA NVIDIA perdeu US$ 600 bilhões em market cap em 1 dia — maior queda da história.\n\nComo? Mixture-of-Experts + FP8 + arquitetura otimizada. E é open source.\n\nA próxima fronteira da IA é arquitetura, não hardware."
+    },
+    "x": {
+      "thread": [
+        "Em janeiro de 2025, a China derrubou Wall Street com 1 modelo de IA.\n\nA DeepSeek lançou o R1: equivalente ao GPT-4o.\n\nCusto de treino: US$ 5,5 milhões.\nGPT-4: US$ 100 milhões.\n\n18x mais barato. 🧵",
+        "Reação do mercado: NVIDIA caiu 17% em 1 dia.\nUS$ 600 BILHÕES em market cap evaporaram em 8 horas.\n\nMaior queda da história de uma empresa.\n\nComo a DeepSeek fez?\n→ Mixture-of-Experts (só ativa parte do modelo)\n→ Multi-Head Latent Attention\n→ FP8 mixed precision",
+        "Implicação geopolítica: o gap US-China em AI é menor do que se pensava.\n\nImplicação técnica: dá pra fazer fronteira de IA sem queimar bilhões em compute.\n\nE o R1 é open source. Você pode rodar localmente.\n\nO jogo mudou.\n\n#DeepSeek #IA #China"
+      ]
+    },
+    "linkedin": {
+      "headline": "Como a DeepSeek derrubou US$ 600 bilhões da NVIDIA em 8 horas",
+      "body": "Janeiro de 2025. Um laboratório chinês relativamente desconhecido (DeepSeek) lança o R1 — um modelo de IA equivalente ao GPT-4o e o3 da OpenAI.\n\nO detalhe que travou Wall Street: treinaram com US$ 5,5 milhões. O GPT-4 custou US$ 100 milhões. 18x mais barato pra mesma performance.\n\nReação imediata do mercado:\n→ NVIDIA: -17% em 1 único dia\n→ US$ 600 bilhões em market cap evaporaram em 8 horas\n→ Maior queda da história de uma empresa\n→ Pânico generalizado nas big tech americanas\n\nComo conseguiram? 3 inovações combinadas:\n→ Mixture-of-Experts (só ativa parte do modelo por query)\n→ Multi-Head Latent Attention (compressão extrema do contexto)\n→ FP8 mixed precision (menor precisão de cálculo, menos compute necessário)\n\nE o R1 é open source. Qualquer um pode baixar, inspecionar, rodar localmente.\n\nImplicações estratégicas:\n→ Geopolítica: o gap entre US e China em frontier AI é menor do que big tech americana queria admitir\n→ Técnica: dá pra construir fronteira de IA sem queimar bilhões\n→ Mercado: a tese \"NVIDIA é monopólio eterno\" virou questionável\n→ Open source: modelos de fronteira agora competem com closed source\n\nO jogo mudou. E a China não vai parar.\n\n#DeepSeek #IA #China #Tecnologia #OpenSource"
     }
   }
 }

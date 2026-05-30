@@ -1,16 +1,40 @@
 {
   "id": "023-med-nervos-cranianos",
   "scheduled_for": "2026-06-19T19:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "educacional",
   "title": "Os 12 nervos cranianos — sem decoreba",
   "content": {
     "instagram": {
       "caption": "Os 12 nervos cranianos são o primeiro pesadelo de quem entra em medicina. 🧠\n\nA ordem (I a XII):\nI. Olfatório\nII. Óptico\nIII. Oculomotor\nIV. Troclear\nV. Trigêmeo\nVI. Abducente\nVII. Facial\nVIII. Vestibulococlear\nIX. Glossofaríngeo\nX. Vago\nXI. Acessório\nXII. Hipoglosso\n\nE não basta a ordem — cai na prova se cada um é Sensitivo, Motor ou Misto:\nSensitivos: I, II, VIII\nMotores: III, IV, VI, XI, XII\nMistos: V, VII, IX, X\n\nMacete pra função: \"alguns são puro sentido, alguns puro movimento, e os do meio fazem as duas\".\n\nGrava a aula de neuroanatomia no Lumi: ele vira flashcard de cada par craniano (função, núcleo, forame de saída) e te faz quiz até fixar de verdade.\n\n→ Estudo de medicina em pt-BR. Link na bio.\n\n— time Lumio",
-      "hashtags": ["medicina", "estudamedicina", "neuroanatomia", "nervoscranianos", "faculdadedemedicina", "anatomia", "estudantedemedicina", "flashcards", "Lumio"]
+      "hashtags": [
+        "medicina",
+        "estudamedicina",
+        "neuroanatomia",
+        "nervoscranianos",
+        "faculdadedemedicina",
+        "anatomia",
+        "estudantedemedicina",
+        "flashcards",
+        "Lumio"
+      ]
     },
     "facebook": {
       "caption": "Os 12 nervos cranianos em ordem, com a classificação Sensitivo/Motor/Misto que sempre cai na prova de neuroanatomia. Grava a aula no Lumio e ele transforma cada par craniano em flashcard com função, núcleo e forame de saída. Estudo de medicina em pt-BR."
+    },
+    "x": {
+      "thread": [
+        "Os 12 nervos cranianos são o primeiro pesadelo de quem entra em medicina. 🧠\n\nMas o macete antigo (e ainda imbatível) é simples. 🧵",
+        "Pra função (S=sensitivo, M=motor, B=ambos/misto):\n\n\"Some Say Marry Money, But My Brother Says Big Brains Matter Most\"\n\nS-S-M-M-B-M-B-B-M-B-M-M\n\nI: Olfatório (S)\nII: Óptico (S)\nIII: Oculomotor (M)\nIV: Troclear (M)\nV: Trigêmeo (B)\nVI: Abducente (M)\n...",
+        "Mistos (V, VII, IX, X) são os mais cobrados em prova — porque têm múltiplas funções pra confundir.\n\nDica: estuda eles primeiro, decora os puros depois.\n\nE se gravar a aula de anatomia, o Lumio gera flashcard de cada um. Cai a memorização.\n\n#Medicina #Anatomia"
+      ]
+    },
+    "linkedin": {
+      "headline": "Os 12 nervos cranianos sem decoreba bruta — método que funciona",
+      "body": "Todo estudante de medicina passa pelo pesadelo dos 12 nervos cranianos no primeiro ano. A pergunta na prova quase sempre é: \"qual o nervo X e qual sua função?\"\n\nA ordem (I a XII):\nI. Olfatório\nII. Óptico\nIII. Oculomotor\nIV. Troclear\nV. Trigêmeo\nVI. Abducente\nVII. Facial\nVIII. Vestibulococlear\nIX. Glossofaríngeo\nX. Vago\nXI. Acessório\nXII. Hipoglosso\n\nMas não basta saber a ordem. Cai na prova se cada um é Sensitivo, Motor ou Misto:\n→ Puramente Sensitivos: I, II, VIII\n→ Puramente Motores: III, IV, VI, XI, XII\n→ Mistos: V, VII, IX, X\n\nO clássico macete em inglês ainda é o melhor pra função:\n\"Some Say Marry Money, But My Brother Says Big Brains Matter Most\"\n(S-S-M-M-B-M-B-B-M-B-M-M)\n\nMacete de aprendizado eficaz:\n→ Decora primeiro a ordem (música, mnemônico)\n→ Depois ataca os Mistos (V, VII, IX, X) — são os mais cobrados em prova porque têm múltiplas funções pra confundir\n→ Os puros (sensitivos só, motores só) viram \"decoreba mais simples\"\n→ Usa flashcards com active recall — não relê resumo passivamente\n→ Revisão espaçada: revisa amanhã, depois em 3 dias, depois em 7\n\nNo Lumio, quando você grava a aula de anatomia, o sistema identifica cada nervo citado e gera flashcards automaticamente — nome, número romano, função, principais ramos, clínica relacionada.\n\nA memorização cai. Sobra tempo pra entender o que importa de verdade: a clínica.\n\n#Medicina #Anatomia #NervosCranianos #EstudoDeMedicina #Lumio"
     }
   }
 }

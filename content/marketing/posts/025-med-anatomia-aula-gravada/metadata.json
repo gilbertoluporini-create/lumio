@@ -1,16 +1,40 @@
 {
   "id": "025-med-anatomia-aula-gravada",
   "scheduled_for": "2026-06-23T19:00:00-03:00",
-  "networks": ["instagram", "facebook"],
+  "networks": [
+    "instagram",
+    "facebook"
+  ],
   "category": "bts",
   "title": "PRODUTO: grava a prática de anatomia, o Lumi devolve flashcards",
   "content": {
     "instagram": {
       "caption": "Na prática de anatomia você está de luva, com as mãos ocupadas na peça, o professor falando o nome de 15 estruturas por minuto — e você não consegue anotar nada. 🦴\n\nResultado: sai do laboratório com a cabeça cheia e o caderno vazio. Na semana seguinte, esqueceu metade.\n\nCom o Lumi:\n↳ Grava o áudio da prática (celular no bolso, mãos livres)\n↳ Ele transcreve e separa por estrutura citada\n↳ Vira flashcard de cada uma: nome, localização, relações\n↳ Quiz pra você se testar antes da prova prática\n\nA matéria-prima da sua prova prática é a aula. Faltava transformar isso em material de estudo sem você precisar parar pra digitar.\n\n→ Testa na próxima prática. Link na bio.\n\n— time Lumio",
-      "hashtags": ["medicina", "anatomia", "estudamedicina", "anatomiahumana", "faculdadedemedicina", "estudantedemedicina", "provapratica", "flashcards", "Lumio"]
+      "hashtags": [
+        "medicina",
+        "anatomia",
+        "estudamedicina",
+        "anatomiahumana",
+        "faculdadedemedicina",
+        "estudantedemedicina",
+        "provapratica",
+        "flashcards",
+        "Lumio"
+      ]
     },
     "facebook": {
       "caption": "Na prática de anatomia suas mãos estão ocupadas e o professor cita dezenas de estruturas por minuto. Grava o áudio no Lumio: ele transcreve, separa por estrutura e vira flashcard (nome, localização, relações) + quiz pra prova prática. A aula vira material de estudo sem você parar pra digitar."
+    },
+    "x": {
+      "thread": [
+        "Na prática de anatomia você tá de luva, mãos na peça, professor falando 15 estruturas por minuto.\n\nNão dá pra anotar. 🦴",
+        "Sai do lab com cabeça cheia e caderno vazio. Na semana, esqueceu metade.\n\nCom o Lumi:\n↳ Grava o áudio (mãos livres)\n↳ Transcreve e separa por estrutura\n↳ Vira flashcard de cada uma\n↳ Quiz pra testar antes da prova prática",
+        "A matéria-prima da prática de anatomia (fala do professor + estrutura visualizada) é riquíssima.\n\nO problema é só capturar e organizar.\n\nO Lumi resolve isso.\n\n→ Testa: link na bio.\n\n#Medicina #Anatomia"
+      ]
+    },
+    "linkedin": {
+      "headline": "Como gravar a prática de anatomia muda como você estuda medicina",
+      "body": "Estudante de medicina que faz prática de anatomia conhece esse cenário:\n\nVocê está de luva, mãos ocupadas na peça anatômica, professor falando o nome de 15 estruturas por minuto, apontando localização, citando relações de vizinhança, mencionando clínica relacionada.\n\nVocê não consegue anotar nada. Suas mãos estão na peça.\n\nResultado típico: sai do laboratório com a cabeça cheia, o caderno vazio, e a sensação de que precisaria voltar 5 vezes pra fixar. Na semana seguinte, esqueceu metade. Na prova prática, trava na frente da peça.\n\nO Lumio resolve isso na raiz:\n→ Grava o áudio da prática (celular no bolso, mãos livres pra peça)\n→ Sistema transcreve em tempo real\n→ Identifica cada estrutura anatômica citada (nervo, vaso, músculo, osso)\n→ Gera flashcard automático pra cada uma: nome, localização, relações de vizinhança, clínica\n→ Quiz pra testar memória ativa antes da prova prática\n→ Resumo organizado por sistema (vascular, nervoso, muscular)\n\nA matéria-prima é riquíssima — a fala do professor durante a dissecção contém EXATAMENTE o que cai em prova prática. O problema histórico era só capturar e organizar.\n\nObserva o ganho: você sai do laboratório com material de revisão pronto. Não precisa \"voltar mentalmente\" pra aula 3 dias depois tentando reconstruir o que viu.\n\nPra anatomia, isso muda fundamentalmente o jogo. Pra fisiologia, semiologia, técnicas cirúrgicas — qualquer prática onde mãos estão ocupadas — vale o mesmo.\n\n50 coins grátis pra testar com sua próxima prática.\n\n#Medicina #Anatomia #EstudoDeMedicina #Lumio #EdTech"
     }
   }
 }

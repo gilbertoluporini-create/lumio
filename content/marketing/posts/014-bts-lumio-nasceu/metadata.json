@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "Como o Lumio nasceu: num quarto de faculdade brasileiro, com aulas gravadas no celular se acumulando.\n\nPrimeira versão era um script Python rodando à noite, transcrevendo áudio. Em 2 semestres virou app de verdade.\n\nPt-BR nativo, realidade da faculdade BR, voice mode real. Sem VC, sem hype — código que entrega."
+    },
+    "x": {
+      "thread": [
+        "Como o Lumio nasceu.\n\nNão num escritório de Silicon Valley. Não numa aceleradora.\n\nNum quarto de faculdade brasileira, com aulas gravadas se acumulando no WhatsApp. 🧵",
+        "O problema era pessoal:\n→ Aula de 2h vira anotação de 5 linhas\n→ Áudio fica perdido na galeria\n→ Resumo manual leva mais tempo que a aula\n→ Semana de prova: 8 matérias, 0 organização\n\nA primeira versão foi um script Python que rodava à noite enquanto a gente dormia.",
+        "Hoje virou app completo, com voice mode, anexos PDF, biblioteca pessoal, comunidade.\n\nE continua sendo construído pra resolver o problema real do estudante brasileiro.\n\nNão é unicórnio. É ferramenta útil.\n\n#Lumio #EdTech #FeitoNoBrasil"
+      ]
+    },
+    "linkedin": {
+      "headline": "O Lumio nasceu num quarto de faculdade brasileira (e não num escritório de SV)",
+      "body": "Não tem foto de team retreat em Tahoe. Não tem pitch deck de R$ 50 mil. Não tem mentoria de YC.\n\nO Lumio foi pensado num quarto de estudante. Faculdade brasileira. Celular cheio de aulas gravadas perdidas no WhatsApp.\n\nO problema que queríamos resolver era pessoal:\n→ Aula de 2 horas vira anotação de 5 linhas (ou nenhuma)\n→ Áudio acumula na galeria sem nome, sem organização\n→ Resumo manual leva mais tempo que assistir a aula de novo\n→ Na semana de prova, você tem 8 matérias diferentes e zero estrutura\n\nA primeira versão era um script em Python que rodava à noite enquanto a gente dormia. Transcrevia os áudios, gerava resumo bruto, deixava num arquivo .md pela manhã.\n\nFuncionou. Resolveu o problema. Outros estudantes viram e quiseram usar.\n\nA partir daí virou app completo:\n→ Voice mode (pergunta no meio da aula, resposta na hora)\n→ Anexa PDF + áudio = um material só\n→ Biblioteca pessoal por matéria\n→ Flashcards e quiz gerados automaticamente\n→ Revisão espaçada integrada\n\nMas a filosofia não mudou: é ferramenta útil pro estudante brasileiro. Não é unicórnio. Não tá tentando virar plataforma de tudo. Resolve UM problema específico (organização do estudo a partir de aula gravada) muito bem.\n\nO mercado de edtech brasileiro tá cheio de produto de escola pra escola, com lobby pra prefeitura. Lumio é de estudante pra estudante.\n\nE continua sendo construído por pessoas que precisam do produto pra estudar.\n\n#Lumio #EdTech #FeitoNoBrasil #Startups #Educação"
     }
   }
 }

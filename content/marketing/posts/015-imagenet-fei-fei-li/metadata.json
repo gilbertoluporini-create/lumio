@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "Em 2006, Fei-Fei Li (Stanford) iniciou o ImageNet: 14M imagens categorizadas em 20 mil classes. Reação acadêmica: \"perda de tempo\".\n\nEm 30/09/2012, AlexNet (Krizhevsky, Sutskever, Hinton) usou ImageNet + NVIDIA GPU pra bater 15,3% de erro (vs 25% anterior).\n\nÉ considerado o nascimento da IA moderna. Tudo porque uma professora acreditou que dado importava mais que algoritmo."
+    },
+    "x": {
+      "thread": [
+        "Em 2006, uma professora de Stanford fez algo que ninguém entendia.\n\nFei-Fei Li anunciou que ia coletar 14 MILHÕES de imagens pra treinar redes neurais.\n\nReação da academia: \"perda de tempo\". 🧵",
+        "Algoritmos de visão computacional de 2006: ~28% de erro. Considerado teto.\n\nFei-Fei contratou 49 mil pessoas no Amazon Mechanical Turk pra categorizar 14M de imagens em 20 mil classes.\n\nNasceu o ImageNet.\n\nA aposta dela: o problema não era algoritmo. Era falta de DADO.",
+        "2012: AlexNet (Hinton, Krizhevsky, Sutskever) usa ImageNet pra treinar uma rede neural profunda.\n\nErro: 15%. Quase metade do estado da arte.\n\nNasceu o deep learning moderno. ChatGPT, Claude, Gemini — todos descendem dessa aposta.\n\nDado > algoritmo, hoje sabemos.\n\n#FeiFeiLi #IA"
+      ]
+    },
+    "linkedin": {
+      "headline": "A aposta maluca de uma professora que iniciou a era do deep learning",
+      "body": "Em 2006, uma professora-assistente de Stanford fez algo que a academia inteira achou perda de tempo.\n\nFei-Fei Li anunciou um projeto absurdo:\n→ Coletar 14 milhões de imagens\n→ Categorizar cada uma em 20 mil classes diferentes\n→ Pra usar como dataset de treino de redes neurais\n\nReação dos pares: \"Pesquisa séria é em algoritmo, não em dado\". \"Isso é trabalho braçal, não ciência\". \"Você está desperdiçando carreira em algo que ninguém vai usar\".\n\nO contexto: algoritmos de visão computacional em 2006 atingiam ~28% de erro em qualquer benchmark. Era considerado teto absoluto da época. Todo grupo de pesquisa do mundo competia pra arrancar mais 1-2% de melhoria em algoritmo, com datasets pequenos.\n\nFei-Fei discordou. A aposta dela: o problema NÃO era algoritmo — era escala de dado.\n\nE foi atrás:\n→ Contratou 49 mil pessoas no Amazon Mechanical Turk\n→ Cada imagem revisada manualmente\n→ Categorização em hierarquia (animal > mamífero > cachorro > pug)\n→ Nasceu o ImageNet em 2009\n\nPor 3 anos, ImageNet ficou disponível e quase ninguém usou seriamente. A comunidade continuou apostando em algoritmo refinado.\n\n2012: a virada.\n\nGeoffrey Hinton, Alex Krizhevsky e Ilya Sutskever (sim, o futuro cofundador da OpenAI) usaram o ImageNet pra treinar uma rede neural profunda chamada AlexNet.\n\nErro: 15%. Quase METADE do estado da arte anterior.\n\nFoi o momento Big Bang do deep learning moderno. ChatGPT, Claude, Gemini, DALL-E, Veo — todos descendem diretamente daquela noite de 2012 em que a aposta de Fei-Fei se confirmou.\n\nA lição: às vezes a inovação não vem de melhor algoritmo. Vem de redefinir qual é o problema certo.\n\nDado > algoritmo. Hoje todo mundo sabe. Em 2006, só ela acreditava.\n\n#FeiFeiLi #IA #DeepLearning #Pesquisa #HistóriaDaTecnologia"
     }
   }
 }

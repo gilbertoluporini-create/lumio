@@ -25,6 +25,17 @@
     },
     "facebook": {
       "caption": "\"LLM não entende, só prevê próximo token\". Tecnicamente certo, filosoficamente raso.\n\nReduzir um sistema às operações de baixo nível não invalida comportamento emergente. Seu cérebro \"só dispara neurônios\".\n\nO debate maduro não é \"entende ou não\". É: que função cognitiva ele executa? Como medir sem antropomorfizar? Menos slogan, mais epistemologia."
+    },
+    "x": {
+      "thread": [
+        "Toda semana alguém aparece dizendo \"LLM não entende, só prevê o próximo token\".\n\nTecnicamente certo. Filosoficamente raso. 🧵",
+        "\"Só prevê token\" — verdade.\n\nMas seu cérebro \"só dispara neurônios\". Reduzir um sistema às operações de baixo nível NÃO invalida comportamento emergente.\n\n\"Não tem consciência\" — ninguém sabe. Hard Problem há 400 anos. Cobrar isso de IA antes de resolver pra humano é mover gol.",
+        "\"Não tem intencionalidade real\" — talvez. Mas faz coisas úteis de forma consistente. Pra estudante usar IA pra estudar melhor, isso importa MAIS que o debate filosófico.\n\nA crítica útil é sobre LIMITES práticos (alucinação, viés). O resto é gostar de discutir.\n\n#IA #Opinião"
+      ]
+    },
+    "linkedin": {
+      "headline": "\"LLM não entende, só prevê token\" — análise de uma crítica meia-boca",
+      "body": "Toda semana aparece alguém em LinkedIn, Twitter ou conferência repetindo a mesma crítica: \"LLM não entende nada, só prevê o próximo token\".\n\nTecnicamente está correto. Filosoficamente é raso. Vamos por partes.\n\n1️⃣ \"Só prevê token\"\nVerdade. Mas seu cérebro \"só dispara neurônios em sinapses\". Reduzir qualquer sistema às suas operações de baixo nível NÃO invalida o comportamento emergente que surge da escala. Reducionismo é argumento fraco contra emergência.\n\n2️⃣ \"Não tem consciência\"\nNinguém sabe. Definir consciência é o Hard Problem da filosofia da mente há 400 anos — David Chalmers, Thomas Nagel, Daniel Dennett discordam fundamentalmente. Cobrar uma definição operacional de consciência pra IA antes de resolver pra humano é mover trave.\n\n3️⃣ \"Não tem intencionalidade real / não tem qualia\"\nTalvez. Mas o sistema produz outputs úteis de forma consistente. Pra estudante usar IA pra estudar melhor, ou médico pra triagem, ou advogado pra revisar contrato — isso importa MUITO mais que o debate filosófico sobre se \"existe alguém em casa\".\n\n4️⃣ \"É só estatística sofisticada\"\nE? Bayes é estatística. Mecânica quântica usa estatística. Reduzir IA a \"só estatística\" é como dizer que biologia é \"só química\". Tecnicamente correto, conceitualmente míope.\n\nA crítica ÚTIL é sobre limites práticos — alucinação, viés de treino, falta de atualização, problemas de raciocínio multi-step longo. Isso são problemas reais e tem trabalho sério sendo feito.\n\nO resto é gosto por discussão sem consequência prática.\n\nUsa a ferramenta. Aprende o limite. Faz o trabalho.\n\n#IA #FilosofiaDaMente #LLM #Tecnologia #Opinião"
     }
   }
 }

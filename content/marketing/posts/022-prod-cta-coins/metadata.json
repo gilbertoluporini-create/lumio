@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "50 coins de graça pra testar. Sem cartão, sem assinatura forçada.\n\nDá pra transcrever uma aula completa, gerar resumo + 10 flashcards e fazer 1 quiz. Suficiente pra ver se faz diferença na sua prova.\n\nNão é trial que cobra escondido — é você usar de verdade e decidir. Link na bio."
+    },
+    "x": {
+      "thread": [
+        "50 coins de graça, só pra testar. Sem cartão. Sem trial cobrado escondido. 🧵",
+        "Os 50 coins dão pra:\n↳ Transcrever uma aula completa\n↳ Gerar resumo + 10 flashcards\n↳ Fazer 1 quiz de revisão\n\nSuficiente pra ver, na prática, se faz diferença na sua próxima prova.",
+        "Não é trial de 7 dias que te cobra escondido depois.\n\nÉ você usar de verdade e decidir.\n\nSe funcionar (e a gente acha que vai), aí sim você assina.\n\n→ Link na bio.\n\n#Lumio #SemCartão"
+      ]
+    },
+    "linkedin": {
+      "headline": "50 coins grátis pra testar o Lumio. Sem cartão, sem pegadinha.",
+      "body": "Um pequeno manifesto sobre como a gente faz freemium no Lumio.\n\n50 coins de graça, só pra testar. Sem cartão de crédito. Sem trial de 7 dias que cobra escondido depois.\n\nOs 50 coins dão pra fazer um ciclo completo:\n→ Transcrever uma aula completa (sua, real, do semestre atual)\n→ Gerar resumo bem estruturado\n→ Receber 10 flashcards prontos\n→ Fazer 1 quiz de revisão\n\nÉ exatamente o suficiente pra você ver, na prática, se faz diferença na sua próxima prova. Não é demo nem sandbox — é o produto inteiro funcionando com SEU material.\n\nPor que essa filosofia importa?\n\nPraticamente todo SaaS hoje usa o mesmo padrão: trial de 7 dias COM cartão. Esquece de cancelar → cobra. Funciona como modelo de receita, mas trai a confiança do usuário.\n\nA gente fez diferente. O custo? Conversão menor no curto prazo. O ganho? Estudante chega com vontade de testar, não com guarda alta porque \"vão me cobrar\".\n\nSe funcionar pra você (e a gente acredita que vai), aí sim você assina conscientemente. Plano mensal a partir de R$ 39 (Starter), anual com desconto significativo.\n\nA tese: produto educacional bom não precisa enganar usuário pra converter. Precisa entregar valor real e deixar o usuário decidir.\n\n50 coins, sem cartão, sem pegadinha. Comece em pt-BR.\n\n#Lumio #Freemium #EdTech #FeitoNoBrasil #ÉticaDigital"
     }
   }
 }

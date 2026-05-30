@@ -26,6 +26,17 @@
     },
     "facebook": {
       "caption": "A Anthropic publicou \"Scaling Monosemanticity\" (2024): conseguiram mapear o que cada neurônio do Claude pensa.\n\nNeurônios específicos pra \"San Francisco\", \"bugs em código\", \"manipulação\". E não só entender — dá pra EDITAR.\n\nImplicação: IAs mais seguras, debugging real, menos alucinações. Open source via Sparse Autoencoders."
+    },
+    "x": {
+      "thread": [
+        "A Anthropic publicou em 2024 algo que pode mudar a IA pra sempre.\n\nPaper: \"Scaling Monosemanticity\".\n\nEles conseguiram MAPEAR o que cada neurônio do Claude pensa. 🧵",
+        "Exemplos de neurônios descobertos:\n\n→ Um que ativa em texto sobre San Francisco\n→ Outro em conceitos de \"bugs em código\"\n→ Um terceiro pra \"engano e manipulação\"\n\nIsso resolve o problema de caixa preta — LLMs sempre foram \"input→output\" sem saber o que pensavam dentro.",
+        "Mais que entender — dá pra EDITAR. Fortalecer um conceito, suprimir outro.\n\nImplicação prática: IA mais segura, mais controlável, e auditável.\n\nÉ o tipo de research que muda o jogo silenciosamente.\n\n#AnthropicAI #IA #AISafety"
+      ]
+    },
+    "linkedin": {
+      "headline": "A Anthropic abriu a caixa preta da IA — e isso muda tudo",
+      "body": "Em 2024, a Anthropic publicou um paper que talvez seja o trabalho mais importante de AI safety da década: \"Scaling Monosemanticity\".\n\nPela primeira vez, conseguiram MAPEAR o que cada \"neurônio\" do Claude representa. Os modelos de linguagem sempre foram caixas pretas — você dava input, recebia output, e ninguém sabia o que acontecia no meio.\n\nAgora sabemos. E os exemplos são fascinantes:\n→ Um neurônio que ativa quando o modelo processa texto sobre San Francisco\n→ Outro que ativa em conceitos de \"bugs em código\"\n→ Um terceiro pra \"engano e manipulação\"\n→ Milhões de outros, organizados em \"features\" interpretáveis\n\nMas o ponto não é só entender. É EDITAR. Os pesquisadores demonstraram que dá pra fortalecer ou suprimir features individuais — efetivamente moldando o comportamento do modelo de forma cirúrgica.\n\nImplicações práticas:\n→ IA mais segura — dá pra identificar e remover comportamentos perigosos\n→ IA mais auditável — empresas e reguladores podem inspecionar o modelo\n→ IA mais customizável — fortalecer features úteis pro caso de uso\n\nMechanistic Interpretability deixou de ser pesquisa acadêmica esotérica e virou ferramenta industrial. Em 5 anos vai ser tão padrão quanto debug de software.\n\nÉ o tipo de avanço que muda o jogo silenciosamente. Sem hype, com substância.\n\n#AnthropicAI #IA #AISafety #MachineLearning #Pesquisa"
     }
   }
 }
