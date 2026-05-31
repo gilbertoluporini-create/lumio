@@ -148,6 +148,10 @@ type ConceptExtraction = {
     /** Trecho literal do resumo que a imagem ilustra — usado pra garantir
      *  que a cena gerada bate com o que está escrito naquela seção. */
     anchor?: string;
+    /** Título traduzido p/ EN da seção H2 que essa imagem ilustra — vai
+     *  no topo do prompt do gpt-image-2 como "SECTION TOPIC" pra ancorar
+     *  o tema mesmo quando o anchor for genérico. */
+    sectionTopicEn?: string;
     prompt: string;
     caption?: string;
     sectionIndex?: number | null;
@@ -259,22 +263,28 @@ async function extractVisualConcepts(
   const sys = `Você é um diretor de arte didático. Sua tarefa: ler o RESUMO da aula (markdown) abaixo e gerar ${ctx.count} pedidos de imagem que ILUSTRAM EXATAMENTE o que o resumo está explicando — não conceitos gerais da matéria, mas o conteúdo específico daquela seção.
 
 PROCESSO OBRIGATÓRIO pra cada uma das ${ctx.count} imagens:
-1. ESCOLHA uma seção diferente do resumo (sectionIndex). Distribua entre seções diferentes — nunca duas na mesma.
+1. ESCOLHA uma seção diferente do resumo (sectionIndex). Distribua entre seções diferentes — nunca duas na mesma. Anote o TÍTULO daquela seção (o texto do ## H2).
 2. LEIA o parágrafo dessa seção com cuidado. Identifique o conceito CONCRETO que ela descreve (uma estrutura, um processo passo-a-passo, uma comparação, uma via metabólica, etc).
 3. EXTRAIA o trecho-âncora literal — uma frase curta DO RESUMO (15-30 palavras) que descreve o que será visualizado. Esse trecho é a verdade-base: a cena pedida tem que representar literalmente esse trecho.
-4. ESCREVA o prompt da imagem em inglês (70-130 palavras), descrevendo a cena que representa o trecho-âncora, usando os termos técnicos EXATOS que aparecem no resumo (estruturas, etapas, números, nomes). Deixe o estilo visual aberto — peça "high-quality educational illustration" e deixe o modelo escolher o melhor idioma visual pro conteúdo (flat editorial, semi-3D, isométrico, esquemático). NÃO trave em flat 2D bege se o conteúdo pede outra coisa.
+4. TRADUZA o título da seção para inglês curto e técnico (3-8 palavras) — vai como "sectionTopicEn". Ex: "Eixo hipotálamo-hipófise-tireoide" → "Hypothalamus-pituitary-thyroid axis". Use terminologia médica/científica em inglês padrão (Gray's Anatomy, Robbins, Guyton). NÃO traduza nomes próprios latinos.
+5. ESCREVA o prompt da imagem em inglês (70-130 palavras), descrevendo VISUALMENTE a cena que representa o trecho-âncora, usando os termos técnicos EXATOS em inglês (estruturas, etapas, números, nomes). Comece o prompt com "Educational illustration showing <sectionTopicEn>:". Deixe o estilo visual aberto (flat editorial, semi-3D, isométrico, esquemático) — o modelo escolhe. NÃO trave em bege.
 
 REGRA DE FIDELIDADE (a mais importante):
-- Se a seção fala "ciclo da ureia tem 5 etapas: carbamoil-fosfato → citrulina → argininossuccinato → arginina → ornitina", o prompt deve descrever EXATAMENTE essas 5 etapas nessa ordem. Não invente etapa 6.
-- Se a seção fala de eixo hipotálamo-hipófise-tireoide com feedback negativo, NÃO desenhe uma tireoide solta sem o eixo.
+- Se a seção fala "ciclo da ureia tem 5 etapas: carbamoil-fosfato → citrulina → argininossuccinato → arginina → ornitina", o prompt deve descrever EXATAMENTE essas 5 etapas nessa ordem (em inglês: carbamoyl phosphate → citrulline → argininosuccinate → arginine → ornithine). Não invente etapa 6.
+- Se a seção fala de eixo hipotálamo-hipófise-tireoide com feedback negativo, descreva os 3 órgãos posicionados anatomicamente com setas de feedback — NÃO desenhe uma tireoide solta sem o eixo.
 - Se você não consegue extrair um trecho-âncora claro de uma seção, escolha outra seção. Melhor menos imagens fiéis do que mais imagens descoladas.
 
-LABELS NA IMAGEM (regra apertada — texto em imagem IA quase sempre vira lixo):
-- DEFAULT: NÃO peça labels. Peça uma cena que comunique tudo visualmente (cor, posição, setas, formas, ícones anatômicos).
-- SÓ peça label se a estrutura for indistinguível sem ele (ex: dois hormônios idênticos onde um é FSH e outro LH). Mesmo aí: máx 2 labels, 1 palavra cada.
-- Abreviações universais OK quando essenciais: DNA, RNA, ATP, NH3, H2O, CO2, pH, ECG, ALT, AST, nomes latinos anatômicos.
-- PROIBIDO no prompt: pedir "with labeled diagram", "annotated", "with captions", frases pt-BR com acento (ã/ç/ó/é/ê), legendas, títulos dentro da imagem, parágrafos, balões de fala, bandeiras, qualquer texto em espanhol.
-- Em vez de "labeled hypothalamus, pituitary, gonads" prefira "anatomically positioned hypothalamus above pituitary connected by stalk, gonads below — distinguished by color, no labels".
+TEXTO NA IMAGEM (regra MUITO apertada — gpt-image-2 erra ortografia em pt-BR ~80% das vezes):
+- DEFAULT: NÃO peça NENHUM texto. Comunique tudo por cor, posição anatômica, setas direcionais, ícones, hierarquia visual, numeração visual (círculos numerados 1-2-3 ao lado dos elementos).
+- Em vez de pedir "labeled X, Y, Z", peça "anatomically arranged X above Y above Z, color-coded blue/pink/green, no text labels".
+- ABSOLUTAMENTE PROIBIDO no prompt da imagem (estas palavras causam ortografia errada — gpt-image-2 escreve "tireide", "hipotaIamo", "figado"):
+  * Palavras em pt-BR com acento (ã, ç, ó, é, ê, í, ú, â, ô, à) — JAMAIS apareçam como label dentro da imagem.
+  * Termos técnicos longos em pt-BR como label: "tireoide", "hipotálamo", "hipófise", "fígado", "estômago", "coração", "rim", "pâncreas", "supra-renal", "espermatogênese", "glicogênese", "neurônio", "ribossomo", "mitocôndria".
+  * Se o conceito EXIGE distinguir uma estrutura, escreva o label em INGLÊS curto (≤8 letras): "liver", "kidney", "heart", "lung", "brain", "ATP", "DNA", "RNA". Inglês curto e siglas raramente erram.
+  * Nomes anatômicos em LATIM são seguros (raro errar): "hippocampus", "medulla", "cortex", "pons", "thalamus", "pituitary".
+- MÁXIMO permitido quando indispensável: 2 labels por imagem, cada um ≤8 letras, sem acentos, em inglês ou latim.
+- PROIBIDO pedir: "with labeled diagram", "annotated", "with captions", "with title", "Portuguese labels", legendas, títulos dentro da imagem, parágrafos, balões de fala, bandeiras, qualquer texto em espanhol/pt-BR.
+- Termine SEMPRE o prompt com: "All labels (if any) must be in English or Latin, max 8 letters each, max 2 labels total. No Portuguese text. No accents. Communicate primarily through color, position and arrows."
 
 EVITE SEMPRE: estética exagerada/futurista, "student studying", livros genéricos, laptop, pessoa olhando tela, ícones soltos, stock photo, mascote, collage sem hierarquia, texto longo, parágrafos, balões de fala, bandeiras. Em temas médicos/biológicos, NÃO mostre fluidos corporais caindo em copos, tubos, beakers ou recipientes; represente excreção/transporte de forma limpa e esquemática com setas, vias anatômicas e ícones.
 
@@ -289,7 +299,8 @@ Retorne APENAS JSON puro (sem markdown, sem cercas):
     {
       "title": "Curto em pt-BR (3-6 palavras)",
       "anchor": "Trecho LITERAL do resumo (15-30 palavras) que a imagem ilustra. Copie tal qual aparece no markdown.",
-      "prompt": "English scene description (70-130 words). Must visually represent the anchor sentence, using exact technical terms.",
+      "sectionTopicEn": "Section title translated to short technical English (3-8 words). Ex: 'Hypothalamus-pituitary-thyroid axis', 'Urea cycle steps', 'Cardiac action potential phases'.",
+      "prompt": "English scene description (70-130 words) starting with 'Educational illustration showing <sectionTopicEn>:'. Visually represent the anchor sentence using exact English technical terms. End with the no-Portuguese-text rule.",
       "caption": "Frase curta pt-BR (8-15 palavras) do que a imagem mostra — pode ser o anchor parafraseado.",
       "sectionIndex": <índice da seção (obrigatório, número válido)>
     }
@@ -521,18 +532,40 @@ export async function POST(req: Request) {
     });
   }
 
-  // 2) Blindagem: cada prompt enviado pro modelo de imagem leva o
-  // trecho-âncora literal na frente, forçando a cena a representar
-  // exatamente o que aquela seção do resumo diz.
+  // 2) Blindagem: cada prompt enviado pro modelo de imagem leva (a) o
+  // título da seção em inglês — pra ancorar o TEMA da cena — e (b) o
+  // trecho-âncora literal — pra forçar a cena a representar exatamente
+  // o que aquela seção do resumo diz. Termina com um "guard rail" forte
+  // contra texto em pt-BR que o gpt-image-2 erraria a ortografia.
   const promptsWithAnchor = concepts.map((c) => {
     const anchor = (c.anchor ?? "").trim();
-    if (!anchor) return c.prompt;
-    return [
-      `MUST faithfully illustrate this exact passage from the lecture summary (do not deviate, do not generalize, do not add concepts not in this passage):`,
-      `"${anchor}"`,
+    const topic = (c.sectionTopicEn ?? "").trim();
+    const lines: string[] = [];
+    if (topic) {
+      lines.push(
+        `SECTION TOPIC (must be the central subject of the image): ${topic}`,
+        ``,
+      );
+    }
+    if (anchor) {
+      lines.push(
+        `MUST faithfully illustrate this exact passage from the lecture summary (do not deviate, do not generalize, do not add concepts not in this passage):`,
+        `"${anchor}"`,
+        ``,
+      );
+    }
+    lines.push(c.prompt);
+    // Guard rail final — repetido aqui porque o gpt-image-2 dá mais peso
+    // ao começo e ao fim do prompt do que ao meio.
+    lines.push(
       ``,
-      c.prompt,
-    ].join("\n");
+      `HARD CONSTRAINTS (override anything above if conflicting):`,
+      `1. The image must be CENTERED on the SECTION TOPIC above — not on a tangential or generic concept from the same subject area.`,
+      `2. Communicate the concept VISUALLY first: anatomy, position, color coding, arrows, numbered circles. Text is the last resort.`,
+      `3. ZERO Portuguese words. ZERO accented characters (no ã, ç, ó, é, ê, í, ú, â, ô, à). If a label is unavoidable, use ONLY English ≤8 letters or Latin anatomical names. Maximum 2 labels total in the entire image.`,
+      `4. Do NOT write the words "tireoide", "hipotalamo", "hipofise", "figado", "estomago", "coracao", "rim", "pancreas", "neuronio" — these consistently render as misspelled garbage. Show the structure with anatomical accuracy + arrows + color instead.`,
+    );
+    return lines.join("\n");
   });
 
   // 3) Geração de imagens — prefere OpenAI gpt-image. Retorno ALINHADO
