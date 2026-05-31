@@ -33,6 +33,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -181,6 +182,7 @@ export function ContentWizard({
   initialSubjectId,
   onCreated,
 }: ContentWizardProps) {
+  const router = useRouter();
   const [step, setStep] = useState<Step>(1);
 
   // Step 1 state
@@ -201,6 +203,13 @@ export function ContentWizard({
   const fileRef = useRef<HTMLInputElement>(null);
   const repairFileRef = useRef<HTMLInputElement>(null);
   const [repairingDocId, setRepairingDocId] = useState<string | null>(null);
+  // Upload de áudio NOVO: quando user marca esse, o wizard pula o fluxo
+  // normal de generate e vai pelo caminho canônico (cria lecture, sobe
+  // áudio, dispara transcribe e redireciona pra /lecture/[id]). PDFs
+  // selecionados sobem como documents da matéria pra serem cruzados
+  // depois via checkbox 'Cruzar PDFs' no /lecture.
+  const [selectedAudio, setSelectedAudio] = useState<File | null>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2 state — específicas
   // Imagens ligadas por padrão: o resumo já vem ilustrado (OpenAI GPT Image).
@@ -541,9 +550,172 @@ export function ContentWizard({
     }, 0);
   }, []);
 
+  /* --------------------------------------- audio upload (cria aula) - */
+
+  // Quando user marca um áudio + clica Gerar, NÃO seguimos pelo fluxo
+  // normal de /api/ai/generate. Replicamos o caminho canônico do
+  // upload-audio-card.tsx (cria lecture → upload → dispatch transcribe)
+  // e jogamos o user em /lecture/[id] onde o TranscribingOverlay aparece.
+  // PDFs que o user também marcou viram documents da mesma matéria pra
+  // ficarem acessíveis pelo checkbox 'Cruzar PDFs' no /lecture depois.
+  const handleAudioFlow = useCallback(async () => {
+    if (!selectedAudio) return;
+    if (!isSupabaseConfigured()) {
+      toast.error("Supabase não configurado — upload indisponível.");
+      return;
+    }
+    // Resolve matéria (idêntico ao fluxo normal)
+    const firstLecture = lectures.find((l) =>
+      selectedLectureIds.has(l.id),
+    );
+    const firstDoc = documents.find((d) => selectedDocumentIds.has(d.id));
+    const subjectId =
+      initialSubjectId ??
+      firstLecture?.subjectId ??
+      firstDoc?.subjectId ??
+      subjects[0]?.id ??
+      "";
+    if (!subjectId) {
+      toast.error("Crie ao menos uma matéria antes — vá no dashboard.");
+      return;
+    }
+
+    setGenerating(true);
+    onOpenChange(false);
+    const t = toast.loading("Subindo áudio + criando aula...");
+
+    try {
+      // 1) Cria lecture nova (transcription_status='pending' por causa de source:upload)
+      const lectureTitle =
+        selectedAudio.name.replace(/\.(mp3|m4a|wav|webm|ogg|aac|flac|mp4|mov)$/i, "") ||
+        `Áudio ${new Date().toLocaleDateString("pt-BR")}`;
+      const lecture = await createLectureAsync(userId, {
+        subjectId,
+        title: lectureTitle,
+        source: "upload",
+      });
+
+      // 2) Upload do áudio pro bucket `lectures-audio`
+      const audioExt =
+        (selectedAudio.name.match(/\.([a-z0-9]+)$/i)?.[1] ?? "bin").toLowerCase();
+      const audioPath = `${userId}/${lecture.id}.${audioExt}`;
+      const supabase = createClient();
+      // Normaliza mime pro bucket aceitar (audio/x-m4a → audio/mp4 etc).
+      const rawType = (selectedAudio.type || "").toLowerCase();
+      let contentType = rawType;
+      if (rawType === "audio/x-m4a" || rawType === "audio/m4a") contentType = "audio/mp4";
+      else if (rawType === "audio/x-wav" || rawType === "audio/wave") contentType = "audio/wav";
+      else if (rawType === "audio/mp3") contentType = "audio/mpeg";
+      else if (rawType === "video/mp4" || rawType === "video/quicktime") contentType = "audio/mp4";
+      else if (rawType === "video/webm") contentType = "audio/webm";
+      else if (!rawType) contentType = "application/octet-stream";
+      const audioBlob = new Blob([selectedAudio], { type: contentType });
+      const { error: upErr } = await supabase.storage
+        .from("lectures-audio")
+        .upload(audioPath, audioBlob, {
+          upsert: true,
+          contentType,
+          cacheControl: "3600",
+        });
+      if (upErr) throw new Error(`Upload áudio falhou: ${upErr.message}`);
+
+      // 3) Sobe PDFs como documents da matéria. Não bloqueante — se falhar
+      //    o user ainda tem a aula sendo transcrita. PDFs poderão ser anexados
+      //    depois no /lecture via 'Anexar PDF'.
+      for (const pdf of uploadedPdfs) {
+        try {
+          const docTitle = pdf.name.replace(/\.pdf$/i, "");
+          const existing = await findExistingDocumentByTitleAsync({
+            userId,
+            subjectId,
+            title: docTitle,
+          }).catch(() => null);
+          let docId = existing?.id;
+          // Upload binário pro bucket user-documents primeiro (precisa antes
+          // do create pra setar source_url já no insert).
+          let publicUrl: string | undefined;
+          if (pdf.file) {
+            const docPath = `${userId}/${Date.now()}-${pdf.name}`;
+            const { error: docUpErr } = await supabase.storage
+              .from("user-documents")
+              .upload(docPath, pdf.file, {
+                upsert: true,
+                contentType: "application/pdf",
+                cacheControl: "3600",
+              });
+            if (!docUpErr) {
+              const { data: pub } = supabase.storage
+                .from("user-documents")
+                .getPublicUrl(docPath);
+              publicUrl = pub?.publicUrl;
+            }
+          }
+          if (!docId) {
+            const newDoc = await createDocumentAsync({
+              userId,
+              subjectId,
+              title: docTitle,
+              sourceKind: "pdf",
+              sourceText: pdf.text,
+              sourceUrl: publicUrl,
+              pageCount: pdf.pages,
+            });
+            docId = newDoc?.id;
+          }
+        } catch (err) {
+          console.warn("[wizard] PDF→document upload failed", err);
+        }
+      }
+
+      // 4) Dispatch transcribe (fire-and-forget — backend processa async).
+      void fetch(`/api/lectures/${lecture.id}/transcribe`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          storagePath: audioPath,
+          filename: selectedAudio.name,
+        }),
+        keepalive: true,
+      }).catch((err) => console.warn("[wizard] transcribe dispatch failed", err));
+
+      toast.success(
+        "Aula criada. Transcrição rolando — quando terminar, clica 'Gerar resumo educativo' pra cruzar tudo.",
+        { id: t, duration: 8000 },
+      );
+
+      // 5) Redireciona pro /lecture/[id]?from=resumos pra TranscribingOverlay aparecer
+      router.push(`/lecture/${lecture.id}?from=resumos`);
+      onCreated?.({ lectureId: lecture.id, mode });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Erro desconhecido";
+      toast.error(`Falhou: ${msg}`, { id: t });
+      setGenerating(false);
+    }
+  }, [
+    selectedAudio,
+    uploadedPdfs,
+    lectures,
+    documents,
+    selectedLectureIds,
+    selectedDocumentIds,
+    subjects,
+    initialSubjectId,
+    userId,
+    router,
+    onCreated,
+    onOpenChange,
+  ]);
+
   /* --------------------------------------- generate -------------- */
 
   const handleGenerate = useCallback(async () => {
+    // Curto-circuita pro fluxo de upload de áudio quando o user selecionou
+    // um arquivo na entrada nova. Nesse caminho NÃO cobramos coins aqui —
+    // o resumo será gerado depois no /lecture com 'Gerar resumo educativo'.
+    if (selectedAudio) {
+      await handleAudioFlow();
+      return;
+    }
     setGenerating(true);
     // Fecha o wizard imediatamente — não precisa mais ficar travando o user
     // numa tela de preview. O resultado vai pro /resumo/[id] direto.
@@ -1349,6 +1521,9 @@ export function ContentWizard({
               pdfProcessing={pdfProcessing}
               userInstructions={userInstructions}
               onChangeInstructions={setUserInstructions}
+              selectedAudio={selectedAudio}
+              onPickAudio={() => audioInputRef.current?.click()}
+              onRemoveAudio={() => setSelectedAudio(null)}
             />
           )}
 
@@ -1452,6 +1627,24 @@ export function ContentWizard({
           className="hidden"
           onChange={(e) => void handleRepairDocFiles(e.target.files)}
         />
+        <input
+          ref={audioInputRef}
+          type="file"
+          accept="audio/*,video/mp4,video/quicktime,video/webm,.mp3,.m4a,.wav,.webm,.ogg,.aac,.flac,.mp4,.mov"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            if (!f) return;
+            // Tamanho (idêntico ao upload-audio-card.tsx)
+            const MAX = 500 * 1024 * 1024;
+            if (f.size > MAX) {
+              toast.error("Áudio grande demais (máx 500 MB).");
+              return;
+            }
+            setSelectedAudio(f);
+            if (audioInputRef.current) audioInputRef.current.value = "";
+          }}
+        />
       </DialogContent>
     </Dialog>
   );
@@ -1490,6 +1683,9 @@ function Step1Sources({
   pdfProcessing,
   userInstructions,
   onChangeInstructions,
+  selectedAudio,
+  onPickAudio,
+  onRemoveAudio,
 }: {
   lectures: Lecture[];
   subjects: Map<string, Subject>;
@@ -1509,6 +1705,9 @@ function Step1Sources({
   pdfProcessing: boolean;
   userInstructions: string;
   onChangeInstructions: (s: string) => void;
+  selectedAudio: File | null;
+  onPickAudio: () => void;
+  onRemoveAudio: () => void;
 }) {
   const [lectureListOpen, setLectureListOpen] = useState(true);
   const selectedCount = selectedIds.size;
@@ -1677,6 +1876,62 @@ function Step1Sources({
             +{COIN_COSTS.perExtraSource} coins por PDF extra
           </span>
         </div>
+
+      {/* Upload Áudio — violeta (cria aula nova → mesmo caminho da tela canônica) */}
+      <div
+        className={cn(
+          "rounded-xl border bg-card overflow-hidden transition-colors",
+          selectedAudio
+            ? "border-violet-500/50 ring-1 ring-violet-500/20"
+            : "border-border/60",
+        )}
+      >
+        <div className="flex items-center gap-3 px-4 py-3">
+          <div className="h-9 w-9 rounded-lg bg-violet-500/10 dark:bg-violet-500/15 flex items-center justify-center shrink-0">
+            <Mic className="h-4 w-4 text-violet-600 dark:text-violet-400" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-medium inline-flex items-center gap-2">
+              Subir gravação de áudio
+              {selectedAudio && (
+                <Badge className="text-[9px] py-0 px-1.5 h-4 bg-violet-500/15 text-violet-600 dark:text-violet-400 border-violet-500/30">
+                  1 áudio
+                </Badge>
+              )}
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              Cria uma aula nova e transcreve. PDFs também subidos vão pra biblioteca da matéria.
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onPickAudio}
+          >
+            <Upload className="h-3.5 w-3.5" />
+            {selectedAudio ? "Trocar" : "Escolher áudio"}
+          </Button>
+        </div>
+        {selectedAudio && (
+          <div className="border-t border-border/40 px-4 py-2.5 flex items-center gap-3">
+            <Mic className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-medium truncate">{selectedAudio.name}</div>
+              <div className="text-[10px] text-muted-foreground font-mono">
+                {(selectedAudio.size / 1024 / 1024).toFixed(1)} MB · {selectedAudio.type || "tipo desconhecido"}
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={onRemoveAudio}
+              className="h-6 w-6 rounded-md inline-flex items-center justify-center text-muted-foreground hover:bg-secondary"
+              aria-label="Remover áudio"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* Upload PDF — esmeralda */}
       <div
