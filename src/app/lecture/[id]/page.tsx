@@ -2,7 +2,17 @@
 
 import { startTransition, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { AlertCircle, Headphones, Lightbulb, Loader2, Sparkles } from "lucide-react";
+import {
+  AlertCircle,
+  Brain,
+  FileText,
+  Headphones,
+  HelpCircle,
+  Layers,
+  Lightbulb,
+  Loader2,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthGuard } from "@/components/app/auth-guard";
@@ -1182,6 +1192,81 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 </div>
               </div>
             )}
+
+            {/* Faixa de geração rápida — sobe os 4 CTAs (resumo/flashcards/quiz/
+                mapa) pra cima da grade. Mesmos handlers do card "Próximas ações"
+                lá embaixo, só que sempre visíveis e com visual destacado. */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {[
+                {
+                  id: "summary" as const,
+                  label: "Gerar resumo",
+                  icon: FileText,
+                  cost: 10,
+                  bg: "bg-violet-500/10 hover:bg-violet-500/15",
+                  border: "border-violet-500/30",
+                  iconColor: "text-violet-500",
+                },
+                {
+                  id: "flashcards" as const,
+                  label: "Criar flashcards",
+                  icon: Layers,
+                  cost: 8,
+                  bg: "bg-emerald-500/10 hover:bg-emerald-500/15",
+                  border: "border-emerald-500/30",
+                  iconColor: "text-emerald-500",
+                },
+                {
+                  id: "quiz" as const,
+                  label: "Gerar quiz",
+                  icon: HelpCircle,
+                  cost: 8,
+                  bg: "bg-amber-500/10 hover:bg-amber-500/15",
+                  border: "border-amber-500/30",
+                  iconColor: "text-amber-500",
+                },
+                {
+                  id: "mindmap" as const,
+                  label: "Mapa mental",
+                  icon: Brain,
+                  cost: 6,
+                  bg: "bg-rose-500/10 hover:bg-rose-500/15",
+                  border: "border-rose-500/30",
+                  iconColor: "text-rose-500",
+                },
+              ].map((a) => {
+                const Icon = a.icon;
+                const isLoading = actionLoading === a.id;
+                const anyLoading = !!actionLoading;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => handleNextAction(a.id)}
+                    disabled={anyLoading || sync.entries.length === 0}
+                    className={`group flex items-center gap-3 rounded-xl border ${a.border} ${a.bg} px-3 py-2.5 text-left transition-all hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    <div
+                      className={`h-9 w-9 shrink-0 rounded-lg bg-background/70 flex items-center justify-center ${a.iconColor}`}
+                    >
+                      {isLoading ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <Icon className="h-4 w-4" />
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-semibold truncate leading-tight">
+                        {isLoading ? "Gerando..." : a.label}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                        {a.cost} coins
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
 
             <div
               className={
