@@ -363,7 +363,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "perguntar_opcoes",
     description:
-      "Faz UMA pergunta ao user com 2-4 opções clicáveis (vira card de escolha no chat, não texto). USE QUANDO: (1) precisa direcionar a conversa em fork claro (modalidade, intenção, escopo) — especialmente nas primeiras mensagens pra entender o que o user quer; (2) escolha objetiva entre alternativas (ex: 'qual matéria?', 'quer revisar ou aprender do zero?', 'tem prova quando?'). NÃO USE quando a resposta é livre/aberta (ex: 'qual é sua dúvida?') ou quando você JÁ sabe o que fazer. O user clica numa opção e o value vira a próxima mensagem dele — então value deve ser a frase que ele 'diria'. Grátis (0 coins). Use no MÁX 1x por turn — empilhar perguntas atravanca o fluxo.",
+      "Faz UMA pergunta ao user com 2-4 opções clicáveis (vira card de escolha no chat, não texto). USE QUANDO: (1) precisa direcionar a conversa em fork claro (modalidade, intenção, escopo) — especialmente nas primeiras mensagens; (2) escolha objetiva entre alternativas que VOCÊ JÁ CONHECE (ex: 'qual dessas matérias?' depois de listar_materias, 'quer revisar ou aprender do zero?', 'tem prova quando?'). NÃO USE quando a resposta é livre/aberta (ex: 'qual é o nome da matéria?' sem ter a lista, 'qual sua dúvida?', 'que tópicos cair na prova?'). Cada value vira a próxima mensagem do user ao clicar — então value DEVE ser a frase FINAL E COMPLETA que ele 'diria', NUNCA placeholder/template/brackets ('[digita aqui]', '___', '<preencher>') — isso quebra a UX. Grátis (0 coins). Use no MÁX 1x por turn.",
     input_schema: {
       type: "object",
       properties: {
@@ -600,6 +600,19 @@ const handlers: Record<LumiToolName, ToolHandler> = {
   async perguntar_opcoes(input) {
     const pergunta = str(input.pergunta).trim();
     const rawOpcoes = Array.isArray(input.opcoes) ? input.opcoes : [];
+    // Rejeita values que claramente são placeholder/template: brackets,
+    // sublinhados longos, "<...>", "preencher", "digita", "responder depois".
+    // Esses values quebram a UX porque viram a mensagem do user ao clicar
+    // — mesmo se o modelo escapar das instruções do prompt, defendemos aqui.
+    const isPlaceholder = (v: string): boolean => {
+      const lower = v.toLowerCase();
+      return (
+        /\[[^\]]*\]/.test(v) ||
+        /<[^>]*>/.test(v) ||
+        /_{3,}/.test(v) ||
+        /\b(preencher|digita\s|responder\s+depois|escreve\s+aqui)\b/.test(lower)
+      );
+    };
     const opcoes = rawOpcoes
       .map((o) => {
         if (!o || typeof o !== "object") return null;
@@ -608,12 +621,16 @@ const handlers: Record<LumiToolName, ToolHandler> = {
         const value = str(oo.value).trim();
         const descricao = str(oo.descricao).trim() || undefined;
         if (!label || !value) return null;
+        if (isPlaceholder(value)) return null;
         return { label, value, descricao };
       })
       .filter((o): o is { label: string; value: string; descricao: string | undefined } => !!o)
       .slice(0, 4);
     if (!pergunta || opcoes.length < 2) {
-      return { error: "pergunta + 2-4 opções com label+value são obrigatórias" };
+      return {
+        error:
+          "pergunta + 2-4 opções com label+value FINAIS são obrigatórias (sem placeholders tipo '[digita aqui]' ou '___'). Se a resposta exige texto livre, pergunte em texto.",
+      };
     }
     return {
       sucesso: true,
