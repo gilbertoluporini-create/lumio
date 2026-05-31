@@ -18,6 +18,24 @@ const MessageSchema = z.object({
       preview: z.string().optional(),
     })
     .optional(),
+  tools: z
+    .array(
+      z.object({
+        name: z.string(),
+        status: z.enum(["running", "done", "error"]),
+        output: z.unknown().optional(),
+      }),
+    )
+    .optional(),
+  userAttachments: z
+    .array(
+      z.object({
+        name: z.string(),
+        contentType: z.string().optional(),
+        sizeKb: z.number().optional(),
+      }),
+    )
+    .optional(),
 });
 
 const ChatUpsertSchema = z.object({

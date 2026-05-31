@@ -337,6 +337,8 @@ export function appendMessage(
     content: message.content,
     createdAt: message.createdAt ?? ts,
     attachment: message.attachment,
+    tools: message.tools,
+    userAttachments: message.userAttachments,
   };
   const updated: LumiChat = {
     ...all[idx],
