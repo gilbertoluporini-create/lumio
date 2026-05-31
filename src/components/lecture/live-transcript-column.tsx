@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useEffect, useState } from "react";
+import { useCallback, useMemo, useRef, useEffect, useState } from "react";
 import { Bookmark, ChevronDown, Expand, FileText, Filter, Layers, Loader2, Play, Search, Sparkles, Wand2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -840,7 +840,6 @@ function SummaryInlineView({
   educationalStartedAtMs,
   onGenerateEducational,
   hasEntries,
-  onOpenFull,
 }: {
   // Mantidos pra compatibilidade — não usados hoje. A tab embutida só
   // mostra o resumo educativo (markdown estilo biblioteca de resumos).
@@ -853,21 +852,60 @@ function SummaryInlineView({
   educationalStartedAtMs?: number | null;
   onGenerateEducational?: () => void;
   hasEntries: boolean;
+  // Mantido por retrocompat — handler local de fullscreen real prevalece.
   onOpenFull?: () => void;
 }) {
+  const summaryFullscreenRef = useRef<HTMLDivElement>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const handleFullscreen = useCallback(async () => {
+    const el = summaryFullscreenRef.current;
+    if (!el) return;
+    try {
+      if (typeof document !== "undefined" && document.fullscreenElement) {
+        await document.exitFullscreen();
+        return;
+      }
+      const elWithWebkit = el as HTMLDivElement & {
+        webkitRequestFullscreen?: () => Promise<void> | void;
+      };
+      if (typeof elWithWebkit.requestFullscreen === "function") {
+        await elWithWebkit.requestFullscreen();
+      } else if (typeof elWithWebkit.webkitRequestFullscreen === "function") {
+        await elWithWebkit.webkitRequestFullscreen();
+      }
+    } catch (e) {
+      console.warn("[fullscreen]", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    const onChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
   return (
-    <div className="space-y-4 px-1 py-1">
-      {/* Header com botão Abrir em tela cheia */}
-      {educational && onOpenFull && (
+    <div
+      ref={summaryFullscreenRef}
+      className={cn(
+        "space-y-4 px-1 py-1",
+        isFullscreen && "bg-background overflow-y-auto p-6 h-screen w-screen",
+      )}
+    >
+      {/* Header com botão Abrir em tela cheia (fullscreen real) */}
+      {educational && (
         <div className="flex items-center justify-end">
           <Button
-            onClick={onOpenFull}
+            onClick={handleFullscreen}
             variant="outline"
             size="sm"
             className="h-7 gap-1 text-[11px]"
           >
             <Expand className="h-3 w-3" />
-            Abrir em tela cheia
+            {isFullscreen ? "Sair da tela cheia" : "Abrir em tela cheia"}
           </Button>
         </div>
       )}
