@@ -50,6 +50,7 @@ import type {
   User,
 } from "@/lib/types";
 import { renderPdfToImages } from "@/lib/pdf-render";
+import { attachLecturePdfAsDocument } from "@/lib/documents";
 import { LIMITS, PDF_LIMIT_MB, PDF_VISION_LIMIT_MB } from "@/lib/api-security";
 import { formatDuration, generateId, stripChatFormatting } from "@/lib/utils";
 import {
@@ -560,6 +561,38 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         `${merged.length} slide${merged.length === 1 ? "" : "s"} anexado${merged.length === 1 ? "" : "s"}.`,
         { id: t },
       );
+
+      // Fire-and-forget: salva também na /documentos pra ficar acessível
+      // fora da aula. Dedupe interno evita duplicar se o user reanexar o
+      // mesmo PDF. Não bloqueia o fluxo principal — falha vira só warning.
+      if (lecture?.subjectId) {
+        const docSourceText = merged
+          .map((s) => s.text)
+          .filter(Boolean)
+          .join("\n\n");
+        void attachLecturePdfAsDocument({
+          userId: user.id,
+          subjectId: lecture.subjectId,
+          folderId: lecture.folderId ?? null,
+          title: finalFileName,
+          pageCount: merged.length,
+          sourceText: docSourceText || undefined,
+          file,
+        })
+          .then((doc) => {
+            if (doc) {
+              toast.success("PDF também salvo em Documentos.", {
+                action: {
+                  label: "Ver",
+                  onClick: () => router.push(`/document/${doc.id}`),
+                },
+              });
+            }
+          })
+          .catch((err) =>
+            console.warn("[lecture] attach pdf as document failed", err),
+          );
+      }
     } catch (err) {
       toast.error(`Erro ao processar PDF: ${(err as Error).message}`, { id: t });
     } finally {

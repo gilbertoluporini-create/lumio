@@ -149,3 +149,98 @@ export async function deleteDocumentAsync(
   const { error } = await supabase.from("documents").delete().eq("id", id);
   if (error) throw error;
 }
+
+/**
+ * Cria documento PDF a partir do arquivo anexado numa aula e sobe o binário
+ * pro Storage. Faz dedupe por título+matéria+pasta — se já existe um doc com
+ * mesmo nome de arquivo na mesma matéria/pasta, retorna o existente sem
+ * duplicar (caso o user reanexe o mesmo PDF na mesma aula).
+ *
+ * Vínculo doc↔aula é só por matéria/pasta — não há lecture_id no schema
+ * de documents. O user encontra ambos lado a lado em /documentos.
+ *
+ * Roda fire-and-forget no caller: nunca lança, só loga.
+ */
+export async function attachLecturePdfAsDocument(input: {
+  userId: string;
+  subjectId: string | null;
+  folderId?: string | null;
+  title: string;
+  pageCount?: number;
+  sourceText?: string;
+  file: File;
+}): Promise<Document | null> {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = createClient();
+  try {
+    // Dedupe: mesmo título + matéria + pasta = mesmo doc
+    let dedupeQuery = supabase
+      .from("documents")
+      .select(DOCUMENT_COLS)
+      .eq("user_id", input.userId)
+      .eq("title", input.title)
+      .eq("source_kind", "pdf")
+      .limit(1);
+    if (input.subjectId) {
+      dedupeQuery = dedupeQuery.eq("subject_id", input.subjectId);
+    } else {
+      dedupeQuery = dedupeQuery.is("subject_id", null);
+    }
+    if (input.folderId) {
+      dedupeQuery = dedupeQuery.eq("folder_id", input.folderId);
+    } else {
+      dedupeQuery = dedupeQuery.is("folder_id", null);
+    }
+    const { data: existing } = await dedupeQuery.maybeSingle();
+    if (existing) return rowToDocument(existing as DocumentRow);
+
+    // Cria row primeiro pra ter o id no path do Storage
+    const { data: inserted, error: insErr } = await supabase
+      .from("documents")
+      .insert({
+        user_id: input.userId,
+        subject_id: input.subjectId,
+        folder_id: input.folderId ?? null,
+        title: input.title,
+        source_kind: "pdf",
+        source_text: input.sourceText ?? null,
+        page_count: input.pageCount ?? null,
+      })
+      .select(DOCUMENT_COLS)
+      .single();
+    if (insErr || !inserted) {
+      console.error("[documents] attachLecturePdf insert failed", insErr);
+      return null;
+    }
+    const doc = rowToDocument(inserted as DocumentRow);
+
+    const storageKey = `${input.userId}/${doc.id}.pdf`;
+    const { error: upErr } = await supabase.storage
+      .from("user-documents")
+      .upload(storageKey, input.file, {
+        contentType: "application/pdf",
+        upsert: true,
+      });
+    if (upErr) {
+      console.error("[documents] attachLecturePdf upload failed", upErr);
+      // Sem PDF físico — apaga row pra não ficar fantasma na /documentos
+      await supabase.from("documents").delete().eq("id", doc.id);
+      return null;
+    }
+    const { data: pub } = supabase.storage
+      .from("user-documents")
+      .getPublicUrl(storageKey);
+    const publicUrl = pub?.publicUrl ?? null;
+    if (publicUrl) {
+      await supabase
+        .from("documents")
+        .update({ source_url: publicUrl })
+        .eq("id", doc.id);
+      doc.sourceUrl = publicUrl;
+    }
+    return doc;
+  } catch (err) {
+    console.error("[documents] attachLecturePdf failed", err);
+    return null;
+  }
+}
