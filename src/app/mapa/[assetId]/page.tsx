@@ -49,6 +49,7 @@ import { getSummaryByLectureIdAsync } from "@/lib/summaries";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { ZoomableImage } from "@/components/ui/zoomable-image";
 
 export default function MapaPage({
   params,
@@ -318,15 +319,12 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
           /* Imagem ilustrativa gerada via gpt-image-1 a partir do centralTopic.
              Decks antigos (gerados antes do feature) não têm — header continua válido. */
           <div className="shrink-0 md:max-w-[280px]">
-            <div className="relative rounded-xl overflow-hidden border border-border/60 aspect-[4/3] bg-secondary/30">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={bank.mindmap.heroImageUrl}
-                alt={bank.mindmap.centralTopic}
-                className="w-full h-full object-cover"
-                loading="lazy"
-              />
-            </div>
+            <ZoomableImage
+              src={bank.mindmap.heroImageUrl}
+              alt={bank.mindmap.centralTopic}
+              className="my-0"
+              imgClassName="aspect-[4/3] object-cover"
+            />
           </div>
         )}
       </div>

@@ -68,6 +68,7 @@ import {
 } from "@/lib/srs";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn, stripMarkdownToPlainText } from "@/lib/utils";
+import { ZoomableImage } from "@/components/ui/zoomable-image";
 
 export default function DeckPage({
   params,
@@ -523,21 +524,13 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {deck.imageUrls.map((url, i) => (
-              <a
+              <ZoomableImage
                 key={url}
-                href={url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group relative aspect-video overflow-hidden rounded-lg border border-border/60 bg-muted"
-              >
-                {/* eslint-disable-next-line @next/next/no-img-element -- Supabase Storage URL, sem next/image otimização */}
-                <img
-                  src={url}
-                  alt={`Ilustração ${i + 1}`}
-                  className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                  loading="lazy"
-                />
-              </a>
+                src={url}
+                alt={`Ilustração ${i + 1}`}
+                className="my-0 max-w-none"
+                imgClassName="aspect-video object-cover"
+              />
             ))}
           </div>
         </div>

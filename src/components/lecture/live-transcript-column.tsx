@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { ZoomableImage } from "@/components/ui/zoomable-image";
 import { cn } from "@/lib/utils";
 import { estimateChunkCount } from "@/lib/transcript-chunking";
 import { COIN_COSTS } from "@/lib/coin-costs";
@@ -1070,16 +1071,17 @@ function EducationalSummaryPane({
           </button>
         )}
       </div>
-      <article className="prose prose-sm dark:prose-invert max-w-none rounded-xl border border-border/60 bg-background/40 p-5 leading-relaxed">
+      <article className="prose prose-sm dark:prose-invert max-w-none rounded-xl border border-border/60 bg-background/40 p-5 leading-relaxed prose-img:my-8">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
+            // Imagens viram <ZoomableImage> — clique abre lightbox em tela
+            // grande pra leitura confortável dos detalhes. Espaçamento my-8
+            // garante respiro entre imagem e texto adjacente.
             img: ({ src, alt }) => (
-              <img
+              <ZoomableImage
                 src={typeof src === "string" ? src : ""}
-                alt={alt ?? ""}
-                className="rounded-lg border border-border/60 w-full max-w-lg mx-auto my-4 block"
-                loading="lazy"
+                alt={alt ?? undefined}
               />
             ),
           }}

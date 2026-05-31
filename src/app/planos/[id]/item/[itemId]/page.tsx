@@ -53,6 +53,7 @@ import { getSummaryAsync } from "@/lib/summaries";
 import { COIN_COSTS } from "@/lib/coin-costs";
 import { cn } from "@/lib/utils";
 import type { Summary, User } from "@/lib/types";
+import { ZoomableImage } from "@/components/ui/zoomable-image";
 
 const KIND_ICON: Record<StudyPlanItemKind, typeof FileText> = {
   document: FileText,
@@ -432,7 +433,17 @@ function PlanItemView({
             )}
             {!summaryLoading && summary && (
               <article className="prose prose-neutral dark:prose-invert max-w-none">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                <ReactMarkdown
+                  remarkPlugins={[remarkGfm]}
+                  components={{
+                    img: ({ src, alt }) => (
+                      <ZoomableImage
+                        src={typeof src === "string" ? src : ""}
+                        alt={alt ?? undefined}
+                      />
+                    ),
+                  }}
+                >
                   {summary.content.generalSummary}
                 </ReactMarkdown>
               </article>

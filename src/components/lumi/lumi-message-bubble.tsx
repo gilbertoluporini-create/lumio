@@ -21,6 +21,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
+import { ZoomableImage } from "@/components/ui/zoomable-image";
 import type { LumiChatMessage } from "@/lib/lumi-chats";
 
 type Props = {
@@ -161,7 +162,17 @@ export function LumiMessageBubble({ message, isStreaming }: Props) {
           Lumi
         </div>
         <div className="prose prose-sm dark:prose-invert mt-1 max-w-none leading-relaxed prose-p:my-2 prose-strong:text-foreground prose-ul:my-2 prose-li:my-0.5 prose-headings:mt-3 prose-headings:mb-1">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          <ReactMarkdown
+            remarkPlugins={[remarkGfm]}
+            components={{
+              img: ({ src, alt }) => (
+                <ZoomableImage
+                  src={typeof src === "string" ? src : ""}
+                  alt={alt ?? undefined}
+                />
+              ),
+            }}
+          >
             {isStreaming ? `${message.content}▍` : message.content}
           </ReactMarkdown>
         </div>

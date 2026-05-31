@@ -6,6 +6,7 @@ import remarkGfm from "remark-gfm";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { ZoomableImage } from "@/components/ui/zoomable-image";
 import type {
   Lecture,
   LectureSummary,
@@ -193,7 +194,17 @@ function SectionCard({
               O que o professor falou
             </div>
             <div className="prose prose-sm dark:prose-invert max-w-none prose-p:leading-relaxed prose-strong:text-foreground">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm]}
+                components={{
+                  img: ({ src, alt }) => (
+                    <ZoomableImage
+                      src={typeof src === "string" ? src : ""}
+                      alt={alt ?? undefined}
+                    />
+                  ),
+                }}
+              >
                 {section.spokenContent || "*Sem cobertura na transcrição.*"}
               </ReactMarkdown>
             </div>
@@ -226,7 +237,17 @@ function SectionCard({
                           <Bot className="h-2.5 w-2.5 text-white" />
                         </div>
                         <div className="text-sm text-muted-foreground leading-relaxed prose prose-sm dark:prose-invert max-w-none prose-p:my-0">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={{
+                              img: ({ src, alt }) => (
+                                <ZoomableImage
+                                  src={typeof src === "string" ? src : ""}
+                                  alt={alt ?? undefined}
+                                />
+                              ),
+                            }}
+                          >
                             {qa.answer}
                           </ReactMarkdown>
                         </div>

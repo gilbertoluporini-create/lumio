@@ -24,6 +24,7 @@ import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { ZoomableImage } from "@/components/ui/zoomable-image";
 import { cn } from "@/lib/utils";
 import { Analytics } from "@/lib/analytics";
 
@@ -353,7 +354,17 @@ export function LumiChatPanel({
               </div>
               {t.role === "assistant" ? (
                 <div className="prose prose-xs dark:prose-invert max-w-none prose-p:my-1 prose-p:leading-relaxed prose-strong:text-foreground prose-ul:my-1">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      img: ({ src, alt }) => (
+                        <ZoomableImage
+                          src={typeof src === "string" ? src : ""}
+                          alt={alt ?? undefined}
+                        />
+                      ),
+                    }}
+                  >
                     {cleanAssistantText(t.content)}
                   </ReactMarkdown>
                 </div>
