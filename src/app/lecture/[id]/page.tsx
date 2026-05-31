@@ -51,6 +51,7 @@ import type {
 } from "@/lib/types";
 import { renderPdfToImages } from "@/lib/pdf-render";
 import { attachLecturePdfAsDocument } from "@/lib/documents";
+import { COIN_COSTS } from "@/lib/coin-costs";
 import { LIMITS, PDF_LIMIT_MB, PDF_VISION_LIMIT_MB } from "@/lib/api-security";
 import { formatDuration, generateId, stripChatFormatting } from "@/lib/utils";
 import {
@@ -1231,30 +1232,33 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
               {[
                 {
                   id: "summary" as const,
-                  label: "Gerar resumo",
+                  label:
+                    summary || lecture.summaryEducational
+                      ? "Regerar resumo"
+                      : "Gerar resumo",
                   icon: FileText,
-                  cost: 10,
+                  cost: COIN_COSTS.summary,
                   iconColor: "text-violet-500",
                 },
                 {
                   id: "flashcards" as const,
                   label: "Criar flashcards",
                   icon: Layers,
-                  cost: 8,
+                  cost: COIN_COSTS.flashcards,
                   iconColor: "text-emerald-500",
                 },
                 {
                   id: "quiz" as const,
                   label: "Gerar quiz",
                   icon: HelpCircle,
-                  cost: 8,
+                  cost: COIN_COSTS.quiz,
                   iconColor: "text-amber-500",
                 },
                 {
                   id: "mindmap" as const,
                   label: "Mapa mental",
                   icon: Brain,
-                  cost: 6,
+                  cost: COIN_COSTS.mindmap,
                   iconColor: "text-rose-500",
                 },
               ].map((a) => {
