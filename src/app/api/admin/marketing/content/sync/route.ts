@@ -32,6 +32,7 @@
  */
 
 import { NextResponse } from "next/server";
+import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { requireAdmin } from "@/lib/admin";
@@ -125,7 +126,12 @@ async function uploadImage(
   filePath: string,
 ): Promise<string> {
   const buffer = await readFile(filePath);
-  const key = `synced/${slug}/${ratio}.jpg`;
+  // Hash do conteúdo no nome do arquivo serve de cache-bust: quando o user
+  // troca a imagem, o hash muda → URL nova → Meta (IG/FB) é forçado a buscar
+  // de novo em vez de servir versão cacheada. Versão anterior fica órfã no
+  // Storage (limpeza opcional via /api/admin/marketing/storage/cleanup).
+  const hash = createHash("md5").update(buffer).digest("hex").slice(0, 8);
+  const key = `synced/${slug}/${ratio}-${hash}.jpg`;
   const { error } = await supabase.storage
     .from(BUCKET)
     .upload(key, buffer, {
