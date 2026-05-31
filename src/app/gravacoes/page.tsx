@@ -15,6 +15,7 @@ import {
   MoreVertical,
   Pause,
   Play,
+  RotateCcw,
   Search,
   Sparkles,
   Trash2,
@@ -37,8 +38,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   deleteLectureAsync,
+  listDeletedLecturesAsync,
   listLecturesAsync,
   listSubjectsAsync,
+  permanentDeleteLectureAsync,
+  restoreLectureAsync,
 } from "@/lib/db";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn, formatDuration } from "@/lib/utils";
@@ -141,6 +145,9 @@ function formatHoursMinutes(min: number): string {
 function GravacoesView({ user }: { user: User }) {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
+  const [deletedLectures, setDeletedLectures] = useState<
+    Array<Lecture & { deletedAt: string }>
+  >([]);
   const [loading, setLoading] = useState(true);
   const [filterSubject, setFilterSubject] = useState<string>("all");
   const [search, setSearch] = useState("");
@@ -149,8 +156,12 @@ function GravacoesView({ user }: { user: User }) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([listSubjectsAsync(user.id), listLecturesAsync(user.id)])
-      .then(([s, l]) => {
+    Promise.all([
+      listSubjectsAsync(user.id),
+      listLecturesAsync(user.id),
+      listDeletedLecturesAsync(user.id),
+    ])
+      .then(([s, l, d]) => {
         if (!active) return;
         setSubjects(s);
         // Só gravações REAIS aparecem aqui. Ao gerar flashcards/quiz/mapa pelo
@@ -164,6 +175,7 @@ function GravacoesView({ user }: { user: User }) {
               lec.durationSec > 0,
           ),
         );
+        setDeletedLectures(d);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -346,14 +358,48 @@ function GravacoesView({ user }: { user: User }) {
                       lecture={l}
                       subject={subjectById[l.subjectId]}
                       userId={user.id}
-                      onDeleted={(id) =>
-                        setLectures((prev) => prev.filter((x) => x.id !== id))
-                      }
+                      onDeleted={(id) => {
+                        // Move pra lixeira local (sem refetch)
+                        const removed = lectures.find((x) => x.id === id);
+                        setLectures((prev) => prev.filter((x) => x.id !== id));
+                        if (removed) {
+                          setDeletedLectures((prev) => [
+                            { ...removed, deletedAt: new Date().toISOString() },
+                            ...prev,
+                          ]);
+                        }
+                      }}
                     />
                   ))}
                 </div>
               )}
             </div>
+
+            {/* Lixeira — aulas soft-deletadas, recuperáveis por 30 dias */}
+            {deletedLectures.length > 0 && (
+              <TrashSection
+                deletedLectures={deletedLectures}
+                subjectById={subjectById}
+                userId={user.id}
+                onRestored={(id) => {
+                  const restored = deletedLectures.find((x) => x.id === id);
+                  setDeletedLectures((prev) =>
+                    prev.filter((x) => x.id !== id),
+                  );
+                  if (restored) {
+                    setLectures((prev) => [
+                      { ...restored, deletedAt: undefined } as Lecture,
+                      ...prev,
+                    ]);
+                  }
+                }}
+                onPurged={(id) =>
+                  setDeletedLectures((prev) =>
+                    prev.filter((x) => x.id !== id),
+                  )
+                }
+              />
+            )}
           </div>
 
           {/* Coluna direita (4 cols) — sidebar de stats */}
@@ -519,20 +565,20 @@ function LectureTableRow({
 
   async function handleDelete() {
     const confirmed = await confirmAction({
-      title: `Excluir a aula "${lecture.title}"?`,
+      title: `Mover "${lecture.title}" pra lixeira?`,
       description:
-        "Isso remove transcrição, áudio, slides e o resumo gerado a partir dela.",
+        "A aula sai das listagens mas fica recuperável por 30 dias na aba Lixeira. Transcrição, áudio, slides e resumos são preservados.",
       destructive: true,
-      confirmText: "Excluir aula",
+      confirmText: "Mover pra lixeira",
     });
     if (!confirmed) return;
     setDeleting(true);
     try {
       await deleteLectureAsync(userId, lecture.id);
-      toast.success("Aula excluída.");
+      toast.success("Aula movida pra lixeira.");
       onDeleted(lecture.id);
     } catch (err) {
-      toast.error(`Erro ao excluir: ${(err as Error).message}`);
+      toast.error(`Erro: ${(err as Error).message}`);
       setDeleting(false);
     }
   }
@@ -782,6 +828,166 @@ function EmptyState({ onNew }: { onNew: () => void }) {
       <Button onClick={onNew} variant="gradient" size="lg" className="mt-6">
         <Mic className="h-4 w-4" /> Gravar aula
       </Button>
+    </div>
+  );
+}
+
+/**
+ * Seção da Lixeira — lista aulas soft-deletadas com botões Restaurar
+ * (desfaz delete) e Excluir permanentemente (delete real cascade).
+ * Colapsável, exibe contagem no header e info de "X dias até purge"
+ * por aula (sem cron real ainda — placeholder ilustrativo).
+ */
+function TrashSection({
+  deletedLectures,
+  subjectById,
+  userId,
+  onRestored,
+  onPurged,
+}: {
+  deletedLectures: Array<Lecture & { deletedAt: string }>;
+  subjectById: Record<string, Subject>;
+  userId: string;
+  onRestored: (id: string) => void;
+  onPurged: (id: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-2xl border border-border/60 bg-card overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-5 py-3 hover:bg-secondary/30 transition-colors"
+      >
+        <div className="flex items-center gap-2">
+          <Trash2 className="h-4 w-4 text-muted-foreground" />
+          <h2 className="text-sm font-semibold">
+            Lixeira
+            <span className="ml-2 text-xs text-muted-foreground font-normal">
+              {deletedLectures.length} aula
+              {deletedLectures.length === 1 ? "" : "s"} · recuperável por 30
+              dias
+            </span>
+          </h2>
+        </div>
+        {open ? (
+          <ChevronUp className="h-4 w-4 text-muted-foreground" />
+        ) : (
+          <ChevronDown className="h-4 w-4 text-muted-foreground" />
+        )}
+      </button>
+      {open && (
+        <div className="border-t border-border/50 divide-y divide-border/40">
+          {deletedLectures.map((l) => (
+            <TrashRow
+              key={l.id}
+              lecture={l}
+              subject={subjectById[l.subjectId]}
+              userId={userId}
+              onRestored={onRestored}
+              onPurged={onPurged}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrashRow({
+  lecture,
+  subject,
+  userId,
+  onRestored,
+  onPurged,
+}: {
+  lecture: Lecture & { deletedAt: string };
+  subject: Subject | undefined;
+  userId: string;
+  onRestored: (id: string) => void;
+  onPurged: (id: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const Icon = subject ? getSubjectIcon(subject.name) : FileText;
+  const deletedDate = new Date(lecture.deletedAt);
+  const daysSince = Math.max(
+    0,
+    Math.floor((Date.now() - deletedDate.getTime()) / 86400000),
+  );
+  const daysLeft = Math.max(0, 30 - daysSince);
+
+  async function handleRestore() {
+    setBusy(true);
+    try {
+      await restoreLectureAsync(userId, lecture.id);
+      toast.success("Aula restaurada.");
+      onRestored(lecture.id);
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+      setBusy(false);
+    }
+  }
+
+  async function handlePermanent() {
+    const confirmed = await confirmAction({
+      title: `Excluir "${lecture.title}" permanentemente?`,
+      description:
+        "Esta ação NÃO PODE ser desfeita. Vai apagar transcrição, áudio, slides, resumos, flashcards, quiz e mapas mentais dessa aula. Tem certeza?",
+      destructive: true,
+      confirmText: "Excluir pra sempre",
+    });
+    if (!confirmed) return;
+    setBusy(true);
+    try {
+      await permanentDeleteLectureAsync(userId, lecture.id);
+      toast.success("Aula excluída permanentemente.");
+      onPurged(lecture.id);
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3 px-5 py-3 hover:bg-secondary/20 transition-colors">
+      <div className="h-9 w-9 shrink-0 rounded-lg bg-muted/40 flex items-center justify-center">
+        <Icon className="h-4 w-4 text-muted-foreground" strokeWidth={2.2} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium truncate text-muted-foreground line-through">
+          {lecture.title}
+        </div>
+        <div className="text-[11px] text-muted-foreground/80 mt-0.5">
+          {subject?.name ?? "Sem matéria"} · excluída há{" "}
+          {daysSince === 0 ? "hoje" : `${daysSince}d`} · purge em {daysLeft}d
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleRestore}
+          disabled={busy}
+          className="h-8 gap-1.5 text-xs"
+        >
+          {busy ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <RotateCcw className="h-3 w-3" />
+          )}
+          Restaurar
+        </Button>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={handlePermanent}
+          disabled={busy}
+          className="h-8 gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+        >
+          <Trash2 className="h-3 w-3" />
+          <span className="hidden sm:inline">Excluir</span>
+        </Button>
+      </div>
     </div>
   );
 }

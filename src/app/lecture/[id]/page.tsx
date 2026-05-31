@@ -932,15 +932,16 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   async function handleDelete() {
     if (!lecture) return;
     const ok = await confirmAction({
-      title: "Excluir esta aula?",
-      description: "Essa ação não pode ser desfeita.",
+      title: "Mover esta aula pra lixeira?",
+      description:
+        "A aula sai das listagens mas fica recuperável por 30 dias na aba Lixeira de Gravações. Transcrição, resumos, flashcards e áudio são preservados.",
       destructive: true,
-      confirmText: "Excluir aula",
+      confirmText: "Mover pra lixeira",
     });
     if (!ok) return;
     try {
       await deleteLectureAsync(user.id, lecture.id);
-      toast.success("Aula excluída.");
+      toast.success("Aula movida pra lixeira.");
       router.replace("/gravacoes");
     } catch (err) {
       toast.error(`Erro: ${(err as Error).message}`);

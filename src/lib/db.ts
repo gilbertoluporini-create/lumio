@@ -288,6 +288,7 @@ export async function listLecturesAsync(
     let q = supabase
       .from("lectures")
       .select(LECTURE_COLS)
+      .is("deleted_at", null)
       .order("created_at", { ascending: false });
     if (subjectId) q = q.eq("subject_id", subjectId);
     const { data, error } = await q;
@@ -296,6 +297,32 @@ export async function listLecturesAsync(
   } catch (err) {
     console.error("[db] listLectures fallback", err);
     return localListLectures(userId, subjectId);
+  }
+}
+
+/** Lista as aulas que estão na lixeira (soft-deletadas). Pra UI de
+ *  restauração. Ordena por `deleted_at` descendente. */
+export async function listDeletedLecturesAsync(
+  userId: string,
+): Promise<Array<Lecture & { deletedAt: string }>> {
+  if (!isSupabaseConfigured()) return [];
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("lectures")
+      .select(`${LECTURE_COLS}, deleted_at`)
+      .not("deleted_at", "is", null)
+      .order("deleted_at", { ascending: false });
+    if (error) throw error;
+    return ((data ?? []) as Array<LectureRow & { deleted_at: string }>).map(
+      (r) => ({
+        ...rowToLecture(r),
+        deletedAt: r.deleted_at,
+      }),
+    );
+  } catch (err) {
+    console.error("[db] listDeletedLectures failed", err);
+    return [];
   }
 }
 
@@ -310,6 +337,7 @@ export async function getLectureAsync(
       .from("lectures")
       .select(LECTURE_COLS)
       .eq("id", id)
+      .is("deleted_at", null)
       .maybeSingle();
     return data ? rowToLecture(data as LectureRow) : null;
   } catch (err) {
@@ -436,7 +464,47 @@ export async function appendMessageAsync(
   return updateLectureAsync(userId, lectureId, { messages: next });
 }
 
+/** Soft-delete: marca deleted_at = now(). Aula some das listagens e do
+ *  acesso direto mas a row, FKs filhas (summaries, flashcards, etc),
+ *  áudio no Storage e mensagens do chat ficam intactos pra restore.
+ *  Pra excluir DE VERDADE use `permanentDeleteLectureAsync`. */
 export async function deleteLectureAsync(
+  userId: string,
+  id: string,
+): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    localDeleteLecture(userId, id);
+    return;
+  }
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("lectures")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) throw error;
+}
+
+/** Restaura aula soft-deletada (deleted_at = NULL). */
+export async function restoreLectureAsync(
+  userId: string,
+  id: string,
+): Promise<Lecture | null> {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("lectures")
+    .update({ deleted_at: null })
+    .eq("id", id)
+    .select(LECTURE_COLS)
+    .single();
+  if (error) throw error;
+  return data ? rowToLecture(data as LectureRow) : null;
+}
+
+/** Excluir DE VERDADE — cascade nas FKs (summaries, lecture_assets etc).
+ *  Operação irreversível, usar só no botão "Excluir permanentemente" da
+ *  lixeira após confirmação dupla. */
+export async function permanentDeleteLectureAsync(
   userId: string,
   id: string,
 ): Promise<void> {
