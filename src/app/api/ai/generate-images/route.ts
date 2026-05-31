@@ -1,16 +1,32 @@
 /**
  * POST /api/ai/generate-images
  *
- * Gera 1-4 imagens educacionais via Imagen 3 (Google Generative AI REST).
- * Salva no bucket `ai-images` do Supabase Storage e retorna URLs públicas.
+ * Gera 1-4 imagens educacionais via OpenAI `chatgpt-image-latest`
+ * (quality:"high", size:"1536x1024" landscape) e faz upload pro bucket
+ * `ai-images` do Supabase Storage.
  *
- * Body: { prompts: string[] }  // max 4
- * Response: { urls: string[] }
+ * Histórico (2026-05-31): refatorado pra MESMA estratégia minimalista de
+ * `/api/ai/summary-images` — antes usava Google Imagen 4 com `wrapPrompt`
+ * elaborado pedindo "infográfico com seções numeradas 1. GENÁTIPO 2.
+ * FENÁTIPO", o que produzia texto corrompido (Imagen é fraco com
+ * tipografia pt-BR). `chatgpt-image-latest` gera texto legível e respeita
+ * melhor a instrução "minimize texto".
  *
- * Se GOOGLE_AI_API_KEY não estiver setada: 503 com mensagem clara.
+ * Body: { prompts: string[] }      // max 4
+ * Response: { urls: string[] }     // mantém compat com /api/ai/generate
  *
- * NÃO debita coins aqui — o /api/ai/generate é quem orquestra o pricing
- * e chama essa rota internamente quando withImages=true.
+ * NÃO debita coins aqui — `/api/ai/generate` orquestra o pricing global
+ * e chama essa rota internamente quando `withImages=true`.
+ *
+ * Fluxo:
+ *  1) Auth + rate-limit + cost cap
+ *  2) (Opcional) traduz cada prompt pt-BR pra título técnico EN curto via
+ *     UMA chamada Haiku batch (cheap, melhora qualidade do modelo de imagem)
+ *  3) Monta prompt minimalista (~7 linhas, sem regras de layout)
+ *  4) Chama `chatgpt-image-latest` em paralelo (fallback automático pra
+ *     `gpt-image-1` se a org não tiver acesso ao latest)
+ *  5) Upload pro bucket + retorna URLs públicas
+ *  6) Telemetria: `chatgpt-image-latest-landscape` no logAiUsage
  */
 
 import { logAndSanitize } from "@/lib/api-security";
@@ -19,52 +35,106 @@ import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { logAiUsage } from "@/lib/ai-usage";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import { isFeatureEnabled, featureDisabledResponse } from "@/lib/feature-flags";
+import {
+  generateImageOpenAI,
+  isOpenAIImageConfigured,
+} from "@/lib/openai-image";
+import { createMessage } from "@/lib/llm-fallback";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 180;
 
 const BUCKET = "ai-images";
 const MAX_PROMPTS = 4;
-// Imagen 4 padrão (~$0.04/img) — texto legível e composição rica.
-// Pra letras ainda mais nítidas trocar pra "imagen-4.0-ultra-generate-001" (~$0.08).
-// Pra economia agressiva (mas texto pior): "imagen-4.0-fast-generate-001" (~$0.02).
-const IMAGEN_MODEL =
-  process.env.IMAGEN_MODEL ?? "imagen-4.0-generate-001";
+const IMAGE_MODEL = "chatgpt-image-latest" as const;
+const IMAGE_QUALITY = "high" as const;
+const IMAGE_SIZE = "1536x1024" as const;
+const RAW_PROMPT_MAX_CHARS = 600;
+const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 
 type Body = {
   prompts: string[];
 };
 
-type ImagenPredictResponse = {
-  predictions?: Array<{
-    bytesBase64Encoded?: string;
-    mimeType?: string;
-  }>;
-  error?: { message?: string };
-};
+/**
+ * Traduz N hints pt-BR pra títulos técnicos EN curtos em UMA chamada
+ * Haiku batch. Retorna array alinhado por índice. Se falhar, devolve os
+ * originais (o `chatgpt-image-latest` ainda entende pt-BR, só fica menos
+ * preciso em terminologia médica/anatômica).
+ *
+ * Mesmo padrão usado em `/api/ai/summary-images`.
+ */
+async function translateHintsToEnglish(hints: string[]): Promise<string[]> {
+  if (hints.length === 0) return [];
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey && !process.env.OPENAI_API_KEY) return hints;
+
+  // Usa só os primeiros ~120 chars de cada hint pro título — evita estourar
+  // tokens e foca o tradutor no "tema" não no corpo inteiro.
+  const numbered = hints
+    .map((t, i) => `${i + 1}. ${t.slice(0, 120)}`)
+    .join("\n");
+  const sys =
+    "You translate Brazilian Portuguese educational concept descriptions into short technical English titles suitable for image generation prompts. Use standard medical/scientific terminology (Gray's Anatomy, Robbins, Guyton). Keep each translation to 3-8 words. Preserve Latin anatomical names as-is. Return ONLY a JSON array of strings, same length and order as input. No prose, no markdown.";
+  try {
+    const resp = await createMessage(
+      {
+        model: HAIKU_MODEL,
+        max_tokens: 400,
+        system: sys,
+        messages: [
+          {
+            role: "user",
+            content: `Translate these ${hints.length} concepts to short technical English titles. Return JSON array only.\n\n${numbered}`,
+          },
+        ],
+      },
+      { anthropicKey },
+    );
+    const text = resp.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("\n")
+      .trim();
+    const cleaned = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+    const parsed = JSON.parse(arrMatch ? arrMatch[0] : cleaned) as unknown;
+    if (!Array.isArray(parsed)) return hints;
+    return hints.map((orig, i) => {
+      const t = parsed[i];
+      return typeof t === "string" && t.trim().length > 0 ? t.trim() : orig;
+    });
+  } catch (err) {
+    console.warn(
+      "[generate-images] translation failed, using pt-BR hints",
+      err,
+    );
+    return hints;
+  }
+}
 
 /**
- * Empacota o prompt do Haiku num "estilo Lumio": infográfico médico/acadêmico
- * em português, com layout estruturado, tipografia limpa e poucas palavras
- * (modelos de IA borram texto longo).
+ * Monta prompt minimalista — estilo "user pedindo ilustração pro ChatGPT".
+ * Deliberadamente curto: o `chatgpt-image-latest` já tem instruções de
+ * qualidade embutidas e respeita "minimize text" melhor que Imagen 4.
  *
- * Inspiração visual: infográficos médicos profissionais — fundo claro, seções
- * numeradas, ícones simples, diagrama anatômico central quando aplicável,
- * tipografia sans-serif sólida, paleta com 2-3 cores principais.
+ * Estratégia: traduzir o tema pro EN (título curto técnico) e passar o
+ * corpo pt-BR como CONTEXTO (não como texto pra estampar na imagem).
  */
-function wrapPrompt(raw: string): string {
-  const trimmed = raw.trim().slice(0, 500);
+function buildPrompt(opts: { titleEn: string; bodyPt: string }): string {
+  const trimmedBody = opts.bodyPt.trim().slice(0, RAW_PROMPT_MAX_CHARS);
   return [
-    "Premium educational infographic in Brazilian Portuguese (pt-BR), professional medical textbook style.",
-    "LAYOUT: clean grid with 3-5 numbered sections, central main illustration (anatomical or schematic), labeled callouts on sides with arrows.",
-    "TYPOGRAPHY: bold sans-serif headings (uppercase), short labels with very few words, NO long sentences, NO paragraphs of text — only key terms.",
-    "STYLE: flat vector illustration, soft pastel palette (teal #4A9B9B, coral #E89B7D, navy #2C3E50, beige #F5EFE6), white or very light background, subtle shadows.",
-    "Use real anatomical illustrations when the topic is biological/medical. Keep proportions realistic.",
-    "DO NOT generate garbled or fake text. All labels must be REAL Portuguese words spelled correctly.",
-    "Aspect ratio 3:4 vertical, high resolution, suitable for medical study material.",
-    `CONTENT TO ILLUSTRATE: ${trimmed}`,
-  ].join(" ");
+    `Generate a high-quality educational illustration showing: "${opts.titleEn}".`,
+    ``,
+    `Content context (Portuguese, for understanding only — do NOT include this text in the image):`,
+    trimmedBody,
+    ``,
+    `Style: clean modern educational illustration, like a high-end medical textbook figure. Visual-first — minimize text, prefer arrows, anatomical drawings, color coding, schematic flows. If you must use a label, use English (3 words max) or Latin. No Portuguese text. Aspect: 1536x1024 landscape.`,
+  ].join("\n");
 }
 
 async function ensureBucket(
@@ -87,59 +157,46 @@ async function ensureBucket(
   }
 }
 
-async function generateOneImage(
+/**
+ * Gera UMA imagem via OpenAI `chatgpt-image-latest` e faz upload pro
+ * bucket `ai-images`. Retorna URL pública ou null se falhou.
+ */
+async function generateAndUploadOne(
   prompt: string,
+  userId: string,
+  indexHint: number,
   apiKey: string,
-): Promise<{ b64: string; mime: string } | null> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${IMAGEN_MODEL}:predict?key=${apiKey}`;
-  const body = {
-    instances: [{ prompt: wrapPrompt(prompt) }],
-    parameters: {
-      sampleCount: 1,
-      aspectRatio: "16:9",
-      personGeneration: "allow_adult",
-    },
-  };
-
-  let resp: Response;
+  admin: ReturnType<typeof createAdminClient>,
+): Promise<string | null> {
   try {
-    resp = await fetch(url, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+    const gen = await generateImageOpenAI({
+      prompt,
+      model: IMAGE_MODEL,
+      quality: IMAGE_QUALITY,
+      size: IMAGE_SIZE,
+      outputFormat: "webp",
+      apiKey,
     });
+    const buffer = Buffer.from(gen.b64, "base64");
+    const key = `${userId}/${Date.now()}-${indexHint}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}.webp`;
+    const { error: upErr } = await admin.storage
+      .from(BUCKET)
+      .upload(key, buffer, {
+        contentType: "image/webp",
+        upsert: false,
+      });
+    if (upErr) {
+      console.error("[generate-images] upload failed", upErr);
+      return null;
+    }
+    const { data: pub } = admin.storage.from(BUCKET).getPublicUrl(key);
+    return pub?.publicUrl ?? null;
   } catch (err) {
-    console.error("[generate-images] fetch failed", err);
+    console.error("[generate-images] openai image failed", err);
     return null;
   }
-
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    console.error("[generate-images] non-ok", resp.status, text.slice(0, 500));
-    return null;
-  }
-
-  const json = (await resp.json()) as ImagenPredictResponse;
-  const pred = json.predictions?.[0];
-  if (!pred?.bytesBase64Encoded) {
-    console.warn("[generate-images] no bytes returned");
-    return null;
-  }
-  return {
-    b64: pred.bytesBase64Encoded,
-    mime: pred.mimeType ?? "image/png",
-  };
-}
-
-function b64ToBuffer(b64: string): Buffer {
-  return Buffer.from(b64, "base64");
-}
-
-function extFromMime(mime: string): string {
-  if (mime.includes("png")) return "png";
-  if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
-  if (mime.includes("webp")) return "webp";
-  return "png";
 }
 
 export async function POST(req: Request) {
@@ -171,12 +228,16 @@ export async function POST(req: Request) {
   const userLimit = limitOrThrow(`ai-images:user:${userId}`, 10, 60_000);
   if (userLimit) return userLimit;
 
-  // Kill-switch global de imagens (admin pode desligar em emergência).
+  // Kill-switch global de imagens. Mantém a chave `features.imagen.enabled`
+  // por compat com o painel admin (semanticamente cobre "geração de imagens",
+  // independente do provider — antes Imagen 4, agora chatgpt-image-latest).
   if (!(await isFeatureEnabled("features.imagen.enabled"))) {
     return featureDisabledResponse("features.imagen.enabled");
   }
 
-  // Cap diário USD (anti-abuse). Imagen é o endpoint mais caro ($0.04/img).
+  // Cap diário USD (anti-abuse). Agora ainda mais relevante:
+  // chatgpt-image-latest high = ~$0.167/img vs Imagen 4 = ~$0.04/img.
+  // 4 imagens no fluxo "Criar resumo com imagens" = ~$0.67/geração.
   const cap = await checkDailyCostCap(userId);
   if (!cap.ok) return dailyCapResponse(cap);
 
@@ -199,57 +260,54 @@ export async function POST(req: Request) {
     );
   }
 
-  const apiKey = process.env.GOOGLE_AI_API_KEY;
-  if (!apiKey) {
+  if (!isOpenAIImageConfigured()) {
     return Response.json(
       {
         error:
-          "Imagens AI temporariamente indisponíveis — admin precisa configurar Imagen API.",
+          "Imagens AI temporariamente indisponíveis — admin precisa configurar OPENAI_API_KEY.",
         urls: [],
       },
       { status: 503 },
     );
   }
+  const apiKey = process.env.OPENAI_API_KEY as string;
 
   try {
     const admin = createAdminClient();
     await ensureBucket(admin);
 
-    // Roda em paralelo — Imagen é lento (~6-10s cada)
-    const results = await Promise.all(
-      valid.map((p) => generateOneImage(p, apiKey)),
+    // 1) Traduz hints pt-BR → títulos técnicos EN (UMA call Haiku batch)
+    const titlesEn = await translateHintsToEnglish(valid);
+
+    // 2) Monta os prompts minimalistas
+    const finalPrompts = valid.map((rawPt, i) =>
+      buildPrompt({ titleEn: titlesEn[i] ?? rawPt, bodyPt: rawPt }),
     );
 
-    const urls: string[] = [];
-    for (let i = 0; i < results.length; i++) {
-      const r = results[i];
-      if (!r) continue;
-      const buffer = b64ToBuffer(r.b64);
-      const ext = extFromMime(r.mime);
-      const key = `${userId}/${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    // 3) Gera em paralelo (chatgpt-image-latest é lento, ~10-20s cada)
+    const urlsAligned = await Promise.all(
+      finalPrompts.map((p, i) =>
+        generateAndUploadOne(p, userId, i, apiKey, admin),
+      ),
+    );
 
-      const { error: upErr } = await admin.storage
-        .from(BUCKET)
-        .upload(key, buffer, {
-          contentType: r.mime,
-          upsert: false,
-        });
-      if (upErr) {
-        console.error("[generate-images] upload failed", upErr);
-        continue;
-      }
-
-      const { data: pub } = admin.storage.from(BUCKET).getPublicUrl(key);
-      if (pub?.publicUrl) urls.push(pub.publicUrl);
-    }
+    const urls: string[] = urlsAligned.filter(
+      (u): u is string => typeof u === "string" && u.length > 0,
+    );
 
     if (urls.length > 0) {
-      await logAiUsage({
-        userId,
-        endpoint: "generate-images",
-        model: IMAGEN_MODEL,
-        imagesCount: urls.length,
-      });
+      try {
+        await logAiUsage({
+          userId,
+          endpoint: "generate-images",
+          // Nome composto bate a entrada landscape na tabela de PRICING
+          // (ai-usage.ts: "chatgpt-image-latest-landscape" = $0.167/img).
+          model: `${IMAGE_MODEL}-landscape`,
+          imagesCount: urls.length,
+        });
+      } catch {
+        /* telemetria não pode quebrar fluxo */
+      }
     }
 
     return Response.json({ urls });
