@@ -10,10 +10,11 @@ export const COIN_COSTS = {
   extract_slides: 0,        // grátis — incluído no plano
   transcript_refine: 0,     // grátis — incluído no plano
   extract_schedule: 0,      // grátis no onboarding
-  // summary/summary_educational disparam summary-images (3 imagens GPT-Image
-  // ~$0.12 por chamada). Preços abaixo cobrem custo Sonnet + imagens + margem.
+  // summary/summary_educational disparam summary-images. Pós-refator
+  // 2026-05-31 usam chatgpt-image-latest quality:high (~$0.167/img × 3
+  // ≈ $0.50/geração). Preços abaixo cobrem Sonnet + 3 imagens + margem.
   summary: 14,              // produto: resumo estruturado (por tópicos) — fixo
-  summary_educational: 18,  // resumo educativo estilo artigo + imagens (markdown puro)
+  summary_educational: 25,  // resumo educativo + 3 imagens chatgpt-image-latest high
   transcript_structure: 15, // revisão + capítulos por IA (Sonnet 4.5) — por chunk de ~25min
   flashcards: 8,            // alinhado com coins-pricing.ts
   quiz: 8,                  // alinhado com coins-pricing.ts

@@ -1,19 +1,30 @@
 /**
  * POST /api/ai/summary-images
  *
- * Dado um lectureId OU documentId que já tem summary gerado, extrai 2-3
- * conceitos visuais do markdown via Haiku, chama OpenAI GPT Image (com
- * refs do PDF/slides quando disponíveis) e salva as URLs no summary.
+ * Pipeline SIMPLES (refatorado 2026-05-31):
  *
- * - lectureId: usa lectures.transcript + lectures.slides como contexto.
- * - documentId: usa documents.source_text como "transcript equivalente"
- *   (PDF puro — sem slides extraídos nem referenceImages).
+ * 1) Carrega summary do DB (lectureId OU documentId).
+ * 2) Extrai até 3 seções H2 do markdown (## ...) com até 600 chars de corpo.
+ * 3) Traduz os títulos pra inglês curto (1 chamada batch Haiku — cheap, melhora
+ *    muito o resultado do modelo de imagem).
+ * 4) Pra cada seção, monta UM prompt minimalista (zero wrappers complexos)
+ *    pedindo "ilustração educacional do tema X com este contexto Y".
+ * 5) Chama `chatgpt-image-latest` quality:"high" size:"1536x1024".
+ * 6) Upload pro bucket `ai-images` + update do summary no DB + injeção do
+ *    markdown via `injectImagesIntoMarkdown`.
  *
- * Pelo menos um dos dois é obrigatório. lectureId tem precedência se ambos
- * vierem (não deve acontecer na prática — worker manda só um).
+ * O QUE FOI REMOVIDO da versão anterior:
+ *  - `extractVisualConcepts` via Haiku com prompt gigante de "diretor de arte"
+ *  - `wrapPromptForPremiumEducationalImage` wrapper
+ *  - Anchor literal + sectionTopicEn + sectionIndex inferidos
+ *  - Suporte a `referenceImages` (PDF page screenshots via /v1/images/edits)
+ *  - Fallback Imagen via /api/ai/generate-images
+ *  - Distribuição uniforme forçada de sectionIndex
  *
- * Body: { lectureId?: string, documentId?: string, count?: 2|3|4,
- *         referenceImages?: Array<{ filename?: string, dataUrl?: string }> }
+ * Comportamento desejado: que a imagem saia parecida com o que o ChatGPT
+ * geraria se o user mandasse o resumo cru e pedisse "ilustra isso".
+ *
+ * Body: { lectureId?: string, documentId?: string, count?: 1|2|3, userId?: string }
  * Response: { images: LectureSummaryImage[] }
  */
 
@@ -23,184 +34,128 @@ import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import { logAiUsage } from "@/lib/ai-usage";
 import {
-  DEFAULT_OPENAI_IMAGE_MODEL,
-  editImageWithReferences,
   generateImageOpenAI,
   isOpenAIImageConfigured,
-  wrapPromptForPremiumEducationalImage,
 } from "@/lib/openai-image";
 import type { LectureSummary, LectureSummaryImage } from "@/lib/types";
 
 const STORAGE_BUCKET = "ai-images";
-
-/**
- * Converte dataURL (base64) em buffer pro endpoint /v1/images/edits.
- * Aceita JPEG/PNG/WebP. Retorna null se formato inválido.
- */
-function dataUrlToReference(
-  ref: { filename?: string; dataUrl?: string },
-): { buffer: Buffer; filename: string } | null {
-  if (!ref.dataUrl || typeof ref.dataUrl !== "string") return null;
-  const match = ref.dataUrl.match(
-    /^data:image\/(?:jpeg|jpg|png|webp);base64,(.+)$/i,
-  );
-  if (!match) return null;
-  return {
-    buffer: Buffer.from(match[1], "base64"),
-    filename: ref.filename?.slice(0, 120) || "pdf-page.jpg",
-  };
-}
-
-/**
- * Gera N imagens via OpenAI GPT Image e faz upload pro bucket `ai-images`.
- * Roda em paralelo; falhas individuais viram null. Retorna array ALINHADO
- * com `prompts` (mesmo índice) pra preservar a associação conceito↔imagem.
- * Se `referenceImages` vier preenchido, usa /v1/images/edits (modo "AI vê o
- * PDF"); senão, usa /v1/images/generations puro.
- */
-async function generateAndUploadViaOpenAI(
-  prompts: string[],
-  userId: string,
-  referenceImages: Array<{ filename?: string; dataUrl?: string }> = [],
-): Promise<(string | null)[]> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return prompts.map(() => null);
-  const admin = createAdminClient();
-
-  // Pre-decode as referências uma vez (vai pra todos os prompts)
-  const references = referenceImages
-    .map(dataUrlToReference)
-    .filter((r): r is { buffer: Buffer; filename: string } => r !== null)
-    .slice(0, 16);
-
-  const results = await Promise.all(
-    prompts.map(async (prompt, i) => {
-      try {
-        let b64: string;
-        if (references.length > 0) {
-          const wrapped = wrapPromptForPremiumEducationalImage(prompt);
-          const edit = await editImageWithReferences({
-            prompt: [
-              wrapped,
-              "",
-              "Use the attached PDF page screenshots as visual/source references. Preserve the relevant subject matter, terminology, diagrams, tables, and visual context from those pages, but create a clean new educational image rather than copying the page.",
-            ].join("\n"),
-            references,
-            quality: "medium",
-            size: "1536x1024",
-            outputFormat: "webp",
-            apiKey,
-          });
-          b64 = edit.b64;
-        } else {
-          const gen = await generateImageOpenAI({
-            prompt: wrapPromptForPremiumEducationalImage(prompt),
-            quality: "medium",
-            size: "1536x1024",
-            outputFormat: "webp",
-            apiKey,
-          });
-          b64 = gen.b64;
-        }
-        const buffer = Buffer.from(b64, "base64");
-        const key = `${userId}/${Date.now()}-${i}-${Math.random()
-          .toString(36)
-          .slice(2, 8)}.webp`;
-        const { error: upErr } = await admin.storage
-          .from(STORAGE_BUCKET)
-          .upload(key, buffer, {
-            contentType: "image/webp",
-            upsert: false,
-          });
-        if (upErr) {
-          console.error("[summary-images] upload failed", upErr);
-          return null;
-        }
-        const { data: pub } = admin.storage
-          .from(STORAGE_BUCKET)
-          .getPublicUrl(key);
-        return pub?.publicUrl ?? null;
-      } catch (err) {
-        console.error("[summary-images] openai image failed", err);
-        return null;
-      }
-    }),
-  );
-
-  const okCount = results.filter(Boolean).length;
-  if (okCount > 0) {
-    try {
-      await logAiUsage({
-        userId,
-        endpoint: "summary-images",
-        model: DEFAULT_OPENAI_IMAGE_MODEL,
-        imagesCount: okCount,
-      });
-    } catch {
-      /* ignora — telemetria não pode quebrar fluxo */
-    }
-  }
-  return results;
-}
+const IMAGE_MODEL = "chatgpt-image-latest" as const;
+const IMAGE_QUALITY = "high" as const;
+const IMAGE_SIZE = "1536x1024" as const;
+const SECTION_BODY_MAX_CHARS = 600;
+const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 180;
 
-const HAIKU_MODEL = "claude-haiku-4-5-20251001";
-
-type ConceptExtraction = {
-  concepts: Array<{
-    title: string;
-    /** Trecho literal do resumo que a imagem ilustra — usado pra garantir
-     *  que a cena gerada bate com o que está escrito naquela seção. */
-    anchor?: string;
-    /** Título traduzido p/ EN da seção H2 que essa imagem ilustra — vai
-     *  no topo do prompt do gpt-image-2 como "SECTION TOPIC" pra ancorar
-     *  o tema mesmo quando o anchor for genérico. */
-    sectionTopicEn?: string;
-    prompt: string;
-    caption?: string;
-    sectionIndex?: number | null;
-  }>;
-};
-
-type SourceContext = {
-  lectureTitle: string;
-  subjectName: string;
-  markdown: string;
-  transcript?: string;
-  slidesText?: string;
-  sections: Array<{ index: number; title: string }>;
-  count: number;
-};
+/**
+ * Extrai as primeiras N seções H2 do markdown: { title, body }.
+ * `body` = primeiros SECTION_BODY_MAX_CHARS chars do conteúdo até o próximo `## ` (ou fim).
+ */
+function extractH2Sections(
+  markdown: string,
+  maxSections: number,
+): Array<{ title: string; body: string }> {
+  if (!markdown || maxSections < 1) return [];
+  const re = /^##\s+(.+)$/gm;
+  type Match = { title: string; start: number; end: number };
+  const matches: Match[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(markdown)) !== null) {
+    matches.push({
+      title: m[1].trim(),
+      start: m.index,
+      end: m.index + m[0].length,
+    });
+  }
+  const out: Array<{ title: string; body: string }> = [];
+  for (let i = 0; i < matches.length && out.length < maxSections; i++) {
+    const cur = matches[i];
+    const next = matches[i + 1];
+    const bodyRaw = markdown
+      .slice(cur.end, next ? next.start : markdown.length)
+      .trim();
+    if (!cur.title) continue;
+    out.push({
+      title: cur.title,
+      body: bodyRaw.slice(0, SECTION_BODY_MAX_CHARS),
+    });
+  }
+  return out;
+}
 
 /**
- * Extrai títulos das seções `## ` do markdown como fallback quando o summary
- * não tem `sections[]` estruturado.
+ * Traduz N títulos pt-BR pra inglês curto técnico em UMA chamada Haiku.
+ * Retorna array alinhado por índice. Se algo falhar, devolve o título original
+ * (o modelo de imagem ainda entende pt-BR, só fica menos preciso).
  */
-function sectionTitlesFromMarkdown(
-  markdown: string,
-): Array<{ index: number; title: string }> {
-  const titles: Array<{ index: number; title: string }> = [];
-  const re = /^##\s+(.+)$/gm;
-  let match: RegExpExecArray | null;
-  while ((match = re.exec(markdown)) !== null) {
-    const title = match[1]
-      .replace(/^\d+\.\s*/, "")
-      .replace(/^Pontos-chave.*/i, "")
-      .replace(/^Aplicação cl[ií]nica.*/i, "")
+async function translateTitlesToEnglish(titles: string[]): Promise<string[]> {
+  if (titles.length === 0) return [];
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  if (!anthropicKey && !process.env.OPENAI_API_KEY) return titles;
+
+  const numbered = titles.map((t, i) => `${i + 1}. ${t}`).join("\n");
+  const sys =
+    "You translate Brazilian Portuguese educational section titles into short technical English titles suitable for image generation prompts. Use standard medical/scientific terminology (Gray's Anatomy, Robbins, Guyton). Keep each translation to 3-8 words. Preserve Latin anatomical names as-is. Return ONLY a JSON array of strings, same length and order as input. No prose, no markdown.";
+  try {
+    const resp = await createMessage(
+      {
+        model: HAIKU_MODEL,
+        max_tokens: 400,
+        system: sys,
+        messages: [
+          {
+            role: "user",
+            content: `Translate these ${titles.length} titles to short technical English. Return JSON array only.\n\n${numbered}`,
+          },
+        ],
+      },
+      { anthropicKey },
+    );
+    const text = resp.content
+      .filter((b) => b.type === "text")
+      .map((b) => (b as { text: string }).text)
+      .join("\n")
       .trim();
-    if (title) titles.push({ index: titles.length, title });
+    const cleaned = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```\s*$/i, "")
+      .trim();
+    const arrMatch = cleaned.match(/\[[\s\S]*\]/);
+    const parsed = JSON.parse(arrMatch ? arrMatch[0] : cleaned) as unknown;
+    if (!Array.isArray(parsed)) return titles;
+    return titles.map((orig, i) => {
+      const t = parsed[i];
+      return typeof t === "string" && t.trim().length > 0 ? t.trim() : orig;
+    });
+  } catch (err) {
+    console.warn("[summary-images] translation failed, using pt-BR titles", err);
+    return titles;
   }
-  return titles;
+}
+
+/**
+ * Monta o prompt minimalista — estilo "user pedindo ilustração pro ChatGPT".
+ * Deliberadamente curto e sem regras complexas: o `chatgpt-image-latest` já
+ * tem instruções de qualidade embutidas.
+ */
+function buildPrompt(opts: { titleEn: string; bodyPt: string }): string {
+  return [
+    `Generate a high-quality educational illustration showing: "${opts.titleEn}".`,
+    ``,
+    `Content context (Portuguese, for understanding only — do NOT include this text in the image):`,
+    opts.bodyPt,
+    ``,
+    `Style: clean modern educational illustration, like a high-end medical textbook figure. Visual-first — minimize text, prefer arrows, anatomical drawings, color coding, schematic flows. If you must use a label, use English (3 words max) or Latin. No Portuguese text. Aspect: 1536x1024 landscape.`,
+  ].join("\n");
 }
 
 /**
  * Injeta `![alt](url)` + caption inline no markdown, logo após o `## H2`
  * correspondente ao sectionIndex de cada imagem. Sem isso, /resumo renderiza
- * o markdown sem imagens (só a galeria separada do SummaryImagesBlock).
- * Imagens sem sectionIndex válido viram galeria no final.
+ * o markdown sem imagens inline (só galeria separada).
  */
 function injectImagesIntoMarkdown(
   markdown: string,
@@ -231,7 +186,6 @@ function injectImagesIntoMarkdown(
     used.add(i);
   }
 
-  // Sem sectionIndex válido: galeria no final do markdown
   const leftovers = images.filter((_, i) => !used.has(i));
   if (leftovers.length > 0) {
     lines.push("", "---", "");
@@ -246,130 +200,62 @@ function injectImagesIntoMarkdown(
   return lines.join("\n");
 }
 
-async function extractVisualConcepts(
-  ctx: SourceContext,
-): Promise<ConceptExtraction> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey && !process.env.OPENAI_API_KEY) return { concepts: [] };
-
-  // Monta bloco de fontes com prioridade: summary > transcript > slides
-  const sources: string[] = [];
-  sources.push(`# RESUMO GERADO\n${ctx.markdown.slice(0, 5000)}`);
-  if (ctx.transcript && ctx.transcript.trim().length > 80) {
-    sources.push(`# TRANSCRIÇÃO DA AULA\n${ctx.transcript.slice(0, 4000)}`);
-  }
-  if (ctx.slidesText && ctx.slidesText.trim().length > 80) {
-    sources.push(`# SLIDES DO PROFESSOR\n${ctx.slidesText.slice(0, 4000)}`);
-  }
-
-  const sectionsList =
-    ctx.sections.length > 0
-      ? ctx.sections.map((s) => `${s.index}: ${s.title}`).join("\n")
-      : "(o resumo não tem seções nomeadas)";
-
-  const sys = `Você é um diretor de arte didático. Sua tarefa: ler o RESUMO da aula (markdown) abaixo e gerar ${ctx.count} pedidos de imagem que ILUSTRAM EXATAMENTE o que o resumo está explicando — não conceitos gerais da matéria, mas o conteúdo específico daquela seção.
-
-PROCESSO OBRIGATÓRIO pra cada uma das ${ctx.count} imagens:
-1. ESCOLHA uma seção diferente do resumo (sectionIndex). Distribua entre seções diferentes — nunca duas na mesma. Anote o TÍTULO daquela seção (o texto do ## H2).
-2. LEIA o parágrafo dessa seção com cuidado. Identifique o conceito CONCRETO que ela descreve (uma estrutura, um processo passo-a-passo, uma comparação, uma via metabólica, etc).
-3. EXTRAIA o trecho-âncora literal — uma frase curta DO RESUMO (15-30 palavras) que descreve o que será visualizado. Esse trecho é a verdade-base: a cena pedida tem que representar literalmente esse trecho.
-4. TRADUZA o título da seção para inglês curto e técnico (3-8 palavras) — vai como "sectionTopicEn". Ex: "Eixo hipotálamo-hipófise-tireoide" → "Hypothalamus-pituitary-thyroid axis". Use terminologia médica/científica em inglês padrão (Gray's Anatomy, Robbins, Guyton). NÃO traduza nomes próprios latinos.
-5. ESCREVA o prompt da imagem em inglês (70-130 palavras), descrevendo VISUALMENTE a cena que representa o trecho-âncora, usando os termos técnicos EXATOS em inglês (estruturas, etapas, números, nomes). Comece o prompt com "Educational illustration showing <sectionTopicEn>:". Deixe o estilo visual aberto (flat editorial, semi-3D, isométrico, esquemático) — o modelo escolhe. NÃO trave em bege.
-
-REGRA DE FIDELIDADE (a mais importante):
-- Se a seção fala "ciclo da ureia tem 5 etapas: carbamoil-fosfato → citrulina → argininossuccinato → arginina → ornitina", o prompt deve descrever EXATAMENTE essas 5 etapas nessa ordem (em inglês: carbamoyl phosphate → citrulline → argininosuccinate → arginine → ornithine). Não invente etapa 6.
-- Se a seção fala de eixo hipotálamo-hipófise-tireoide com feedback negativo, descreva os 3 órgãos posicionados anatomicamente com setas de feedback — NÃO desenhe uma tireoide solta sem o eixo.
-- Se você não consegue extrair um trecho-âncora claro de uma seção, escolha outra seção. Melhor menos imagens fiéis do que mais imagens descoladas.
-
-TEXTO NA IMAGEM (regra MUITO apertada — gpt-image-2 erra ortografia em pt-BR ~80% das vezes):
-- DEFAULT: NÃO peça NENHUM texto. Comunique tudo por cor, posição anatômica, setas direcionais, ícones, hierarquia visual, numeração visual (círculos numerados 1-2-3 ao lado dos elementos).
-- Em vez de pedir "labeled X, Y, Z", peça "anatomically arranged X above Y above Z, color-coded blue/pink/green, no text labels".
-- ABSOLUTAMENTE PROIBIDO no prompt da imagem (estas palavras causam ortografia errada — gpt-image-2 escreve "tireide", "hipotaIamo", "figado"):
-  * Palavras em pt-BR com acento (ã, ç, ó, é, ê, í, ú, â, ô, à) — JAMAIS apareçam como label dentro da imagem.
-  * Termos técnicos longos em pt-BR como label: "tireoide", "hipotálamo", "hipófise", "fígado", "estômago", "coração", "rim", "pâncreas", "supra-renal", "espermatogênese", "glicogênese", "neurônio", "ribossomo", "mitocôndria".
-  * Se o conceito EXIGE distinguir uma estrutura, escreva o label em INGLÊS curto (≤8 letras): "liver", "kidney", "heart", "lung", "brain", "ATP", "DNA", "RNA". Inglês curto e siglas raramente erram.
-  * Nomes anatômicos em LATIM são seguros (raro errar): "hippocampus", "medulla", "cortex", "pons", "thalamus", "pituitary".
-- MÁXIMO permitido quando indispensável: 2 labels por imagem, cada um ≤8 letras, sem acentos, em inglês ou latim.
-- PROIBIDO pedir: "with labeled diagram", "annotated", "with captions", "with title", "Portuguese labels", legendas, títulos dentro da imagem, parágrafos, balões de fala, bandeiras, qualquer texto em espanhol/pt-BR.
-- Termine SEMPRE o prompt com: "All labels (if any) must be in English or Latin, max 8 letters each, max 2 labels total. No Portuguese text. No accents. Communicate primarily through color, position and arrows."
-
-EVITE SEMPRE: estética exagerada/futurista, "student studying", livros genéricos, laptop, pessoa olhando tela, ícones soltos, stock photo, mascote, collage sem hierarquia, texto longo, parágrafos, balões de fala, bandeiras. Em temas médicos/biológicos, NÃO mostre fluidos corporais caindo em copos, tubos, beakers ou recipientes; represente excreção/transporte de forma limpa e esquemática com setas, vias anatômicas e ícones.
-
-SEÇÕES DO RESUMO (você DEVE escolher uma destas):
-${sectionsList}
-
-TEMA: "${ctx.lectureTitle}" — Matéria: ${ctx.subjectName}
-
-Retorne APENAS JSON puro (sem markdown, sem cercas):
-{
-  "concepts": [
-    {
-      "title": "Curto em pt-BR (3-6 palavras)",
-      "anchor": "Trecho LITERAL do resumo (15-30 palavras) que a imagem ilustra. Copie tal qual aparece no markdown.",
-      "sectionTopicEn": "Section title translated to short technical English (3-8 words). Ex: 'Hypothalamus-pituitary-thyroid axis', 'Urea cycle steps', 'Cardiac action potential phases'.",
-      "prompt": "English scene description (70-130 words) starting with 'Educational illustration showing <sectionTopicEn>:'. Visually represent the anchor sentence using exact English technical terms. End with the no-Portuguese-text rule.",
-      "caption": "Frase curta pt-BR (8-15 palavras) do que a imagem mostra — pode ser o anchor parafraseado.",
-      "sectionIndex": <índice da seção (obrigatório, número válido)>
-    }
-  ]
-}`;
-
-  const resp = await createMessage(
-    {
-      model: HAIKU_MODEL,
-      max_tokens: 1500,
-      system: sys,
-      messages: [
-        {
-          role: "user",
-          content: `FONTES DA AULA:\n\n${sources.join("\n\n---\n\n")}\n\nGere ${ctx.count} conceitos visuais ancorados nessas fontes.`,
-        },
-      ],
-    },
-    { anthropicKey: apiKey },
-  );
-
-  const text =
-    resp.content
-      .filter((b) => b.type === "text")
-      .map((b) => (b as { text: string }).text)
-      .join("\n")
-      .trim() ?? "";
-
-  const cleaned = text
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/```\s*$/i, "")
-    .trim();
-
+/**
+ * Gera UMA imagem via OpenAI `chatgpt-image-latest` e faz upload pro
+ * bucket `ai-images`. Retorna URL pública ou null se falhou.
+ */
+async function generateAndUploadOne(
+  prompt: string,
+  userId: string,
+  indexHint: number,
+): Promise<string | null> {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
   try {
-    return JSON.parse(cleaned) as ConceptExtraction;
-  } catch {
-    const fallbackMatch = cleaned.match(/\{[\s\S]*\}/);
-    if (fallbackMatch) {
-      try {
-        return JSON.parse(fallbackMatch[0]) as ConceptExtraction;
-      } catch {
-        /* falha — devolve vazio */
-      }
+    const gen = await generateImageOpenAI({
+      prompt,
+      model: IMAGE_MODEL,
+      quality: IMAGE_QUALITY,
+      size: IMAGE_SIZE,
+      outputFormat: "webp",
+      apiKey,
+    });
+    const buffer = Buffer.from(gen.b64, "base64");
+    const key = `${userId}/${Date.now()}-${indexHint}-${Math.random()
+      .toString(36)
+      .slice(2, 8)}.webp`;
+    const admin = createAdminClient();
+    const { error: upErr } = await admin.storage
+      .from(STORAGE_BUCKET)
+      .upload(key, buffer, {
+        contentType: "image/webp",
+        upsert: false,
+      });
+    if (upErr) {
+      console.error("[summary-images] upload failed", upErr);
+      return null;
     }
-    return { concepts: [] };
+    const { data: pub } = admin.storage
+      .from(STORAGE_BUCKET)
+      .getPublicUrl(key);
+    return pub?.publicUrl ?? null;
+  } catch (err) {
+    console.error("[summary-images] openai image failed", err);
+    return null;
   }
 }
 
 export async function POST(req: Request) {
-  // Trigger interno (worker do plano de estudos / cron) bypassa auth de
-  // sessão usando CRON_SECRET no header `x-internal-key`. Pra esses casos
-  // o `userId` é enviado no body (worker não tem cookie de sessão).
-  // Fluxo normal de usuário (educational-summary, botão "Gerar ilustrações"
-  // na /resumo, etc) continua passando cookie e cai no auth padrão.
+  // Trigger interno (worker do plano de estudos / cron) bypassa auth de sessão
+  // usando CRON_SECRET no header `x-internal-key`. Pra esses casos o `userId`
+  // é enviado no body (worker não tem cookie de sessão). Fluxo de usuário
+  // normal continua passando cookie e cai no auth padrão.
   const internalKey = req.headers.get("x-internal-key");
   const expectedInternalKey = process.env.CRON_SECRET ?? "";
   const isInternalCall = Boolean(
     internalKey && expectedInternalKey && internalKey === expectedInternalKey,
   );
 
-  // Rate-limit por IP só pra chamadas de usuário; internal já vem de cron
-  // controlado e a frequência é limitada pelo próprio worker.
   if (!isInternalCall) {
     const ip = getClientIp(req);
     const limited = limitOrThrow(`summary-images:ip:${ip}`, 5, 60_000);
@@ -383,7 +269,6 @@ export async function POST(req: Request) {
     documentId?: string;
     count?: number;
     userId?: string;
-    referenceImages?: Array<{ filename?: string; dataUrl?: string }>;
   };
   try {
     body = (await req.json()) as {
@@ -391,7 +276,6 @@ export async function POST(req: Request) {
       documentId?: string;
       count?: number;
       userId?: string;
-      referenceImages?: Array<{ filename?: string; dataUrl?: string }>;
     };
   } catch {
     return Response.json({ error: "JSON inválido." }, { status: 400 });
@@ -420,7 +304,6 @@ export async function POST(req: Request) {
   const cap = await checkDailyCostCap(userId);
   if (!cap.ok) return dailyCapResponse(cap);
 
-  // Precedência: lectureId > documentId. Pelo menos um obrigatório.
   if (!body.lectureId && !body.documentId) {
     return Response.json(
       { error: "lectureId ou documentId obrigatório." },
@@ -428,24 +311,18 @@ export async function POST(req: Request) {
     );
   }
   const useDocument = !body.lectureId && Boolean(body.documentId);
-  const count = Math.max(2, Math.min(4, body.count ?? 3));
+  const count = Math.max(1, Math.min(3, body.count ?? 3));
 
   // Em chamadas internas usamos admin client pras leituras (bypassa RLS
   // porque o worker autentica via CRON_SECRET, não via sessão de user).
   const readClient = isInternalCall ? createAdminClient() : supabase;
 
-  // Variáveis comuns aos dois caminhos (lecture vs document).
-  let sourceTitle = "Aula";
-  let subjectId: string | null = null;
-  let transcriptText: string | undefined;
-  let slidesText = "";
   let lectureSummary: LectureSummary | null = null;
 
   if (useDocument) {
-    // Caminho PDF puro: carrega documents.source_text como "transcript".
     const { data: docRow, error: docErr } = await readClient
       .from("documents")
-      .select("id, title, subject_id, source_text")
+      .select("id")
       .eq("id", body.documentId)
       .eq("user_id", userId)
       .maybeSingle();
@@ -455,15 +332,6 @@ export async function POST(req: Request) {
         { status: 404 },
       );
     }
-    sourceTitle = (docRow.title as string) ?? "Documento";
-    subjectId = (docRow.subject_id as string | null) ?? null;
-    // source_text pode ser MUITO grande (>30k chars em PDFs longos). O
-    // extractVisualConcepts já corta em 4000 chars no bloco "TRANSCRIÇÃO",
-    // mas truncamos antes em 12k pra evitar custo de transporte/string
-    // manipulation desnecessária quando o doc é absurdo (200k+).
-    const rawText = (docRow.source_text as string | null) ?? "";
-    transcriptText = rawText.slice(0, 12_000);
-
     const { data: sumRow } = await readClient
       .from("summaries")
       .select("content")
@@ -472,10 +340,9 @@ export async function POST(req: Request) {
       .maybeSingle();
     lectureSummary = (sumRow?.content as LectureSummary | null) ?? null;
   } else {
-    // Caminho clássico: lecture com transcript + slides.
     const { data: lectureRow, error: lecErr } = await readClient
       .from("lectures")
-      .select("id, title, subject_id, transcript, slides")
+      .select("id")
       .eq("id", body.lectureId)
       .eq("user_id", userId)
       .maybeSingle();
@@ -485,22 +352,6 @@ export async function POST(req: Request) {
         { status: 404 },
       );
     }
-    sourceTitle = (lectureRow.title as string) ?? "Aula";
-    subjectId = (lectureRow.subject_id as string | null) ?? null;
-    transcriptText = (lectureRow.transcript as string | null) ?? undefined;
-
-    // Serializa slides como texto (PDF puro não chega aqui).
-    type SlideRow = { pageNumber?: number; title?: string; text?: string };
-    const slidesArr = (lectureRow.slides ?? []) as SlideRow[];
-    slidesText = Array.isArray(slidesArr)
-      ? slidesArr
-          .map(
-            (s) =>
-              `[Slide ${s.pageNumber ?? "?"}${s.title ? ` — ${s.title}` : ""}]\n${s.text ?? ""}`,
-          )
-          .join("\n\n")
-      : "";
-
     const { data: sumRow } = await readClient
       .from("summaries")
       .select("content")
@@ -517,171 +368,61 @@ export async function POST(req: Request) {
     );
   }
 
-  // Tenta puxar nome da matéria
-  let subjectName = "Geral";
-  if (subjectId) {
-    const { data: subj } = await readClient
-      .from("subjects")
-      .select("name")
-      .eq("id", subjectId)
-      .eq("user_id", userId)
-      .maybeSingle();
-    if (subj?.name) subjectName = subj.name as string;
+  if (!isOpenAIImageConfigured()) {
+    return Response.json(
+      { error: "OpenAI image generation não configurado." },
+      { status: 503 },
+    );
   }
 
-  // Seções numeradas pra o Haiku ancorar cada imagem na seção certa
-  // (intercalação inline no resumo em vez de galeria agrupada).
-  const sectionsForMap = (lectureSummary.sections ?? []).map((s, i) => ({
-    index: i,
-    title: s.slideTitle?.trim() || `Seção ${i + 1}`,
-  }));
-  const markdownSections = sectionTitlesFromMarkdown(
-    lectureSummary.generalSummary,
-  );
-
-  // 1) Extrair conceitos ancorados no contexto completo
-  const { concepts } = await extractVisualConcepts({
-    lectureTitle: sourceTitle,
-    subjectName,
-    markdown: lectureSummary.generalSummary,
-    transcript: transcriptText,
-    slidesText,
-    sections: sectionsForMap.length > 0 ? sectionsForMap : markdownSections,
-    count,
-  });
-  if (!concepts || concepts.length === 0) {
+  // 1) Extrair seções H2 do markdown (até `count`)
+  const sections = extractH2Sections(lectureSummary.generalSummary, count);
+  if (sections.length === 0) {
     return Response.json({ images: [] });
   }
 
-  // Distribuição uniforme FORÇADA das imagens ao longo do resumo.
-  // Sem isso, quando o LLM concentra (ex: 0,1,2 num resumo de 5 seções),
-  // o final fica vazio. Aqui geramos N posições igualmente espaçadas
-  // (i+1)/(N+1) × totalSections — 3 imagens em 5 seções viram seções
-  // [1, 2, 3] (espaçadas), não [0,1,2]. Respeita a escolha do LLM só
-  // quando ela está a no máximo 1 seção de distância da ideal.
-  const totalSections =
-    sectionsForMap.length > 0 ? sectionsForMap.length : markdownSections.length;
-  if (totalSections > 1) {
-    const idealPositions = concepts.map((_, i) =>
-      Math.round(((i + 1) * totalSections) / (concepts.length + 1)),
-    );
-    const seen = new Set<number>();
-    concepts.forEach((c, i) => {
-      let target = Math.min(totalSections - 1, Math.max(0, idealPositions[i]));
-      const raw = c.sectionIndex;
-      if (
-        typeof raw === "number" &&
-        raw >= 0 &&
-        raw < totalSections &&
-        Math.abs(raw - target) <= 1 &&
-        !seen.has(raw)
-      ) {
-        target = raw;
-      }
-      // Resolve colisão andando pra frente
-      let guard = 0;
-      while (seen.has(target) && guard < totalSections) {
-        target = (target + 1) % totalSections;
-        guard++;
-      }
-      c.sectionIndex = target;
-      seen.add(target);
-    });
+  // 2) Traduzir TODOS os títulos em UMA chamada Haiku (cheap, melhora o resultado)
+  const titlesEn = await translateTitlesToEnglish(
+    sections.map((s) => s.title),
+  );
+
+  // 3) Montar os prompts minimalistas (estilo ChatGPT direto)
+  const prompts = sections.map((s, i) =>
+    buildPrompt({ titleEn: titlesEn[i] ?? s.title, bodyPt: s.body }),
+  );
+
+  // 4) Gerar todas as imagens em paralelo
+  const urlsAligned = await Promise.all(
+    prompts.map((p, i) => generateAndUploadOne(p, userId, i)),
+  );
+
+  // 5) Log de telemetria (1 entrada agregada com imagesCount = N geradas com sucesso)
+  const okCount = urlsAligned.filter(Boolean).length;
+  if (okCount > 0) {
+    try {
+      await logAiUsage({
+        userId,
+        endpoint: "summary-images",
+        // Nome composto pra bater a entrada landscape no PRICING table
+        model: `${IMAGE_MODEL}-landscape`,
+        imagesCount: okCount,
+      });
+    } catch {
+      /* telemetria não pode quebrar fluxo */
+    }
   }
 
-  // 2) Blindagem: cada prompt enviado pro modelo de imagem leva (a) o
-  // título da seção em inglês — pra ancorar o TEMA da cena — e (b) o
-  // trecho-âncora literal — pra forçar a cena a representar exatamente
-  // o que aquela seção do resumo diz. Termina com um "guard rail" forte
-  // contra texto em pt-BR que o gpt-image-2 erraria a ortografia.
-  const promptsWithAnchor = concepts.map((c) => {
-    const anchor = (c.anchor ?? "").trim();
-    const topic = (c.sectionTopicEn ?? "").trim();
-    const lines: string[] = [];
-    if (topic) {
-      lines.push(
-        `SECTION TOPIC (must be the central subject of the image): ${topic}`,
-        ``,
-      );
-    }
-    if (anchor) {
-      lines.push(
-        `MUST faithfully illustrate this exact passage from the lecture summary (do not deviate, do not generalize, do not add concepts not in this passage):`,
-        `"${anchor}"`,
-        ``,
-      );
-    }
-    lines.push(c.prompt);
-    // Guard rail final — repetido aqui porque o gpt-image-2 dá mais peso
-    // ao começo e ao fim do prompt do que ao meio.
-    lines.push(
-      ``,
-      `HARD CONSTRAINTS (override anything above if conflicting):`,
-      `1. The image must be CENTERED on the SECTION TOPIC above — not on a tangential or generic concept from the same subject area.`,
-      `2. Communicate the concept VISUALLY first: anatomy, position, color coding, arrows, numbered circles. Text is the last resort.`,
-      `3. ZERO Portuguese words. ZERO accented characters (no ã, ç, ó, é, ê, í, ú, â, ô, à). If a label is unavoidable, use ONLY English ≤8 letters or Latin anatomical names. Maximum 2 labels total in the entire image.`,
-      `4. Do NOT write the words "tireoide", "hipotalamo", "hipofise", "figado", "estomago", "coracao", "rim", "pancreas", "neuronio" — these consistently render as misspelled garbage. Show the structure with anatomical accuracy + arrows + color instead.`,
-    );
-    return lines.join("\n");
-  });
-
-  // 3) Geração de imagens — prefere OpenAI gpt-image. Retorno ALINHADO
-  // com `concepts` (mesmo índice) pra preservar a associação conceito↔imagem↔seção.
-  let urlsAligned: (string | null)[] = [];
-  if (isOpenAIImageConfigured()) {
-    urlsAligned = await generateAndUploadViaOpenAI(
-      promptsWithAnchor,
-      userId,
-      Array.isArray(body.referenceImages) ? body.referenceImages : [],
-    );
-  }
-
-  // Fallback Imagen quando OpenAI não configurado OU falhou completamente.
-  // Em chamada interna do worker NÃO há cookie de sessão, então
-  // `/api/ai/generate-images` (que valida auth via cookie) retornaria 401.
-  // Nesse caso pulamos o fallback e devolvemos imagens vazias — o card de
-  // resumo ainda aparece e user pode clicar "Gerar ilustrações" depois.
-  if (!urlsAligned.some(Boolean) && !isInternalCall) {
-    const origin = req.headers.get("x-forwarded-proto")
-      ? `${req.headers.get("x-forwarded-proto")}://${req.headers.get("host")}`
-      : `http://${req.headers.get("host")}`;
-    const cookieHeader = req.headers.get("cookie") ?? "";
-
-    const imagesResp = await fetch(`${origin}/api/ai/generate-images`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        cookie: cookieHeader,
-      },
-      body: JSON.stringify({
-        prompts: promptsWithAnchor,
-      }),
-    });
-
-    if (!imagesResp.ok) {
-      const errText = await imagesResp.text().catch(() => "");
-      console.error("[summary-images] generate-images failed", errText);
-      return Response.json(
-        { error: "Falha ao gerar imagens." },
-        { status: 502 },
-      );
-    }
-    const json = (await imagesResp.json()) as { urls?: string[] };
-    const fbUrls = json.urls ?? [];
-    urlsAligned = concepts.map((_, i) => fbUrls[i] ?? null);
-  }
-
-  // 4) Combinar URLs + captions/alts/sectionIndex, preservando o conceito.
+  // 6) Combina URLs + captions/alt/sectionIndex (1:1 com seções)
   const images: LectureSummaryImage[] = [];
-  concepts.forEach((c, i) => {
+  sections.forEach((s, i) => {
     const url = urlsAligned[i];
     if (!url) return;
     images.push({
       url,
-      alt: c.title ?? `Ilustração ${i + 1}`,
-      // Caption: anchor (trecho literal do resumo) > title se o LLM esqueceu.
-      caption: c.caption ?? c.anchor ?? c.title,
-      sectionIndex: typeof c.sectionIndex === "number" ? c.sectionIndex : null,
+      alt: s.title,
+      // Caption simples — primeira linha do corpo (ou título se vazio)
+      caption: s.title,
+      sectionIndex: i,
     });
   });
 
@@ -689,10 +430,7 @@ export async function POST(req: Request) {
     return Response.json({ images: [] });
   }
 
-  // 5) Salvar em summaries (source of truth) — markdown com imagens inline
-  // injetadas após cada ## H2 correspondente. /resumo renderiza
-  // generalSummary cru via ReactMarkdown, então sem isso as imagens só
-  // aparecem na galeria separada (SummaryImagesBlock), nunca inline.
+  // 7) Salvar em summaries (source of truth) — markdown com imagens inline
   const markdownWithImages = injectImagesIntoMarkdown(
     lectureSummary.generalSummary ?? "",
     images,
@@ -702,9 +440,6 @@ export async function POST(req: Request) {
     images,
     generalSummary: markdownWithImages,
   };
-  // Em chamada interna o admin client bypassa RLS; em chamada normal de
-  // user o supabase autenticado já tem RLS pra impor user_id correto.
-  // Filtra por lecture_id OU document_id conforme o caminho.
   const updateClient = isInternalCall ? createAdminClient() : supabase;
   const updateQ = updateClient
     .from("summaries")
@@ -716,12 +451,8 @@ export async function POST(req: Request) {
     await updateQ.eq("lecture_id", body.lectureId);
   }
 
-  // 6) Espelhar tudo em lectures.summary_educational — markdown injetado
-  // E array de images. Sem isso:
-  //  (a) se user deletar resumo na /resumos, a tela da aula perde imagens
-  //  (b) o /lecture renderiza markdown sem inline (depende da prop summaryImages)
-  // Mantendo o markdown atualizado, /lecture e /resumo ficam consistentes.
-  // Só faz sentido pro caminho lecture — PDF puro não tem lectures row.
+  // 8) Espelhar em lectures.summary_educational (mantém /lecture e /resumo
+  // consistentes). Só pro caminho lecture — PDF puro não tem lectures row.
   if (!useDocument) {
     try {
       const admin = createAdminClient();
@@ -751,7 +482,10 @@ export async function POST(req: Request) {
           .eq("id", body.lectureId);
       }
     } catch (err) {
-      console.warn("[summary-images] mirror to lectures.summary_educational failed", err);
+      console.warn(
+        "[summary-images] mirror to lectures.summary_educational failed",
+        err,
+      );
     }
   }
 

@@ -24,6 +24,11 @@ const PRICING: Record<string, PricingEntry> = {
   "gpt-image-1-high": { perImage: 0.167 },
   "gpt-image-1-landscape": { perImage: 0.063 }, // 1536x1024 medium
   "gpt-image-1-portrait": { perImage: 0.063 }, // 1024x1536 medium
+  // chatgpt-image-latest (high quality default no /api/ai/summary-images após
+  // refator 2026-05-31). Pricing estimado baseado em gpt-image-1 high
+  // (~$0.167/img). 3 imagens = ~$0.50/geração de resumo educacional.
+  "chatgpt-image-latest": { perImage: 0.167 },
+  "chatgpt-image-latest-landscape": { perImage: 0.167 },
   // OpenAI Embeddings — usado pelo RAG (indexação + busca semântica)
   "text-embedding-3-small": { inputPerMtok: 0.02 },
   "text-embedding-3-large": { inputPerMtok: 0.13 },
