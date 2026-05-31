@@ -339,7 +339,10 @@ function LumiAssistant({ user }: { user: User }) {
     const box = scrollRef.current;
     if (!box) return;
     box.scrollTop = box.scrollHeight;
-  }, [messages.length, sending]);
+    // Inclui streamingReply.length pra acompanhar o typewriter — sem essa dep
+    // o scroll só atualiza no início e no fim do stream, deixando o user
+    // sem ver o texto sendo escrito.
+  }, [messages.length, sending, streamingReply.length, streamingTools.length]);
 
   const streak = useMemo(() => calculateStreak(lectures), [lectures]);
 
