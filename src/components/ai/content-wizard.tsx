@@ -588,7 +588,9 @@ export function ContentWizard({
     const estMs =
       mode === "summary"
         ? withImages && imagesAvailable
-          ? 90_000
+          ? // chatgpt-image-latest é lento (10-20s × 4 imgs paralelas) + Haiku
+            // translate + Sonnet 4.6 markdown — soma fica ~150s na prática.
+            150_000
           : 45_000
         : // flashcards/quiz/mapa rodam no Haiku agora (~3-4x mais rápido)
           mode === "mindmap"
@@ -651,16 +653,21 @@ export function ContentWizard({
       });
     }, 400);
 
-    // Safety net mais agressivo: 3min absolutos (era 4x estMs = até 6min).
-    // Se passar disso sem terminar, fecha o toast e mostra erro — evita que
-    // o user fique olhando uma barra travada em 95% por minutos.
+    // Safety net: alinhado com maxDuration do backend.
+    //  - summary + imagens: backend = 240s (4 min) por causa do
+    //    chatgpt-image-latest. Usamos 270s pra dar respiro pra
+    //    persistência pós-API (insert summaries + lecture_assets).
+    //  - resto: 180s.
+    // Se passar disso sem terminar, fecha o toast e mostra erro.
+    const safetyMs =
+      mode === "summary" && withImages && imagesAvailable ? 270_000 : 180_000;
     const safetyTimer = setTimeout(() => {
       clearInterval(progressTimer);
       toast.dismiss("wizard-generation");
       toast.error(
         "A geração demorou demais. Se o resultado não apareceu, tenta de novo — os coins são reembolsados em falha.",
       );
-    }, 180_000);
+    }, safetyMs);
 
     // beforeunload: alerta nativo se o user tentar fechar/recarregar a aba
     // durante a geração. Não cobre navegação interna do Next (Link/router),
