@@ -45,6 +45,7 @@ import { cn } from "@/lib/utils";
 import { listSubjectsAsync, listLecturesAsync } from "@/lib/db";
 import { createDocumentAsync, listDocumentsAsync } from "@/lib/documents";
 import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
+import { suggestTitleFromFileName } from "@/lib/document-title";
 import type {
   Document,
   Lecture,
@@ -300,7 +301,7 @@ export function CreatePlanDialog({
         userId,
         subjectId,
         folderId: null,
-        title: file.name.replace(/\.pdf$/i, ""),
+        title: suggestTitleFromFileName(file.name),
         sourceKind: "pdf",
         sourceText: sourceText || undefined,
         pageCount,

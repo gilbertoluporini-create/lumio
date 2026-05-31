@@ -26,6 +26,7 @@ import { listFoldersBySubjectAsync } from "@/lib/folders";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import { cn } from "@/lib/utils";
 import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
+import { suggestTitleFromFileName } from "@/lib/document-title";
 import type { Folder, Subject } from "@/lib/types";
 
 /**
@@ -130,7 +131,7 @@ export function UploadDocumentDialog({
     }
     setFile(f);
     if (!title.trim()) {
-      setTitle(f.name.replace(/\.pdf$/i, ""));
+      setTitle(suggestTitleFromFileName(f.name));
     }
   }
 
@@ -156,7 +157,7 @@ export function UploadDocumentDialog({
         userId,
         subjectId: subjectId ?? null,
         folderId: subjectId ? folderId : null, // folder só faz sentido com subject
-        title: (title.trim() || file.name.replace(/\.pdf$/i, "")),
+        title: title.trim() || suggestTitleFromFileName(file.name),
         sourceKind: "pdf",
         sourceText: sourceText || undefined,
         pageCount,
