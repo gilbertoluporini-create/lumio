@@ -53,8 +53,16 @@ const IMAGE_SIZE = "1536x1024" as const;
 const RAW_PROMPT_MAX_CHARS = 600;
 const HAIKU_MODEL = "claude-haiku-4-5-20251001";
 
+/**
+ * `prompts` aceita 2 formas:
+ *  - `string[]` (compat antigo): cada item é só um título — sem contexto,
+ *    o modelo decora com anatomia genérica.
+ *  - `Array<{title, body}>` (novo, recomendado): title curto + body com
+ *    parágrafo da seção pra ancorar o que ilustrar (mecanismo real).
+ */
+type PromptInput = string | { title: string; body?: string };
 type Body = {
-  prompts: string[];
+  prompts: PromptInput[];
 };
 
 /**
@@ -128,12 +136,20 @@ async function translateHintsToEnglish(hints: string[]): Promise<string[]> {
 function buildPrompt(opts: { titleEn: string; bodyPt: string }): string {
   const trimmedBody = opts.bodyPt.trim().slice(0, RAW_PROMPT_MAX_CHARS);
   return [
-    `Generate a high-quality educational illustration showing: "${opts.titleEn}".`,
+    `Generate an educational infographic that EXPLAINS the mechanism of: "${opts.titleEn}".`,
     ``,
-    `Content context (Portuguese, for understanding only — do NOT include this text in the image):`,
+    `The image must VISUALLY EXPLAIN how this concept works — show the actual process, sequence, relationship, or cause-effect described in the context below. NOT a decorative collage of random body parts. If the topic is a process, show the steps with arrows. If it's a relationship (A causes B), show both sides clearly connected. If it's a structure, show the structure labeled.`,
+    ``,
+    `Content context (Portuguese, for YOUR understanding — do NOT copy these sentences into the image):`,
     trimmedBody,
     ``,
-    `Style: clean educational infographic, high-end Brazilian medical textbook figure. Use Portuguese (pt-BR) labels — short and informative, 1-3 words each. Aim for 4-8 labels distributed across the figure (anatomical parts, arrows with key terms, callouts pointing to structures). DO NOT write full sentences or paragraphs. ALL Portuguese words must be spelled CORRECTLY — common medical terms: gene, proteína, célula, núcleo, DNA, RNA, fenótipo, genótipo, alelo, cromossomo, mitocôndria, ribossomo, enzima. Prefer anatomical drawings, color coding, schematic flows, numbered steps. Latin anatomical names are also welcome (musculus, hepar, cor). NO English text. Aspect: 1536x1024 landscape.`,
+    `Style: clean educational infographic, high-end Brazilian medical textbook figure. Use Portuguese (pt-BR) labels ONLY — 1-3 words each, 4-8 labels distributed across the figure. NO English. NO Latin (write "fígado" not "hepar", "coração" not "cor", "músculo" not "musculus"). DO NOT write full sentences or paragraphs.`,
+    ``,
+    `Spelling: ALL Portuguese words must be spelled CORRECTLY with accents. Common terms to spell well: gene, proteína, célula, núcleo, DNA, RNA, fenótipo, genótipo, alelo, cromossomo, mitocôndria, ribossomo, enzima, fígado, coração, músculo, rim, pulmão, neurônio, sangue, hormônio, anticorpo, antígeno.`,
+    ``,
+    `Avoid: generic body silhouettes unless the topic IS about whole-body anatomy. Avoid random organs if the concept is molecular/genetic. Pick relevant visuals.`,
+    ``,
+    `Aspect: 1536x1024 landscape.`,
   ].join("\n");
 }
 
@@ -248,9 +264,25 @@ export async function POST(req: Request) {
     return Response.json({ error: "JSON inválido." }, { status: 400 });
   }
 
-  const prompts = Array.isArray(body.prompts) ? body.prompts : [];
-  const valid = prompts
-    .filter((p): p is string => typeof p === "string" && p.trim().length > 0)
+  // Normaliza ambos formatos pra {title, body}. Strings legacy viram
+  // {title: s, body: ""} — sem body o modelo decora, então quem chamar
+  // pelo formato antigo aceita o trade-off.
+  const rawPrompts = Array.isArray(body.prompts) ? body.prompts : [];
+  const valid = rawPrompts
+    .map((p): { title: string; body: string } | null => {
+      if (typeof p === "string") {
+        const t = p.trim();
+        return t.length > 0 ? { title: t, body: "" } : null;
+      }
+      if (p && typeof p === "object" && typeof p.title === "string") {
+        const t = p.title.trim();
+        if (!t) return null;
+        const b = typeof p.body === "string" ? p.body.trim() : "";
+        return { title: t, body: b };
+      }
+      return null;
+    })
+    .filter((p): p is { title: string; body: string } => p !== null)
     .slice(0, MAX_PROMPTS);
 
   if (valid.length === 0) {
@@ -276,12 +308,17 @@ export async function POST(req: Request) {
     const admin = createAdminClient();
     await ensureBucket(admin);
 
-    // 1) Traduz hints pt-BR → títulos técnicos EN (UMA call Haiku batch)
-    const titlesEn = await translateHintsToEnglish(valid);
+    // 1) Traduz só os titles pt-BR → títulos técnicos EN (UMA call Haiku batch)
+    const titlesPt = valid.map((v) => v.title);
+    const titlesEn = await translateHintsToEnglish(titlesPt);
 
-    // 2) Monta os prompts minimalistas
-    const finalPrompts = valid.map((rawPt, i) =>
-      buildPrompt({ titleEn: titlesEn[i] ?? rawPt, bodyPt: rawPt }),
+    // 2) Monta os prompts: title (EN, técnico, guia o modelo) + body (pt-BR,
+    //    contexto real da seção pra ancorar o que ilustrar).
+    const finalPrompts = valid.map((v, i) =>
+      buildPrompt({
+        titleEn: titlesEn[i] ?? v.title,
+        bodyPt: v.body || v.title,
+      }),
     );
 
     // 3) Gera em paralelo (chatgpt-image-latest é lento, ~10-20s cada)

@@ -143,12 +143,20 @@ async function translateTitlesToEnglish(titles: string[]): Promise<string[]> {
  */
 function buildPrompt(opts: { titleEn: string; bodyPt: string }): string {
   return [
-    `Generate a high-quality educational illustration showing: "${opts.titleEn}".`,
+    `Generate an educational infographic that EXPLAINS the mechanism of: "${opts.titleEn}".`,
     ``,
-    `Content context (Portuguese, for understanding only — do NOT include this text in the image):`,
+    `The image must VISUALLY EXPLAIN how this concept works — show the actual process, sequence, relationship, or cause-effect described in the context below. NOT a decorative collage of random body parts. If the topic is a process, show the steps with arrows. If it's a relationship (A causes B), show both sides clearly connected. If it's a structure, show the structure labeled.`,
+    ``,
+    `Content context (Portuguese, for YOUR understanding — do NOT copy these sentences into the image):`,
     opts.bodyPt,
     ``,
-    `Style: clean educational infographic, high-end Brazilian medical textbook figure. Use Portuguese (pt-BR) labels — short and informative, 1-3 words each. Aim for 4-8 labels distributed across the figure (anatomical parts, arrows with key terms, callouts pointing to structures). DO NOT write full sentences or paragraphs. ALL Portuguese words must be spelled CORRECTLY — common medical terms: gene, proteína, célula, núcleo, DNA, RNA, fenótipo, genótipo, alelo, cromossomo, mitocôndria, ribossomo, enzima. Prefer anatomical drawings, color coding, schematic flows, numbered steps. Latin anatomical names are also welcome (musculus, hepar, cor). NO English text. Aspect: 1536x1024 landscape.`,
+    `Style: clean educational infographic, high-end Brazilian medical textbook figure. Use Portuguese (pt-BR) labels ONLY — 1-3 words each, 4-8 labels distributed across the figure. NO English. NO Latin (write "fígado" not "hepar", "coração" not "cor", "músculo" not "musculus"). DO NOT write full sentences or paragraphs.`,
+    ``,
+    `Spelling: ALL Portuguese words must be spelled CORRECTLY with accents. Common terms to spell well: gene, proteína, célula, núcleo, DNA, RNA, fenótipo, genótipo, alelo, cromossomo, mitocôndria, ribossomo, enzima, fígado, coração, músculo, rim, pulmão, neurônio, sangue, hormônio, anticorpo, antígeno.`,
+    ``,
+    `Avoid: generic body silhouettes unless the topic IS about whole-body anatomy. Avoid random organs if the concept is molecular/genetic. Pick relevant visuals.`,
+    ``,
+    `Aspect: 1536x1024 landscape.`,
   ].join("\n");
 }
 

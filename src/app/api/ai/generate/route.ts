@@ -360,32 +360,80 @@ function totalSourceChars(sources: Sources): number {
 /* ------------------------------------------------------------------ */
 
 /**
- * Extrai 3-4 conceitos-chave do markdown — primeiro tenta [[termos]],
- * depois cabeçalhos H2.
+ * Conceito-chave + corpo de seção (pra dar contexto pro modelo de imagem
+ * gerar um infográfico do MECANISMO, não decoração genérica).
  */
-function extractImageConcepts(markdown: string, max: number = 2): string[] {
-  // Coleta candidatos: [[concept]] primeiro, depois títulos ## como fallback
-  const candidates: string[] = [];
-  const re = /\[\[([^\]]+)\]\]/g;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(markdown)) !== null) {
-    const term = m[1].trim();
-    if (term && term.length <= 80) candidates.push(term);
-  }
-  const h2Re = /^##\s+(.+)$/gm;
-  let h: RegExpExecArray | null;
-  while ((h = h2Re.exec(markdown)) !== null) {
-    const t = h[1]
+type ImageConcept = { title: string; body: string };
+
+/**
+ * Extrai 3-4 conceitos-chave do markdown. Para cada conceito:
+ *  - title: termo `[[bracketed]]` ou cabeçalho `## H2` limpo
+ *  - body: parágrafos abaixo do H2 correspondente (até o próximo H2),
+ *    truncado em ~500 chars. Pra `[[term]]`, busca o H2 imediatamente
+ *    acima como contexto.
+ *
+ * Sem body, o /api/ai/generate-images recebe só "Genótipos" — o modelo
+ * decora com órgãos aleatórios. Com body, ele entende que precisa ilustrar
+ * a relação DNA→RNA→proteína→fenótipo, p.ex.
+ */
+function extractImageConcepts(
+  markdown: string,
+  max: number = 2,
+): ImageConcept[] {
+  const lines = markdown.split("\n");
+  const h2Map: { title: string; startLine: number }[] = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = /^##\s+(.+)$/.exec(lines[i]);
+    if (!m) continue;
+    const t = m[1]
       .replace(/^\d+\.\s*/, "")
       .replace(/^Pontos-chave.*/i, "")
       .replace(/^Aplicação cl[ií]nica.*/i, "")
       .trim();
-    if (t && t.length <= 80) candidates.push(t);
+    if (t && t.length <= 80) h2Map.push({ title: t, startLine: i });
   }
 
-  // Dedup semântico: rejeita conceitos cujo texto (lowercase, sem palavras
-  // comuns) tenha >60% de overlap com algum já aceito. Evita "PCR" + "Reação
-  // em cadeia da polimerase" virarem 2 imagens visualmente iguais.
+  // Retorna corpo da seção (linhas entre startLine+1 e próximo H2)
+  const bodyForH2 = (idx: number): string => {
+    const start = h2Map[idx].startLine + 1;
+    const end =
+      idx + 1 < h2Map.length ? h2Map[idx + 1].startLine : lines.length;
+    return lines
+      .slice(start, end)
+      .join(" ")
+      .replace(/[#*_`>]/g, "")
+      .replace(/\[\[([^\]]+)\]\]/g, "$1")
+      .replace(/!\[[^\]]*\]\([^)]+\)/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 500);
+  };
+
+  // Candidatos: [[term]] (com body do H2 mais próximo acima) + H2s
+  const candidates: ImageConcept[] = [];
+  const re = /\[\[([^\]]+)\]\]/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(markdown)) !== null) {
+    const term = m[1].trim();
+    if (!term || term.length > 80) continue;
+    // Linha onde o [[term]] aparece
+    const charIdx = m.index;
+    const beforeText = markdown.slice(0, charIdx);
+    const lineIdx = beforeText.split("\n").length - 1;
+    // Acha H2 mais próximo acima
+    let nearestH2 = -1;
+    for (let k = 0; k < h2Map.length; k++) {
+      if (h2Map[k].startLine <= lineIdx) nearestH2 = k;
+      else break;
+    }
+    const body = nearestH2 >= 0 ? bodyForH2(nearestH2) : "";
+    candidates.push({ title: term, body });
+  }
+  for (let k = 0; k < h2Map.length; k++) {
+    candidates.push({ title: h2Map[k].title, body: bodyForH2(k) });
+  }
+
+  // Dedup semântico (mesmo algoritmo de antes, agora aplicado a .title)
   const STOPWORDS = new Set([
     "de", "da", "do", "e", "a", "o", "em", "no", "na", "que", "para",
     "com", "por", "um", "uma", "os", "as", "dos", "das",
@@ -399,10 +447,10 @@ function extractImageConcepts(markdown: string, max: number = 2): string[] {
         .split(/[^a-z0-9]+/)
         .filter((t) => t.length >= 3 && !STOPWORDS.has(t)),
     );
-  const accepted: { raw: string; tokens: Set<string> }[] = [];
+  const accepted: { c: ImageConcept; tokens: Set<string> }[] = [];
   for (const c of candidates) {
     if (accepted.length >= max) break;
-    const tokens = tokenize(c);
+    const tokens = tokenize(c.title);
     if (tokens.size === 0) continue;
     let dup = false;
     for (const a of accepted) {
@@ -413,17 +461,17 @@ function extractImageConcepts(markdown: string, max: number = 2): string[] {
         break;
       }
     }
-    if (!dup) accepted.push({ raw: c, tokens });
+    if (!dup) accepted.push({ c, tokens });
   }
-  return accepted.map((a) => a.raw);
+  return accepted.map((a) => a.c);
 }
 
 async function callImageEndpoint(
-  prompts: string[],
+  concepts: ImageConcept[],
   origin: string,
   cookie: string,
 ): Promise<string[]> {
-  if (prompts.length === 0) return [];
+  if (concepts.length === 0) return [];
   try {
     const resp = await fetch(`${origin}/api/ai/generate-images`, {
       method: "POST",
@@ -431,7 +479,9 @@ async function callImageEndpoint(
         "content-type": "application/json",
         cookie,
       },
-      body: JSON.stringify({ prompts }),
+      // Formato novo: objects com title+body. /api/ai/generate-images
+      // ainda aceita strings por compat caso outro caller chame.
+      body: JSON.stringify({ prompts: concepts }),
     });
     if (!resp.ok) {
       console.warn("[ai/generate] image endpoint non-ok", resp.status);
@@ -454,17 +504,19 @@ async function callImageEndpoint(
  */
 function injectImagesIntoMarkdown(
   markdown: string,
-  concepts: string[],
+  concepts: ImageConcept[],
   urls: string[],
 ): string {
   if (urls.length === 0) return markdown;
 
+  const titleOf = (i: number): string =>
+    concepts[i]?.title ?? `Ilustração ${i + 1}`;
+
   // 1ª imagem: após H1
   const firstImage = urls[0];
-  const firstConcept = concepts[0] ?? "Ilustração";
   let out = markdown.replace(
     /^(# .+)$/m,
-    `$1\n\n![${firstConcept}](${firstImage})`,
+    `$1\n\n![${titleOf(0)}](${firstImage})`,
   );
 
   if (urls.length <= 1) return out;
@@ -478,8 +530,7 @@ function injectImagesIntoMarkdown(
   // Sem H2 nenhum: espalha as restantes com espaçamento entre si no fim
   if (h2LineIndexes.length === 0) {
     for (let i = 1; i < urls.length; i++) {
-      const c = concepts[i] ?? `Ilustração ${i + 1}`;
-      lines.push("", `![${c}](${urls[i]})`, "");
+      lines.push("", `![${titleOf(i)}](${urls[i]})`, "");
     }
     return lines.join("\n");
   }
@@ -487,11 +538,11 @@ function injectImagesIntoMarkdown(
   // Fase 1: tenta match semântico H2 ↔ conceito
   type Plan = { lineIdx: number; concept: string; url: string };
   const plans: Plan[] = [];
-  const usedH2 = new Set<number>(); // índices dentro de h2LineIndexes (não linhas)
-  const unplanned: number[] = []; // índices em urls (1..N-1) que não casaram
+  const usedH2 = new Set<number>();
+  const unplanned: number[] = [];
 
   for (let i = 1; i < urls.length; i++) {
-    const c = concepts[i] ?? `Ilustração ${i + 1}`;
+    const c = titleOf(i);
     const lowerC = c.toLowerCase();
     let matchedH2 = -1;
     if (lowerC.length >= 4) {
@@ -522,17 +573,15 @@ function injectImagesIntoMarkdown(
     .filter((k) => !usedH2.has(k));
   for (let u = 0; u < unplanned.length; u++) {
     if (freeH2s.length === 0) {
-      // Sem H2 livre: pisa em H2 já usado em rotação (raríssimo)
       const fallbackK = u % h2LineIndexes.length;
       const i = unplanned[u];
       plans.push({
         lineIdx: h2LineIndexes[fallbackK],
-        concept: concepts[i] ?? `Ilustração ${i + 1}`,
+        concept: titleOf(i),
         url: urls[i],
       });
       continue;
     }
-    // Espaçamento uniforme: divide H2s livres em buckets iguais
     const slot = Math.min(
       Math.floor((u + 0.5) * freeH2s.length / unplanned.length),
       freeH2s.length - 1,
@@ -541,13 +590,12 @@ function injectImagesIntoMarkdown(
     const i = unplanned[u];
     plans.push({
       lineIdx: h2LineIndexes[h2k],
-      concept: concepts[i] ?? `Ilustração ${i + 1}`,
+      concept: titleOf(i),
       url: urls[i],
     });
     freeH2s.splice(slot, 1);
   }
 
-  // Insere em ordem DESC pra não invalidar índices
   plans.sort((a, b) => b.lineIdx - a.lineIdx);
   for (const p of plans) {
     lines.splice(p.lineIdx + 1, 0, "", `![${p.concept}](${p.url})`, "");
@@ -858,19 +906,22 @@ export async function POST(req: Request) {
       }
 
       if (withImages && (mode === "flashcards" || mode === "quiz")) {
-        // Pega 3 conceitos das primeiras perguntas
+        // Pega 3 conceitos das primeiras perguntas. Title = question, body
+        // = answer/explanation curta pra dar contexto ao modelo de imagem.
         const items = (parsed as Record<string, unknown>)[
           mode === "flashcards" ? "cards" : "questions"
         ];
-        const concepts: string[] = [];
+        const concepts: ImageConcept[] = [];
         if (Array.isArray(items)) {
           for (const item of items.slice(0, 3)) {
-            if (item && typeof item === "object") {
-              const q = (item as Record<string, unknown>).question;
-              if (typeof q === "string" && q.trim().length > 0) {
-                concepts.push(q.trim().slice(0, 120));
-              }
-            }
+            if (!item || typeof item !== "object") continue;
+            const o = item as Record<string, unknown>;
+            const title = typeof o.question === "string" ? o.question.trim().slice(0, 120) : "";
+            if (!title) continue;
+            const rawBody =
+              (typeof o.answer === "string" ? o.answer : "") ||
+              (typeof o.explanation === "string" ? o.explanation : "");
+            concepts.push({ title, body: rawBody.trim().slice(0, 400) });
           }
         }
         if (concepts.length > 0) {
@@ -887,8 +938,21 @@ export async function POST(req: Request) {
         if (typeof central === "string" && central.trim().length > 0) {
           const origin = new URL(req.url).origin;
           const cookie = req.headers.get("cookie") ?? "";
+          // Body: pega títulos dos 4 primeiros branches como contexto.
+          const branches = (parsed as { branches?: unknown }).branches;
+          let body = "";
+          if (Array.isArray(branches)) {
+            const titles: string[] = [];
+            for (const b of branches.slice(0, 4)) {
+              if (b && typeof b === "object") {
+                const t = (b as Record<string, unknown>).title;
+                if (typeof t === "string") titles.push(t);
+              }
+            }
+            body = titles.join(", ").slice(0, 400);
+          }
           imageUrls = await callImageEndpoint(
-            [central.trim().slice(0, 160)],
+            [{ title: central.trim().slice(0, 160), body }],
             origin,
             cookie,
           );
