@@ -1234,19 +1234,12 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 </div>
               )}
 
-              {/* CTAs — mesmos handlers do card "Próximas ações" embaixo, sempre visíveis. */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 xl:flex-1">
+              {/* CTAs — resumo educativo (18c) fica no card embaixo;
+                  o quick summary (/api/correlate, 14c) foi removido daqui
+                  pra não confundir com o educativo nem oferecer um produto
+                  de qualidade inferior. */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 xl:flex-1">
               {[
-                {
-                  id: "summary" as const,
-                  label:
-                    summary || lecture.summaryEducational
-                      ? "Regerar resumo"
-                      : "Gerar resumo",
-                  icon: FileText,
-                  cost: COIN_COSTS.summary,
-                  iconColor: "text-violet-500",
-                },
                 {
                   id: "flashcards" as const,
                   label: "Criar flashcards",

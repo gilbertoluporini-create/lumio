@@ -1,11 +1,14 @@
 "use client";
 
 import { createElement } from "react";
-import { Brain, Coins, FileText, HelpCircle, Layers, Loader2, type LucideIcon } from "lucide-react";
+import { Brain, Coins, HelpCircle, Layers, Loader2, type LucideIcon } from "lucide-react";
 import { COIN_COSTS } from "@/lib/coins-pricing";
 
 export type NextActionId = "summary" | "flashcards" | "quiz" | "mindmap";
 
+// "summary" foi removido daqui — quick summary (/api/correlate) tinha
+// qualidade ruim e confundia com o resumo educativo. Só o educativo
+// (botão dedicado na aba Resumo) sobrou.
 const ACTIONS: {
   id: NextActionId;
   label: string;
@@ -13,7 +16,6 @@ const ACTIONS: {
   color: string;
   cost: number;
 }[] = [
-  { id: "summary", label: "Gerar resumo", icon: FileText, color: "text-violet-500", cost: COIN_COSTS.summary },
   { id: "flashcards", label: "Criar flashcards", icon: Layers, color: "text-emerald-500", cost: COIN_COSTS.flashcards },
   { id: "quiz", label: "Gerar quiz", icon: HelpCircle, color: "text-amber-500", cost: COIN_COSTS.quiz },
   { id: "mindmap", label: "Mapa mental", icon: Brain, color: "text-rose-500", cost: COIN_COSTS.mindmap },
