@@ -219,12 +219,14 @@ REGRA DE FIDELIDADE (a mais importante):
 - Se a seção fala de eixo hipotálamo-hipófise-tireoide com feedback negativo, NÃO desenhe uma tireoide solta sem o eixo.
 - Se você não consegue extrair um trecho-âncora claro de uma seção, escolha outra seção. Melhor menos imagens fiéis do que mais imagens descoladas.
 
-LABELS NA IMAGEM (permitidos, com cuidado):
-- Labels são bem-vindos quando ajudam a compreensão. Curtos (1-3 palavras) e em pt-BR.
-- Se tiver dúvida da grafia/acentuação pt-BR, prefira abreviações universais (ALT, AST, NH3, ATP, DNA, RNA, ECG) ou omita aquele label específico.
-- NUNCA escreva frases completas, parágrafos, captions, instruções ou descrições dentro da imagem. Espanhol nunca.
+LABELS NA IMAGEM (regra apertada — texto em imagem IA quase sempre vira lixo):
+- DEFAULT: NÃO peça labels. Peça uma cena que comunique tudo visualmente (cor, posição, setas, formas, ícones anatômicos).
+- SÓ peça label se a estrutura for indistinguível sem ele (ex: dois hormônios idênticos onde um é FSH e outro LH). Mesmo aí: máx 2 labels, 1 palavra cada.
+- Abreviações universais OK quando essenciais: DNA, RNA, ATP, NH3, H2O, CO2, pH, ECG, ALT, AST, nomes latinos anatômicos.
+- PROIBIDO no prompt: pedir "with labeled diagram", "annotated", "with captions", frases pt-BR com acento (ã/ç/ó/é/ê), legendas, títulos dentro da imagem, parágrafos, balões de fala, bandeiras, qualquer texto em espanhol.
+- Em vez de "labeled hypothalamus, pituitary, gonads" prefira "anatomically positioned hypothalamus above pituitary connected by stalk, gonads below — distinguished by color, no labels".
 
-EVITE SEMPRE: estética exagerada/futurista, "student studying", livros genéricos, laptop, pessoa olhando tela, ícones soltos, stock photo, mascote, collage sem hierarquia, texto longo, parágrafos, balões de fala, bandeiras, qualquer palavra em espanhol. Em temas médicos/biológicos, NÃO mostre fluidos corporais caindo em copos, tubos, beakers ou recipientes; represente excreção/transporte de forma limpa e esquemática com setas, vias anatômicas e ícones.
+EVITE SEMPRE: estética exagerada/futurista, "student studying", livros genéricos, laptop, pessoa olhando tela, ícones soltos, stock photo, mascote, collage sem hierarquia, texto longo, parágrafos, balões de fala, bandeiras. Em temas médicos/biológicos, NÃO mostre fluidos corporais caindo em copos, tubos, beakers ou recipientes; represente excreção/transporte de forma limpa e esquemática com setas, vias anatômicas e ícones.
 
 SEÇÕES DO RESUMO (você DEVE escolher uma destas):
 ${sectionsList}
