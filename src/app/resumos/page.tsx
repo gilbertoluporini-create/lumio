@@ -384,7 +384,10 @@ function ResumosView({ user }: { user: User }) {
           subjectId: sm.subjectId || lec?.subjectId || "",
           updatedAt: sm.updatedAt || lec?.updatedAt || sm.createdAt,
           origin: "lecture" as const,
-          href: `/resumo/${sm.source.lectureId}`,
+          // Vai direto pra tela canônica (esqueleto unificado). A rota
+          // antiga /resumo/[lectureId] também redireciona, mas evitamos
+          // o pulo extra aqui.
+          href: `/lecture/${sm.source.lectureId}?tab=summary`,
           lectureHref: `/lecture/${sm.source.lectureId}`,
           durationSec: lec?.durationSec ?? 0,
           fromStudyPlan,
@@ -875,6 +878,12 @@ function FeaturedSummaryCard({
             >
               {fromLecture ? "De aula" : "De documento"}
             </span>
+            {item.fromStudyPlan === true && (
+              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <Target className="h-3 w-3" />
+                Do plano
+              </span>
+            )}
           </div>
 
           <Link href={href} className="block group mt-3">
@@ -1078,13 +1087,10 @@ function SummaryTableRow({
               {fromLecture ? "De aula" : "De documento"}
             </span>
             {item.fromStudyPlan === true && (
-              <Badge
-                variant="secondary"
-                className="gap-1 bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20 text-[10px] font-mono uppercase tracking-wider"
-              >
-                <Target className="h-3 w-3" />
+              <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400">
+                <Target className="h-2.5 w-2.5" />
                 Do plano
-              </Badge>
+              </span>
             )}
             {/* Em mobile mostra matéria + data inline */}
             <span className="md:hidden text-xs text-muted-foreground truncate">
