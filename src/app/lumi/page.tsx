@@ -1158,11 +1158,10 @@ function LumiAssistant({ user }: { user: User }) {
 
       {/* Header de ações — desktop only. No mobile o único cabeçalho é o do
           app-shell (topo global); o chat ocupa a tela toda, só as mensagens rolam.
-          Fundo OPACO + sombra leve — antes era bg-background/85 + backdrop-blur
-          (semi-transparente), o que deixava as bolhas do chat "vazarem"
-          visualmente quando rolavam atrás do header. z-30 garante que fica
-          sempre acima do scroll area do chat. */}
-      <div className="hidden md:block sticky top-[60px] z-30 -mx-4 lg:-mx-8 mb-4 border-b border-border/60 bg-background px-4 lg:px-8 py-3 shadow-sm">
+          Fundo OPACO + sombra leve — bolhas do chat não vazam atrás.
+          Versão compacta: py-1.5 + botões h-7 (antes py-3 + py-1.5/px-4 grandões
+          dobravam a altura do header sem necessidade). */}
+      <div className="hidden md:block sticky top-[60px] z-30 -mx-4 lg:-mx-8 mb-3 border-b border-border/60 bg-background px-4 lg:px-8 py-1.5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           {/* Left: context picker (kept) */}
           <div className="hidden md:flex">
@@ -1174,19 +1173,19 @@ function LumiAssistant({ user }: { user: User }) {
             />
           </div>
 
-          {/* Center: Chat / Voice toggle */}
+          {/* Center: Chat / Voice toggle — compacto */}
           <div className="flex flex-1 justify-center md:flex-none">
-            <div className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/60 p-1 backdrop-blur">
+            <div className="inline-flex items-center gap-0.5 rounded-full border border-border/60 bg-secondary/60 p-0.5">
               <button
                 type="button"
                 onClick={handleChatModeToggle}
                 className={
                   !voiceMode
-                    ? "inline-flex items-center gap-1.5 rounded-full bg-card px-4 py-1.5 text-xs font-medium text-foreground shadow-sm"
-                    : "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    ? "inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1 text-xs font-medium text-foreground shadow-sm"
+                    : "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 }
               >
-                <MessageSquare className="h-3.5 w-3.5" />
+                <MessageSquare className="h-3 w-3" />
                 Chat
               </button>
               <button
@@ -1194,27 +1193,27 @@ function LumiAssistant({ user }: { user: User }) {
                 onClick={handleVoiceModeToggle}
                 className={
                   voiceMode
-                    ? "inline-flex items-center gap-1.5 rounded-full bg-card px-4 py-1.5 text-xs font-medium text-foreground shadow-sm"
-                    : "inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    ? "inline-flex items-center gap-1.5 rounded-full bg-card px-3 py-1 text-xs font-medium text-foreground shadow-sm"
+                    : "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
                 }
               >
-                <Mic className="h-3.5 w-3.5" />
-                Modo de Voz
+                <Mic className="h-3 w-3" />
+                Voz
               </button>
             </div>
           </div>
 
-          {/* Right cluster */}
+          {/* Right cluster — compacto */}
           <div className="flex items-center gap-1.5">
-            <div className="hidden sm:inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/40 px-2.5 py-1 text-[11px] font-medium text-foreground">
+            <div className="hidden sm:inline-flex items-center gap-1 rounded-full border border-border/60 bg-secondary/40 px-2 py-0.5 text-[11px] font-medium text-foreground">
               <Flame className="h-3 w-3 text-primary" />
               <span className="tabular-nums">{streakCount}</span>
             </div>
             <Link
               href="/account/billing"
-              className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary/60"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border/60 bg-card px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-secondary/60"
             >
-              <Gift className="h-3.5 w-3.5 text-primary" />
+              <Gift className="h-3 w-3 text-primary" />
               Lumi Pro
             </Link>
           </div>
