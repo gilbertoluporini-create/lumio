@@ -76,6 +76,60 @@ export async function getDocumentAsync(
   }
 }
 
+/**
+ * Normaliza título pra comparação em dedup. Remove extensão .pdf no fim,
+ * espaços duplicados e caps. Mantém acentos e caracteres.
+ */
+function normalizeDocTitleForDedup(title: string): string {
+  return title
+    .trim()
+    .replace(/\.pdf$/i, "")
+    .replace(/\s+/g, " ")
+    .toLocaleLowerCase("pt-BR");
+}
+
+/**
+ * Busca um documento PDF/text já existente do user com mesmo título
+ * normalizado (e mesma matéria, se informada). Usado pra evitar duplicatas
+ * quando o user re-sobe o mesmo PDF (ex: o wizard de "Gerar resumo com IA"
+ * antes não checava e criava row nova a cada upload).
+ *
+ * Retorna o mais recente match ou null.
+ */
+export async function findExistingDocumentByTitleAsync(input: {
+  userId: string;
+  subjectId: string | null;
+  title: string;
+}): Promise<Document | null> {
+  if (!isSupabaseConfigured()) return null;
+  const target = normalizeDocTitleForDedup(input.title);
+  if (!target) return null;
+  try {
+    const supabase = createClient();
+    let query = supabase
+      .from("documents")
+      .select(DOCUMENT_COLS)
+      .eq("user_id", input.userId)
+      .order("created_at", { ascending: false });
+    if (input.subjectId) query = query.eq("subject_id", input.subjectId);
+    const { data, error } = await query;
+    if (error) {
+      console.error("[documents] dedup lookup failed", error);
+      return null;
+    }
+    for (const row of (data ?? []) as DocumentRow[]) {
+      const t = row.title ?? "";
+      if (normalizeDocTitleForDedup(t) === target) {
+        return rowToDocument(row);
+      }
+    }
+    return null;
+  } catch (err) {
+    console.error("[documents] dedup query threw", err);
+    return null;
+  }
+}
+
 export async function createDocumentAsync(input: {
   userId: string;
   subjectId: string | null;

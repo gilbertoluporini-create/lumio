@@ -65,6 +65,7 @@ import {
 } from "@/lib/summaries";
 import {
   createDocumentAsync,
+  findExistingDocumentByTitleAsync,
   listDocumentsAsync,
   updateDocumentAsync,
 } from "@/lib/documents";
@@ -865,18 +866,33 @@ export function ContentWizard({
             uploadedPdfs.length === 1
               ? uploadedPdfs[0].name.replace(/\.pdf$/i, "")
               : title;
-          const doc = await createDocumentAsync({
+          // Dedup: re-subir o mesmo PDF pelo wizard antes criava row nova
+          // toda vez. Agora reaproveita o existente quando título normalizado
+          // bate (mesma matéria).
+          const existingDoc = await findExistingDocumentByTitleAsync({
             userId,
             subjectId,
             title: docTitle,
-            sourceKind: "pdf",
-            sourceText: pdfTexts.join("\n\n---\n\n"),
-            pageCount: pageCount > 0 ? pageCount : undefined,
           });
+          const doc =
+            existingDoc ??
+            (await createDocumentAsync({
+              userId,
+              subjectId,
+              title: docTitle,
+              sourceKind: "pdf",
+              sourceText: pdfTexts.join("\n\n---\n\n"),
+              pageCount: pageCount > 0 ? pageCount : undefined,
+            }));
           if (!doc) {
             cancelProgress();
             toast.error("Falha ao salvar documento.");
             return;
+          }
+          if (existingDoc) {
+            toast.info(
+              `Já existia "${existingDoc.title}" — usando o mesmo documento.`,
+            );
           }
 
           // Sobe PDF(s) binários pro Storage e atualiza source_url.
@@ -993,19 +1009,33 @@ export function ContentWizard({
             for (const p of uploadedPdfs) {
               try {
                 const docTitle = p.name.replace(/\.pdf$/i, "");
-                const docCreated = await withTimeout(
-                  createDocumentAsync({
+                // Dedup: reaproveita documento existente (mesma matéria,
+                // mesmo título normalizado) em vez de duplicar.
+                const existingDocLoop =
+                  await findExistingDocumentByTitleAsync({
                     userId,
                     subjectId,
                     title: docTitle,
-                    sourceKind: "pdf",
-                    sourceText: p.text,
-                    pageCount: p.pages,
-                  }),
-                  20_000,
-                  `createDocument:${docTitle}`,
-                );
+                  });
+                const docCreated =
+                  existingDocLoop ??
+                  (await withTimeout(
+                    createDocumentAsync({
+                      userId,
+                      subjectId,
+                      title: docTitle,
+                      sourceKind: "pdf",
+                      sourceText: p.text,
+                      pageCount: p.pages,
+                    }),
+                    20_000,
+                    `createDocument:${docTitle}`,
+                  ));
                 if (!docCreated) continue;
+                if (existingDocLoop) {
+                  // Pula upload de Storage pro existente — arquivo já está lá.
+                  continue;
+                }
                 // Sobe o PDF binário pro Storage pra visualização inline.
                 // Timeout 30s — em redes ruins o SDK pendura sem rejeitar.
                 const storageKey = `${userId}/${docCreated.id}.pdf`;

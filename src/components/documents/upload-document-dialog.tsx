@@ -21,7 +21,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { createDocumentAsync } from "@/lib/documents";
+import {
+  createDocumentAsync,
+  findExistingDocumentByTitleAsync,
+} from "@/lib/documents";
 import { listFoldersBySubjectAsync } from "@/lib/folders";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import { cn } from "@/lib/utils";
@@ -139,12 +142,27 @@ export function UploadDocumentDialog({
     if (!file) return;
     setUploading(true);
     try {
+      const finalTitle = title.trim() || suggestTitleFromFileName(file.name);
+      // Dedup: se já existe doc com mesmo título normalizado na mesma matéria,
+      // reaproveita em vez de duplicar (caso comum: user re-sobe mesmo PDF
+      // pela aba Documentos depois de já ter subido pelo wizard, etc).
+      const existing = await findExistingDocumentByTitleAsync({
+        userId,
+        subjectId: subjectId ?? null,
+        title: finalTitle,
+      });
+      if (existing) {
+        toast.info(`Já existe "${existing.title}" na biblioteca — reaproveitei.`);
+        onUploaded?.();
+        onOpenChange(false);
+        return;
+      }
       // 1) Cria document row stub (sem text/pages ainda).
       const doc = await createDocumentAsync({
         userId,
         subjectId: subjectId ?? null,
         folderId: subjectId ? folderId : null, // folder só faz sentido com subject
-        title: title.trim() || suggestTitleFromFileName(file.name),
+        title: finalTitle,
         sourceKind: "pdf",
       });
       if (!doc) {

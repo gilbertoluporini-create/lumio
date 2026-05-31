@@ -43,7 +43,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { listSubjectsAsync, listLecturesAsync } from "@/lib/db";
-import { createDocumentAsync, listDocumentsAsync } from "@/lib/documents";
+import {
+  createDocumentAsync,
+  findExistingDocumentByTitleAsync,
+  listDocumentsAsync,
+} from "@/lib/documents";
 import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
 import { suggestTitleFromFileName } from "@/lib/document-title";
 import type {
@@ -417,12 +421,32 @@ export function CreatePlanDialog({
     setUploadPhase("uploading");
     setUploadProgress(0);
     try {
+      const docTitleNew = suggestTitleFromFileName(file.name);
+      // Dedup: se já existe doc com mesmo título normalizado na matéria,
+      // reaproveita em vez de duplicar.
+      const existingDoc = await findExistingDocumentByTitleAsync({
+        userId,
+        subjectId,
+        title: docTitleNew,
+      });
+      if (existingDoc) {
+        toast.info(`Já existia "${existingDoc.title}" — usando o mesmo.`);
+        // Mesmo fluxo do upload novo: adiciona à lista + seleciona automaticamente.
+        setDocuments((prev) =>
+          prev.some((d) => d.id === existingDoc.id) ? prev : [existingDoc, ...prev],
+        );
+        togglePick("doc", existingDoc.id, existingDoc.title);
+        setUploadingPdf(false);
+        setUploadPhase(null);
+        setUploadProgress(0);
+        return;
+      }
       // 1) Cria document row stub (text/pages preenchidos depois da extração).
       const doc = await createDocumentAsync({
         userId,
         subjectId,
         folderId: null,
-        title: suggestTitleFromFileName(file.name),
+        title: docTitleNew,
         sourceKind: "pdf",
       });
       if (!doc) {

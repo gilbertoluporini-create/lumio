@@ -58,7 +58,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { listSubjectsAsync } from "@/lib/db";
-import { createDocumentAsync } from "@/lib/documents";
+import {
+  createDocumentAsync,
+  findExistingDocumentByTitleAsync,
+} from "@/lib/documents";
 import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 import {
   addItemAsync,
@@ -369,11 +372,40 @@ function PlanoView({ user }: { user: User }) {
       }
       const toastId = toast.loading("Anexando PDF…");
       try {
+        const docTitle = item.title || file.name.replace(/\.pdf$/i, "");
+        // Dedup: se já existe doc com mesmo título na matéria, reaproveita.
+        const existing = await findExistingDocumentByTitleAsync({
+          userId: user.id,
+          subjectId: plan.subjectId,
+          title: docTitle,
+        });
+        if (existing) {
+          // Pula upload de Storage (arquivo já está lá). Só linka o item da
+          // trilha ao doc existente.
+          await updateItemAsync(item.id, {
+            assetId: existing.id,
+            status: "done",
+          });
+          setItems((prev) =>
+            prev.map((i) =>
+              i.id === item.id
+                ? {
+                    ...i,
+                    assetId: existing.id,
+                    status: "done",
+                    completedAt: new Date().toISOString(),
+                  }
+                : i,
+            ),
+          );
+          toast.success(`Reaproveitei "${existing.title}".`, { id: toastId });
+          return;
+        }
         // Cria document primeiro (sem texto — extração via index roda em bg).
         const doc = await createDocumentAsync({
           userId: user.id,
           subjectId: plan.subjectId,
-          title: item.title || file.name.replace(/\.pdf$/i, ""),
+          title: docTitle,
           sourceKind: "pdf",
           sourceText: "",
           pageCount: undefined,
