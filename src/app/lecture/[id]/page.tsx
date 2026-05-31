@@ -654,7 +654,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       return;
     }
     setGeneratingEducational(true);
-    const t = toast.loading("Gerando resumo educativo (pode levar 1-2 min)...");
+    const t = toast.loading(
+      "Gerando resumo educativo + ilustrações (pode levar 2-3 min)...",
+    );
     try {
       const res = await fetch(
         `/api/lectures/${lecture.id}/educational-summary`,
@@ -676,19 +678,24 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       setLecture((prev) =>
         prev ? { ...prev, summaryEducational: data.summaryEducational } : prev,
       );
-      toast.success("Resumo educativo gerado. Imagens em andamento...", { id: t });
-      // Re-puxa o summary do banco pra capturar as imagens geradas pelo
-      // fire-and-forget de /api/ai/summary-images (chega ~20-40s depois).
+      // Backend agora aguarda summary-images antes de responder.
+      // Re-puxa o summary do banco pra trazer as imagens já salvas.
       if (lecture?.id) {
-        setTimeout(async () => {
-          const sm = await getSummaryByLectureIdAsync(user.id, lecture.id);
-          if (sm?.content) {
-            setSummary({
-              ...sm.content,
-              images: sm.images ?? sm.content.images,
-            });
-          }
-        }, 25_000);
+        const sm = await getSummaryByLectureIdAsync(user.id, lecture.id);
+        if (sm?.content) {
+          setSummary({
+            ...sm.content,
+            images: sm.images ?? sm.content.images,
+          });
+        }
+      }
+      if (data.imagesGenerated) {
+        toast.success("Resumo educativo + ilustrações prontas.", { id: t });
+      } else {
+        toast.success(
+          "Resumo educativo gerado (sem ilustrações — clique em 'Gerar ilustrações' na /resumo se quiser).",
+          { id: t, duration: 6000 },
+        );
       }
     } catch (err) {
       toast.error(`Erro: ${(err as Error).message}`, { id: t });

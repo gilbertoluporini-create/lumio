@@ -185,6 +185,56 @@ function sectionTitlesFromMarkdown(
   return titles;
 }
 
+/**
+ * Injeta `![alt](url)` + caption inline no markdown, logo após o `## H2`
+ * correspondente ao sectionIndex de cada imagem. Sem isso, /resumo renderiza
+ * o markdown sem imagens (só a galeria separada do SummaryImagesBlock).
+ * Imagens sem sectionIndex válido viram galeria no final.
+ */
+function injectImagesIntoMarkdown(
+  markdown: string,
+  images: LectureSummaryImage[],
+): string {
+  if (!images || images.length === 0) return markdown;
+  const lines = markdown.split("\n");
+  const h2Indexes = lines
+    .map((line, index) => ({ line, index }))
+    .filter((item) => item.line.startsWith("## "));
+
+  let offset = 0;
+  const used = new Set<number>();
+  for (let i = 0; i < images.length; i++) {
+    const img = images[i];
+    if (typeof img.sectionIndex !== "number") continue;
+    const target = h2Indexes[img.sectionIndex];
+    if (!target) continue;
+    const insertAt = target.index + 1 + offset;
+    const insertLines = [
+      "",
+      `![${img.alt || img.caption || "Ilustração"}](${img.url})`,
+    ];
+    if (img.caption) insertLines.push(`*${img.caption}*`);
+    insertLines.push("");
+    lines.splice(insertAt, 0, ...insertLines);
+    offset += insertLines.length;
+    used.add(i);
+  }
+
+  // Sem sectionIndex válido: galeria no final do markdown
+  const leftovers = images.filter((_, i) => !used.has(i));
+  if (leftovers.length > 0) {
+    lines.push("", "---", "");
+    for (const img of leftovers) {
+      lines.push(
+        `![${img.alt || img.caption || "Ilustração"}](${img.url})`,
+        img.caption ? `*${img.caption}*` : "",
+        "",
+      );
+    }
+  }
+  return lines.join("\n");
+}
+
 async function extractVisualConcepts(
   ctx: SourceContext,
 ): Promise<ConceptExtraction> {
@@ -510,10 +560,18 @@ export async function POST(req: Request) {
     return Response.json({ images: [] });
   }
 
-  // 5) Salvar em summaries (source of truth)
+  // 5) Salvar em summaries (source of truth) — markdown com imagens inline
+  // injetadas após cada ## H2 correspondente. /resumo renderiza
+  // generalSummary cru via ReactMarkdown, então sem isso as imagens só
+  // aparecem na galeria separada (SummaryImagesBlock), nunca inline.
+  const markdownWithImages = injectImagesIntoMarkdown(
+    lectureSummary.generalSummary ?? "",
+    images,
+  );
   const updatedSummary: LectureSummary = {
     ...lectureSummary,
     images,
+    generalSummary: markdownWithImages,
   };
   await supabase
     .from("summaries")
@@ -521,11 +579,11 @@ export async function POST(req: Request) {
     .eq("lecture_id", body.lectureId)
     .eq("user_id", user.id);
 
-  // 6) Espelhar imagens em lectures.summary_educational.images.
-  // Sem isso, se o user deletar o resumo na /resumos, a aula perde as imagens
-  // mas o markdown sobrevive (vive em lectures.summary_educational.markdown)
-  // — resulta em resumo educativo "pelado" no /lecture/[id]. Espelhando
-  // garantimos que a tela da aula nunca perde as imagens.
+  // 6) Espelhar tudo em lectures.summary_educational — markdown injetado
+  // E array de images. Sem isso:
+  //  (a) se user deletar resumo na /resumos, a tela da aula perde imagens
+  //  (b) o /lecture renderiza markdown sem inline (depende da prop summaryImages)
+  // Mantendo o markdown atualizado, /lecture e /resumo ficam consistentes.
   try {
     const admin = createAdminClient();
     const { data: lecRow } = await admin
@@ -538,11 +596,16 @@ export async function POST(req: Request) {
         | { markdown?: string; generatedAt?: string; images?: unknown }
         | null) ?? null;
     if (existingEdu?.markdown) {
+      const eduMarkdownWithImages = injectImagesIntoMarkdown(
+        existingEdu.markdown,
+        images,
+      );
       await admin
         .from("lectures")
         .update({
           summary_educational: {
             ...existingEdu,
+            markdown: eduMarkdownWithImages,
             images,
           },
         })

@@ -243,10 +243,11 @@ export async function POST(
       });
     }
 
-    // Fire-and-forget images. Se a aula tem slides com imageDataUrl, manda
-    // como referenceImages pra entrar no caminho /v1/images/edits do
-    // summary-images — assim aulas com slides geram imagens com o mesmo
-    // estilo das imagens do wizard (resumo via PDF).
+    // Aguarda summary-images terminar (não é mais fire-and-forget — Vercel
+    // mata a função antes do dispatch completar quando keepalive não cumpre).
+    // Se aula tem slides com imageDataUrl, manda como referenceImages pra
+    // entrar no caminho /v1/images/edits — gera imagens com mesmo estilo
+    // das imagens do wizard (resumo via PDF).
     type SlideRow = {
       pageNumber?: number;
       title?: string;
@@ -262,21 +263,45 @@ export async function POST(
         dataUrl: s.imageDataUrl as string,
       }));
 
-    void fetch(new URL("/api/ai/summary-images", req.url).toString(), {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        cookie: req.headers.get("cookie") ?? "",
-      },
-      body: JSON.stringify({
-        lectureId,
-        count: 3,
-        ...(referenceImages.length > 0 ? { referenceImages } : {}),
-      }),
-      keepalive: true,
-    }).catch((e) =>
-      console.warn("[educational-summary] images dispatch failed", e),
-    );
+    // Timeout 150s pra summary-images — cabe dentro do maxDuration 300s
+    // mesmo com Sonnet tendo levado 60-120s no resumo. Se falhar/timeout,
+    // resumo retorna sem imagens (user pode clicar "Gerar ilustrações"
+    // na /resumo depois).
+    let imagesGenerated = false;
+    let imagesError: string | null = null;
+    try {
+      const ctrl = new AbortController();
+      const timeoutId = setTimeout(() => ctrl.abort(), 150_000);
+      const imgResp = await fetch(
+        new URL("/api/ai/summary-images", req.url).toString(),
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            cookie: req.headers.get("cookie") ?? "",
+          },
+          body: JSON.stringify({
+            lectureId,
+            count: 3,
+            ...(referenceImages.length > 0 ? { referenceImages } : {}),
+          }),
+          signal: ctrl.signal,
+        },
+      );
+      clearTimeout(timeoutId);
+      if (imgResp.ok) {
+        const imgJson = (await imgResp.json().catch(() => ({}))) as {
+          images?: Array<unknown>;
+        };
+        imagesGenerated =
+          Array.isArray(imgJson.images) && imgJson.images.length > 0;
+      } else {
+        imagesError = `HTTP ${imgResp.status}`;
+      }
+    } catch (e) {
+      imagesError = (e as Error).message || "unknown";
+      console.warn("[educational-summary] images await failed", imagesError);
+    }
 
     void logAiUsage({
       userId,
@@ -287,7 +312,11 @@ export async function POST(
       coinsCharged: cost,
     }).catch(() => {});
 
-    return NextResponse.json({ summaryEducational: payload });
+    return NextResponse.json({
+      summaryEducational: payload,
+      imagesGenerated,
+      ...(imagesError ? { imagesError } : {}),
+    });
   } catch (err) {
     await creditCoins(userId, cost, "refund", {
       lectureId,
