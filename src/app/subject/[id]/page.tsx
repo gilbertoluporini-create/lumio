@@ -448,10 +448,16 @@ function SubjectView({
     return set;
   }, [summaries]);
 
-  // Helper: item pertence à pasta atual? Trata null/undefined como raiz.
+  // Helper: item pertence à pasta atual?
+  // Na raiz da matéria: mostra TUDO recursivo (itens em subpastas também),
+  // pra evitar "página vazia" quando o conteúdo está organizado em subpastas.
+  // Dentro de uma subpasta: só os itens diretamente nessa pasta.
   const matchesCurrentFolder = (
     folderId: string | null | undefined,
-  ): boolean => (folderId ?? null) === (currentFolderId ?? null);
+  ): boolean => {
+    if (currentFolderId === null) return true;
+    return (folderId ?? null) === currentFolderId;
+  };
 
   // Subpastas direto-filhas da pasta atual (raiz ou aninhada).
   const subfolders = useMemo(
