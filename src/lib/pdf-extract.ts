@@ -70,6 +70,42 @@ async function extractPdfTextViaServer(file: File): Promise<ExtractedPdf> {
 }
 
 /**
+ * Extrai texto via storage URL. O server baixa direto do Supabase Storage
+ * em vez de receber o binário. Necessário pra PDFs > ~4MB porque o Vercel
+ * Serverless tem limite de body de 4.5MB no request — uploads maiores
+ * estouravam silenciosamente com 413 e o user via "Sem texto extraível".
+ */
+export async function extractPdfTextFromUrl(
+  sourceUrl: string,
+): Promise<ExtractedPdf> {
+  const resp = await fetch("/api/pdf-extract", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ source_url: sourceUrl }),
+  });
+  const json = (await resp.json().catch(() => ({}))) as {
+    text?: string;
+    pages?: number;
+    error?: string;
+    kind?: PdfExtractError["kind"];
+  };
+  if (!resp.ok) {
+    const kind = (json.kind ?? "unknown") as PdfExtractError["kind"];
+    throw new PdfExtractException({
+      kind,
+      message: json.error || "Falha ao processar PDF no servidor.",
+    });
+  }
+  if (!json.text || !json.pages) {
+    throw new PdfExtractException({
+      kind: "unknown",
+      message: "Resposta do servidor sem texto/páginas.",
+    });
+  }
+  return { text: json.text, pages: json.pages };
+}
+
+/**
  * Extrai texto de um PDF File. Lança PdfExtractException com kind específico
  * pra o caller poder mostrar mensagem útil ao user.
  *
@@ -82,6 +118,9 @@ async function extractPdfTextViaServer(file: File): Promise<ExtractedPdf> {
  *
  * O `extractPdfTextClient` continua exportado/disponível pra futuros usos
  * onde latência importa mais que compat, mas o caminho default é o server.
+ *
+ * NOTA: arquivos > ~4MB falham com 413 (limite Vercel Serverless body).
+ * Pra esses, prefira `extractPdfTextFromUrl` depois de subir pro Storage.
  */
 export async function extractPdfText(file: File): Promise<ExtractedPdf> {
   return await extractPdfTextViaServer(file);

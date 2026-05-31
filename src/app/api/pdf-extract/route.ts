@@ -5,9 +5,15 @@
  * navegador falha (iPad Safari antigo, engines com features ES2022+
  * ausentes, etc).
  *
- * O client envia o PDF binário; o server roda pdf-parse (Node-friendly,
- * sem worker, sem Web APIs) e devolve { text, pages }. Não persiste o
- * arquivo — uso single-shot, descarta após responder.
+ * Dois caminhos de entrada:
+ *  1. multipart/form-data com campo 'file' — arquivos pequenos (Vercel
+ *     Serverless tem limite ~4.5MB no request body, então PDFs maiores
+ *     que isso são rejeitados com 413 antes da função executar).
+ *  2. application/json com { source_url } — arquivo já no Supabase Storage,
+ *     servidor baixa direto. SSRF-safe: só aceita URL do storage do projeto.
+ *
+ * O server roda pdf-parse (Node-friendly, sem worker, sem Web APIs) e
+ * devolve { text, pages }. Não persiste o arquivo — uso single-shot.
  *
  * Auth: requer sessão (evita uso anônimo abusivo).
  * Limite: arquivos > LIMITS.PDF_BYTES rejeitados. Texto > 4 * LIMITS.TRANSCRIPT_CHARS truncado.
@@ -31,32 +37,91 @@ export async function POST(req: Request) {
       return Response.json({ error: "Faça login." }, { status: 401 });
     }
 
-    const formData = await req.formData().catch(() => null);
-    if (!formData) {
-      return Response.json(
-        { error: "Body deve ser multipart/form-data com campo 'file'." },
-        { status: 400 },
-      );
-    }
-    const file = formData.get("file");
-    if (!(file instanceof File)) {
-      return Response.json(
-        { error: "Campo 'file' não é um arquivo válido." },
-        { status: 400 },
-      );
-    }
-    if (file.size > LIMITS.PDF_BYTES) {
-      return Response.json(
-        { error: `Arquivo passa de ${PDF_LIMIT_MB} MB.` },
-        { status: 413 },
-      );
-    }
-    if (file.size === 0) {
-      return Response.json({ error: "Arquivo vazio." }, { status: 400 });
-    }
+    const contentType = req.headers.get("content-type") ?? "";
+    let buf: Buffer;
+    let fileName = "pdf";
+    let fileSize = 0;
 
-    const ab = await file.arrayBuffer();
-    const buf = Buffer.from(ab);
+    if (contentType.includes("application/json")) {
+      const body = (await req.json().catch(() => null)) as {
+        source_url?: string;
+      } | null;
+      const sourceUrl = body?.source_url;
+      if (!sourceUrl || typeof sourceUrl !== "string") {
+        return Response.json(
+          { error: "Body JSON deve ter 'source_url' (string)." },
+          { status: 400 },
+        );
+      }
+      // Aceita só URL do storage do próprio projeto. Evita virar proxy de
+      // download arbitrário (SSRF).
+      const supaUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+      if (!supaUrl || !sourceUrl.startsWith(supaUrl)) {
+        return Response.json(
+          { error: "source_url precisa apontar pro storage do projeto." },
+          { status: 400 },
+        );
+      }
+      let resp: Response;
+      try {
+        resp = await fetch(sourceUrl);
+      } catch (err) {
+        return Response.json(
+          { error: `Falha ao baixar PDF: ${(err as Error).message}` },
+          { status: 502 },
+        );
+      }
+      if (!resp.ok) {
+        return Response.json(
+          { error: `Storage respondeu ${resp.status} ao baixar PDF.` },
+          { status: 502 },
+        );
+      }
+      const ab = await resp.arrayBuffer();
+      if (ab.byteLength > LIMITS.PDF_BYTES) {
+        return Response.json(
+          { error: `Arquivo passa de ${PDF_LIMIT_MB} MB.` },
+          { status: 413 },
+        );
+      }
+      if (ab.byteLength === 0) {
+        return Response.json({ error: "Arquivo vazio." }, { status: 400 });
+      }
+      buf = Buffer.from(ab);
+      fileSize = ab.byteLength;
+      fileName = sourceUrl.split("/").pop() ?? "pdf";
+    } else {
+      const formData = await req.formData().catch(() => null);
+      if (!formData) {
+        return Response.json(
+          {
+            error:
+              "Body deve ser multipart/form-data com 'file' OU application/json com 'source_url'.",
+          },
+          { status: 400 },
+        );
+      }
+      const file = formData.get("file");
+      if (!(file instanceof File)) {
+        return Response.json(
+          { error: "Campo 'file' não é um arquivo válido." },
+          { status: 400 },
+        );
+      }
+      if (file.size > LIMITS.PDF_BYTES) {
+        return Response.json(
+          { error: `Arquivo passa de ${PDF_LIMIT_MB} MB.` },
+          { status: 413 },
+        );
+      }
+      if (file.size === 0) {
+        return Response.json({ error: "Arquivo vazio." }, { status: 400 });
+      }
+      const ab = await file.arrayBuffer();
+      buf = Buffer.from(ab);
+      fileSize = file.size;
+      fileName = file.name;
+    }
 
     // BUG conhecido do pdf-parse@1.1.1: o index.js executa código de debug
     // quando importado sem module.parent (ESM/serverless). Tenta ler um
@@ -80,8 +145,8 @@ export async function POST(req: Request) {
     } catch (err) {
       const msg = (err as Error).message ?? "";
       console.error("[pdf-extract] pdf-parse failed", {
-        fileName: file.name,
-        fileSize: file.size,
+        fileName,
+        fileSize,
         error: msg.slice(0, 300),
       });
       // Padrões conhecidos de pdf-parse

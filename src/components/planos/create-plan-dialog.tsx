@@ -281,38 +281,24 @@ export function CreatePlanDialog({
     }
 
     setUploadingPdf(true);
-    setUploadPhase("extracting");
+    setUploadPhase("uploading");
     setUploadProgress(0);
     try {
-      // 1) Extrai texto pra IA usar como contexto (fase 1).
-      const { extractPdfText } = await import("@/lib/pdf-extract");
-      let sourceText = "";
-      let pageCount: number | undefined;
-      try {
-        const { text, pages } = await extractPdfText(file);
-        sourceText = text ?? "";
-        pageCount = pages;
-      } catch (err) {
-        console.warn("[plan-wizard] pdf text extract failed", err);
-      }
-
-      // 2) Cria document row com subject_id da matéria do plano.
+      // 1) Cria document row stub (text/pages preenchidos depois da extração).
       const doc = await createDocumentAsync({
         userId,
         subjectId,
         folderId: null,
         title: suggestTitleFromFileName(file.name),
         sourceKind: "pdf",
-        sourceText: sourceText || undefined,
-        pageCount,
       });
       if (!doc) {
         toast.error("Falha ao criar documento.");
         return;
       }
 
-      // 3) Storage upload via XHR com progresso real (fase 2 — visível).
-      setUploadPhase("uploading");
+      // 2) Storage upload via XHR com progresso real.
+      let sourceUrl: string | null = null;
       try {
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
@@ -332,15 +318,15 @@ export function CreatePlanDialog({
           onProgress: setUploadProgress,
         });
 
-        // Salva source_url depois do upload OK.
         setUploadPhase("saving");
         const { data: pub } = supabase.storage
           .from("user-documents")
           .getPublicUrl(storageKey);
-        if (pub?.publicUrl) {
+        sourceUrl = pub?.publicUrl ?? null;
+        if (sourceUrl) {
           await supabase
             .from("documents")
-            .update({ source_url: pub.publicUrl })
+            .update({ source_url: sourceUrl })
             .eq("id", doc.id)
             .eq("user_id", userId);
         }
@@ -348,6 +334,34 @@ export function CreatePlanDialog({
         console.warn("[plan-wizard] storage upload failed", err);
         toast.warning(
           `Documento criado, mas o arquivo não subiu pro storage (${(err as Error).message}).`,
+        );
+      }
+
+      // 3) Extrai texto AGORA (depois do storage). Pra PDFs > ~4MB, via
+      //    source_url evita o limite de 4.5MB no body do Vercel Serverless.
+      setUploadPhase("extracting");
+      try {
+        const { extractPdfText, extractPdfTextFromUrl } = await import(
+          "@/lib/pdf-extract"
+        );
+        const { text, pages } = sourceUrl
+          ? await extractPdfTextFromUrl(sourceUrl)
+          : await extractPdfText(file);
+        if (text) {
+          const { createClient } = await import("@/lib/supabase/client");
+          const supabase = createClient();
+          await supabase
+            .from("documents")
+            .update({ source_text: text, page_count: pages ?? null })
+            .eq("id", doc.id)
+            .eq("user_id", userId);
+          doc.sourceText = text;
+          doc.pageCount = pages ?? undefined;
+        }
+      } catch (err) {
+        console.warn("[plan-wizard] pdf text extract failed", err);
+        toast.warning(
+          "Texto do PDF não pôde ser extraído — você ainda pode anexar o arquivo, mas o resumo no plano não vai funcionar.",
         );
       }
 

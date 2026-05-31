@@ -139,35 +139,21 @@ export function UploadDocumentDialog({
     if (!file) return;
     setUploading(true);
     try {
-      // 1) Extrai texto (pra que IA depois consiga usar como contexto).
-      const { extractPdfText } = await import("@/lib/pdf-extract");
-      let sourceText = "";
-      let pageCount: number | undefined;
-      try {
-        const { text, pages } = await extractPdfText(file);
-        sourceText = text ?? "";
-        pageCount = pages;
-      } catch (err) {
-        console.warn("[upload-doc] pdf text extract failed", err);
-        // Segue mesmo sem texto — o arquivo binário ainda fica salvo.
-      }
-
-      // 2) Cria document row.
+      // 1) Cria document row stub (sem text/pages ainda).
       const doc = await createDocumentAsync({
         userId,
         subjectId: subjectId ?? null,
         folderId: subjectId ? folderId : null, // folder só faz sentido com subject
         title: title.trim() || suggestTitleFromFileName(file.name),
         sourceKind: "pdf",
-        sourceText: sourceText || undefined,
-        pageCount,
       });
       if (!doc) {
         toast.error("Falha ao criar documento.");
         return;
       }
 
-      // 3) Sobe binário pro Storage.
+      // 2) Sobe binário pro Storage e pega source_url.
+      let sourceUrl: string | null = null;
       try {
         const { createClient } = await import("@/lib/supabase/client");
         const supabase = createClient();
@@ -182,11 +168,11 @@ export function UploadDocumentDialog({
         const { data: pub } = supabase.storage
           .from("user-documents")
           .getPublicUrl(storageKey);
-        if (pub?.publicUrl) {
-          // updateDocumentAsync não expõe source_url; atualiza direto via supabase.
+        sourceUrl = pub?.publicUrl ?? null;
+        if (sourceUrl) {
           const { error: urlErr } = await supabase
             .from("documents")
-            .update({ source_url: pub.publicUrl })
+            .update({ source_url: sourceUrl })
             .eq("id", doc.id)
             .eq("user_id", userId);
           if (urlErr) console.warn("[upload-doc] source_url update", urlErr);
@@ -194,6 +180,34 @@ export function UploadDocumentDialog({
       } catch (err) {
         console.warn("[upload-doc] storage upload failed", err);
         toast.warning("Documento criado, mas o arquivo não subiu pro storage.");
+      }
+
+      // 3) Extrai texto. Prefere via URL do storage (sem limite de body do
+      //    Vercel Serverless ~4.5MB) com fallback pro upload direto quando
+      //    o storage falhou e ainda temos o File em memória.
+      try {
+        const { extractPdfText, extractPdfTextFromUrl } = await import(
+          "@/lib/pdf-extract"
+        );
+        const { text, pages } = sourceUrl
+          ? await extractPdfTextFromUrl(sourceUrl)
+          : await extractPdfText(file);
+        if (text) {
+          const { createClient } = await import("@/lib/supabase/client");
+          const supabase = createClient();
+          const { error: textErr } = await supabase
+            .from("documents")
+            .update({ source_text: text, page_count: pages ?? null })
+            .eq("id", doc.id)
+            .eq("user_id", userId);
+          if (textErr)
+            console.warn("[upload-doc] source_text update", textErr);
+        }
+      } catch (err) {
+        console.warn("[upload-doc] pdf text extract failed", err);
+        toast.warning(
+          "Documento criado, mas não consegui extrair o texto. Você ainda pode visualizar o PDF.",
+        );
       }
 
       onUploaded?.();
