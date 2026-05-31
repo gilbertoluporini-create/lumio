@@ -333,20 +333,30 @@ async function runStream(state: StreamState, opts: StartOpts): Promise<void> {
 
     await waitTypewriterDone(state);
 
-    // Persiste os cards de tools ACIONÁVEIS (asset gerado com url, ou navegação)
-    // na própria mensagem — assim os botões "Abrir →" sobrevivem a reload/saída
-    // da tela. Guardamos só o output enxuto (url/titulo/navegacao) pra não inchar
-    // o localStorage com os trechos de busca etc.
+    // Persiste os cards de tools ACIONÁVEIS na própria mensagem — assim eles
+    // sobrevivem a reload/saída da tela. Casos:
+    //  - iniciar_modo_prova: preserva output INTEIRO (LumiExamModeCard renderiza
+    //    assets + cronograma + topicos_foco), senão o card some quando o stream
+    //    termina e vira só texto;
+    //  - resto: guarda só o enxuto (url/titulo/navegacao) pra não inchar
+    //    o localStorage com chunks de busca.
     const persistedTools = state.tools
       .filter((t) => {
         const o = t.output as Record<string, unknown> | undefined;
-        return (
-          !!o &&
-          typeof o === "object" &&
-          ("url" in o || "navegacao" in o)
-        );
+        if (!o || typeof o !== "object") return false;
+        if (t.name === "iniciar_modo_prova") {
+          return "sucesso" in o || "assets" in o || "cronograma" in o;
+        }
+        return "url" in o || "navegacao" in o;
       })
       .map((t) => {
+        if (t.name === "iniciar_modo_prova") {
+          return {
+            name: t.name,
+            status: t.status,
+            output: t.output,
+          };
+        }
         const o = t.output as Record<string, unknown>;
         return {
           name: t.name,
