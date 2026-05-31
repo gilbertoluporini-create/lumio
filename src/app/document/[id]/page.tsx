@@ -238,7 +238,14 @@ function DocumentView({
           </h1>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {(doc.sourceText ?? "").trim().length === 0 && (
+          {/*
+            Botão de anexar / reanexar PDF binário.
+            Aparece sempre que faltar source_url no doc — seja porque nunca
+            foi anexado (sem source_text) OU porque é um órfão pré-migration
+            030 (com source_text mas sem URL no storage). Reusa o mesmo
+            handleAttachPdf que faz upsert no storage e atualiza a row.
+          */}
+          {!doc.sourceUrl && (
             <>
               <input
                 ref={fileInputRef}
@@ -258,7 +265,11 @@ function DocumentView({
                 ) : (
                   <Upload className="h-3.5 w-3.5" />
                 )}
-                {extracting ? "Extraindo texto..." : "Anexar PDF"}
+                {extracting
+                  ? "Extraindo texto..."
+                  : (doc.sourceText ?? "").trim().length > 0
+                    ? "Reanexar arquivo"
+                    : "Anexar PDF"}
               </Button>
             </>
           )}
