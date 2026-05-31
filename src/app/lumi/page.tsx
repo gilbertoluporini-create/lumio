@@ -56,6 +56,7 @@ import {
   QUICK_ACTIONS,
   type QuickAction,
 } from "@/components/lumi/lumi-quick-actions";
+import { LumiThinking } from "@/components/lumi/lumi-thinking";
 import { LumiAttachmentPicker } from "@/components/lumi/lumi-attachment-picker";
 import { LumiVoiceMode } from "@/components/lumi/lumi-voice-mode";
 import { Textarea } from "@/components/ui/textarea";
@@ -1161,7 +1162,7 @@ function LumiAssistant({ user }: { user: User }) {
           Fundo OPACO + sombra leve — bolhas do chat não vazam atrás.
           Versão compacta: py-1.5 + botões h-7 (antes py-3 + py-1.5/px-4 grandões
           dobravam a altura do header sem necessidade). */}
-      <div className="hidden md:block sticky top-[60px] z-30 -mx-4 lg:-mx-8 mb-3 border-b border-border/60 bg-background px-4 lg:px-8 py-1.5 shadow-sm">
+      <div className="hidden md:block sticky top-[60px] z-30 -mx-4 lg:-mx-8 mb-5 border-b border-border/60 bg-background px-4 lg:px-8 py-1.5 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           {/* Left: context picker (kept) */}
           <div className="hidden md:flex">
@@ -1237,7 +1238,7 @@ function LumiAssistant({ user }: { user: User }) {
         <div className="flex flex-1 min-h-0 flex-col overflow-hidden bg-card md:rounded-2xl md:border md:border-border/60">
           <div
             ref={scrollRef}
-            className="flex-1 min-h-0 overflow-y-auto px-4 py-6 md:px-10"
+            className="flex-1 min-h-0 overflow-y-auto px-4 pb-6 pt-8 md:px-10 md:pt-10"
           >
             <div className="mx-auto flex max-w-3xl flex-col gap-6">
               {messages.map((m) => (
@@ -1278,20 +1279,7 @@ function LumiAssistant({ user }: { user: User }) {
               {sending &&
                 streamingReply.length === 0 &&
                 streamingTools.length === 0 && (
-                <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                  <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-primary/5">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src="/illustrations/lumi-thinking.png"
-                      alt="Lumi pensando"
-                      className="h-10 w-10 animate-pulse object-contain"
-                    />
-                  </div>
-                  <span className="inline-flex items-center gap-2">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    Lumi está pensando…
-                  </span>
-                </div>
+                <LumiThinking variant="card" />
               )}
             </div>
           </div>
