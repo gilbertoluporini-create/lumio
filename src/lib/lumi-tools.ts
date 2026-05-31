@@ -1180,6 +1180,27 @@ async function callGenerateEndpoint(
     };
   }
 
+  // Guard defensivo: às vezes o LLM solta o sentinel INSUFFICIENT_SOURCE
+  // dentro do markdown (ex: "# INSUFFICIENT_SOURCE\n...") em vez de retornar
+  // só o token cru — o guard server-side em /api/ai/generate só pega a forma
+  // crua, então o asset acabava persistido com esse título tosco. Aqui
+  // verificamos o conteúdo final antes de inserir no DB e abortamos.
+  const sentinelHit = (() => {
+    if (!json.content || typeof json.content !== "object") return false;
+    const c = json.content as { markdown?: string; title?: string };
+    const md = (c.markdown ?? "").slice(0, 500);
+    const title = c.title ?? "";
+    const sentinel = /INSUFFICIENT_SOURCE/;
+    return sentinel.test(md) || sentinel.test(title);
+  })();
+  if (sentinelHit) {
+    return {
+      error:
+        "Material insuficiente pra gerar esse conteúdo (LLM marcou INSUFFICIENT_SOURCE). Anexe PDF com texto, grave aula ou cole a transcrição antes de tentar de novo.",
+      code: "INSUFFICIENT_SOURCE",
+    };
+  }
+
   // Persistência básica: cria asset com o subjectId vindo do input.
   // (replica lógica do wizard de forma simplificada)
   const titleGuess = inferTitle(mode, json.content);

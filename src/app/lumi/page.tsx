@@ -335,14 +335,20 @@ function LumiAssistant({ user }: { user: User }) {
     }
   }, [chat?.id, user.id]);
 
+  // Identidade do estado dos tools: muda quando length OU quando algum
+  // status interno muda (running→done libera o card visual). Sem esse hash,
+  // mudança de status NÃO dispararia o scroll abaixo.
+  const streamingToolsKey = streamingTools
+    .map((t) => `${t.name}:${t.status}`)
+    .join("|");
+
   useEffect(() => {
     const box = scrollRef.current;
     if (!box) return;
     box.scrollTop = box.scrollHeight;
-    // Inclui streamingReply.length pra acompanhar o typewriter — sem essa dep
-    // o scroll só atualiza no início e no fim do stream, deixando o user
-    // sem ver o texto sendo escrito.
-  }, [messages.length, sending, streamingReply.length, streamingTools.length]);
+    // Inclui streamingReply.length pra acompanhar o typewriter + streamingToolsKey
+    // pra acompanhar quando tools mudam de running→done (cards renderam aí).
+  }, [messages.length, sending, streamingReply.length, streamingToolsKey]);
 
   const streak = useMemo(() => calculateStreak(lectures), [lectures]);
 
