@@ -36,6 +36,10 @@ export type StreamState = {
   status: "running" | "done" | "error";
   errorMsg?: string;
   startedAt: number;
+  /** Contador monotônico — incrementado a cada `notify`. Usado pra forçar
+   *  re-render via React.useSyncExternalStore (que faz bailout em referências
+   *  iguais — mutar state diretamente não dispara update sem trocar identity). */
+  version: number;
   /** Timer do typewriter (interval id). Não exposto fora do módulo. */
   typewriterTimer?: ReturnType<typeof setInterval>;
   /** True quando o HTTP stream do servidor já terminou (não vai vir mais delta). */
@@ -43,6 +47,16 @@ export type StreamState = {
   /** Callback interno chamado quando partial alcança target após streamFinished. */
   onTypewriterEnd?: () => void;
 };
+
+/** Snapshot imutável retornado pra useSyncExternalStore. Re-criado quando version muda. */
+export type StreamSnapshot = {
+  chatId: string;
+  partial: string;
+  tools: ToolEvent[];
+  status: "running" | "done" | "error";
+  errorMsg?: string;
+};
+const snapshotCache = new Map<string, { version: number; snap: StreamSnapshot }>();
 
 /**
  * Velocidade do typewriter:
@@ -104,13 +118,39 @@ const streams = new Map<string, StreamState>();
 const subscribers = new Map<string, Set<() => void>>();
 
 function notify(chatId: string) {
+  const s = streams.get(chatId);
+  if (s) s.version += 1;
+  snapshotCache.delete(chatId);
   const subs = subscribers.get(chatId);
-  if (subs) for (const s of subs) s();
+  if (subs) for (const sub of subs) sub();
 }
 
 /** Retorna estado atual do stream pra um chat (ou undefined se não tem) */
 export function getStreamState(chatId: string): StreamState | undefined {
   return streams.get(chatId);
+}
+
+/**
+ * Retorna snapshot ESTÁVEL pra useSyncExternalStore. A mesma referência é
+ * devolvida enquanto a versão do state não muda — quando muda (via `notify`),
+ * cache invalida e nova snap é criada. Isso é o que faz o React re-renderizar
+ * a cada delta do typewriter (mutar state direto não dispara update porque
+ * useSyncExternalStore compara via Object.is).
+ */
+export function getStreamSnapshot(chatId: string): StreamSnapshot | undefined {
+  const s = streams.get(chatId);
+  if (!s) return undefined;
+  const cached = snapshotCache.get(chatId);
+  if (cached && cached.version === s.version) return cached.snap;
+  const snap: StreamSnapshot = {
+    chatId: s.chatId,
+    partial: s.partial,
+    tools: s.tools.slice(),
+    status: s.status,
+    errorMsg: s.errorMsg,
+  };
+  snapshotCache.set(chatId, { version: s.version, snap });
+  return snap;
 }
 
 /** Subscribe a mudanças do stream desse chat. Retorna unsubscribe. */
@@ -168,6 +208,7 @@ export function startLumiStream(opts: StartOpts): StreamState {
     tools: [],
     status: "running",
     startedAt: Date.now(),
+    version: 0,
   };
   streams.set(opts.chatId, state);
   notify(opts.chatId);

@@ -48,7 +48,7 @@ import {
 import { LumiMessageBubble } from "@/components/lumi/lumi-message-bubble";
 import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
 import {
-  getStreamState,
+  getStreamSnapshot,
   startLumiStream,
   subscribeStream,
 } from "@/lib/lumi-stream-store";
@@ -189,7 +189,7 @@ function LumiAssistant({ user }: { user: User }) {
       [activeChatId],
     ),
     useCallback(
-      () => (activeChatId ? getStreamState(activeChatId) : undefined),
+      () => (activeChatId ? getStreamSnapshot(activeChatId) : undefined),
       [activeChatId],
     ),
     () => undefined, // server snapshot
@@ -1145,7 +1145,7 @@ function LumiAssistant({ user }: { user: User }) {
       className={cn(
         "relative mx-auto flex w-full max-w-[1200px] flex-col px-4 lg:px-8",
         lockViewport
-          ? "h-[calc(100dvh_-_60px_-_env(safe-area-inset-top))] overflow-hidden md:py-4"
+          ? "h-[calc(100dvh_-_60px_-_env(safe-area-inset-top))] overflow-hidden md:pb-4"
           : "py-4 md:py-4",
       )}
     >
@@ -1162,7 +1162,7 @@ function LumiAssistant({ user }: { user: User }) {
           Fundo OPACO + sombra leve — bolhas do chat não vazam atrás.
           Versão compacta: py-1.5 + botões h-7 (antes py-3 + py-1.5/px-4 grandões
           dobravam a altura do header sem necessidade). */}
-      <div className="hidden md:block sticky top-[60px] z-30 -mx-4 lg:-mx-8 mb-5 border-b border-border/60 bg-background px-4 lg:px-8 py-1.5 shadow-sm">
+      <div className="hidden md:block sticky top-[60px] z-30 -mx-4 lg:-mx-8 border-b border-border/60 bg-background px-4 lg:px-8 py-1.5">
         <div className="flex items-center justify-between gap-3">
           {/* Left: context picker (kept) */}
           <div className="hidden md:flex">
@@ -1238,7 +1238,7 @@ function LumiAssistant({ user }: { user: User }) {
         <div className="flex flex-1 min-h-0 flex-col overflow-hidden bg-card md:rounded-2xl md:border md:border-border/60">
           <div
             ref={scrollRef}
-            className="flex-1 min-h-0 overflow-y-auto px-4 pb-6 pt-8 md:px-10 md:pt-10"
+            className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-4 md:px-10 md:pt-5"
           >
             <div className="mx-auto flex max-w-3xl flex-col gap-6">
               {messages.map((m) => (
