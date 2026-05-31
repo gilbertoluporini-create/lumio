@@ -89,6 +89,28 @@ const CATEGORY_TONE: Record<string, string> = {
   chat: "bg-primary/10 text-primary",
 };
 
+function stripMarkdown(text: string): string {
+  if (!text) return text;
+  return text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/!\[([^\]]*)\]\([^)]+\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*\*([\s\S]+?)\*\*\*/g, "$1")
+    .replace(/\*\*([\s\S]+?)\*\*/g, "$1")
+    .replace(/__([\s\S]+?)__/g, "$1")
+    .replace(/(^|[\s(])\*([^\s*][\s\S]*?)\*/g, "$1$2")
+    .replace(/(^|[\s(])_([^\s_][\s\S]*?)_/g, "$1$2")
+    .replace(/^\s*[-*+]\s+/gm, "")
+    .replace(/^\s*\d+\.\s+/gm, "")
+    .replace(/^\s*>\s?/gm, "")
+    .replace(/^\s*[-*_]{3,}\s*$/gm, "")
+    .replace(/<[^>]+>/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function formatRelativeDate(iso: string): string {
   const d = new Date(iso);
   const now = new Date();
@@ -658,8 +680,9 @@ function ChatRow({
   const lastAssistant = [...chat.messages]
     .reverse()
     .find((m) => m.role === "assistant");
-  const preview =
+  const previewRaw =
     lastAssistant?.content || lastUser?.content || "Nenhuma mensagem ainda.";
+  const preview = stripMarkdown(previewRaw) || "Nenhuma mensagem ainda.";
   const openHref = isTrashed ? "#" : `/lumi?chatId=${chat.id}`;
 
   return (
@@ -820,10 +843,11 @@ function PreviewPanel({
 }) {
   const Icon = CATEGORY_ICON[chat.category ?? "chat"] ?? MessageSquare;
   const tone = CATEGORY_TONE[chat.category ?? "chat"] ?? CATEGORY_TONE.chat;
-  const snippet =
+  const snippetRaw =
     chat.messages.find((m) => m.role === "assistant")?.content ??
     chat.messages.find((m) => m.role === "user")?.content ??
     "Nenhuma mensagem ainda.";
+  const snippet = stripMarkdown(snippetRaw) || "Nenhuma mensagem ainda.";
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-border/60 bg-card p-5">
