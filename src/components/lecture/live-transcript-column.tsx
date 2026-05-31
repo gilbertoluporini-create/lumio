@@ -970,7 +970,7 @@ function EducationalSummaryPane({
                 className="mt-3 gap-1.5"
               >
                 <Sparkles className="h-4 w-4" />
-                Gerar resumo educativo (12 coins)
+                Gerar resumo educativo ({COIN_COSTS.summary_educational} coins)
               </Button>
             )}
           </div>
@@ -991,7 +991,9 @@ function EducationalSummaryPane({
             disabled={generating}
             className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
           >
-            {generating ? "Regerando..." : "Regerar (12 coins)"}
+            {generating
+              ? "Regerando..."
+              : `Regerar (${COIN_COSTS.summary_educational} coins)`}
           </button>
         )}
       </div>

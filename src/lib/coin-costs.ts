@@ -10,8 +10,10 @@ export const COIN_COSTS = {
   extract_slides: 0,        // grátis — incluído no plano
   transcript_refine: 0,     // grátis — incluído no plano
   extract_schedule: 0,      // grátis no onboarding
-  summary: 10,              // produto: resumo estruturado (por tópicos) — fixo legado
-  summary_educational: 12,  // resumo educativo estilo artigo + imagens (markdown puro)
+  // summary/summary_educational disparam summary-images (3 imagens GPT-Image
+  // ~$0.12 por chamada). Preços abaixo cobrem custo Sonnet + imagens + margem.
+  summary: 14,              // produto: resumo estruturado (por tópicos) — fixo
+  summary_educational: 18,  // resumo educativo estilo artigo + imagens (markdown puro)
   transcript_structure: 15, // revisão + capítulos por IA (Sonnet 4.5) — por chunk de ~25min
   flashcards: 8,            // alinhado com coins-pricing.ts
   quiz: 8,                  // alinhado com coins-pricing.ts
