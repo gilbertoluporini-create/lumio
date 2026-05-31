@@ -48,6 +48,7 @@ import {
   Sparkles,
   Stethoscope,
   Syringe,
+  Trash2,
   Users,
   Wind,
   Wrench,
@@ -56,6 +57,7 @@ import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
@@ -884,6 +886,26 @@ function FlashcardsHubView({ user }: { user: User }) {
                 note: "Isso move a AULA INTEIRA (transcrição, resumo, quiz, mapa) pra a nova matéria — não só os flashcards.",
               })
             }
+            onDelete={async (d) => {
+              const ok = await confirmAction({
+                title: `Excluir os flashcards de "${d.lectureTitle}"?`,
+                description:
+                  "As cartas e seu progresso de estudo serão removidos. A aula de origem permanece.",
+                destructive: true,
+                confirmText: "Excluir",
+              });
+              if (!ok) return;
+              const { deleteLectureAssetAsync } = await import(
+                "@/lib/lecture-assets-delete"
+              );
+              const res = await deleteLectureAssetAsync(user.id, d.assetId);
+              if (!res.ok) {
+                toast.error(`Erro: ${res.error}`);
+                return;
+              }
+              setDecks((prev) => prev.filter((x) => x.assetId !== d.assetId));
+              toast.success("Deck excluído.");
+            }}
           />
         </div>
       </div>
@@ -1622,6 +1644,7 @@ function DeckTable({
   onSelect,
   onOpen,
   onMove,
+  onDelete,
 }: {
   decks: Deck[];
   cardStates: CardState[];
@@ -1629,6 +1652,7 @@ function DeckTable({
   onSelect: (d: Deck) => void;
   onOpen: (d: Deck) => void;
   onMove: (d: Deck) => void;
+  onDelete: (d: Deck) => void;
 }) {
   if (decks.length === 0) {
     return (
@@ -1662,6 +1686,7 @@ function DeckTable({
             onSelect={() => onSelect(d)}
             onOpen={() => onOpen(d)}
             onMove={() => onMove(d)}
+            onDelete={() => onDelete(d)}
           />
         ))}
       </div>
@@ -1676,6 +1701,7 @@ function DeckRow({
   onSelect,
   onOpen,
   onMove,
+  onDelete,
 }: {
   deck: Deck;
   cardStates: CardState[];
@@ -1683,6 +1709,7 @@ function DeckRow({
   onSelect: () => void;
   onOpen: () => void;
   onMove: () => void;
+  onDelete: () => void;
 }) {
   const Icon = getSubjectIcon(deck.subjectName);
   const level = levelOfDeck(deck.cards.length);
@@ -1784,6 +1811,12 @@ function DeckRow({
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onMove}>
               <FolderInput className="h-4 w-4" /> Mover pra outra matéria
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={onDelete}
+              className="text-destructive focus:text-destructive focus:bg-destructive/10"
+            >
+              <Trash2 className="h-4 w-4" /> Excluir deck
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

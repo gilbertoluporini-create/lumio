@@ -33,12 +33,14 @@ import {
   RotateCw,
   Sparkles,
   Target,
+  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { BackToHub } from "@/components/app/back-to-hub";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
@@ -345,6 +347,34 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
         </Button>
         <Button variant="outline" size="sm" onClick={handleExport}>
           <Download className="h-3.5 w-3.5" /> Exportar
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            const ok = await confirmAction({
+              title: "Excluir esse mapa mental?",
+              description:
+                "O mapa será removido. A aula de origem permanece.",
+              destructive: true,
+              confirmText: "Excluir mapa",
+            });
+            if (!ok) return;
+            const { deleteLectureAssetAsync } = await import(
+              "@/lib/lecture-assets-delete"
+            );
+            const res = await deleteLectureAssetAsync(user.id, assetId);
+            if (!res.ok) {
+              toast.error(`Erro: ${res.error}`);
+              return;
+            }
+            toast.success("Mapa excluído.");
+            router.push("/dashboard");
+          }}
+          className="text-destructive hover:text-destructive hover:border-destructive/50"
+        >
+          <Trash2 className="h-3.5 w-3.5" /> Excluir
         </Button>
 
         <Button

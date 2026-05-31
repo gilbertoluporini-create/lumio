@@ -44,6 +44,7 @@ import {
   Star,
   Stethoscope,
   Syringe,
+  Trash2,
   Trophy,
   Users,
   Wind,
@@ -53,6 +54,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
@@ -1183,6 +1185,36 @@ function QuizView({ user }: { user: User }) {
                             <FolderInput className="h-4 w-4" /> Mover pra outra matéria
                           </DropdownMenuItem>
                         )}
+                        <DropdownMenuItem
+                          onClick={async () => {
+                            const ok = await confirmAction({
+                              title: "Excluir esse quiz?",
+                              description:
+                                "As questões e tentativas registradas serão removidas. A aula de origem permanece.",
+                              destructive: true,
+                              confirmText: "Excluir",
+                            });
+                            if (!ok) return;
+                            const { deleteLectureAssetAsync } = await import(
+                              "@/lib/lecture-assets-delete"
+                            );
+                            const res = await deleteLectureAssetAsync(
+                              user.id,
+                              quiz.id,
+                            );
+                            if (!res.ok) {
+                              toast.error(`Erro: ${res.error}`);
+                              return;
+                            }
+                            setQuizzes((prev) =>
+                              prev.filter((x) => x.id !== quiz.id),
+                            );
+                            toast.success("Quiz excluído.");
+                          }}
+                          className="text-destructive focus:text-destructive focus:bg-destructive/10"
+                        >
+                          <Trash2 className="h-4 w-4" /> Excluir quiz
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </div>

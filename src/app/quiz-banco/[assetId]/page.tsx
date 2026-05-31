@@ -35,12 +35,14 @@ import {
   Sparkles,
   Star,
   Target,
+  Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { BackToHub } from "@/components/app/back-to-hub";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { ContentWizard } from "@/components/ai/content-wizard";
 import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
 import { Badge } from "@/components/ui/badge";
@@ -474,6 +476,34 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
           }}
         >
           <RefreshCw className="h-3.5 w-3.5" /> Revisar erradas
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            const ok = await confirmAction({
+              title: "Excluir esse quiz?",
+              description:
+                "As questões e suas tentativas registradas serão removidas. A aula de origem permanece.",
+              destructive: true,
+              confirmText: "Excluir quiz",
+            });
+            if (!ok) return;
+            const { deleteLectureAssetAsync } = await import(
+              "@/lib/lecture-assets-delete"
+            );
+            const res = await deleteLectureAssetAsync(user.id, assetId);
+            if (!res.ok) {
+              toast.error(`Erro: ${res.error}`);
+              return;
+            }
+            toast.success("Quiz excluído.");
+            router.push("/quiz");
+          }}
+          className="text-destructive hover:text-destructive hover:border-destructive/50"
+        >
+          <Trash2 className="h-3.5 w-3.5" /> Excluir
         </Button>
 
         <Button

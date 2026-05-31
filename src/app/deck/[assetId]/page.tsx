@@ -40,6 +40,7 @@ import {
   Sparkles,
   Star,
   Timer,
+  Trash2,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -47,6 +48,7 @@ import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { BackToHub } from "@/components/app/back-to-hub";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -473,6 +475,34 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
           >
             <FileText className="h-3.5 w-3.5" /> Abrir resumo
           </Link>
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            const ok = await confirmAction({
+              title: `Excluir esse deck de flashcards?`,
+              description:
+                "As cartas e seu progresso de estudo serão removidos. A aula de origem permanece.",
+              destructive: true,
+              confirmText: "Excluir deck",
+            });
+            if (!ok) return;
+            const { deleteLectureAssetAsync } = await import(
+              "@/lib/lecture-assets-delete"
+            );
+            const res = await deleteLectureAssetAsync(user.id, assetId);
+            if (!res.ok) {
+              toast.error(`Erro: ${res.error}`);
+              return;
+            }
+            toast.success("Deck excluído.");
+            router.push("/flashcards");
+          }}
+          className="text-destructive hover:text-destructive hover:border-destructive/50"
+        >
+          <Trash2 className="h-3.5 w-3.5" /> Excluir
         </Button>
 
         <Button
