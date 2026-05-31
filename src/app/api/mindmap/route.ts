@@ -25,10 +25,17 @@ export type MindmapAsset = {
 type Body = {
   lectureTitle: string;
   subject: string;
-  transcript: string;
+  /**
+   * Transcrição da aula OU equivalente (source_text do PDF puro). Opcional
+   * quando `documentId` é usado — servidor carrega do banco se ausente.
+   */
+  transcript?: string;
   slides?: Slide[];
   messages?: ChatMessage[];
-  lectureId: string;
+  /** Modo aula gravada. Tem precedência sobre documentId se ambos vierem. */
+  lectureId?: string;
+  /** Modo PDF puro (/resumo/doc/[summaryId]). Usado se lectureId ausente. */
+  documentId?: string;
 };
 
 const SYSTEM_PROMPT = `Você gera MAPAS MENTAIS de aulas universitárias em português brasileiro.
@@ -127,15 +134,26 @@ export async function POST(req: Request) {
     return Response.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  const transcript = (body.transcript || "").trim();
-  if (!transcript) {
+  // Precedência: lectureId > documentId.
+  const hasLecture =
+    typeof body.lectureId === "string" && body.lectureId.length > 0;
+  const hasDocument =
+    !hasLecture &&
+    typeof body.documentId === "string" &&
+    body.documentId.length > 0;
+  if (!hasLecture && !hasDocument) {
+    return Response.json(
+      { error: "lectureId ou documentId obrigatório." },
+      { status: 400 },
+    );
+  }
+
+  let transcript = (body.transcript || "").trim();
+  if (hasLecture && !transcript) {
     return Response.json({ error: "Transcrição vazia." }, { status: 400 });
   }
   if (transcript.length > LIMITS.TRANSCRIPT_CHARS) {
     return Response.json({ error: "Transcrição muito longa." }, { status: 413 });
-  }
-  if (!body.lectureId) {
-    return Response.json({ error: "lectureId obrigatório." }, { status: 400 });
   }
 
   const supabaseEnabled = !!(
@@ -162,14 +180,59 @@ export async function POST(req: Request) {
     const userLimit = limitOrThrow(`mindmap:user:${userId}`, 10, 60_000);
     if (userLimit) return userLimit;
 
-    const owns = await assertLectureOwnership(userId as string, body.lectureId);
-    if (!owns) {
-      return Response.json({ error: "Aula não encontrada." }, { status: 404 });
+    if (hasLecture) {
+      const owns = await assertLectureOwnership(
+        userId as string,
+        body.lectureId as string,
+      );
+      if (!owns) {
+        return Response.json({ error: "Aula não encontrada." }, { status: 404 });
+      }
+    } else {
+      // hasDocument: valida ownership + carrega source_text se transcript
+      // não veio no body.
+      const admin = createAdminClient();
+      const { data: docRow } = await admin
+        .from("documents")
+        .select("id, title, source_text, subject_id")
+        .eq("id", body.documentId as string)
+        .eq("user_id", userId as string)
+        .maybeSingle();
+      const doc = docRow as
+        | {
+            id: string;
+            title: string | null;
+            source_text: string | null;
+            subject_id: string | null;
+          }
+        | null;
+      if (!doc) {
+        return Response.json(
+          { error: "Documento não encontrado." },
+          { status: 404 },
+        );
+      }
+      if (!transcript) {
+        const raw = (doc.source_text ?? "").trim();
+        if (!raw) {
+          return Response.json(
+            { error: "Documento sem texto extraído." },
+            { status: 400 },
+          );
+        }
+        // Truncate 12k chars (padrão summary-images).
+        transcript = raw.slice(0, 12_000);
+      }
     }
 
-    const charge = await chargeCoins(user.id, COIN_COSTS.mindmap, "mindmap", {
-      lecture_id: body.lectureId,
-    });
+    const charge = await chargeCoins(
+      user.id,
+      COIN_COSTS.mindmap,
+      "mindmap",
+      hasLecture
+        ? { lecture_id: body.lectureId }
+        : { document_id: body.documentId },
+    );
     if (!charge.ok) {
       return Response.json(
         {
@@ -256,7 +319,8 @@ Gere o mapa mental no formato JSON especificado. APENAS JSON.`;
       try {
         const admin = createAdminClient();
         await admin.from("lecture_assets").insert({
-          lecture_id: body.lectureId,
+          lecture_id: hasLecture ? (body.lectureId as string) : null,
+          document_id: hasLecture ? null : (body.documentId as string),
           user_id: userId,
           kind: "mindmap",
           payload: mindmap,

@@ -25,10 +25,17 @@ export type QuizAsset = {
 type Body = {
   lectureTitle: string;
   subject: string;
-  transcript: string;
+  /**
+   * Transcrição da aula OU equivalente (source_text do PDF puro). Opcional
+   * quando `documentId` é usado — servidor carrega do banco se ausente.
+   */
+  transcript?: string;
   slides?: Slide[];
   messages?: ChatMessage[];
-  lectureId: string;
+  /** Modo aula gravada. Tem precedência sobre documentId se ambos vierem. */
+  lectureId?: string;
+  /** Modo PDF puro (/resumo/doc/[summaryId]). Usado se lectureId ausente. */
+  documentId?: string;
   count?: number;
 };
 
@@ -123,15 +130,26 @@ export async function POST(req: Request) {
     return Response.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  const transcript = (body.transcript || "").trim();
-  if (!transcript) {
+  // Precedência: lectureId > documentId.
+  const hasLecture =
+    typeof body.lectureId === "string" && body.lectureId.length > 0;
+  const hasDocument =
+    !hasLecture &&
+    typeof body.documentId === "string" &&
+    body.documentId.length > 0;
+  if (!hasLecture && !hasDocument) {
+    return Response.json(
+      { error: "lectureId ou documentId obrigatório." },
+      { status: 400 },
+    );
+  }
+
+  let transcript = (body.transcript || "").trim();
+  if (hasLecture && !transcript) {
     return Response.json({ error: "Transcrição vazia." }, { status: 400 });
   }
   if (transcript.length > LIMITS.TRANSCRIPT_CHARS) {
     return Response.json({ error: "Transcrição muito longa." }, { status: 413 });
-  }
-  if (!body.lectureId) {
-    return Response.json({ error: "lectureId obrigatório." }, { status: 400 });
   }
   const count = Math.min(Math.max(body.count ?? 8, 3), 15);
 
@@ -159,17 +177,59 @@ export async function POST(req: Request) {
     const userLimit = limitOrThrow(`quiz:user:${userId}`, 10, 60_000);
     if (userLimit) return userLimit;
 
-    const ownsLecture = await assertLectureOwnership(
-      userId as string,
-      body.lectureId,
-    );
-    if (!ownsLecture) {
-      return Response.json({ error: "Aula não encontrada." }, { status: 404 });
+    if (hasLecture) {
+      const ownsLecture = await assertLectureOwnership(
+        userId as string,
+        body.lectureId as string,
+      );
+      if (!ownsLecture) {
+        return Response.json({ error: "Aula não encontrada." }, { status: 404 });
+      }
+    } else {
+      // hasDocument: valida ownership + carrega source_text se transcript
+      // não veio no body.
+      const admin = createAdminClient();
+      const { data: docRow } = await admin
+        .from("documents")
+        .select("id, title, source_text, subject_id")
+        .eq("id", body.documentId as string)
+        .eq("user_id", userId as string)
+        .maybeSingle();
+      const doc = docRow as
+        | {
+            id: string;
+            title: string | null;
+            source_text: string | null;
+            subject_id: string | null;
+          }
+        | null;
+      if (!doc) {
+        return Response.json(
+          { error: "Documento não encontrado." },
+          { status: 404 },
+        );
+      }
+      if (!transcript) {
+        const raw = (doc.source_text ?? "").trim();
+        if (!raw) {
+          return Response.json(
+            { error: "Documento sem texto extraído." },
+            { status: 400 },
+          );
+        }
+        // Truncate 12k chars (padrão summary-images).
+        transcript = raw.slice(0, 12_000);
+      }
     }
 
-    const charge = await chargeCoins(user.id, COIN_COSTS.quiz, "quiz", {
-      lecture_id: body.lectureId,
-    });
+    const charge = await chargeCoins(
+      user.id,
+      COIN_COSTS.quiz,
+      "quiz",
+      hasLecture
+        ? { lecture_id: body.lectureId }
+        : { document_id: body.documentId },
+    );
     if (!charge.ok) {
       return Response.json(
         {
@@ -265,7 +325,8 @@ Gere ${count} questões de múltipla escolha no JSON especificado. APENAS JSON.`
         const { data: inserted } = await admin
           .from("lecture_assets")
           .insert({
-            lecture_id: body.lectureId,
+            lecture_id: hasLecture ? (body.lectureId as string) : null,
+            document_id: hasLecture ? null : (body.documentId as string),
             user_id: userId,
             kind: "quiz",
             payload: asset,

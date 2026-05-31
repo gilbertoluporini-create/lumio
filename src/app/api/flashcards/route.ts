@@ -25,10 +25,19 @@ export type FlashcardsAsset = {
 type Body = {
   lectureTitle: string;
   subject: string;
-  transcript: string;
+  /**
+   * Transcrição da aula OU equivalente (source_text do PDF puro).
+   * Quando o caller envia `documentId` e não envia transcript, o servidor
+   * carrega `documents.source_text` direto do banco — mas o caller ainda
+   * pode (e geralmente vai) passar o texto pra economizar uma query.
+   */
+  transcript?: string;
   slides?: Slide[];
   messages?: ChatMessage[];
-  lectureId: string;
+  /** Modo aula gravada. lectureId tem precedência se ambos vierem. */
+  lectureId?: string;
+  /** Modo PDF puro (/resumo/doc/[summaryId]). Usado se lectureId ausente. */
+  documentId?: string;
   count?: number; // default 10
 };
 
@@ -120,8 +129,26 @@ export async function POST(req: Request) {
     return Response.json({ error: "JSON inválido" }, { status: 400 });
   }
 
-  const transcript = (body.transcript || "").trim();
-  if (!transcript) {
+  // Precedência: lectureId > documentId (paridade com chat-summary e
+  // summary-images). Pelo menos um obrigatório.
+  const hasLecture =
+    typeof body.lectureId === "string" && body.lectureId.length > 0;
+  const hasDocument =
+    !hasLecture &&
+    typeof body.documentId === "string" &&
+    body.documentId.length > 0;
+  if (!hasLecture && !hasDocument) {
+    return Response.json(
+      { error: "lectureId ou documentId obrigatório." },
+      { status: 400 },
+    );
+  }
+
+  // Transcript do body é opcional quando documentId é usado — buscamos do
+  // banco logo abaixo. Quando lectureId é usado, ainda exigimos o transcript
+  // no body (paridade com fluxo atual).
+  let transcript = (body.transcript || "").trim();
+  if (hasLecture && !transcript) {
     return Response.json(
       { error: "Transcrição vazia." },
       { status: 400 },
@@ -129,9 +156,6 @@ export async function POST(req: Request) {
   }
   if (transcript.length > LIMITS.TRANSCRIPT_CHARS) {
     return Response.json({ error: "Transcrição muito longa." }, { status: 413 });
-  }
-  if (!body.lectureId || typeof body.lectureId !== "string") {
-    return Response.json({ error: "lectureId obrigatório." }, { status: 400 });
   }
   const count = Math.min(Math.max(body.count ?? 10, 5), 20);
 
@@ -161,18 +185,63 @@ export async function POST(req: Request) {
     const userLimit = limitOrThrow(`flashcards:user:${userId}`, 10, 60_000);
     if (userLimit) return userLimit;
 
-    // Verifica que a lecture é do user (defesa contra IDOR)
-    const ownsLecture = await assertLectureOwnership(
-      userId as string,
-      body.lectureId,
-    );
-    if (!ownsLecture) {
-      return Response.json({ error: "Aula não encontrada." }, { status: 404 });
+    // Verifica ownership da fonte (defesa contra IDOR — RLS também cobre).
+    if (hasLecture) {
+      const ownsLecture = await assertLectureOwnership(
+        userId as string,
+        body.lectureId as string,
+      );
+      if (!ownsLecture) {
+        return Response.json({ error: "Aula não encontrada." }, { status: 404 });
+      }
+    } else {
+      // hasDocument: carrega documents.source_text como "transcript equivalente"
+      // e valida ownership via user_id.
+      const admin = createAdminClient();
+      const { data: docRow } = await admin
+        .from("documents")
+        .select("id, title, source_text, subject_id")
+        .eq("id", body.documentId as string)
+        .eq("user_id", userId as string)
+        .maybeSingle();
+      const doc = docRow as
+        | {
+            id: string;
+            title: string | null;
+            source_text: string | null;
+            subject_id: string | null;
+          }
+        | null;
+      if (!doc) {
+        return Response.json(
+          { error: "Documento não encontrado." },
+          { status: 404 },
+        );
+      }
+      // Se o caller já passou transcript no body (UX rápida), respeitamos.
+      // Senão usamos source_text do banco como transcript equivalente.
+      if (!transcript) {
+        const raw = (doc.source_text ?? "").trim();
+        if (!raw) {
+          return Response.json(
+            { error: "Documento sem texto extraído." },
+            { status: 400 },
+          );
+        }
+        // Truncate em 12k chars (padrão summary-images) — PDFs longos
+        // explodem custo de token sem ganho proporcional de qualidade.
+        transcript = raw.slice(0, 12_000);
+      }
     }
 
-    const charge = await chargeCoins(user.id, COIN_COSTS.flashcards, "flashcards", {
-      lecture_id: body.lectureId,
-    });
+    const charge = await chargeCoins(
+      user.id,
+      COIN_COSTS.flashcards,
+      "flashcards",
+      hasLecture
+        ? { lecture_id: body.lectureId }
+        : { document_id: body.documentId },
+    );
     if (!charge.ok) {
       return Response.json(
         {
@@ -264,12 +333,15 @@ Gere ${count} flash cards no formato JSON especificado. APENAS JSON.`;
       cards,
     };
 
-    // Salva como asset
+    // Salva como asset — usa lecture_id OU document_id (constraint em
+    // lecture_assets exige pelo menos um). Seguimos exclusividade: quando
+    // documentId é o caminho ativo, lecture_id fica null e vice-versa.
     if (userId) {
       try {
         const admin = createAdminClient();
         await admin.from("lecture_assets").insert({
-          lecture_id: body.lectureId,
+          lecture_id: hasLecture ? (body.lectureId as string) : null,
+          document_id: hasLecture ? null : (body.documentId as string),
           user_id: userId,
           kind: "flashcards",
           payload: asset,
