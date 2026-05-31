@@ -821,11 +821,21 @@ export async function POST(req: Request) {
 
     // Detecta marcador de fontes insuficientes (guarda contra alucinação).
     // Claude foi instruído pelo INSUFFICIENT_GUARD a retornar exatamente este
-    // token quando o material recebido não basta pra gerar o asset.
+    // token quando o material recebido não basta pra gerar o asset. Na
+    // prática o modelo às vezes formata: `# INSUFFICIENT_SOURCE`,
+    // `**INSUFFICIENT_SOURCE**`, `"INSUFFICIENT_SOURCE"`, etc. — strip
+    // wraps comuns antes de comparar. Também aceita o token em qualquer
+    // posição se a resposta for curta (< 300 chars).
     const rawTrim = raw.trim();
+    const stripped = rawTrim
+      .replace(/^[#*_>"'`\s]+/, "")
+      .replace(/[#*_>"'`\s]+$/, "")
+      .trim();
+    const hasGuardToken = /\bINSUFFICIENT_SOURCE\b/.test(rawTrim);
     if (
-      rawTrim === "INSUFFICIENT_SOURCE" ||
-      rawTrim.startsWith("INSUFFICIENT_SOURCE")
+      stripped === "INSUFFICIENT_SOURCE" ||
+      stripped.startsWith("INSUFFICIENT_SOURCE") ||
+      (hasGuardToken && rawTrim.length < 300)
     ) {
       await refundOnFailure("insufficient_source");
       return Response.json(

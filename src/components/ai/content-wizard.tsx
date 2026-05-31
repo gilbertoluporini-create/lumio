@@ -2434,19 +2434,27 @@ function Step3Confirm({
 /* ------------------------------------------------------------------ */
 
 function suggestTitle(mode: AIMode, result: GenerateResponse): string {
+  // Defesa em profundidade: nunca usar o token de guard como title, caso
+  // o backend tenha deixado passar (ex.: modelo retornou `# INSUFFICIENT_SOURCE`).
+  const isGuardToken = (s: string): boolean =>
+    /\bINSUFFICIENT_SOURCE\b/.test(s);
+  const fallback = `${modeLabel(mode)} ${new Date().toLocaleDateString("pt-BR")}`;
+  const safe = (s: string): string =>
+    isGuardToken(s) ? fallback : s.slice(0, 200);
+
   if (mode === "summary") {
     const md = (result.content as { markdown?: string })?.markdown ?? "";
     const m = md.match(/^#\s+(.+)$/m);
-    if (m) return m[1].trim().slice(0, 200);
+    if (m) return safe(m[1].trim());
   } else {
     const t = (result.content as { title?: string })?.title;
-    if (typeof t === "string" && t.trim()) return t.trim().slice(0, 200);
+    if (typeof t === "string" && t.trim()) return safe(t.trim());
     if (mode === "mindmap") {
       const c = (result.content as { centralTopic?: string })?.centralTopic;
-      if (c) return c.slice(0, 200);
+      if (c) return safe(c);
     }
   }
-  return `${modeLabel(mode)} ${new Date().toLocaleDateString("pt-BR")}`;
+  return fallback;
 }
 
 function extractHighlights(markdown: string, max: number): string[] {
