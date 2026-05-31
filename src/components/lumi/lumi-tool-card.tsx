@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { LumiExamModeCard } from "./lumi-exam-mode-card";
+import { LumiQuestionCard, type QuestionCardOutput } from "./lumi-question-card";
 
 type ToolStatus = "running" | "done" | "error";
 
@@ -73,6 +74,11 @@ const TOOL_META: Record<
     Icon: Navigation,
     color: "text-fuchsia-500",
   },
+  perguntar_opcoes: {
+    label: "Aguardando sua escolha",
+    Icon: HelpCircle,
+    color: "text-primary",
+  },
 };
 
 export function LumiToolCard({
@@ -99,6 +105,11 @@ export function LumiToolCard({
         output={(output ?? {}) as Parameters<typeof LumiExamModeCard>[0]["output"]}
       />
     );
+  }
+
+  // Caso especial: pergunta com opções clicáveis
+  if (name === "perguntar_opcoes" && status === "done") {
+    return <LumiQuestionCard output={(output ?? {}) as QuestionCardOutput} />;
   }
 
   // Tenta extrair info útil do output pra mostrar

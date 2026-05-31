@@ -31,7 +31,8 @@ export type LumiToolName =
   | "iniciar_modo_prova"
   | "gerar_rotina_estudo"
   | "criar_plano_de_estudos"
-  | "abrir_rota";
+  | "abrir_rota"
+  | "perguntar_opcoes";
 
 export type ToolContext = {
   userId: string;
@@ -359,6 +360,46 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
       required: ["path"],
     },
   },
+  {
+    name: "perguntar_opcoes",
+    description:
+      "Faz UMA pergunta ao user com 2-4 opções clicáveis (vira card de escolha no chat, não texto). USE QUANDO: (1) precisa direcionar a conversa em fork claro (modalidade, intenção, escopo) — especialmente nas primeiras mensagens pra entender o que o user quer; (2) escolha objetiva entre alternativas (ex: 'qual matéria?', 'quer revisar ou aprender do zero?', 'tem prova quando?'). NÃO USE quando a resposta é livre/aberta (ex: 'qual é sua dúvida?') ou quando você JÁ sabe o que fazer. O user clica numa opção e o value vira a próxima mensagem dele — então value deve ser a frase que ele 'diria'. Grátis (0 coins). Use no MÁX 1x por turn — empilhar perguntas atravanca o fluxo.",
+    input_schema: {
+      type: "object",
+      properties: {
+        pergunta: {
+          type: "string",
+          description: "Pergunta curta e clara (uma frase, máx 80 chars).",
+        },
+        opcoes: {
+          type: "array",
+          minItems: 2,
+          maxItems: 4,
+          items: {
+            type: "object",
+            properties: {
+              label: {
+                type: "string",
+                description: "Label curto do botão (1-3 palavras).",
+              },
+              value: {
+                type: "string",
+                description:
+                  "Frase completa que vira a próxima mensagem do user quando ele clica (ex: 'Tenho prova amanhã às 14h').",
+              },
+              descricao: {
+                type: "string",
+                description:
+                  "Opcional. Linha extra de contexto abaixo do label (1 frase).",
+              },
+            },
+            required: ["label", "value"],
+          },
+        },
+      },
+      required: ["pergunta", "opcoes"],
+    },
+  },
 ];
 
 // =================== HANDLERS ===================
@@ -553,6 +594,32 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       navegacao: { path, motivo },
       instrucao_pro_client:
         "Renderize um card clicável com este path. Não navegue automaticamente.",
+    };
+  },
+
+  async perguntar_opcoes(input) {
+    const pergunta = str(input.pergunta).trim();
+    const rawOpcoes = Array.isArray(input.opcoes) ? input.opcoes : [];
+    const opcoes = rawOpcoes
+      .map((o) => {
+        if (!o || typeof o !== "object") return null;
+        const oo = o as Record<string, unknown>;
+        const label = str(oo.label).trim();
+        const value = str(oo.value).trim();
+        const descricao = str(oo.descricao).trim() || undefined;
+        if (!label || !value) return null;
+        return { label, value, descricao };
+      })
+      .filter((o): o is { label: string; value: string; descricao: string | undefined } => !!o)
+      .slice(0, 4);
+    if (!pergunta || opcoes.length < 2) {
+      return { error: "pergunta + 2-4 opções com label+value são obrigatórias" };
+    }
+    return {
+      sucesso: true,
+      tipo: "question_card",
+      pergunta,
+      opcoes,
     };
   },
 

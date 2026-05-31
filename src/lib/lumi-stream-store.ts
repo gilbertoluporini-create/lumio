@@ -347,10 +347,13 @@ async function runStream(state: StreamState, opts: StartOpts): Promise<void> {
         if (t.name === "iniciar_modo_prova") {
           return "sucesso" in o || "assets" in o || "cronograma" in o;
         }
+        if (t.name === "perguntar_opcoes") {
+          return "pergunta" in o && "opcoes" in o;
+        }
         return "url" in o || "navegacao" in o;
       })
       .map((t) => {
-        if (t.name === "iniciar_modo_prova") {
+        if (t.name === "iniciar_modo_prova" || t.name === "perguntar_opcoes") {
           return {
             name: t.name,
             status: t.status,

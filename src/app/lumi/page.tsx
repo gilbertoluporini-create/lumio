@@ -461,6 +461,21 @@ function LumiAssistant({ user }: { user: User }) {
     ],
   );
 
+  // Escuta clicks dos LumiQuestionCards (tool perguntar_opcoes). O componente
+  // do card dispara CustomEvent('lumi-pick-option', { detail: { value }}) e a
+  // gente injeta esse value como próxima mensagem do user.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ value?: string }>).detail;
+      const value = detail?.value?.trim();
+      if (!value || sending) return;
+      void sendMessage(value);
+    };
+    window.addEventListener("lumi-pick-option", handler);
+    return () => window.removeEventListener("lumi-pick-option", handler);
+  }, [sending, sendMessage]);
+
   const runGenerate = useCallback(
     async (kind: LumiGenerateKind) => {
       if (generating) return;
