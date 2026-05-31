@@ -437,6 +437,12 @@ export async function updateLectureAsync(
   if ("messages" in patch) dbPatch.messages = patch.messages ?? null;
   if ("audioUrl" in patch) dbPatch.audio_url = patch.audioUrl ?? null;
   if ("folderId" in patch) dbPatch.folder_id = patch.folderId ?? null;
+  // BUG FIX 2026-05-31: subjectId estava sendo ignorado silenciosamente
+  // no patch. updateSummaryAsync e updateDocumentAsync já aceitavam —
+  // só updateLectureAsync estava de fora. Por isso mover AULA entre
+  // matérias via MoveToFolderDialog deixava a lecture 'órfã' (folder
+  // mudava, subject não — fica em pasta inexistente da matéria antiga).
+  if ("subjectId" in patch) dbPatch.subject_id = patch.subjectId ?? null;
   if (Object.keys(dbPatch).length === 0) return getLectureAsync(userId, id);
 
   const { data, error } = await supabase
