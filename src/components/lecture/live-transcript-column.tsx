@@ -834,6 +834,7 @@ export function LiveTranscriptColumn({
 }
 
 function SummaryInlineView({
+  summary,
   educational,
   educationalImages,
   generatingEducational,
@@ -841,8 +842,10 @@ function SummaryInlineView({
   onGenerateEducational,
   hasEntries,
 }: {
-  // Mantidos pra compatibilidade — não usados hoje. A tab embutida só
-  // mostra o resumo educativo (markdown estilo biblioteca de resumos).
+  // `summary` (LectureSummary) entra como fallback do markdown renderizado
+  // quando NÃO existe educational — é o caso de resumo de PDF puro gerado
+  // pelo wizard, onde `summary.generalSummary` já vem em markdown rico com
+  // imagens inline.
   summary?: LectureSummary;
   generating?: boolean;
   onGenerate?: () => void;
@@ -855,6 +858,13 @@ function SummaryInlineView({
   // Mantido por retrocompat — handler local de fullscreen real prevalece.
   onOpenFull?: () => void;
 }) {
+  // Fallback do markdown renderizado: educational tem prioridade (é o premium
+  // gerado pelo botão "Gerar resumo educativo (18 coins)" na /lecture). Se não
+  // existir mas tivermos summary.generalSummary (PDF puro via wizard), usamos
+  // ele. Sem nenhum dos dois → card de oferta dentro do EducationalSummaryPane.
+  const renderMarkdown = educational?.markdown ?? summary?.generalSummary ?? "";
+  const renderImages = educationalImages ?? summary?.images;
+  const hasRender = !!renderMarkdown;
   const summaryFullscreenRef = useRef<HTMLDivElement>(null);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -895,8 +905,9 @@ function SummaryInlineView({
         isFullscreen && "bg-background overflow-y-auto p-6 h-screen w-screen",
       )}
     >
-      {/* Header com botão Abrir em tela cheia (fullscreen real) */}
-      {educational && (
+      {/* Header com botão Abrir em tela cheia (fullscreen real). Aparece quando
+          há algum markdown renderizado — educational OU summary base. */}
+      {hasRender && (
         <div className="flex items-center justify-end">
           <Button
             onClick={handleFullscreen}
@@ -910,8 +921,8 @@ function SummaryInlineView({
         </div>
       )}
       <EducationalSummaryPane
-        markdown={educational?.markdown}
-        images={educationalImages}
+        markdown={renderMarkdown || undefined}
+        images={renderImages}
         generating={generatingEducational}
         startedAtMs={educationalStartedAtMs ?? null}
         hasEntries={hasEntries}
