@@ -43,10 +43,14 @@ type PlanItemRow = {
   kind: string;
   source_document_id: string | null;
   source_lecture_id: string | null;
+  source_document_ids: string[] | null;
+  source_lecture_ids: string[] | null;
   title: string;
 };
 
-/** Fonte normalizada: vem de document (PDF) ou lecture (transcript). */
+/** Fonte normalizada: combina N PDFs e N aulas num único texto concatenado.
+ *  Quando o user agrupa "aula gravada + slides do prof" num tópico, ambas
+ *  alimentam o mesmo asset com seções separadas pra preservar contexto. */
 type ItemSource = {
   userId: string;
   title: string;
@@ -106,8 +110,8 @@ async function loadComplementaryContext(
   admin: ReturnType<typeof createAdminClient>,
   planId: string,
   userId: string,
-  excludeDocId: string | null,
-  excludeLectureId: string | null,
+  excludeDocIds: string[],
+  excludeLectureIds: string[],
 ): Promise<string> {
   const MAX_EXTRA_ITEMS = 3;
   const MAX_CHARS_PER_EXTRA = 4000;
@@ -130,7 +134,10 @@ async function loadComplementaryContext(
     .not("source_text", "is", null)
     .order("created_at", { ascending: false })
     .limit(MAX_EXTRA_ITEMS + 1);
-  if (excludeDocId) docsQ = docsQ.neq("id", excludeDocId);
+  if (excludeDocIds.length > 0) {
+    // .not("id", "in", ...) usa sintaxe especial do PostgREST
+    docsQ = docsQ.not("id", "in", `(${excludeDocIds.join(",")})`);
+  }
 
   let lecsQ = admin
     .from("lectures")
@@ -140,7 +147,9 @@ async function loadComplementaryContext(
     .not("transcript", "is", null)
     .order("created_at", { ascending: false })
     .limit(MAX_EXTRA_ITEMS + 1);
-  if (excludeLectureId) lecsQ = lecsQ.neq("id", excludeLectureId);
+  if (excludeLectureIds.length > 0) {
+    lecsQ = lecsQ.not("id", "in", `(${excludeLectureIds.join(",")})`);
+  }
 
   const [{ data: docs }, { data: lecs }] = await Promise.all([docsQ, lecsQ]);
 
@@ -625,12 +634,17 @@ async function runWorker(restrictPlanIds: string[] | null) {
   };
 
   for (let i = 0; i < MAX_PER_RUN; i++) {
-    // 1) Pega 1 item pending com source (document OU lecture), ordem FIFO.
+    // 1) Pega 1 item pending com source (document OU lecture, single OU
+    //    arrays), ordem FIFO. O filtro `.or` cobre os 4 caminhos.
     let q = admin
       .from("study_plan_items")
-      .select("id, plan_id, kind, source_document_id, source_lecture_id, title")
+      .select(
+        "id, plan_id, kind, source_document_id, source_lecture_id, source_document_ids, source_lecture_ids, title",
+      )
       .eq("status", "pending")
-      .or("source_document_id.not.is.null,source_lecture_id.not.is.null")
+      .or(
+        "source_document_id.not.is.null,source_lecture_id.not.is.null,source_document_ids.not.eq.{},source_lecture_ids.not.eq.{}",
+      )
       .order("created_at", { ascending: true })
       .limit(1);
     if (restrictPlanIds && restrictPlanIds.length > 0) {
@@ -666,44 +680,69 @@ async function runWorker(restrictPlanIds: string[] | null) {
       continue;
     }
 
-    // 4) Lê source — document OU lecture, dependendo de qual FK está preenchida
+    // 4) Lê sources — combina arrays + fallback singulares. Quando há
+    //    múltiplos PDFs/aulas (UX de tópicos), concatena em seções claras
+    //    pra Lumi entender que são DIFERENTES materiais sobre o mesmo tema.
+    const docIds = [
+      ...(item.source_document_ids ?? []),
+      ...(item.source_document_id && !item.source_document_ids?.includes(item.source_document_id)
+        ? [item.source_document_id]
+        : []),
+    ];
+    const lecIds = [
+      ...(item.source_lecture_ids ?? []),
+      ...(item.source_lecture_id && !item.source_lecture_ids?.includes(item.source_lecture_id)
+        ? [item.source_lecture_id]
+        : []),
+    ];
+
     let source: ItemSource | null = null;
-    if (item.source_document_id) {
-      const { data: docRaw } = await admin
+    let userIdForItem = "";
+    const parts: string[] = [];
+
+    if (docIds.length > 0) {
+      const { data: docsRaw } = await admin
         .from("documents")
         .select("user_id, title, source_text")
-        .eq("id", item.source_document_id)
-        .maybeSingle();
-      if (docRaw) {
-        const d = docRaw as {
-          user_id: string;
-          title: string;
-          source_text: string | null;
-        };
-        source = {
-          userId: d.user_id,
-          title: d.title,
-          text: d.source_text ?? "",
-        };
+        .in("id", docIds);
+      for (const d of (docsRaw ?? []) as Array<{
+        user_id: string;
+        title: string;
+        source_text: string | null;
+      }>) {
+        userIdForItem = d.user_id;
+        if (d.source_text && d.source_text.trim()) {
+          parts.push(
+            `## PDF: ${d.title}\n\n${d.source_text.trim()}`,
+          );
+        }
       }
-    } else if (item.source_lecture_id) {
-      const { data: lecRaw } = await admin
+    }
+    if (lecIds.length > 0) {
+      const { data: lecsRaw } = await admin
         .from("lectures")
         .select("user_id, title, transcript")
-        .eq("id", item.source_lecture_id)
-        .maybeSingle();
-      if (lecRaw) {
-        const l = lecRaw as {
-          user_id: string;
-          title: string;
-          transcript: string | null;
-        };
-        source = {
-          userId: l.user_id,
-          title: l.title,
-          text: l.transcript ?? "",
-        };
+        .in("id", lecIds);
+      for (const l of (lecsRaw ?? []) as Array<{
+        user_id: string;
+        title: string;
+        transcript: string | null;
+      }>) {
+        userIdForItem = l.user_id;
+        if (l.transcript && l.transcript.trim()) {
+          parts.push(
+            `## AULA GRAVADA: ${l.title}\n\n${l.transcript.trim()}`,
+          );
+        }
       }
+    }
+
+    if (userIdForItem && parts.length > 0) {
+      source = {
+        userId: userIdForItem,
+        title: item.title,
+        text: parts.join("\n\n---\n\n"),
+      };
     }
 
     if (!source) {
@@ -720,32 +759,43 @@ async function runWorker(restrictPlanIds: string[] | null) {
 
     // 5) Contexto complementar: outros materiais da mesma matéria do plano
     //    (não bloqueia se falhar — geração segue só com a fonte principal).
+    //    Exclui TODOS os sources já usados no tópico atual pra não duplicar.
     let complementaryContext = "";
     try {
       complementaryContext = await loadComplementaryContext(
         admin,
         item.plan_id,
         source.userId,
-        item.source_document_id,
-        item.source_lecture_id,
+        docIds,
+        lecIds,
       );
     } catch (err) {
       console.warn("[plan-worker] complementary context failed", err);
     }
 
-    // 6) Processa conforme o kind
+    // 6) Normaliza item pros handlers: garante que source_document_id e
+    //    source_lecture_id estejam preenchidos com o primeiro elemento
+    //    do array correspondente quando o singular for null. Os handlers
+    //    usam os singulares pra linkar o asset (summary.document_id, etc).
+    const normalizedItem: PlanItemRow = {
+      ...item,
+      source_document_id: item.source_document_id ?? docIds[0] ?? null,
+      source_lecture_id: item.source_lecture_id ?? lecIds[0] ?? null,
+    };
+
+    // 7) Processa conforme o kind
     let result: { ok: boolean; error?: string };
     if (item.kind === "summary") {
       result = await processSummaryItem(
         admin,
-        item,
+        normalizedItem,
         source,
         complementaryContext,
       );
     } else if (item.kind === "flashcards") {
       result = await processJsonAssetItem(
         admin,
-        item,
+        normalizedItem,
         source,
         complementaryContext,
         FLASHCARDS_CONFIG,
@@ -753,7 +803,7 @@ async function runWorker(restrictPlanIds: string[] | null) {
     } else if (item.kind === "quiz") {
       result = await processJsonAssetItem(
         admin,
-        item,
+        normalizedItem,
         source,
         complementaryContext,
         QUIZ_CONFIG,
@@ -762,7 +812,7 @@ async function runWorker(restrictPlanIds: string[] | null) {
       // mindmap
       result = await processJsonAssetItem(
         admin,
-        item,
+        normalizedItem,
         source,
         complementaryContext,
         MINDMAP_CONFIG,

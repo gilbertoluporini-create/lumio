@@ -56,11 +56,17 @@ export type StudyPlanItem = {
   status: StudyPlanItemStatus;
   dueAt: string | null;
   completedAt: string | null;
-  /** Documento (PDF) que origina esse item. Cron worker lê pra gerar o asset. */
+  /** @deprecated Use sourceDocumentIds. Mantido pra items pré-migration 032. */
   sourceDocumentId: string | null;
-  /** Aula gravada que origina esse item (alternativa ao sourceDocumentId).
-   *  Cron worker usa lecture.transcript como source_text quando preenchido. */
+  /** @deprecated Use sourceLectureIds. Mantido pra items pré-migration 032. */
   sourceLectureId: string | null;
+  /** PDFs (documents) que alimentam esse item. Worker concatena todos os
+   *  source_text como contexto unificado. Vazio = sem PDFs. */
+  sourceDocumentIds: string[];
+  /** Aulas gravadas que alimentam esse item. Worker usa transcript de cada.
+   *  Vazio = sem aulas. Pode coexistir com sourceDocumentIds (1 aula + 1 PDF
+   *  do prof viram 1 resumo combinado, p.ex). */
+  sourceLectureIds: string[];
   /** Motivo do failed (se aplica). */
   errorMessage: string | null;
   createdAt: string;
@@ -91,6 +97,8 @@ type StudyPlanItemRow = {
   completed_at: string | null;
   source_document_id: string | null;
   source_lecture_id: string | null;
+  source_document_ids: string[] | null;
+  source_lecture_ids: string[] | null;
   error_message: string | null;
   created_at: string;
 };
@@ -98,7 +106,7 @@ type StudyPlanItemRow = {
 const PLAN_COLS =
   "id, user_id, subject_id, title, exam_date, status, asset_kinds, created_at, updated_at";
 const ITEM_COLS =
-  "id, plan_id, position, kind, asset_id, title, description, status, due_at, completed_at, source_document_id, source_lecture_id, error_message, created_at";
+  "id, plan_id, position, kind, asset_id, title, description, status, due_at, completed_at, source_document_id, source_lecture_id, source_document_ids, source_lecture_ids, error_message, created_at";
 
 function rowToPlan(r: StudyPlanRow): StudyPlan {
   return {
@@ -128,6 +136,8 @@ function rowToItem(r: StudyPlanItemRow): StudyPlanItem {
     completedAt: r.completed_at,
     sourceDocumentId: r.source_document_id,
     sourceLectureId: r.source_lecture_id,
+    sourceDocumentIds: r.source_document_ids ?? [],
+    sourceLectureIds: r.source_lecture_ids ?? [],
     errorMessage: r.error_message,
     createdAt: r.created_at,
   };

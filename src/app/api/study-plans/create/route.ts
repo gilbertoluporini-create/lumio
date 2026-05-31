@@ -9,15 +9,23 @@
  * for de fato gerado (mais justo: se falhar antes, não cobra).
  *
  * Body: {
- *   title: string,
- *   subjectId: string,
- *   examDate?: string,         // "YYYY-MM-DD"
- *   assetKinds: StudyPlanItemKind[],   // ["summary","flashcards",...]
- *   documentIds?: string[],    // PDFs já subidos (rows em documents)
- *   lectureIds?: string[],     // Aulas gravadas (rows em lectures com transcript)
+ *   title, subjectId, examDate?, assetKinds: StudyPlanItemKind[],
+ *
+ *   // MODO TÓPICOS (preferido): user agrupou fontes em tópicos no wizard.
+ *   // Cada tópico vira 1 item POR kind, com todas as sources concatenadas.
+ *   topics?: Array<{
+ *     title: string;                     // ex: "Hormônios sexuais"
+ *     documentIds?: string[];            // PDFs do tópico
+ *     lectureIds?: string[];             // aulas gravadas do tópico
+ *   }>;
+ *
+ *   // MODO LEGACY (compat): listas flat. Cada source vira 1 tópico
+ *   // implícito de 1 source só. Ignorado se `topics` for enviado.
+ *   documentIds?: string[];
+ *   lectureIds?: string[];
  * }
  *
- * Pelo menos 1 source (documentIds ou lectureIds) é obrigatório.
+ * Pelo menos 1 source no total é obrigatório.
  *
  * Response: { planId: string, itemsCreated: number }
  */
@@ -52,11 +60,18 @@ export async function POST(req: NextRequest) {
   const limited = limitOrThrow(`study-plans-create:ip:${ip}`, 5, 60_000);
   if (limited) return limited;
 
+  type TopicInput = {
+    title?: string;
+    documentIds?: string[];
+    lectureIds?: string[];
+  };
+
   let body: {
     title?: string;
     subjectId?: string;
     examDate?: string;
     assetKinds?: StudyPlanItemKind[];
+    topics?: TopicInput[];
     documentIds?: string[];
     lectureIds?: string[];
   };
@@ -70,8 +85,45 @@ export async function POST(req: NextRequest) {
   const subjectId = body.subjectId ?? "";
   const examDate = body.examDate ?? null;
   const rawKinds = Array.isArray(body.assetKinds) ? body.assetKinds : [];
-  const documentIds = Array.isArray(body.documentIds) ? body.documentIds : [];
-  const lectureIds = Array.isArray(body.lectureIds) ? body.lectureIds : [];
+
+  // Normaliza pra estrutura de tópicos. Se vier `topics`, usa direto. Senão,
+  // gera tópicos implícitos (1 por source) a partir dos arrays flat — mantém
+  // backward-compat com chamadas antigas do wizard.
+  type Topic = {
+    title: string;
+    documentIds: string[];
+    lectureIds: string[];
+  };
+  const topics: Topic[] = [];
+  if (Array.isArray(body.topics) && body.topics.length > 0) {
+    for (const t of body.topics) {
+      const docIds = Array.isArray(t.documentIds) ? t.documentIds : [];
+      const lecIds = Array.isArray(t.lectureIds) ? t.lectureIds : [];
+      if (docIds.length === 0 && lecIds.length === 0) continue;
+      topics.push({
+        title: (t.title ?? "").trim() || "Tópico sem nome",
+        documentIds: docIds,
+        lectureIds: lecIds,
+      });
+    }
+  } else {
+    const flatDocIds = Array.isArray(body.documentIds) ? body.documentIds : [];
+    const flatLecIds = Array.isArray(body.lectureIds) ? body.lectureIds : [];
+    for (const d of flatDocIds) {
+      topics.push({ title: "", documentIds: [d], lectureIds: [] });
+    }
+    for (const l of flatLecIds) {
+      topics.push({ title: "", documentIds: [], lectureIds: [l] });
+    }
+  }
+
+  // IDs únicos pra validar ownership em uma única query cada.
+  const allDocIds = Array.from(
+    new Set(topics.flatMap((t) => t.documentIds)),
+  );
+  const allLecIds = Array.from(
+    new Set(topics.flatMap((t) => t.lectureIds)),
+  );
 
   if (!title) {
     return NextResponse.json({ error: "Título obrigatório." }, { status: 400 });
@@ -79,16 +131,22 @@ export async function POST(req: NextRequest) {
   if (!subjectId) {
     return NextResponse.json({ error: "Matéria obrigatória." }, { status: 400 });
   }
-  const totalSources = documentIds.length + lectureIds.length;
-  if (totalSources === 0) {
+  if (topics.length === 0) {
     return NextResponse.json(
       { error: "Anexe ao menos 1 PDF ou aula." },
       { status: 400 },
     );
   }
-  if (totalSources > 20) {
+  if (topics.length > 20) {
     return NextResponse.json(
-      { error: "Máximo 20 fontes (PDFs + aulas) por plano." },
+      { error: "Máximo 20 tópicos por plano." },
+      { status: 400 },
+    );
+  }
+  const totalSources = allDocIds.length + allLecIds.length;
+  if (totalSources > 50) {
+    return NextResponse.json(
+      { error: "Máximo 50 fontes (PDFs + aulas) por plano." },
       { status: 400 },
     );
   }
@@ -126,17 +184,17 @@ export async function POST(req: NextRequest) {
   }
 
   let docs: Array<{ id: string; title: string }> = [];
-  if (documentIds.length > 0) {
+  if (allDocIds.length > 0) {
     const { data: docsRaw, error: docsErr } = await admin
       .from("documents")
       .select("id, title")
-      .in("id", documentIds)
+      .in("id", allDocIds)
       .eq("user_id", userId);
     if (docsErr) {
       return NextResponse.json({ error: docsErr.message }, { status: 500 });
     }
     docs = (docsRaw ?? []) as Array<{ id: string; title: string }>;
-    if (docs.length !== documentIds.length) {
+    if (docs.length !== allDocIds.length) {
       return NextResponse.json(
         { error: "Um ou mais documentos não foram encontrados." },
         { status: 404 },
@@ -145,17 +203,17 @@ export async function POST(req: NextRequest) {
   }
 
   let lectures: Array<{ id: string; title: string }> = [];
-  if (lectureIds.length > 0) {
+  if (allLecIds.length > 0) {
     const { data: lecsRaw, error: lecsErr } = await admin
       .from("lectures")
       .select("id, title")
-      .in("id", lectureIds)
+      .in("id", allLecIds)
       .eq("user_id", userId);
     if (lecsErr) {
       return NextResponse.json({ error: lecsErr.message }, { status: 500 });
     }
     lectures = (lecsRaw ?? []) as Array<{ id: string; title: string }>;
-    if (lectures.length !== lectureIds.length) {
+    if (lectures.length !== allLecIds.length) {
       return NextResponse.json(
         { error: "Uma ou mais aulas não foram encontradas." },
         { status: 404 },
@@ -184,15 +242,18 @@ export async function POST(req: NextRequest) {
   }
   const planId = (planRow as { id: string }).id;
 
-  // 2) Monta items: pra cada fonte (PDF ou aula), gera 1 item por kind.
-  //    Ordenação: docs primeiro (na ordem enviada), depois aulas.
-  //    Items começam status='pending' — cron worker pega depois.
+  // 2) Monta items: pra cada TÓPICO, gera 1 item por kind selecionado.
+  //    Cada item tem todas as sources do tópico em arrays (worker concatena).
+  //    Mantém singulares preenchidos com o primeiro de cada array pra compat
+  //    com queries antigas que esperam source_document_id/source_lecture_id.
   type ItemInsert = {
     plan_id: string;
     position: number;
     kind: StudyPlanItemKind;
     source_document_id: string | null;
     source_lecture_id: string | null;
+    source_document_ids: string[];
+    source_lecture_ids: string[];
     title: string;
     description: string;
     status: "pending";
@@ -200,34 +261,45 @@ export async function POST(req: NextRequest) {
   const itemsToInsert: ItemInsert[] = [];
 
   let position = 0;
-  for (const docId of documentIds) {
-    const doc = docs.find((d) => d.id === docId);
-    if (!doc) continue;
-    for (const kind of assetKinds) {
-      itemsToInsert.push({
-        plan_id: planId,
-        position: position++,
-        kind,
-        source_document_id: doc.id,
-        source_lecture_id: null,
-        title: `${KIND_LABEL[kind]} de ${doc.title}`,
-        description: `Gerado automaticamente a partir do PDF: ${doc.title}`,
-        status: "pending",
-      });
+  for (const topic of topics) {
+    // Resolve título do tópico — se vier vazio, usa o título da primeira source.
+    let topicTitle = topic.title;
+    if (!topicTitle || topicTitle === "Tópico sem nome") {
+      const firstDoc = topic.documentIds[0]
+        ? docs.find((d) => d.id === topic.documentIds[0])
+        : null;
+      const firstLec = topic.lectureIds[0]
+        ? lectures.find((l) => l.id === topic.lectureIds[0])
+        : null;
+      topicTitle = firstDoc?.title ?? firstLec?.title ?? "Tópico";
     }
-  }
-  for (const lecId of lectureIds) {
-    const lec = lectures.find((l) => l.id === lecId);
-    if (!lec) continue;
+
+    const docTitles = topic.documentIds
+      .map((id) => docs.find((d) => d.id === id)?.title)
+      .filter(Boolean) as string[];
+    const lecTitles = topic.lectureIds
+      .map((id) => lectures.find((l) => l.id === id)?.title)
+      .filter(Boolean) as string[];
+
+    const sourceLine = [
+      docTitles.length > 0 ? `${docTitles.length} PDF(s)` : null,
+      lecTitles.length > 0 ? `${lecTitles.length} aula(s)` : null,
+    ]
+      .filter(Boolean)
+      .join(" + ");
+
     for (const kind of assetKinds) {
       itemsToInsert.push({
         plan_id: planId,
         position: position++,
         kind,
-        source_document_id: null,
-        source_lecture_id: lec.id,
-        title: `${KIND_LABEL[kind]} de ${lec.title}`,
-        description: `Gerado automaticamente a partir da aula: ${lec.title}`,
+        // Singulares: primeiro elemento de cada array (compat).
+        source_document_id: topic.documentIds[0] ?? null,
+        source_lecture_id: topic.lectureIds[0] ?? null,
+        source_document_ids: topic.documentIds,
+        source_lecture_ids: topic.lectureIds,
+        title: `${KIND_LABEL[kind]} — ${topicTitle}`,
+        description: `Gerado a partir de: ${sourceLine}.`,
         status: "pending",
       });
     }
