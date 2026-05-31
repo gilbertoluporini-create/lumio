@@ -764,11 +764,23 @@ function SourcesStep({
       />
       <div className="max-h-44 overflow-y-auto -mx-1 px-1">
         <SourceList
-          items={documents.map((d) => ({
-            id: d.id,
-            title: d.title,
-            sub: d.pageCount ? `${d.pageCount} páginas` : "PDF",
-          }))}
+          items={documents.map((d) => {
+            // PDF sem texto extraído: upload antigo (pré-migration de storage)
+            // ou PDF imagem-only sem OCR. Não dá pra gerar resumo/quiz/etc.
+            // Bloqueamos a seleção e instruímos a re-subir pela tab 'Subir novo'.
+            const textLen = d.sourceText?.length ?? 0;
+            const usable = textLen >= 200;
+            return {
+              id: d.id,
+              title: d.title,
+              sub: usable
+                ? d.pageCount
+                  ? `${d.pageCount} páginas`
+                  : "PDF"
+                : "Sem texto extraível — re-suba pela tab 'Subir novo'",
+              disabled: !usable,
+            };
+          })}
           picked={pickedDocs}
           onToggle={onToggleDoc}
           emptyMsg="Nenhum PDF nesta matéria. Use 'Subir novo' acima."
