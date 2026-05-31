@@ -671,7 +671,22 @@ function TrailItem({
   const isWizardKind = WIZARD_KINDS.includes(item.kind);
   const isRoutine = item.kind === "routine";
   const isDocument = item.kind === "document";
-  const assetHref = assetHrefFor(item);
+  const externalAssetHref = assetHrefFor(item);
+  // Pra summary/flashcards/quiz/mindmap COM source vinculada (PDF ou aula),
+  // o card abre a tela do item do plano: mostra contexto da trilha, status
+  // de geração (pending/done/failed) e sugestões de outros assets do mesmo
+  // material. Pros demais kinds abre direto a rota do asset.
+  const inPlanKinds: StudyPlanItemKind[] = [
+    "summary",
+    "flashcards",
+    "quiz",
+    "mindmap",
+  ];
+  const hasSource = !!item.sourceDocumentId || !!item.sourceLectureId;
+  const usePlanItemRoute = inPlanKinds.includes(item.kind) && hasSource;
+  const assetHref = usePlanItemRoute
+    ? `/planos/${item.planId}/item/${item.id}`
+    : externalAssetHref;
   const hasAsset = !!assetHref;
 
   return (
