@@ -7,7 +7,7 @@
 import type { Metadata } from "next";
 
 export const SITE_URL =
-  process.env.NEXT_PUBLIC_APP_URL ?? "https://lumioapp.net";
+  process.env.NEXT_PUBLIC_APP_URL ?? "https://www.lumioapp.net";
 
 export const SITE_NAME = "Lumio";
 

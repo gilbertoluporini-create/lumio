@@ -116,7 +116,7 @@ export async function sendSupportTicketNotification(opts: {
   const appUrl =
     opts.appUrl ??
     process.env.NEXT_PUBLIC_APP_URL ??
-    "https://lumioapp.net";
+    "https://www.lumioapp.net";
   const adminLink = `${appUrl.replace(/\/$/, "")}/admin/tickets`;
   const html = `<!doctype html>
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:32px;color:#18181b;">
@@ -235,7 +235,7 @@ export async function sendOnboardingEmail(opts: {
   }
   const copy = SEQUENCE_COPY[opts.step];
   const safeName = (opts.name ?? "").split(" ")[0] || "estudante";
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://lumioapp.net";
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://www.lumioapp.net";
   const utmCta = `${appUrl}${copy.ctaPath}?utm_source=email&utm_medium=lifecycle&utm_campaign=onboarding_${opts.step}`;
 
   const html = `<!doctype html>

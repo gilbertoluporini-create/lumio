@@ -74,7 +74,7 @@ async function sendMetaCapi(p: ServerEventPayload): Promise<void> {
         event_id: p.eventId,
         action_source: "website",
         event_source_url:
-          p.eventSourceUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://lumioapp.net",
+          p.eventSourceUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://www.lumioapp.net",
         user_data: userData,
         custom_data: customData,
       },

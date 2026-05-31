@@ -41,7 +41,7 @@ export async function sendLeadMagnetEmail(opts: {
     return { skipped: true };
   }
 
-  const appUrl = (opts.appUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://lumioapp.net").replace(
+  const appUrl = (opts.appUrl ?? process.env.NEXT_PUBLIC_APP_URL ?? "https://www.lumioapp.net").replace(
     /\/$/,
     "",
   );
