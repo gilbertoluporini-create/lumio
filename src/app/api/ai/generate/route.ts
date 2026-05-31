@@ -445,47 +445,115 @@ async function callImageEndpoint(
   }
 }
 
-/** Insere ![concept](url) após cada H2 da seção correspondente. */
+/**
+ * Insere imagens distribuídas ao longo do markdown:
+ *  - 1ª imagem: após o H1 (intro)
+ *  - Demais: primeiro tenta casar conceito ↔ H2 por texto; o resto é
+ *    distribuído UNIFORMEMENTE pelos H2s livres pra evitar "todas as 3
+ *    imagens caírem juntas no final" quando o match falha.
+ */
 function injectImagesIntoMarkdown(
   markdown: string,
   concepts: string[],
   urls: string[],
 ): string {
   if (urls.length === 0) return markdown;
-  let out = markdown;
 
-  // Insere abaixo do título principal (primeira ocorrência de H1)
+  // 1ª imagem: após H1
   const firstImage = urls[0];
   const firstConcept = concepts[0] ?? "Ilustração";
-  out = out.replace(
+  let out = markdown.replace(
     /^(# .+)$/m,
     `$1\n\n![${firstConcept}](${firstImage})`,
   );
 
-  // Para o resto, tenta posicionar logo após H2 com conceito relacionado
+  if (urls.length <= 1) return out;
+
+  const lines = out.split("\n");
+  const h2LineIndexes: number[] = [];
+  lines.forEach((line, idx) => {
+    if (line.startsWith("## ")) h2LineIndexes.push(idx);
+  });
+
+  // Sem H2 nenhum: espalha as restantes com espaçamento entre si no fim
+  if (h2LineIndexes.length === 0) {
+    for (let i = 1; i < urls.length; i++) {
+      const c = concepts[i] ?? `Ilustração ${i + 1}`;
+      lines.push("", `![${c}](${urls[i]})`, "");
+    }
+    return lines.join("\n");
+  }
+
+  // Fase 1: tenta match semântico H2 ↔ conceito
+  type Plan = { lineIdx: number; concept: string; url: string };
+  const plans: Plan[] = [];
+  const usedH2 = new Set<number>(); // índices dentro de h2LineIndexes (não linhas)
+  const unplanned: number[] = []; // índices em urls (1..N-1) que não casaram
+
   for (let i = 1; i < urls.length; i++) {
     const c = concepts[i] ?? `Ilustração ${i + 1}`;
-    const url = urls[i];
     const lowerC = c.toLowerCase();
-    const lines = out.split("\n");
-    let inserted = false;
-    for (let j = 0; j < lines.length; j++) {
-      if (
-        lines[j].startsWith("## ") &&
-        lines[j].toLowerCase().includes(lowerC.slice(0, 12))
-      ) {
-        lines.splice(j + 1, 0, "", `![${c}](${url})`, "");
-        inserted = true;
-        break;
+    let matchedH2 = -1;
+    if (lowerC.length >= 4) {
+      const probe = lowerC.slice(0, 12);
+      for (let k = 0; k < h2LineIndexes.length; k++) {
+        if (usedH2.has(k)) continue;
+        if (lines[h2LineIndexes[k]].toLowerCase().includes(probe)) {
+          matchedH2 = k;
+          break;
+        }
       }
     }
-    out = lines.join("\n");
-    if (!inserted) {
-      // Append no fim do doc se não achou seção
-      out += `\n\n![${c}](${url})\n`;
+    if (matchedH2 >= 0) {
+      usedH2.add(matchedH2);
+      plans.push({
+        lineIdx: h2LineIndexes[matchedH2],
+        concept: c,
+        url: urls[i],
+      });
+    } else {
+      unplanned.push(i);
     }
   }
-  return out;
+
+  // Fase 2: distribui o restante UNIFORMEMENTE pelos H2s livres
+  const freeH2s = h2LineIndexes
+    .map((_, k) => k)
+    .filter((k) => !usedH2.has(k));
+  for (let u = 0; u < unplanned.length; u++) {
+    if (freeH2s.length === 0) {
+      // Sem H2 livre: pisa em H2 já usado em rotação (raríssimo)
+      const fallbackK = u % h2LineIndexes.length;
+      const i = unplanned[u];
+      plans.push({
+        lineIdx: h2LineIndexes[fallbackK],
+        concept: concepts[i] ?? `Ilustração ${i + 1}`,
+        url: urls[i],
+      });
+      continue;
+    }
+    // Espaçamento uniforme: divide H2s livres em buckets iguais
+    const slot = Math.min(
+      Math.floor((u + 0.5) * freeH2s.length / unplanned.length),
+      freeH2s.length - 1,
+    );
+    const h2k = freeH2s[slot];
+    const i = unplanned[u];
+    plans.push({
+      lineIdx: h2LineIndexes[h2k],
+      concept: concepts[i] ?? `Ilustração ${i + 1}`,
+      url: urls[i],
+    });
+    freeH2s.splice(slot, 1);
+  }
+
+  // Insere em ordem DESC pra não invalidar índices
+  plans.sort((a, b) => b.lineIdx - a.lineIdx);
+  for (const p of plans) {
+    lines.splice(p.lineIdx + 1, 0, "", `![${p.concept}](${p.url})`, "");
+  }
+
+  return lines.join("\n");
 }
 
 /* ------------------------------------------------------------------ */

@@ -148,7 +148,7 @@ function buildPrompt(opts: { titleEn: string; bodyPt: string }): string {
     `Content context (Portuguese, for understanding only — do NOT include this text in the image):`,
     opts.bodyPt,
     ``,
-    `Style: clean modern educational illustration, like a high-end medical textbook figure. Visual-first — minimize text, prefer arrows, anatomical drawings, color coding, schematic flows. If you must use a label, use English (3 words max) or Latin. No Portuguese text. Aspect: 1536x1024 landscape.`,
+    `Style: clean educational infographic, high-end Brazilian medical textbook figure. Use Portuguese (pt-BR) labels — short and informative, 1-3 words each. Aim for 4-8 labels distributed across the figure (anatomical parts, arrows with key terms, callouts pointing to structures). DO NOT write full sentences or paragraphs. ALL Portuguese words must be spelled CORRECTLY — common medical terms: gene, proteína, célula, núcleo, DNA, RNA, fenótipo, genótipo, alelo, cromossomo, mitocôndria, ribossomo, enzima. Prefer anatomical drawings, color coding, schematic flows, numbered steps. Latin anatomical names are also welcome (musculus, hepar, cor). NO English text. Aspect: 1536x1024 landscape.`,
   ].join("\n");
 }
 
