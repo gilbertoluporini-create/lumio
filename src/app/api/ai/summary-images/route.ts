@@ -79,8 +79,8 @@ async function generateAndUploadViaOpenAI(
               "Use the attached PDF page screenshots as visual/source references. Preserve the relevant subject matter, terminology, diagrams, tables, and visual context from those pages, but create a clean new educational image rather than copying the page.",
             ].join("\n"),
             references,
-            quality: "medium",
-            size: "1024x1024",
+            quality: "high",
+            size: "1536x1024",
             outputFormat: "webp",
             apiKey,
           });
@@ -88,8 +88,8 @@ async function generateAndUploadViaOpenAI(
         } else {
           const gen = await generateImageOpenAI({
             prompt: wrapPromptForPremiumEducationalImage(prompt),
-            quality: "medium",
-            size: "1024x1024",
+            quality: "high",
+            size: "1536x1024",
             outputFormat: "webp",
             apiKey,
           });
