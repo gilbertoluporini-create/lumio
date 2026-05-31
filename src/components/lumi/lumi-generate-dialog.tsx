@@ -133,7 +133,7 @@ export function LumiGenerateDialog({
         if (!o && !loading) onClose();
       }}
     >
-      <DialogContent className="max-w-md">
+      <DialogContent mobileSheet className="md:max-w-md">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <div

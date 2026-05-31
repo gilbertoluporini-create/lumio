@@ -31,7 +31,10 @@ export type LumiToolName =
   | "iniciar_modo_prova"
   | "gerar_rotina_estudo"
   | "criar_plano_de_estudos"
-  | "abrir_rota";
+  | "abrir_rota"
+  | "marcar_item_plano"
+  | "meu_progresso"
+  | "agendar_no_calendario";
 
 export type ToolContext = {
   userId: string;
@@ -236,13 +239,18 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "iniciar_modo_prova",
     description:
-      "MODO PROVA — gera EM PARALELO resumo (10) + flashcards (8) + quiz (8) focados na prova + monta cronograma. Custo total ~26 coins. NUNCA dispare só porque o user disse 'tenho prova' — isso é pedido VAGO. Primeiro OFEREÇA explicitamente no chat ('quer rodar o Modo Prova? Gera resumo + flashcards + quiz da matéria, custa 26 coins') e só chame depois do 'sim' claro. Se o user disser que quer só 1 asset (só resumo OU só quiz OU só flashcards), NÃO use esta tool — use a tool individual correspondente. Em 1 chamada faz: (1) lista material, (2) busca tópicos via RAG, (3) gera os 3 assets, (4) monta cronograma.",
+      "MODO PROVA — gera EM PARALELO resumo (10) + flashcards (8) + quiz (8) focados na prova + monta cronograma. Custo total ~26 coins. PROTOCOLO OBRIGATÓRIO: (1) PRIMEIRA chamada SEMPRE com `confirmado: false` — o handler vai retornar pedindo pra você confirmar explicitamente com o user no chat antes de executar; (2) só depois do user responder 'sim'/'pode'/'manda'/'bora' você chama de novo com `confirmado: true`. NUNCA chame com confirmado: true sem ter recebido o sim do user na conversa. Se o user pediu só 1 asset (só resumo OU só quiz OU só flashcards), NÃO use esta tool — use a tool individual correspondente. Em 1 chamada com confirmado:true faz: (1) lista material, (2) busca tópicos via RAG, (3) gera os 3 assets, (4) monta cronograma.",
     input_schema: {
       type: "object",
       properties: {
         subjectId: {
           type: "string",
           description: "UUID da matéria da prova (obrigatório).",
+        },
+        confirmado: {
+          type: "boolean",
+          description:
+            "OBRIGATÓRIO. false na primeira chamada (handler devolve pedido de confirmação). true SOMENTE depois que o user responder 'sim/pode/bora' na conversa pro custo de ~26 coins.",
         },
         horasDisponiveis: {
           type: "number",
@@ -261,7 +269,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
             "Opcional: tópicos específicos que o user disse que vão cair. Se não, Lumi infere dos materiais.",
         },
       },
-      required: ["subjectId"],
+      required: ["subjectId", "confirmado"],
     },
   },
   {
@@ -337,6 +345,79 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ["subjectId", "conteudo"],
+    },
+  },
+  {
+    name: "marcar_item_plano",
+    description:
+      "Marca um item de plano de estudos como pending/in_progress/done. Use quando o user disser 'já fiz X', 'comecei o resumo', 'concluí o quiz' E você tiver o itemId daquele item (vem do output de outras tools ou do contexto da página /planos). Grátis (0 coins). NUNCA invente itemIds — só use UUIDs reais que apareceram em outputs anteriores.",
+    input_schema: {
+      type: "object",
+      properties: {
+        itemId: {
+          type: "string",
+          description: "UUID do study_plan_item. Obrigatório.",
+        },
+        status: {
+          type: "string",
+          enum: ["pending", "in_progress", "done"],
+          description:
+            "Novo status. 'in_progress' quando o user começou; 'done' quando concluiu; 'pending' pra desfazer.",
+        },
+      },
+      required: ["itemId", "status"],
+    },
+  },
+  {
+    name: "meu_progresso",
+    description:
+      "Snapshot do estado do user: saldo de coins, gastos últimos 7 dias por categoria, número de aulas/resumos/planos ativos, e próxima ação sugerida. Use quando o user perguntar 'como estou indo?', 'quantos coins tenho?', 'no que eu gastei?', 'o que estudo agora?'. Grátis (0 coins). Se vier subjectId, escopa contagens àquela matéria.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: {
+          type: "string",
+          description:
+            "Opcional: UUID da matéria. Se passado, conta aulas/resumos/planos só dela.",
+        },
+      },
+    },
+  },
+  {
+    name: "agendar_no_calendario",
+    description:
+      "Cria um evento no calendário do user (aula avulsa, bloco de estudo, prova, trabalho, outro). Calendar é localStorage — esta tool retorna um clientAction que o frontend precisa executar pra de fato persistir. Use quando o user disser 'agenda minha prova de X dia Y', 'bloca 2h amanhã pra estudar Z', 'marca trabalho de X pra sexta'. Grátis (0 coins). SEMPRE confirme título, data/hora e tipo no chat antes de chamar. Datas devem ser ISO 8601 completo (com timezone ou Z).",
+    input_schema: {
+      type: "object",
+      properties: {
+        titulo: {
+          type: "string",
+          description: "Título do evento (ex: 'Prova Endócrino', 'Estudar suprarrenais').",
+        },
+        tipo: {
+          type: "string",
+          enum: ["aula", "bloco", "prova", "trabalho", "outro"],
+          description:
+            "Tipo do evento. bloco = bloco de estudo agendado; outro = genérico.",
+        },
+        startsAt: {
+          type: "string",
+          description: "Início em ISO 8601 (ex: '2026-06-12T14:00:00-03:00').",
+        },
+        endsAt: {
+          type: "string",
+          description: "Opcional: fim em ISO 8601. Se omitido, evento dura 1h.",
+        },
+        subjectId: {
+          type: "string",
+          description: "Opcional: UUID da matéria associada.",
+        },
+        descricao: {
+          type: "string",
+          description: "Opcional: notas extras do evento.",
+        },
+      },
+      required: ["titulo", "tipo", "startsAt"],
     },
   },
   {
@@ -556,6 +637,276 @@ const handlers: Record<LumiToolName, ToolHandler> = {
     };
   },
 
+  async marcar_item_plano(input, ctx) {
+    const itemId = str(input.itemId);
+    const status = str(input.status) as
+      | "pending"
+      | "in_progress"
+      | "done"
+      | "";
+    if (!itemId) return { ok: false, error: "itemId obrigatório" };
+    if (status !== "pending" && status !== "in_progress" && status !== "done") {
+      return {
+        ok: false,
+        error: "status inválido (use pending | in_progress | done)",
+      };
+    }
+
+    // Valida ownership via join com study_plans.user_id — não dá pra usar
+    // updateItemStatusAsync (client lib) aqui; reimplementamos via admin.
+    const { data: itemRow, error: readErr } = await ctx.supabaseAdmin
+      .from("study_plan_items")
+      .select("id, plan_id, study_plans!inner(user_id)")
+      .eq("id", itemId)
+      .maybeSingle();
+    if (readErr) {
+      return { ok: false, error: readErr.message };
+    }
+    if (!itemRow) {
+      return { ok: false, error: "Item não encontrado." };
+    }
+    const ownerId =
+      (itemRow as { study_plans?: { user_id?: string } | { user_id?: string }[] })
+        .study_plans;
+    const ownerUserId = Array.isArray(ownerId)
+      ? ownerId[0]?.user_id
+      : ownerId?.user_id;
+    if (ownerUserId !== ctx.userId) {
+      return { ok: false, error: "Item não pertence ao usuário." };
+    }
+
+    const patch: Record<string, unknown> = { status };
+    patch.completed_at = status === "done" ? new Date().toISOString() : null;
+    const { error: updErr } = await ctx.supabaseAdmin
+      .from("study_plan_items")
+      .update(patch)
+      .eq("id", itemId);
+    if (updErr) {
+      return { ok: false, error: updErr.message };
+    }
+    return { ok: true, itemId, novoStatus: status };
+  },
+
+  async meu_progresso(input, ctx) {
+    const scopeSubjectId = str(input.subjectId) || undefined;
+
+    // 1. Saldo atual
+    const { data: profile } = await ctx.supabaseAdmin
+      .from("profiles")
+      .select("coin_balance")
+      .eq("id", ctx.userId)
+      .maybeSingle();
+    const saldoAtual =
+      (profile as { coin_balance?: number } | null)?.coin_balance ?? 0;
+
+    // 2. Gastos últimos 7 dias (amount < 0)
+    const sevenDaysAgo = new Date(
+      Date.now() - 7 * 24 * 60 * 60 * 1000,
+    ).toISOString();
+    const { data: txns } = await ctx.supabaseAdmin
+      .from("coin_transactions")
+      .select("amount, reason, created_at")
+      .eq("user_id", ctx.userId)
+      .lt("amount", 0)
+      .gte("created_at", sevenDaysAgo)
+      .limit(500);
+    type TxRow = { amount: number; reason: string; created_at: string };
+    const txnsList = (txns ?? []) as TxRow[];
+
+    let gastos7dTotal = 0;
+    const porCategoria: Record<string, number> = {};
+    for (const t of txnsList) {
+      const abs = Math.abs(t.amount);
+      gastos7dTotal += abs;
+      porCategoria[t.reason] = (porCategoria[t.reason] ?? 0) + abs;
+    }
+    const distribuicao = Object.entries(porCategoria)
+      .map(([reason, total]) => ({ reason, total }))
+      .sort((a, b) => b.total - a.total);
+
+    // 3. Contagens de aulas / resumos / planos ativos
+    const lecturesQ = ctx.supabaseAdmin
+      .from("lectures")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ctx.userId);
+    const summariesQ = ctx.supabaseAdmin
+      .from("summaries")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ctx.userId);
+    const plansActiveQ = ctx.supabaseAdmin
+      .from("study_plans")
+      .select("id", { count: "exact", head: true })
+      .eq("user_id", ctx.userId)
+      .eq("status", "active");
+    if (scopeSubjectId) {
+      lecturesQ.eq("subject_id", scopeSubjectId);
+      summariesQ.eq("subject_id", scopeSubjectId);
+      plansActiveQ.eq("subject_id", scopeSubjectId);
+    }
+    const [lecRes, sumRes, planRes] = await Promise.all([
+      lecturesQ,
+      summariesQ,
+      plansActiveQ,
+    ]);
+    const numAulas = lecRes.count ?? 0;
+    const numResumos = sumRes.count ?? 0;
+    const numPlanosAtivos = planRes.count ?? 0;
+
+    // 4. Próxima ação sugerida: item in_progress mais antigo de planos ativos,
+    // ou criar plano se não tem nenhum ativo.
+    let proximaAcao: {
+      tipo: "retomar_item" | "criar_plano" | "tudo_em_dia";
+      mensagem: string;
+      itemId?: string;
+      itemTitulo?: string;
+      planoId?: string;
+    } = {
+      tipo: "tudo_em_dia",
+      mensagem:
+        "Nada pendente — bom momento pra gravar uma aula nova ou montar um plano.",
+    };
+
+    // Busca plano ativo + item in_progress mais antigo
+    const planIdsQ = ctx.supabaseAdmin
+      .from("study_plans")
+      .select("id, title")
+      .eq("user_id", ctx.userId)
+      .eq("status", "active");
+    if (scopeSubjectId) planIdsQ.eq("subject_id", scopeSubjectId);
+    const { data: activePlans } = await planIdsQ;
+    type PlanLite = { id: string; title: string };
+    const planList = (activePlans ?? []) as PlanLite[];
+
+    if (planList.length === 0) {
+      proximaAcao = {
+        tipo: "criar_plano",
+        mensagem:
+          "Você não tem plano de estudos ativo. Quer que eu monte um pra uma matéria?",
+      };
+    } else {
+      const planIds = planList.map((p) => p.id);
+      const { data: inProg } = await ctx.supabaseAdmin
+        .from("study_plan_items")
+        .select("id, plan_id, title, created_at")
+        .in("plan_id", planIds)
+        .eq("status", "in_progress")
+        .order("created_at", { ascending: true })
+        .limit(1);
+      type ItemLite = {
+        id: string;
+        plan_id: string;
+        title: string;
+        created_at: string;
+      };
+      const oldest = ((inProg ?? []) as ItemLite[])[0];
+      if (oldest) {
+        const plan = planList.find((p) => p.id === oldest.plan_id);
+        const ageDays = Math.floor(
+          (Date.now() - new Date(oldest.created_at).getTime()) /
+            (24 * 60 * 60 * 1000),
+        );
+        proximaAcao = {
+          tipo: "retomar_item",
+          mensagem: `Você tem "${oldest.title}" em andamento${
+            ageDays > 0 ? ` há ${ageDays}d` : ""
+          } no plano "${plan?.title ?? "plano"}". Quer retomar?`,
+          itemId: oldest.id,
+          itemTitulo: oldest.title,
+          planoId: oldest.plan_id,
+        };
+      }
+    }
+
+    return {
+      saldo_atual: saldoAtual,
+      gastos_7d: {
+        total: gastos7dTotal,
+        por_categoria: distribuicao,
+      },
+      contagens: {
+        aulas: numAulas,
+        resumos: numResumos,
+        planos_ativos: numPlanosAtivos,
+        escopo: scopeSubjectId ? "materia" : "geral",
+      },
+      proxima_acao: proximaAcao,
+    };
+  },
+
+  async agendar_no_calendario(input, ctx) {
+    const titulo = str(input.titulo).trim();
+    const tipo = str(input.tipo);
+    const startsAt = str(input.startsAt).trim();
+    const endsAt = str(input.endsAt).trim() || undefined;
+    const subjectId = str(input.subjectId).trim() || undefined;
+    const descricao = str(input.descricao).trim() || undefined;
+
+    if (!titulo) return { ok: false, error: "titulo obrigatório" };
+    const allowedTipos = ["aula", "bloco", "prova", "trabalho", "outro"];
+    if (!allowedTipos.includes(tipo)) {
+      return {
+        ok: false,
+        error: `tipo inválido (use ${allowedTipos.join(" | ")})`,
+      };
+    }
+    const startDate = new Date(startsAt);
+    if (!startsAt || Number.isNaN(startDate.getTime())) {
+      return { ok: false, error: "startsAt inválido (use ISO 8601)" };
+    }
+    let endIso: string | undefined = undefined;
+    if (endsAt) {
+      const endDate = new Date(endsAt);
+      if (Number.isNaN(endDate.getTime())) {
+        return { ok: false, error: "endsAt inválido (use ISO 8601)" };
+      }
+      if (endDate.getTime() <= startDate.getTime()) {
+        return { ok: false, error: "endsAt precisa ser depois de startsAt" };
+      }
+      endIso = endDate.toISOString();
+    } else {
+      // Default: 1h de duração
+      endIso = new Date(startDate.getTime() + 60 * 60 * 1000).toISOString();
+    }
+
+    // Valida ownership da matéria, se vier
+    if (subjectId) {
+      const { data: subj, error: subjErr } = await ctx.supabaseAdmin
+        .from("subjects")
+        .select("id")
+        .eq("id", subjectId)
+        .eq("user_id", ctx.userId)
+        .maybeSingle();
+      if (subjErr) return { ok: false, error: subjErr.message };
+      if (!subj) {
+        return { ok: false, error: "subjectId não pertence ao usuário." };
+      }
+    }
+
+    // Calendar persiste em localStorage no client; servidor só prepara payload.
+    // Cliente precisa escutar `clientAction.type === 'add_calendar_event'` e
+    // chamar `addEventAsync` do `@/lib/calendar-events`.
+    return {
+      ok: true,
+      clientAction: {
+        type: "add_calendar_event",
+        payload: {
+          type: tipo,
+          title: titulo,
+          subject_id: subjectId,
+          starts_at: startDate.toISOString(),
+          ends_at: endIso,
+          description: descricao,
+        },
+      },
+      navegacao: {
+        path: "/schedule",
+        motivo: `Evento "${titulo}" agendado — ver no calendário`,
+      },
+      observacao:
+        "Evento ainda não persistido — depende do client executar a clientAction. Confirme com o user pelo card.",
+    };
+  },
+
   async criar_plano_de_estudos(input, ctx) {
     const subjectId = str(input.subjectId);
     if (!subjectId) return { error: "subjectId obrigatório" };
@@ -686,6 +1037,19 @@ const handlers: Record<LumiToolName, ToolHandler> = {
   async iniciar_modo_prova(input, ctx) {
     const subjectId = str(input.subjectId);
     if (!subjectId) return { error: "subjectId obrigatório" };
+    const confirmado = input.confirmado === true;
+    if (!confirmado) {
+      // Gate de proteção: 26+ coins é caro. Forçamos o agent a pedir confirmação
+      // explícita antes de gastar. Esse retorno faz o Claude voltar pra conversa,
+      // perguntar "quer rodar Modo Prova? gasta ~26 coins" e SÓ chamar de novo
+      // com confirmado:true após o sim.
+      return {
+        needsConfirmation: true,
+        message:
+          "PRECISA_CONFIRMACAO. Antes de gastar ~26 coins, pergunte ao user: 'Quer rodar Modo Prova? Vou gerar resumo + flashcards + quiz da matéria em paralelo, custa ~26 coins.' Só me chame de novo com confirmado:true depois do user responder sim/pode/manda.",
+        costPreview: 26,
+      };
+    }
     const horasDisponiveis = num(input.horasDisponiveis, 3);
     const dataProva = str(input.dataProva, "");
     const topicosFoco = arr(input.topicosFoco);
