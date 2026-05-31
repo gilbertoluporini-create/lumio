@@ -339,36 +339,67 @@ Retorne APENAS JSON puro (sem markdown, sem cercas):
 }
 
 export async function POST(req: Request) {
-  const ip = getClientIp(req);
-  const limited = limitOrThrow(`summary-images:ip:${ip}`, 5, 60_000);
-  if (limited) return limited;
+  // Trigger interno (worker do plano de estudos / cron) bypassa auth de
+  // sessão usando CRON_SECRET no header `x-internal-key`. Pra esses casos
+  // o `userId` é enviado no body (worker não tem cookie de sessão).
+  // Fluxo normal de usuário (educational-summary, botão "Gerar ilustrações"
+  // na /resumo, etc) continua passando cookie e cai no auth padrão.
+  const internalKey = req.headers.get("x-internal-key");
+  const expectedInternalKey = process.env.CRON_SECRET ?? "";
+  const isInternalCall = Boolean(
+    internalKey && expectedInternalKey && internalKey === expectedInternalKey,
+  );
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return Response.json({ error: "Não autenticado." }, { status: 401 });
+  // Rate-limit por IP só pra chamadas de usuário; internal já vem de cron
+  // controlado e a frequência é limitada pelo próprio worker.
+  if (!isInternalCall) {
+    const ip = getClientIp(req);
+    const limited = limitOrThrow(`summary-images:ip:${ip}`, 5, 60_000);
+    if (limited) return limited;
   }
 
-  // Cap diário USD por user (anti-abuse). Admin/founder bypass.
-  const cap = await checkDailyCostCap(user.id);
-  if (!cap.ok) return dailyCapResponse(cap);
+  const supabase = await createClient();
 
   let body: {
     lectureId?: string;
     count?: number;
+    userId?: string;
     referenceImages?: Array<{ filename?: string; dataUrl?: string }>;
   };
   try {
     body = (await req.json()) as {
       lectureId?: string;
       count?: number;
+      userId?: string;
       referenceImages?: Array<{ filename?: string; dataUrl?: string }>;
     };
   } catch {
     return Response.json({ error: "JSON inválido." }, { status: 400 });
   }
+
+  let userId: string;
+  if (isInternalCall) {
+    if (!body.userId) {
+      return Response.json(
+        { error: "userId obrigatório em chamadas internas." },
+        { status: 400 },
+      );
+    }
+    userId = body.userId;
+  } else {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return Response.json({ error: "Não autenticado." }, { status: 401 });
+    }
+    userId = user.id;
+  }
+
+  // Cap diário USD por user (anti-abuse). Admin/founder bypass.
+  const cap = await checkDailyCostCap(userId);
+  if (!cap.ok) return dailyCapResponse(cap);
+
   if (!body.lectureId) {
     return Response.json(
       { error: "lectureId obrigatório." },
@@ -377,22 +408,26 @@ export async function POST(req: Request) {
   }
   const count = Math.max(2, Math.min(4, body.count ?? 3));
 
+  // Em chamadas internas usamos admin client pras leituras (bypassa RLS
+  // porque o worker autentica via CRON_SECRET, não via sessão de user).
+  const readClient = isInternalCall ? createAdminClient() : supabase;
+
   // Carrega lecture com TODO contexto pra ancorar a geração:
   // transcript + slides + título + matéria. Summary vem de summaries table.
-  const { data: lectureRow, error: lecErr } = await supabase
+  const { data: lectureRow, error: lecErr } = await readClient
     .from("lectures")
     .select("id, title, subject_id, transcript, slides")
     .eq("id", body.lectureId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
   if (lecErr || !lectureRow) {
     return Response.json({ error: "Lecture não encontrada." }, { status: 404 });
   }
-  const { data: sumRow } = await supabase
+  const { data: sumRow } = await readClient
     .from("summaries")
     .select("content")
     .eq("lecture_id", body.lectureId)
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
   const lectureSummary = (sumRow?.content as LectureSummary | null) ?? null;
   if (!lectureSummary?.generalSummary) {
@@ -405,11 +440,11 @@ export async function POST(req: Request) {
   // Tenta puxar nome da matéria
   let subjectName = "Geral";
   if (lectureRow.subject_id) {
-    const { data: subj } = await supabase
+    const { data: subj } = await readClient
       .from("subjects")
       .select("name")
       .eq("id", lectureRow.subject_id)
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .maybeSingle();
     if (subj?.name) subjectName = subj.name as string;
   }
@@ -506,13 +541,17 @@ export async function POST(req: Request) {
   if (isOpenAIImageConfigured()) {
     urlsAligned = await generateAndUploadViaOpenAI(
       promptsWithAnchor,
-      user.id,
+      userId,
       Array.isArray(body.referenceImages) ? body.referenceImages : [],
     );
   }
 
-  // Fallback Imagen quando OpenAI não configurado OU falhou completamente
-  if (!urlsAligned.some(Boolean)) {
+  // Fallback Imagen quando OpenAI não configurado OU falhou completamente.
+  // Em chamada interna do worker NÃO há cookie de sessão, então
+  // `/api/ai/generate-images` (que valida auth via cookie) retornaria 401.
+  // Nesse caso pulamos o fallback e devolvemos imagens vazias — o card de
+  // resumo ainda aparece e user pode clicar "Gerar ilustrações" depois.
+  if (!urlsAligned.some(Boolean) && !isInternalCall) {
     const origin = req.headers.get("x-forwarded-proto")
       ? `${req.headers.get("x-forwarded-proto")}://${req.headers.get("host")}`
       : `http://${req.headers.get("host")}`;
@@ -573,11 +612,13 @@ export async function POST(req: Request) {
     images,
     generalSummary: markdownWithImages,
   };
-  await supabase
+  // Em chamada interna o admin client bypassa RLS; em chamada normal de
+  // user o supabase autenticado já tem RLS pra impor user_id correto.
+  await (isInternalCall ? createAdminClient() : supabase)
     .from("summaries")
     .update({ content: updatedSummary, images })
     .eq("lecture_id", body.lectureId)
-    .eq("user_id", user.id);
+    .eq("user_id", userId);
 
   // 6) Espelhar tudo em lectures.summary_educational — markdown injetado
   // E array de images. Sem isso:

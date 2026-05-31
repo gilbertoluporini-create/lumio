@@ -332,6 +332,58 @@ async function processSummaryItem(
     })
     .eq("id", item.id);
 
+  // 4b) Dispara geração de imagens em background (fire-and-forget) — só
+  // pra items com lecture vinculada (summary-images depende de
+  // lectures.transcript/slides/subject). Items PDF-puro ficam sem
+  // ilustrações por ora; user ainda pode disparar manualmente na /resumo.
+  //
+  // É await DENTRO do void IIFE pra que enquanto o worker segue
+  // processando o próximo item, esta chamada vai rodando em paralelo.
+  // No último item do batch pode ficar em risco de ser killed quando o
+  // handler retorna, mas /api/ai/summary-images tem maxDuration próprio
+  // (180s) — o request HTTP chega e a função do summary-images segue
+  // rodando independente mesmo se o worker terminar antes.
+  if (primaryLectureId) {
+    void (async () => {
+      try {
+        const rawBase =
+          process.env.NEXT_PUBLIC_APP_URL ??
+          (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "");
+        const baseUrl = rawBase || "http://localhost:3000";
+        const url = `${baseUrl.replace(/\/$/, "")}/api/ai/summary-images`;
+        const ctrl = new AbortController();
+        const timeoutId = setTimeout(() => ctrl.abort(), 150_000);
+        const res = await fetch(url, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-internal-key": process.env.CRON_SECRET ?? "",
+          },
+          body: JSON.stringify({
+            lectureId: primaryLectureId,
+            userId: source.userId,
+            count: 3,
+          }),
+          signal: ctrl.signal,
+        });
+        clearTimeout(timeoutId);
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          console.warn(
+            "[plan-worker] summary-images trigger failed",
+            res.status,
+            txt.slice(0, 200),
+          );
+        }
+      } catch (e) {
+        console.warn(
+          "[plan-worker] summary-images trigger error",
+          (e as Error).message,
+        );
+      }
+    })();
+  }
+
   // 5) Log de uso (best-effort)
   if (usage) {
     void logAiUsage({
