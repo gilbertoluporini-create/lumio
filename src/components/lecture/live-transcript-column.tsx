@@ -1079,21 +1079,37 @@ function EducationalSummaryPane({
   }
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2 text-[11px]">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px]">
         <span className="inline-flex items-center gap-1.5 text-violet-700 dark:text-violet-300">
           <Sparkles className="h-3 w-3" />
           Resumo educativo
         </span>
         {onGenerate && (
-          <button
-            onClick={() => onGenerate(false)}
-            disabled={generating}
-            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-          >
-            {generating
-              ? "Regerando..."
-              : `Regerar (${COIN_COSTS.summary_educational} coins)`}
-          </button>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+              <input
+                type="checkbox"
+                checked={crossPdfs}
+                onChange={(e) => setCrossPdfs(e.target.checked)}
+                className="h-3 w-3 rounded border-violet-500/40 text-violet-600 focus:ring-violet-500"
+              />
+              <span>
+                Cruzar PDFs{" "}
+                <span className="text-violet-600 dark:text-violet-400 font-medium">
+                  (+{crossDelta}c)
+                </span>
+              </span>
+            </label>
+            <button
+              onClick={() => onGenerate(crossPdfs)}
+              disabled={generating}
+              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {generating
+                ? "Regerando..."
+                : `Regerar (${finalCost} coins)`}
+            </button>
+          </div>
         )}
       </div>
       <article className="prose prose-sm dark:prose-invert max-w-none rounded-xl border border-border/60 bg-background/40 p-5 leading-relaxed prose-img:my-8">
