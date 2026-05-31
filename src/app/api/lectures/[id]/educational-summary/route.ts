@@ -86,7 +86,15 @@ export async function POST(
   const ipLimit = limitOrThrow(`edu-sum:ip:${ip}`, 5, 60_000);
   if (ipLimit) return ipLimit;
 
-  await req.json().catch(() => ({}));
+  // Body: { crossPdfs?: boolean } — quando true, carrega PDFs da MESMA
+  // matéria como contexto complementar e cobra +15 coins (40 total).
+  let crossPdfs = false;
+  try {
+    const body = (await req.json()) as { crossPdfs?: boolean };
+    crossPdfs = body?.crossPdfs === true;
+  } catch {
+    /* body vazio é OK — vira modo padrão (sem cruzar) */
+  }
 
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -187,8 +195,45 @@ export async function POST(
     if (subj?.name) subjectName = String(subj.name);
   }
 
-  const cost = COIN_COSTS.summary_educational;
-  const charged = await chargeCoins(userId, cost, "summary_educational", {
+  // Carregar PDFs da matéria como material complementar (quando crossPdfs=true).
+  // Mesma estratégia do worker do plano: cap 3 docs × 4k chars, total 12k.
+  let pdfsForPrompt = "";
+  if (crossPdfs && lectureRow.subject_id) {
+    const { data: docsRaw } = await admin
+      .from("documents")
+      .select("title, source_text")
+      .eq("user_id", userId)
+      .eq("subject_id", lectureRow.subject_id)
+      .not("source_text", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(3);
+    const docs = (docsRaw ?? []) as Array<{
+      title: string;
+      source_text: string | null;
+    }>;
+    const parts: string[] = [];
+    let total = 0;
+    for (const d of docs) {
+      const text = (d.source_text ?? "").trim();
+      if (text.length < 200) continue;
+      const slice = text.slice(0, 4000);
+      if (total + slice.length > 12_000) break;
+      parts.push(`### PDF: ${d.title}\n${slice}`);
+      total += slice.length;
+    }
+    pdfsForPrompt = parts.join("\n\n");
+  }
+
+  // Cobrança: 25 (padrão) ou 40 (com PDFs cruzados, +15). Só cobra extra
+  // se realmente carregou PDFs — se subject_id ou docs vazios, cobra base.
+  const willCross = crossPdfs && pdfsForPrompt.length > 0;
+  const cost = willCross
+    ? COIN_COSTS.summary_educational_cross
+    : COIN_COSTS.summary_educational;
+  const chargeKind = willCross
+    ? "summary_educational_cross"
+    : "summary_educational";
+  const charged = await chargeCoins(userId, cost, chargeKind, {
     lectureId,
   });
   if (!charged.ok) {
@@ -243,9 +288,19 @@ export async function POST(
                   escapeForPrompt(chatForPrompt),
                 ]
               : []),
+            ...(pdfsForPrompt
+              ? [
+                  ``,
+                  `=== MATERIAL COMPLEMENTAR DA MATÉRIA (PDFs do aluno) ===`,
+                  ``,
+                  `Use apenas pra reforçar definições, cruzar conceitos e adicionar profundidade. Não invente fatos do complementar como se fossem da aula.`,
+                  ``,
+                  escapeForPrompt(pdfsForPrompt),
+                ]
+              : []),
             ``,
             `=== TAREFA ===`,
-            `Gere o resumo educativo em markdown agora. Integre as informações dos slides e responda às dúvidas do chat (se houver) dentro das seções relevantes.`,
+            `Gere o resumo educativo em markdown agora. Integre as informações dos slides${pdfsForPrompt ? " e dos PDFs complementares" : ""} e responda às dúvidas do chat (se houver) dentro das seções relevantes.`,
           ].join("\n"),
         },
       ],

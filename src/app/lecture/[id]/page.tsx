@@ -688,7 +688,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   }
 
   // ===== Resumo educativo (markdown estilo aba Resumos) =====
-  async function generateEducationalSummary() {
+  async function generateEducationalSummary(crossPdfs: boolean = false) {
     if (generatingEducational) return;
     if (!lecture) return;
     if (sync.entries.length === 0) {
@@ -697,7 +697,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     }
     setGeneratingEducational(true);
     const t = toast.loading(
-      "Gerando resumo educativo + ilustrações (pode levar 2-3 min)...",
+      crossPdfs
+        ? "Gerando resumo educativo + PDFs cruzados + ilustrações (pode levar 2-3 min)..."
+        : "Gerando resumo educativo + ilustrações (pode levar 2-3 min)...",
     );
     try {
       const res = await fetch(
@@ -705,7 +707,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ crossPdfs }),
         },
       );
       const data = await res.json();

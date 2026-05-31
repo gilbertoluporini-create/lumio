@@ -26,6 +26,7 @@ export const COIN_COSTS = {
   extract_schedule: 0,      // grátis no onboarding
   summary: 10,              // produto: resumo estruturado (por tópicos)
   summary_educational: 25,  // resumo educativo + 3 imagens chatgpt-image-latest high (refator 2026-05-31)
+  summary_educational_cross: 40, // educativo + PDFs da matéria cruzados (+15 coins)
   transcript_structure: 15, // revisão + capítulos por IA (Sonnet 4.5) — por chunk de ~25min. Aula 1h ≈ 30c, 1h30 ≈ 45c, 2h ≈ 60c. Custo API real: ~$0.15/chunk.
   flashcards: 8,            // alinhado com coins-pricing.ts
   quiz: 8,                  // alinhado com coins-pricing.ts
@@ -52,6 +53,7 @@ export type CoinReason =
   | "transcript_refine"
   | "transcript_structure"
   | "summary_educational"
+  | "summary_educational_cross"
   | "slide_sync"
   | "welcome_bonus"
   | "admin_grant"

@@ -252,7 +252,7 @@ export function LiveTranscriptColumn({
   summaryEducational?: { markdown: string; generatedAt: string };
   summaryImages?: import("@/lib/types").LectureSummaryImage[];
   generatingEducational?: boolean;
-  onGenerateEducational?: () => void;
+  onGenerateEducational?: (crossPdfs: boolean) => void;
   onSearchChange: (v: string) => void;
   onFilterChange: (m: MarkerFilter) => void;
   onPlay?: (offsetSec: number) => void;
@@ -854,7 +854,7 @@ function SummaryInlineView({
   educationalImages?: import("@/lib/types").LectureSummaryImage[];
   generatingEducational: boolean;
   educationalStartedAtMs?: number | null;
-  onGenerateEducational?: () => void;
+  onGenerateEducational?: (crossPdfs: boolean) => void;
   hasEntries: boolean;
   // Mantido por retrocompat — handler local de fullscreen real prevalece.
   onOpenFull?: () => void;
@@ -1012,8 +1012,13 @@ function EducationalSummaryPane({
   generating: boolean;
   startedAtMs?: number | null;
   hasEntries: boolean;
-  onGenerate?: () => void;
+  onGenerate?: (crossPdfs: boolean) => void;
 }) {
+  const [crossPdfs, setCrossPdfs] = useState(false);
+  const baseCost = COIN_COSTS.summary_educational;
+  const crossCost = COIN_COSTS.summary_educational_cross;
+  const finalCost = crossPdfs ? crossCost : baseCost;
+  const crossDelta = crossCost - baseCost;
   if (!markdown) {
     return (
       <div className="rounded-xl border border-dashed border-violet-500/40 bg-violet-500/5 p-5">
@@ -1036,16 +1041,36 @@ function EducationalSummaryPane({
                 startedAtMs={startedAtMs ?? Date.now()}
               />
             ) : (
-              <Button
-                onClick={onGenerate}
-                disabled={!hasEntries || !onGenerate}
-                variant="gradient"
-                size="sm"
-                className="mt-3 gap-1.5"
-              >
-                <Sparkles className="h-4 w-4" />
-                Gerar resumo educativo ({COIN_COSTS.summary_educational} coins)
-              </Button>
+              <div className="mt-3 space-y-2">
+                <Button
+                  onClick={() => onGenerate?.(crossPdfs)}
+                  disabled={!hasEntries || !onGenerate}
+                  variant="gradient"
+                  size="sm"
+                  className="gap-1.5"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  Gerar resumo educativo ({finalCost} coins)
+                </Button>
+                <label className="flex items-start gap-2 text-[11px] text-muted-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={crossPdfs}
+                    onChange={(e) => setCrossPdfs(e.target.checked)}
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-violet-500/40 text-violet-600 focus:ring-violet-500"
+                  />
+                  <span className="leading-snug">
+                    Cruzar com meus PDFs da matéria{" "}
+                    <span className="text-violet-600 dark:text-violet-400 font-medium">
+                      (+{crossDelta}c)
+                    </span>
+                    <span className="block text-[10px] text-muted-foreground/70">
+                      Lumi usa seus PDFs como material de apoio pra dar mais
+                      profundidade ao resumo.
+                    </span>
+                  </span>
+                </label>
+              </div>
             )}
           </div>
         </div>
@@ -1061,7 +1086,7 @@ function EducationalSummaryPane({
         </span>
         {onGenerate && (
           <button
-            onClick={onGenerate}
+            onClick={() => onGenerate(false)}
             disabled={generating}
             className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
           >
