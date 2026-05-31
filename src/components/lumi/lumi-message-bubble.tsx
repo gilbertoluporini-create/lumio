@@ -177,6 +177,25 @@ export function LumiMessageBubble({ message, isStreaming }: Props) {
           </ReactMarkdown>
         </div>
 
+        {(() => {
+          if (message.role === "assistant") {
+            console.log("[lumi-debug:bubble]", {
+              msgId: message.id,
+              hasTools: !!message.tools,
+              toolsLen: message.tools?.length ?? 0,
+              tools: message.tools?.map((t) => ({
+                name: t.name,
+                status: t.status,
+                hasOutput: !!t.output,
+                outputKeys:
+                  t.output && typeof t.output === "object"
+                    ? Object.keys(t.output as object)
+                    : null,
+              })),
+            });
+          }
+          return null;
+        })()}
         {message.tools && message.tools.length > 0 && (
           <div className="mt-3 space-y-2">
             {message.tools.map((t, i) => (

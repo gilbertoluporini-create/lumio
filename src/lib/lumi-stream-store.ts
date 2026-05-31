@@ -390,7 +390,17 @@ async function runStream(state: StreamState, opts: StartOpts): Promise<void> {
       ...(persistedTools.length > 0 ? { tools: persistedTools } : {}),
     };
     try {
-      appendMessage(opts.userId, opts.chatId, assistantMsg);
+      console.log("[lumi-debug:persist]", {
+        chatId: opts.chatId,
+        toolsRaw: state.tools.length,
+        toolsPersisted: persistedTools.length,
+        toolNames: persistedTools.map((t) => `${t.name}:${t.status}`),
+        firstToolOutput: persistedTools[0]?.output,
+      });
+      const saved = appendMessage(opts.userId, opts.chatId, assistantMsg);
+      console.log("[lumi-debug:saved]", {
+        savedMsgTools: saved?.messages.at(-1)?.tools?.length,
+      });
     } catch (err) {
       console.warn("[lumi-stream] appendMessage failed", err);
     }
