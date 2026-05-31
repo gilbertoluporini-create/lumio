@@ -878,11 +878,11 @@ function FeaturedSummaryCard({
                   e.stopPropagation();
                   router.push(`/planos/${item.studyPlan!.planId}`);
                 }}
-                className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors max-w-[200px]"
-                title="Abrir plano de estudos"
+                className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+                title={`Abrir plano: ${item.studyPlan.planTitle}`}
               >
                 <Target className="h-2.5 w-2.5 shrink-0" />
-                <span className="truncate">Do plano: {item.studyPlan.planTitle}</span>
+                Do plano
               </button>
             ) : (
               <span
@@ -1097,11 +1097,11 @@ function SummaryTableRow({
                   e.stopPropagation();
                   router.push(`/planos/${item.studyPlan!.planId}`);
                 }}
-                className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors max-w-[180px]"
-                title="Abrir plano de estudos"
+                className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors"
+                title={`Abrir plano: ${item.studyPlan.planTitle}`}
               >
                 <Target className="h-2.5 w-2.5 shrink-0" />
-                <span className="truncate">Do plano: {item.studyPlan.planTitle}</span>
+                Do plano
               </button>
             ) : (
               <span
