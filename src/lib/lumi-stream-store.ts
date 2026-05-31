@@ -28,12 +28,77 @@ export type ToolEvent = {
 export type StreamState = {
   chatId: string;
   userId: string;
+  /** Texto JÁ VISÍVEL pro user — animado char-a-char pelo typewriter. */
   partial: string;
+  /** Texto total recebido do servidor até agora (alvo do typewriter). Pode estar à frente de `partial`. */
+  target: string;
   tools: ToolEvent[];
   status: "running" | "done" | "error";
   errorMsg?: string;
   startedAt: number;
+  /** Timer do typewriter (interval id). Não exposto fora do módulo. */
+  typewriterTimer?: ReturnType<typeof setInterval>;
+  /** True quando o HTTP stream do servidor já terminou (não vai vir mais delta). */
+  streamFinished?: boolean;
+  /** Callback interno chamado quando partial alcança target após streamFinished. */
+  onTypewriterEnd?: () => void;
 };
+
+/**
+ * Velocidade do typewriter:
+ * - TICK_MS: frequência de update (~60fps).
+ * - Adaptativo: gap grande = mais chars/tick pra não acumular delay.
+ * - Quando stream terminou (status≠running), acelera pra fechar em <2s mesmo com texto longo.
+ */
+const TICK_MS = 16;
+const CHARS_PER_TICK_MIN = 1;
+const CHARS_PER_TICK_MAX = 8;
+const CATCHUP_DIVISOR = 40;
+const FINISH_DIVISOR = 50;
+const FINISH_CHARS_PER_TICK_MIN = 3;
+
+function startTypewriter(state: StreamState) {
+  if (state.typewriterTimer) return;
+  state.typewriterTimer = setInterval(() => {
+    const gap = state.target.length - state.partial.length;
+    if (gap <= 0) {
+      // Alcançou o alvo atual. Só para de vez quando o HTTP stream terminou
+      // (senão pode chegar mais delta no próximo tick).
+      if (state.streamFinished) {
+        clearInterval(state.typewriterTimer!);
+        state.typewriterTimer = undefined;
+        const cb = state.onTypewriterEnd;
+        state.onTypewriterEnd = undefined;
+        cb?.();
+      }
+      return;
+    }
+    let chunk: number;
+    if (state.streamFinished) {
+      chunk = Math.max(FINISH_CHARS_PER_TICK_MIN, Math.ceil(gap / FINISH_DIVISOR));
+    } else {
+      chunk = Math.max(
+        CHARS_PER_TICK_MIN,
+        Math.min(CHARS_PER_TICK_MAX, Math.ceil(gap / CATCHUP_DIVISOR)),
+      );
+    }
+    state.partial = state.target.slice(0, state.partial.length + chunk);
+    notify(state.chatId);
+  }, TICK_MS);
+}
+
+function waitTypewriterDone(state: StreamState): Promise<void> {
+  return new Promise((resolve) => {
+    if (
+      !state.typewriterTimer &&
+      state.partial.length === state.target.length
+    ) {
+      resolve();
+      return;
+    }
+    state.onTypewriterEnd = resolve;
+  });
+}
 
 const streams = new Map<string, StreamState>();
 const subscribers = new Map<string, Set<() => void>>();
@@ -99,6 +164,7 @@ export function startLumiStream(opts: StartOpts): StreamState {
     chatId: opts.chatId,
     userId: opts.userId,
     partial: "",
+    target: "",
     tools: [],
     status: "running",
     startedAt: Date.now(),
@@ -171,7 +237,8 @@ async function runStream(state: StreamState, opts: StartOpts): Promise<void> {
           }
           if (typeof ev.delta === "string") {
             finalReply += ev.delta;
-            state.partial = finalReply;
+            state.target = finalReply;
+            startTypewriter(state);
           }
           if (ev.tool_start) {
             state.tools.push({
@@ -194,7 +261,8 @@ async function runStream(state: StreamState, opts: StartOpts): Promise<void> {
           }
           if (ev.done && typeof ev.reply === "string") {
             finalReply = ev.reply;
-            state.partial = finalReply;
+            state.target = finalReply;
+            startTypewriter(state);
           }
           notify(state.chatId);
         } catch {
@@ -203,13 +271,26 @@ async function runStream(state: StreamState, opts: StartOpts): Promise<void> {
       }
     }
 
+    // Stream HTTP do servidor terminou — sinaliza pro typewriter terminar de
+    // alcançar o target (em fast-finish) e SÓ DEPOIS marcamos done. Isso evita
+    // flicker entre "streaming somiu" e "mensagem aparece no chat list".
+    state.streamFinished = true;
+
     if (state.errorMsg) {
+      // Erro mata o typewriter na hora — não tem porque animar texto sem fim útil.
+      if (state.typewriterTimer) {
+        clearInterval(state.typewriterTimer);
+        state.typewriterTimer = undefined;
+      }
+      state.partial = state.target;
       state.status = "error";
       notify(state.chatId);
       opts.onError?.(state.errorMsg);
       cleanupStream(state.chatId);
       return;
     }
+
+    await waitTypewriterDone(state);
 
     // Persiste os cards de tools ACIONÁVEIS (asset gerado com url, ou navegação)
     // na própria mensagem — assim os botões "Abrir →" sobrevivem a reload/saída
