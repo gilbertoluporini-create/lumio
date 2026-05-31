@@ -744,12 +744,11 @@ function ResumosView({ user }: { user: User }) {
             </div>
 
             {/* Headers — desktop only */}
-            <div className="hidden md:grid grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_110px_90px_minmax(0,1.4fr)_120px_44px] gap-3 px-5 py-2.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/50 bg-secondary/20">
+            <div className="hidden md:grid grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_110px_90px_120px_44px] gap-3 px-5 py-2.5 text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border/50 bg-secondary/20">
               <div>Resumo</div>
               <div>Matéria</div>
               <div>Data</div>
               <div>Tempo</div>
-              <div>Tags</div>
               <div>Status</div>
               <div className="text-right">Ações</div>
             </div>
@@ -1063,7 +1062,6 @@ function SummaryTableRow({
   const status: SummaryStatus = "completed";
   const date = new Date(item.updatedAt);
   const dateLabel = formatDateBR(date);
-  const tags = getSummaryTags(item.summary, 2);
   const fromLecture = item.origin === "lecture";
   const href = item.href;
   const subjectIconComp = subject ? getSubjectIcon(subject.name) : FileText;
@@ -1072,7 +1070,7 @@ function SummaryTableRow({
     <Link
       href={href}
       className={cn(
-        "group grid md:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_110px_90px_minmax(0,1.4fr)_120px_44px] grid-cols-[1fr_auto] gap-3 px-5 py-3 hover:bg-secondary/30 transition-colors items-center",
+        "group grid md:grid-cols-[minmax(0,2.2fr)_minmax(0,1fr)_110px_90px_120px_44px] grid-cols-[1fr_auto] gap-3 px-5 py-3 hover:bg-secondary/30 transition-colors items-center",
         isDeleting && "opacity-50 pointer-events-none",
       )}
     >
@@ -1161,23 +1159,6 @@ function SummaryTableRow({
         {fromLecture && item.durationSec > 0
           ? formatDurationMin(item.durationSec)
           : "—"}
-      </div>
-
-      {/* Tags */}
-      <div className="hidden md:flex flex-wrap gap-1 min-w-0">
-        {tags.length === 0 ? (
-          <span className="text-xs text-muted-foreground/60">—</span>
-        ) : (
-          tags.map((t, i) => (
-            <Badge
-              key={i}
-              variant="outline"
-              className="text-[10px] border-border/60 bg-background/60 max-w-full truncate"
-            >
-              <span className="truncate">{t}</span>
-            </Badge>
-          ))
-        )}
       </div>
 
       {/* Status */}
