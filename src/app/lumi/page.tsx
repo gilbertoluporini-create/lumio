@@ -1162,7 +1162,7 @@ function LumiAssistant({ user }: { user: User }) {
           Fundo OPACO + sombra leve — bolhas do chat não vazam atrás.
           Versão compacta: py-1.5 + botões h-7 (antes py-3 + py-1.5/px-4 grandões
           dobravam a altura do header sem necessidade). */}
-      <div className="hidden md:block sticky top-[60px] z-30 -mx-4 lg:-mx-8 border-b border-border/60 bg-background px-4 lg:px-8 py-1.5">
+      <div className="hidden md:block sticky top-0 z-30 -mx-4 lg:-mx-8 border-b border-border/60 bg-background px-4 lg:px-8 py-1.5">
         <div className="flex items-center justify-between gap-3">
           {/* Left: context picker (kept) */}
           <div className="hidden md:flex">
