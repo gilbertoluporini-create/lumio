@@ -173,27 +173,37 @@ function injectImagesIntoMarkdown(
 ): string {
   if (!images || images.length === 0) return markdown;
   const lines = markdown.split("\n");
-  const h2Indexes = lines
-    .map((line, index) => ({ line, index }))
-    .filter((item) => item.line.startsWith("## "));
+  const h2Lines: number[] = [];
+  lines.forEach((line, i) => {
+    if (line.startsWith("## ")) h2Lines.push(i);
+  });
 
-  let offset = 0;
+  // Pra cada imagem com sectionIndex, decidimos o ponto de inserção como o
+  // FIM da seção (logo antes do próximo H2 ou fim do doc). Assim a imagem
+  // vem DEPOIS do contexto, não antes do texto da seção.
+  type Plan = { insertAt: number; img: LectureSummaryImage };
+  const plans: Plan[] = [];
   const used = new Set<number>();
   for (let i = 0; i < images.length; i++) {
     const img = images[i];
     if (typeof img.sectionIndex !== "number") continue;
-    const target = h2Indexes[img.sectionIndex];
-    if (!target) continue;
-    const insertAt = target.index + 1 + offset;
+    if (img.sectionIndex < 0 || img.sectionIndex >= h2Lines.length) continue;
+    const nextH2 = h2Lines[img.sectionIndex + 1];
+    const sectionEnd = nextH2 !== undefined ? nextH2 : lines.length;
+    plans.push({ insertAt: sectionEnd, img });
+    used.add(i);
+  }
+
+  // Insere DESC pra não invalidar índices das próximas inserções.
+  plans.sort((a, b) => b.insertAt - a.insertAt);
+  for (const p of plans) {
     const insertLines = [
       "",
-      `![${img.alt || img.caption || "Ilustração"}](${img.url})`,
+      `![${p.img.alt || p.img.caption || "Ilustração"}](${p.img.url})`,
     ];
-    if (img.caption) insertLines.push(`*${img.caption}*`);
+    if (p.img.caption) insertLines.push(`*${p.img.caption}*`);
     insertLines.push("");
-    lines.splice(insertAt, 0, ...insertLines);
-    offset += insertLines.length;
-    used.add(i);
+    lines.splice(p.insertAt, 0, ...insertLines);
   }
 
   const leftovers = images.filter((_, i) => !used.has(i));

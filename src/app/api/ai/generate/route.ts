@@ -596,9 +596,20 @@ function injectImagesIntoMarkdown(
     freeH2s.splice(slot, 1);
   }
 
-  plans.sort((a, b) => b.lineIdx - a.lineIdx);
-  for (const p of plans) {
-    lines.splice(p.lineIdx + 1, 0, "", `![${p.concept}](${p.url})`, "");
+  // Converte lineIdx (linha do H2) pra fim-da-seção: imagens vêm DEPOIS
+  // do contexto, não antes do texto da seção.
+  const sectionEnd = (h2Line: number): number => {
+    const idxInH2List = h2LineIndexes.indexOf(h2Line);
+    const next = h2LineIndexes[idxInH2List + 1];
+    return next !== undefined ? next : lines.length;
+  };
+  const plansWithEnd = plans.map((p) => ({
+    ...p,
+    insertAt: sectionEnd(p.lineIdx),
+  }));
+  plansWithEnd.sort((a, b) => b.insertAt - a.insertAt);
+  for (const p of plansWithEnd) {
+    lines.splice(p.insertAt, 0, "", `![${p.concept}](${p.url})`, "");
   }
 
   return lines.join("\n");

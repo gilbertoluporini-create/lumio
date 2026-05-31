@@ -53,6 +53,8 @@ export function LectureHeader({
   onAttachSlides,
   attachingSlides,
   hasSlides,
+  showPdfBesides,
+  onShowPdfBesides,
   onBack,
   planLink,
 }: {
@@ -78,6 +80,10 @@ export function LectureHeader({
   onAttachSlides?: () => void;
   attachingSlides?: boolean;
   hasSlides?: boolean;
+  /** Botão "Mostrar PDF" aparece quando hasSlides=true E showPdfBesides=false.
+   *  Permite reabrir a coluna lateral de PDF depois que user escondeu. */
+  showPdfBesides?: boolean;
+  onShowPdfBesides?: () => void;
   onBack: () => void;
   /** Quando o summary dessa lecture é parte de um plano de estudos, mostra
    *  uma tag clicável "Do plano: …" pro user identificar a origem e voltar. */
@@ -204,6 +210,20 @@ export function LectureHeader({
                   <FileText className="h-4 w-4" />
                 )}
                 {attachingSlides ? "Anexando…" : "Anexar PDF"}
+              </Button>
+            )}
+
+            {/* Aparece quando user escondeu o PDF na SlidesColumn — único
+                 caminho de volta pra coluna lateral. */}
+            {hasSlides && showPdfBesides === false && onShowPdfBesides && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onShowPdfBesides}
+                className="gap-1.5"
+              >
+                <FileText className="h-4 w-4" />
+                Mostrar PDF
               </Button>
             )}
 

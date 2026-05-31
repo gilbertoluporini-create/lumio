@@ -60,27 +60,34 @@ function injectImagesIntoMarkdown(
   if (remainingImages.length === 0) return markdown;
 
   const lines = markdown.split("\n");
-  const h2Indexes = lines
-    .map((line, index) => ({ line, index }))
-    .filter((item) => item.line.startsWith("## "));
+  const h2Lines: number[] = [];
+  lines.forEach((line, i) => {
+    if (line.startsWith("## ")) h2Lines.push(i);
+  });
 
-  let offset = 0;
+  // Imagens vêm no FIM da seção (logo antes do próximo H2 ou fim do doc),
+  // não logo após o cabeçalho. Assim aparecem DEPOIS do contexto.
+  type Plan = { insertAt: number; img: import("@/lib/types").LectureSummaryImage };
+  const plans: Plan[] = [];
   const used = new Set<number>();
   for (let i = 0; i < remainingImages.length; i++) {
     const img = remainingImages[i];
     if (typeof img.sectionIndex !== "number") continue;
-    const target = h2Indexes[img.sectionIndex];
-    if (!target) continue;
-    const insertAt = target.index + 1 + offset;
+    if (img.sectionIndex < 0 || img.sectionIndex >= h2Lines.length) continue;
+    const nextH2 = h2Lines[img.sectionIndex + 1];
+    const sectionEnd = nextH2 !== undefined ? nextH2 : lines.length;
+    plans.push({ insertAt: sectionEnd, img });
+    used.add(i);
+  }
+  plans.sort((a, b) => b.insertAt - a.insertAt);
+  for (const p of plans) {
     const insertLines = [
       "",
-      `![${img.alt || img.caption || "Ilustração"}](${img.url})`,
+      `![${p.img.alt || p.img.caption || "Ilustração"}](${p.img.url})`,
     ];
-    if (img.caption) insertLines.push(`*${img.caption}*`);
+    if (p.img.caption) insertLines.push(`*${p.img.caption}*`);
     insertLines.push("");
-    lines.splice(insertAt, 0, ...insertLines);
-    offset += insertLines.length;
-    used.add(i);
+    lines.splice(p.insertAt, 0, ...insertLines);
   }
 
   // Imagens sem sectionIndex válido: cai em galeria no final
@@ -1101,31 +1108,15 @@ function EducationalSummaryPane({
           Resumo educativo
         </span>
         {onGenerate && (
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 cursor-pointer select-none text-[10px] text-muted-foreground hover:text-foreground transition-colors">
-              <input
-                type="checkbox"
-                checked={crossPdfs}
-                onChange={(e) => setCrossPdfs(e.target.checked)}
-                className="h-3 w-3 rounded border-violet-500/40 text-violet-600 focus:ring-violet-500"
-              />
-              <span>
-                Cruzar PDFs{" "}
-                <span className="text-violet-600 dark:text-violet-400 font-medium">
-                  (+{crossDelta}c)
-                </span>
-              </span>
-            </label>
-            <button
-              onClick={() => onGenerate(crossPdfs)}
-              disabled={generating}
-              className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-            >
-              {generating
-                ? "Regerando..."
-                : `Regerar (${finalCost} coins)`}
-            </button>
-          </div>
+          <button
+            onClick={() => onGenerate(false)}
+            disabled={generating}
+            className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          >
+            {generating
+              ? "Regerando..."
+              : `Regerar (${baseCost} coins)`}
+          </button>
         )}
       </div>
       <article className="prose prose-sm dark:prose-invert max-w-none rounded-xl border border-border/60 bg-background/40 p-5 leading-relaxed prose-img:my-8">

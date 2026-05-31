@@ -1214,6 +1214,8 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         onAttachSlides={() => setAttachOpen(true)}
         attachingSlides={attaching}
         hasSlides={hasSlides}
+        showPdfBesides={showPdfBesides}
+        onShowPdfBesides={() => setShowPdfBesides(true)}
         onBack={() => router.push(backHref)}
         planLink={planLink}
       />
