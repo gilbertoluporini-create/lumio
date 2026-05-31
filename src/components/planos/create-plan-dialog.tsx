@@ -166,17 +166,101 @@ export function CreatePlanDialog({
     "quiz",
   ]);
 
-  // Step 3 — sources
+  // Step 3 — sources agrupadas em tópicos
+  //
+  // Cada source selecionada pertence a EXATAMENTE 1 tópico. Por padrão, ao
+  // selecionar uma source, criamos um tópico auto com o título dela. O user
+  // pode renomear ou mover sources entre tópicos pra agrupar (ex: 1 aula +
+  // 1 PDF de slides do prof sobre o mesmo tema → 1 card só na trilha).
+  //
+  // Estrutura: `topics` é o registro de tópicos existentes; `sourceTopicMap`
+  // mapeia sourceKey (`doc:<id>` ou `lec:<id>`) → topicId. Source não
+  // mapeada = não selecionada.
   const [documents, setDocuments] = useState<Document[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
-  const [pickedDocs, setPickedDocs] = useState<Set<string>>(new Set());
-  const [pickedLectures, setPickedLectures] = useState<Set<string>>(new Set());
+  const [topics, setTopics] = useState<
+    Record<string, { id: string; title: string; isAuto: boolean }>
+  >({});
+  const [sourceTopicMap, setSourceTopicMap] = useState<Record<string, string>>(
+    {},
+  );
   const [loadingSources, setLoadingSources] = useState(false);
   const [uploadingPdf, setUploadingPdf] = useState(false);
   const [uploadPhase, setUploadPhase] = useState<
     "extracting" | "uploading" | "saving" | null
   >(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Helpers
+  const sourceKey = (kind: "doc" | "lec", id: string) => `${kind}:${id}`;
+  const isPicked = (kind: "doc" | "lec", id: string) =>
+    !!sourceTopicMap[sourceKey(kind, id)];
+  const topicIdOf = (kind: "doc" | "lec", id: string) =>
+    sourceTopicMap[sourceKey(kind, id)] ?? null;
+
+  /** Cria novo tópico vazio com título sugerido. Retorna o ID. */
+  function createTopic(title: string, isAuto: boolean): string {
+    const id = `t_${Math.random().toString(36).slice(2, 10)}`;
+    setTopics((prev) => ({
+      ...prev,
+      [id]: { id, title, isAuto },
+    }));
+    return id;
+  }
+
+  /** Remove tópicos sem sources atribuídas. Roda após cada mutação. */
+  function gcEmptyTopics(map: Record<string, string>) {
+    setTopics((prev) => {
+      const usedIds = new Set(Object.values(map));
+      const next: typeof prev = {};
+      for (const [id, t] of Object.entries(prev)) {
+        if (usedIds.has(id)) next[id] = t;
+      }
+      return next;
+    });
+  }
+
+  /** Toggle source: cria tópico auto se selecionando, remove se desmarcando. */
+  function togglePick(kind: "doc" | "lec", id: string, title: string) {
+    const key = sourceKey(kind, id);
+    setSourceTopicMap((prev) => {
+      const next = { ...prev };
+      if (next[key]) {
+        delete next[key];
+        // gc deferred (precisa do mapa novo)
+        setTimeout(() => gcEmptyTopics(next), 0);
+      } else {
+        const topicId = createTopic(title, true);
+        next[key] = topicId;
+      }
+      return next;
+    });
+  }
+
+  /** Move source pra outro tópico (existente ou novo). */
+  function assignToTopic(
+    kind: "doc" | "lec",
+    id: string,
+    targetTopicId: string,
+  ) {
+    const key = sourceKey(kind, id);
+    setSourceTopicMap((prev) => {
+      const next = { ...prev, [key]: targetTopicId };
+      setTimeout(() => gcEmptyTopics(next), 0);
+      return next;
+    });
+  }
+
+  function renameTopic(topicId: string, newTitle: string) {
+    setTopics((prev) =>
+      prev[topicId]
+        ? {
+            ...prev,
+            [topicId]: { ...prev[topicId], title: newTitle, isAuto: false },
+          }
+        : prev,
+    );
+  }
 
   // Step 4 — estimate / submit
   const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
@@ -221,8 +305,8 @@ export function CreatePlanDialog({
     setTitle("");
     setExamDate("");
     setAssetKinds(["summary", "flashcards", "quiz"]);
-    setPickedDocs(new Set());
-    setPickedLectures(new Set());
+    setTopics({});
+    setSourceTopicMap({});
     setEstimate(null);
   }, [open]);
 
@@ -240,23 +324,7 @@ export function CreatePlanDialog({
     );
   }
 
-  function toggleDoc(id: string) {
-    setPickedDocs((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleLecture(id: string) {
-    setPickedLectures((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  // toggleDoc/toggleLecture substituídas por togglePick(kind, id, title)
 
   /**
    * Sobe um PDF novo direto pela tab "Subir novo": cria row em `documents`
@@ -365,13 +433,10 @@ export function CreatePlanDialog({
         );
       }
 
-      // 4) Adiciona na lista local + marca como selecionado.
+      // 4) Adiciona na lista local + marca como selecionado num tópico auto
+      //    com o título do PDF (user pode renomear/agrupar depois).
       setDocuments((prev) => [doc, ...prev]);
-      setPickedDocs((prev) => {
-        const next = new Set(prev);
-        next.add(doc.id);
-        return next;
-      });
+      togglePick("doc", doc.id, doc.title);
       toast.success(`"${doc.title}" adicionado e selecionado.`);
     } catch (err) {
       toast.error(`Erro: ${(err as Error).message}`);
@@ -382,19 +447,57 @@ export function CreatePlanDialog({
     }
   }
 
-  const totalSources = pickedDocs.size + pickedLectures.size;
+  // Sources selecionadas (= keys do sourceTopicMap)
+  const pickedSourceKeys = Object.keys(sourceTopicMap);
+  const totalSources = pickedSourceKeys.length;
+  const totalTopics = Object.keys(topics).length;
+
+  /**
+   * Resolve a estrutura `topics: [{ title, documentIds, lectureIds }]` que o
+   * endpoint create/estimate consome a partir do estado dos Maps.
+   */
+  function buildTopicsPayload() {
+    const result: Array<{
+      title: string;
+      documentIds: string[];
+      lectureIds: string[];
+    }> = [];
+    for (const topic of Object.values(topics)) {
+      const documentIds: string[] = [];
+      const lectureIds: string[] = [];
+      for (const [key, tid] of Object.entries(sourceTopicMap)) {
+        if (tid !== topic.id) continue;
+        const [kind, id] = key.split(":");
+        if (kind === "doc") documentIds.push(id);
+        else if (kind === "lec") lectureIds.push(id);
+      }
+      if (documentIds.length === 0 && lectureIds.length === 0) continue;
+      result.push({ title: topic.title, documentIds, lectureIds });
+    }
+    return result;
+  }
 
   /* --------- Estimate quando entra no passo 4 --------- */
   const fetchEstimate = useCallback(async () => {
     if (totalSources === 0 || assetKinds.length === 0) return;
     setEstimating(true);
     try {
+      const payload = buildTopicsPayload();
+      // Estimate endpoint ainda usa flat documentIds/lectureIds — coleta todos
+      // os IDs únicos dos tópicos pra computar custo de coins (independe do
+      // agrupamento).
+      const allDocIds = Array.from(
+        new Set(payload.flatMap((t) => t.documentIds)),
+      );
+      const allLecIds = Array.from(
+        new Set(payload.flatMap((t) => t.lectureIds)),
+      );
       const res = await fetch("/api/study-plans/estimate", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          documentIds: Array.from(pickedDocs),
-          lectureIds: Array.from(pickedLectures),
+          documentIds: allDocIds,
+          lectureIds: allLecIds,
           assetKinds,
         }),
       });
@@ -405,7 +508,8 @@ export function CreatePlanDialog({
     } finally {
       setEstimating(false);
     }
-  }, [totalSources, assetKinds, pickedDocs, pickedLectures]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalSources, assetKinds, sourceTopicMap, topics]);
 
   useEffect(() => {
     if (step === "confirm") void fetchEstimate();
@@ -440,8 +544,7 @@ export function CreatePlanDialog({
           subjectId,
           examDate: examDate || undefined,
           assetKinds,
-          documentIds: Array.from(pickedDocs),
-          lectureIds: Array.from(pickedLectures),
+          topics: buildTopicsPayload(),
         }),
       });
       const json = (await res.json()) as { planId?: string; error?: string };
@@ -498,10 +601,13 @@ export function CreatePlanDialog({
             <SourcesStep
               documents={documents}
               lectures={lectures}
-              pickedDocs={pickedDocs}
-              pickedLectures={pickedLectures}
-              onToggleDoc={toggleDoc}
-              onToggleLecture={toggleLecture}
+              topics={topics}
+              sourceTopicMap={sourceTopicMap}
+              onTogglePick={togglePick}
+              onAssignToTopic={assignToTopic}
+              onRenameTopic={renameTopic}
+              isPicked={isPicked}
+              topicIdOf={topicIdOf}
               loading={loadingSources}
               uploadingPdf={uploadingPdf}
               uploadPhase={uploadPhase}
@@ -714,13 +820,18 @@ function formatLectureDuration(durationSec: number | undefined): string {
   return m === 0 ? `${h}h de aula` : `${h}h ${m}min de aula`;
 }
 
+type Topic = { id: string; title: string; isAuto: boolean };
+
 function SourcesStep({
   documents,
   lectures,
-  pickedDocs,
-  pickedLectures,
-  onToggleDoc,
-  onToggleLecture,
+  topics,
+  sourceTopicMap,
+  onTogglePick,
+  onAssignToTopic,
+  onRenameTopic,
+  isPicked,
+  topicIdOf,
   loading,
   uploadingPdf,
   uploadPhase,
@@ -729,10 +840,17 @@ function SourcesStep({
 }: {
   documents: Document[];
   lectures: Lecture[];
-  pickedDocs: Set<string>;
-  pickedLectures: Set<string>;
-  onToggleDoc: (id: string) => void;
-  onToggleLecture: (id: string) => void;
+  topics: Record<string, Topic>;
+  sourceTopicMap: Record<string, string>;
+  onTogglePick: (kind: "doc" | "lec", id: string, title: string) => void;
+  onAssignToTopic: (
+    kind: "doc" | "lec",
+    id: string,
+    targetTopicId: string,
+  ) => void;
+  onRenameTopic: (topicId: string, newTitle: string) => void;
+  isPicked: (kind: "doc" | "lec", id: string) => boolean;
+  topicIdOf: (kind: "doc" | "lec", id: string) => string | null;
   loading: boolean;
   uploadingPdf: boolean;
   uploadPhase: "extracting" | "uploading" | "saving" | null;
@@ -747,18 +865,56 @@ function SourcesStep({
     );
   }
 
-  const totalPicked = pickedDocs.size + pickedLectures.size;
+  const totalPicked = Object.keys(sourceTopicMap).length;
+  const topicList = Object.values(topics);
+  const topicCount = topicList.length;
+
+  // Index pra render: lista plana de docs e lectures usáveis com estado de seleção
+  type SourceRow = {
+    kind: "doc" | "lec";
+    id: string;
+    title: string;
+    sub: string;
+    disabled: boolean;
+  };
+  const docRows: SourceRow[] = documents.map((d) => {
+    const textLen = d.sourceText?.length ?? 0;
+    const usable = textLen >= 200;
+    return {
+      kind: "doc",
+      id: d.id,
+      title: d.title,
+      sub: usable
+        ? d.pageCount
+          ? `${d.pageCount} páginas`
+          : "PDF"
+        : "Sem texto extraível — re-suba pela tab 'Subir novo'",
+      disabled: !usable,
+    };
+  });
+  const lecRows: SourceRow[] = lectures.map((l) => ({
+    kind: "lec",
+    id: l.id,
+    title: l.title,
+    sub: l.transcript
+      ? formatLectureDuration(l.durationSec)
+      : "Aula sem transcrição (não pode ser usada)",
+    disabled: !l.transcript || l.transcript.trim().length < 200,
+  }));
 
   return (
     <div className="grid gap-4">
-      {/* Aviso sobre material complementar (sub-tarefa 5c) */}
+      {/* Aviso pedagógico sobre a UX de tópicos */}
       <div className="rounded-md border border-primary/20 bg-primary/5 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-        <span className="font-medium text-foreground">Bônus automático:</span>{" "}
-        ao gerar cada item, a IA usa até 3 outros materiais da mesma matéria
-        como contexto cruzado — mais consistência sem custo extra de coins.
+        <span className="font-medium text-foreground">Como funciona:</span>{" "}
+        selecione fontes (PDFs e/ou aulas). Cada uma vira um <strong>tópico</strong> próprio
+        (= 1 card na trilha). Pra agrupar fontes que tratam do MESMO tema
+        (ex: 1 aula + 1 PDF do prof), use o dropdown ao lado e mande pro
+        mesmo tópico. Bônus: a Lumi também puxa até 3 outros materiais da
+        matéria como contexto cruzado, sem cobrar coins extras.
       </div>
 
-      {/* Seção 1: Subir novo PDF */}
+      {/* Subir novo PDF */}
       <SectionHeader
         icon={<Upload className="h-3.5 w-3.5" />}
         label="Subir novo PDF"
@@ -771,63 +927,167 @@ function SourcesStep({
         onUpload={onUploadPdf}
       />
 
-      {/* Seção 2: PDFs já na matéria */}
+      {/* PDFs */}
       <SectionHeader
         icon={<FileText className="h-3.5 w-3.5" />}
         label={`PDFs da matéria (${documents.length})`}
         hint="Documentos que você já tinha aqui"
       />
-      <div className="max-h-44 overflow-y-auto -mx-1 px-1">
-        <SourceList
-          items={documents.map((d) => {
-            // PDF sem texto extraído: upload antigo (pré-migration de storage)
-            // ou PDF imagem-only sem OCR. Não dá pra gerar resumo/quiz/etc.
-            // Bloqueamos a seleção e instruímos a re-subir pela tab 'Subir novo'.
-            const textLen = d.sourceText?.length ?? 0;
-            const usable = textLen >= 200;
-            return {
-              id: d.id,
-              title: d.title,
-              sub: usable
-                ? d.pageCount
-                  ? `${d.pageCount} páginas`
-                  : "PDF"
-                : "Sem texto extraível — re-suba pela tab 'Subir novo'",
-              disabled: !usable,
-            };
-          })}
-          picked={pickedDocs}
-          onToggle={onToggleDoc}
-          emptyMsg="Nenhum PDF nesta matéria. Use 'Subir novo' acima."
-        />
+      <div className="max-h-56 overflow-y-auto -mx-1 px-1 space-y-1.5">
+        {docRows.length === 0 ? (
+          <p className="px-3 py-3 text-xs text-muted-foreground">
+            Nenhum PDF nesta matéria. Use &apos;Subir novo&apos; acima.
+          </p>
+        ) : (
+          docRows.map((r) => (
+            <SourceRowWithTopic
+              key={`doc:${r.id}`}
+              row={r}
+              picked={isPicked("doc", r.id)}
+              topicId={topicIdOf("doc", r.id)}
+              topics={topicList}
+              onTogglePick={() => onTogglePick("doc", r.id, r.title)}
+              onAssignTo={(tid) => onAssignToTopic("doc", r.id, tid)}
+              onRenameTopic={onRenameTopic}
+            />
+          ))
+        )}
       </div>
 
-      {/* Seção 3: Aulas gravadas */}
+      {/* Aulas gravadas */}
       <SectionHeader
         icon={<AudioLines className="h-3.5 w-3.5" />}
         label={`Aulas gravadas (${lectures.length})`}
         hint="Transcrições das suas gravações"
       />
-      <div className="max-h-44 overflow-y-auto -mx-1 px-1">
-        <SourceList
-          items={lectures.map((l) => ({
-            id: l.id,
-            title: l.title,
-            sub: l.transcript
-              ? formatLectureDuration(l.durationSec)
-              : "Aula sem transcrição (não pode ser usada)",
-            disabled: !l.transcript || l.transcript.trim().length < 200,
-          }))}
-          picked={pickedLectures}
-          onToggle={onToggleLecture}
-          emptyMsg="Nenhuma aula nesta matéria."
-        />
+      <div className="max-h-56 overflow-y-auto -mx-1 px-1 space-y-1.5">
+        {lecRows.length === 0 ? (
+          <p className="px-3 py-3 text-xs text-muted-foreground">
+            Nenhuma aula nesta matéria.
+          </p>
+        ) : (
+          lecRows.map((r) => (
+            <SourceRowWithTopic
+              key={`lec:${r.id}`}
+              row={r}
+              picked={isPicked("lec", r.id)}
+              topicId={topicIdOf("lec", r.id)}
+              topics={topicList}
+              onTogglePick={() => onTogglePick("lec", r.id, r.title)}
+              onAssignTo={(tid) => onAssignToTopic("lec", r.id, tid)}
+              onRenameTopic={onRenameTopic}
+            />
+          ))
+        )}
       </div>
 
+      {/* Resumo */}
       <div className="text-xs text-muted-foreground border-t border-border/40 pt-2">
-        Total selecionado: {totalPicked} fonte
-        {totalPicked === 1 ? "" : "s"}
+        {totalPicked === 0
+          ? "Selecione ao menos 1 fonte."
+          : `${totalPicked} fonte${totalPicked === 1 ? "" : "s"} em ${topicCount} tópico${topicCount === 1 ? "" : "s"} = ${topicCount} card${topicCount === 1 ? "" : "s"} na trilha.`}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Linha de source com:
+ *  - checkbox/toggle pra incluir/excluir
+ *  - quando selecionada, dropdown "Tópico" pra mover entre tópicos
+ *  - quando selecionada e em tópico próprio, input pra renomear o tópico
+ */
+function SourceRowWithTopic({
+  row,
+  picked,
+  topicId,
+  topics,
+  onTogglePick,
+  onAssignTo,
+  onRenameTopic,
+}: {
+  row: {
+    kind: "doc" | "lec";
+    id: string;
+    title: string;
+    sub: string;
+    disabled: boolean;
+  };
+  picked: boolean;
+  topicId: string | null;
+  topics: Topic[];
+  onTogglePick: () => void;
+  onAssignTo: (targetTopicId: string) => void;
+  onRenameTopic: (topicId: string, newTitle: string) => void;
+}) {
+  const currentTopic = topicId ? topics.find((t) => t.id === topicId) : null;
+  const otherTopics = topics.filter((t) => t.id !== topicId);
+
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-2 py-2",
+        picked ? "border-primary/40 bg-primary/5" : "border-border/60",
+        row.disabled && "opacity-60",
+      )}
+    >
+      <div className="flex items-start gap-2">
+        <button
+          type="button"
+          onClick={onTogglePick}
+          disabled={row.disabled}
+          className={cn(
+            "mt-0.5 h-4 w-4 shrink-0 rounded border-2 flex items-center justify-center",
+            picked
+              ? "border-primary bg-primary text-primary-foreground"
+              : "border-border bg-background",
+            row.disabled && "cursor-not-allowed",
+          )}
+        >
+          {picked && <Check className="h-3 w-3" />}
+        </button>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{row.title}</p>
+          <p className="text-[11px] text-muted-foreground truncate">{row.sub}</p>
+        </div>
+      </div>
+
+      {picked && currentTopic && (
+        <div className="mt-2 flex items-center gap-2 pl-6">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+            Tópico:
+          </span>
+          {currentTopic.isAuto ? (
+            <Input
+              value={currentTopic.title}
+              onChange={(e) => onRenameTopic(currentTopic.id, e.target.value)}
+              className="h-7 text-xs flex-1"
+              placeholder="Nome do tópico"
+            />
+          ) : (
+            <span className="text-xs font-medium text-foreground flex-1 truncate">
+              {currentTopic.title}
+            </span>
+          )}
+          {otherTopics.length > 0 && (
+            <select
+              value=""
+              onChange={(e) => {
+                if (e.target.value) onAssignTo(e.target.value);
+              }}
+              className="h-7 rounded border border-border bg-background px-1.5 text-[11px]"
+              title="Mover pra outro tópico"
+            >
+              <option value="">Mover pra…</option>
+              {otherTopics.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.title.slice(0, 30)}
+                </option>
+              ))}
+            </select>
+          )}
+        </div>
+      )}
     </div>
   );
 }
