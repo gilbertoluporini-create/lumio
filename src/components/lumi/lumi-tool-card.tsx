@@ -6,9 +6,12 @@
  */
 
 import {
+  BarChart3,
   BookOpen,
   Brain,
+  Calendar,
   Check,
+  CheckCircle2,
   FileText,
   HelpCircle,
   Layers,
@@ -71,6 +74,21 @@ const TOOL_META: Record<
   abrir_rota: {
     label: "Abrindo página",
     Icon: Navigation,
+    color: "text-fuchsia-500",
+  },
+  marcar_item_plano: {
+    label: "Atualizando trilha",
+    Icon: CheckCircle2,
+    color: "text-emerald-500",
+  },
+  meu_progresso: {
+    label: "Conferindo seu progresso",
+    Icon: BarChart3,
+    color: "text-sky-500",
+  },
+  agendar_no_calendario: {
+    label: "Agendando no calendário",
+    Icon: Calendar,
     color: "text-fuchsia-500",
   },
 };

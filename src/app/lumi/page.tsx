@@ -25,7 +25,6 @@ import {
   HelpCircle,
   Image as ImageIcon,
   Layers,
-  Lightbulb,
   Loader2,
   MessageSquare,
   Mic,
@@ -53,9 +52,11 @@ import {
   subscribeStream,
 } from "@/lib/lumi-stream-store";
 import {
+  LumiQuickActions,
   QUICK_ACTIONS,
   type QuickAction,
 } from "@/components/lumi/lumi-quick-actions";
+import { useStudyContext } from "@/hooks/use-study-context";
 import { LumiAttachmentPicker } from "@/components/lumi/lumi-attachment-picker";
 import { LumiVoiceMode } from "@/components/lumi/lumi-voice-mode";
 import { Textarea } from "@/components/ui/textarea";
@@ -98,22 +99,6 @@ import { calculateStreak } from "@/lib/streak";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn, stripChatFormatting } from "@/lib/utils";
-
-type SuggestionChip = {
-  id: QuickAction["id"];
-  label: string;
-  hint: string;
-  cost: number;
-  Icon: typeof FileText;
-};
-
-const SUGGESTION_CHIPS: SuggestionChip[] = [
-  { id: "summary", label: "Resumo", hint: "Resumir aula", cost: 8, Icon: FileText },
-  { id: "flashcards", label: "Flashcards", hint: "Criar deck", cost: 12, Icon: Layers },
-  { id: "quiz", label: "Quiz", hint: "Gerar questões", cost: 10, Icon: HelpCircle },
-  { id: "mindmap" as QuickAction["id"], label: "Mapa mental", hint: "Visualizar tópicos", cost: 6, Icon: Network },
-  { id: "explain", label: "Explicar", hint: "Tire dúvida", cost: 4, Icon: Lightbulb },
-];
 
 const EMBASSADOR_KEY = "lumio.lumi.embassador-dismissed";
 const MAX_ATTACHMENTS = 5;
@@ -173,6 +158,10 @@ function LumiAssistant({ user }: { user: User }) {
   const englishMode = useRef(false);
   const interimRef = useRef("");
   const restoreAttempted = useRef(false);
+
+  // Contexto de estudos (última aula, plano ativo, próxima prova) — alimenta
+  // o catálogo dinâmico de quick-actions abaixo. Resiliente: null se Supabase falhar.
+  const { context: studyContext } = useStudyContext(user.id);
 
   const messages = chat?.messages ?? [];
 
@@ -806,6 +795,36 @@ function LumiAssistant({ user }: { user: User }) {
 
   const handleQuickAction = useCallback(
     async (action: QuickAction) => {
+      // Payload contextual do useStudyContext: pré-seleciona aula/matéria
+      // no contexto do Lumi antes de abrir diálogo de geração ou conversa.
+      const payload = action.payload;
+      if (payload?.lectureId || payload?.subjectId) {
+        setContext((prev) => ({
+          ...prev,
+          ...(payload.lectureId ? { lectureId: payload.lectureId } : {}),
+          ...(payload.lectureTitle ? { lectureTitle: payload.lectureTitle } : {}),
+          ...(payload.subjectId ? { subjectId: payload.subjectId } : {}),
+          ...(payload.subjectName ? { subjectName: payload.subjectName } : {}),
+        }));
+      }
+
+      // Chip de prova urgente: dispara mensagem direta pedindo revisão-relâmpago.
+      if (action.urgent) {
+        const subj = payload?.subjectName ?? "essa matéria";
+        await sendMessage(
+          `Tenho prova de ${subj} chegando. Gere um plano-relâmpago de revisão (resumo + flashcards + 10 questões) priorizando o que mais cai. Confirme antes de gastar coins.`,
+        );
+        return;
+      }
+
+      // Chip de continuar plano: roteamos pra conversa com o Lumi também.
+      if (payload?.planItemId) {
+        await sendMessage(
+          `Continuar minha trilha de estudos. Use a tool marcar_item_plano quando o passo terminar. Próximo item: ${action.label.replace(/^Continuar:\s*/, "")}. Me ajuda a executar agora.`,
+        );
+        return;
+      }
+
       if (action.id === "english") {
         englishMode.current = true;
         toast.success("Modo inglês médico ativado", {
@@ -814,12 +833,10 @@ function LumiAssistant({ user }: { user: User }) {
         return;
       }
       if (action.id === "explain") {
-        const subjectHint = context.subjectName
-          ? ` sobre ${context.subjectName}`
-          : "";
-        const lectureHint = context.lectureTitle
-          ? ` (aula: ${context.lectureTitle})`
-          : "";
+        const subjectName = payload?.subjectName ?? context.subjectName;
+        const lectureTitle = payload?.lectureTitle ?? context.lectureTitle;
+        const subjectHint = subjectName ? ` sobre ${subjectName}` : "";
+        const lectureHint = lectureTitle ? ` (aula: ${lectureTitle})` : "";
         await sendMessage(
           `Explique o conceito mais importante${subjectHint}${lectureHint} de forma didática: definição, mecanismo, exemplo clínico/prático e armadilha comum.`,
         );
@@ -835,20 +852,6 @@ function LumiAssistant({ user }: { user: User }) {
       }
     },
     [context.lectureTitle, context.subjectName, sendMessage],
-  );
-
-  const handleSuggestionChip = useCallback(
-    (chip: SuggestionChip) => {
-      if (chip.id === ("mindmap" as QuickAction["id"])) {
-        setGenDialogKind("mindmap");
-        return;
-      }
-      const action = QUICK_ACTIONS.find((a) => a.id === chip.id);
-      if (action) {
-        void handleQuickAction(action);
-      }
-    },
-    [handleQuickAction],
   );
 
   const handleGenerateMenu = useCallback(
@@ -1518,29 +1521,13 @@ function LumiAssistant({ user }: { user: User }) {
               </Link>
             </div>
 
-            {/* Suggestion chips — escondidos no mobile (chat mais clean) */}
-            <div className="-mx-1 hidden w-full gap-2 overflow-x-auto px-1 pb-2 md:flex">
-              {SUGGESTION_CHIPS.map((chip) => (
-                <button
-                  key={chip.id}
-                  type="button"
-                  onClick={() => handleSuggestionChip(chip)}
-                  title={chip.hint}
-                  aria-label={`${chip.label} — ${chip.hint} · ${chip.cost} coins`}
-                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-border/60 bg-card px-4 py-3 text-left transition-colors hover:bg-secondary/40 hover:border-primary/30"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                    <chip.Icon className="h-4 w-4 text-primary" />
-                  </div>
-                  <span className="text-sm font-medium text-foreground">
-                    {chip.label}
-                  </span>
-                  <span className="ml-1 inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-600 tabular-nums">
-                    <Coins className="h-3 w-3" />
-                    {chip.cost}
-                  </span>
-                </button>
-              ))}
+            {/* Suggestion chips — contextuais via useStudyContext, escondidos em mobile (chat mais clean) */}
+            <div className="-mx-1 hidden w-full px-1 pb-2 md:block">
+              <LumiQuickActions
+                context={studyContext}
+                onPick={(action) => void handleQuickAction(action)}
+                disabled={sending}
+              />
             </div>
 
             {/* Footer row — escondido no mobile pra deixar o chat mais clean */}

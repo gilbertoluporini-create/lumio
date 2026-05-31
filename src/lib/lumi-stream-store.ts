@@ -14,6 +14,7 @@
  * com o componente desmontado.
  */
 
+import { addEventAsync, type CalendarEventType } from "./calendar-events";
 import { appendMessage, type LumiChatMessage } from "./lumi-chats";
 import { stripChatFormatting } from "./utils";
 
@@ -23,6 +24,7 @@ export type ToolEvent = {
   status: "running" | "done" | "error";
   input?: Record<string, unknown>;
   output?: unknown;
+  clientActionDone?: boolean;
 };
 
 export type StreamState = {
@@ -59,6 +61,39 @@ export function subscribeStream(chatId: string, cb: () => void): () => void {
   return () => {
     set!.delete(cb);
   };
+}
+
+/**
+ * Executa side-effects no cliente que tools server-side pediram via clientAction.
+ * Hoje só `add_calendar_event` (calendar é localStorage). Marca o tool como
+ * `clientActionDone` pra evitar re-execução em re-renders/reentrega.
+ */
+async function executeClientAction(userId: string, tool: ToolEvent): Promise<void> {
+  const o = tool.output as { clientAction?: { type?: string; payload?: unknown } } | undefined;
+  const action = o?.clientAction;
+  if (!action || typeof action.type !== "string") return;
+
+  tool.clientActionDone = true;
+
+  try {
+    if (action.type === "add_calendar_event") {
+      const payload = action.payload as {
+        type: CalendarEventType;
+        title: string;
+        subject_id?: string;
+        starts_at: string;
+        ends_at?: string;
+        description?: string;
+      };
+      if (!payload?.title || !payload?.starts_at || !payload?.type) {
+        console.warn("[lumi-stream] add_calendar_event sem campos obrigatórios", payload);
+        return;
+      }
+      await addEventAsync(userId, payload);
+    }
+  } catch (err) {
+    console.warn("[lumi-stream] executeClientAction failed", err);
+  }
 }
 
 /** Apaga estado terminado — chamado depois que o assistant message foi commitado */
@@ -190,6 +225,9 @@ async function runStream(state: StreamState, opts: StartOpts): Promise<void> {
                 typeof t.output === "object" &&
                 "error" in (t.output as object);
               t.status = isErr ? "error" : "done";
+              if (!t.clientActionDone) {
+                void executeClientAction(opts.userId, t);
+              }
             }
           }
           if (ev.done && typeof ev.reply === "string") {

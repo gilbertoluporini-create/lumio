@@ -274,7 +274,7 @@ export function LumiAttachmentPicker({ open, userId, onClose, onPick }: Props) {
         if (!o) onClose();
       }}
     >
-      <DialogContent className="max-w-2xl">
+      <DialogContent mobileSheet className="md:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Anexar dos meus documentos</DialogTitle>
           <DialogDescription>
@@ -312,7 +312,7 @@ export function LumiAttachmentPicker({ open, userId, onClose, onPick }: Props) {
             />
           </div>
 
-          <div className="max-h-[360px] overflow-y-auto rounded-xl border border-border/60 bg-background/40">
+          <div className="max-h-[60vh] overflow-y-auto rounded-xl border border-border/60 bg-background/40 md:max-h-[360px]">
             {loading ? (
               <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
