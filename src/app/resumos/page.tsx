@@ -79,7 +79,7 @@ import {
 } from "@/lib/db";
 import {
   deleteSummaryAsync,
-  listStudyPlanSummaryIdsAsync,
+  listStudyPlanForSummariesAsync,
   listSummariesAsync,
 } from "@/lib/summaries";
 import { listDocumentsAsync } from "@/lib/documents";
@@ -174,6 +174,8 @@ type ResumoItem = {
   durationSec: number;
   /** True quando o resumo está vinculado a algum study_plan_items do user. */
   fromStudyPlan?: boolean;
+  /** Quando fromStudyPlan, info do plano de origem (pra link + label). */
+  studyPlan?: { planId: string; planTitle: string };
 };
 
 function formatDateBR(d: Date): string {
@@ -254,9 +256,9 @@ function ResumosView({ user }: { user: User }) {
   const [filterOrigin, setFilterOrigin] = useState<
     "all" | "lecture" | "document" | "study_plan"
   >("all");
-  const [studyPlanSummaryIds, setStudyPlanSummaryIds] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [studyPlanBySummaryId, setStudyPlanBySummaryId] = useState<
+    Map<string, { planId: string; planTitle: string }>
+  >(() => new Map());
   const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
   const [search, setSearch] = useState("");
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -279,15 +281,15 @@ function ResumosView({ user }: { user: User }) {
       listLecturesAsync(user.id),
       listSummariesAsync(user.id),
       listDocumentsAsync(user.id),
-      listStudyPlanSummaryIdsAsync(user.id),
+      listStudyPlanForSummariesAsync(user.id),
     ])
-      .then(([s, l, sm, d, spIds]) => {
+      .then(([s, l, sm, d, spMap]) => {
         if (!active) return;
         setSubjects(s);
         setLectures(l);
         setSummaries(sm);
         setDocuments(d);
-        setStudyPlanSummaryIds(spIds);
+        setStudyPlanBySummaryId(spMap);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -374,7 +376,8 @@ function ResumosView({ user }: { user: User }) {
   // Lista unificada de resumos (de aula OU de documento)
   const resumoItems = useMemo<ResumoItem[]>(() => {
     return summaries.map((sm) => {
-      const fromStudyPlan = studyPlanSummaryIds.has(sm.id);
+      const studyPlan = studyPlanBySummaryId.get(sm.id);
+      const fromStudyPlan = !!studyPlan;
       if (sm.source.kind === "lecture") {
         const lec = lectureById[sm.source.lectureId];
         return {
@@ -384,13 +387,13 @@ function ResumosView({ user }: { user: User }) {
           subjectId: sm.subjectId || lec?.subjectId || "",
           updatedAt: sm.updatedAt || lec?.updatedAt || sm.createdAt,
           origin: "lecture" as const,
-          // Vai direto pra tela canônica (esqueleto unificado). A rota
-          // antiga /resumo/[lectureId] também redireciona, mas evitamos
-          // o pulo extra aqui.
-          href: `/lecture/${sm.source.lectureId}?tab=summary`,
+          // Vai direto pra tela canônica (esqueleto unificado). `?from=resumos`
+          // pra o onBack do header voltar pra biblioteca em vez de /gravacoes.
+          href: `/lecture/${sm.source.lectureId}?tab=summary&from=resumos`,
           lectureHref: `/lecture/${sm.source.lectureId}`,
           durationSec: lec?.durationSec ?? 0,
           fromStudyPlan,
+          studyPlan,
         };
       }
       const doc = documentById[sm.source.documentId];
@@ -404,9 +407,10 @@ function ResumosView({ user }: { user: User }) {
         href: `/resumo/doc/${sm.id}`,
         durationSec: 0,
         fromStudyPlan,
+        studyPlan,
       };
     });
-  }, [summaries, lectureById, documentById, studyPlanSummaryIds]);
+  }, [summaries, lectureById, documentById, studyPlanBySummaryId]);
 
   const firstName = user.name.split(" ")[0];
   const greeting = useMemo(() => {
@@ -847,6 +851,7 @@ function FeaturedSummaryCard({
   item: ResumoItem;
   subject: Subject | undefined;
 }) {
+  const router = useRouter();
   const iconComp = subject ? getSubjectIcon(subject.name) : FileText;
   const date = new Date(item.updatedAt);
   const dateLabel = formatDateBR(date);
@@ -860,28 +865,35 @@ function FeaturedSummaryCard({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-0">
         {/* Esquerda: detalhes */}
         <div className="p-6 md:border-r border-border/50">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Badge
-              variant="secondary"
-              className="gap-1 bg-primary/15 text-primary border-primary/20"
-            >
-              <Star className="h-3 w-3 fill-primary" />
-              Resumo em destaque
-            </Badge>
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider",
-                fromLecture
-                  ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
-                  : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-              )}
-            >
-              {fromLecture ? "De aula" : "De documento"}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 text-primary px-1.5 py-px text-[9px] font-mono uppercase tracking-wider">
+              <Star className="h-2.5 w-2.5 fill-primary" />
+              Destaque
             </span>
-            {item.fromStudyPlan === true && (
-              <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <Target className="h-3 w-3" />
-                Do plano
+            {item.fromStudyPlan === true && item.studyPlan ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  router.push(`/planos/${item.studyPlan!.planId}`);
+                }}
+                className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors max-w-[200px]"
+                title="Abrir plano de estudos"
+              >
+                <Target className="h-2.5 w-2.5 shrink-0" />
+                <span className="truncate">Do plano: {item.studyPlan.planTitle}</span>
+              </button>
+            ) : (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider",
+                  fromLecture
+                    ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                    : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+                )}
+              >
+                {fromLecture ? "De aula" : "De documento"}
               </span>
             )}
           </div>
@@ -1047,6 +1059,7 @@ function SummaryTableRow({
   onDeleteSummary: (item: ResumoItem) => void;
   onMoveSummary: (item: ResumoItem) => void;
 }) {
+  const router = useRouter();
   const status: SummaryStatus = "completed";
   const date = new Date(item.updatedAt);
   const dateLabel = formatDateBR(date);
@@ -1075,21 +1088,31 @@ function SummaryTableRow({
           <div className="text-sm font-medium truncate group-hover:text-primary transition-colors">
             {item.title}
           </div>
-          <div className="flex items-center gap-1.5 mt-0.5">
-            <span
-              className={cn(
-                "inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider",
-                fromLecture
-                  ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
-                  : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
-              )}
-            >
-              {fromLecture ? "De aula" : "De documento"}
-            </span>
-            {item.fromStudyPlan === true && (
-              <span className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <Target className="h-2.5 w-2.5" />
-                Do plano
+          <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+            {item.fromStudyPlan === true && item.studyPlan ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  router.push(`/planos/${item.studyPlan!.planId}`);
+                }}
+                className="inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider bg-amber-500/10 text-amber-600 dark:text-amber-400 hover:bg-amber-500/20 transition-colors max-w-[180px]"
+                title="Abrir plano de estudos"
+              >
+                <Target className="h-2.5 w-2.5 shrink-0" />
+                <span className="truncate">Do plano: {item.studyPlan.planTitle}</span>
+              </button>
+            ) : (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-full px-1.5 py-px text-[9px] font-mono uppercase tracking-wider",
+                  fromLecture
+                    ? "bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                    : "bg-sky-500/10 text-sky-600 dark:text-sky-400",
+                )}
+              >
+                {fromLecture ? "De aula" : "De documento"}
               </span>
             )}
             {/* Em mobile mostra matéria + data inline */}

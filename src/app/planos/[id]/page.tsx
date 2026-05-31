@@ -764,7 +764,7 @@ function TrailItem({
   const usePlanItemRoute =
     !directLectureSummary && inPlanKinds.includes(item.kind) && hasSource;
   const assetHref = directLectureSummary
-    ? `/lecture/${item.sourceLectureId}?tab=summary`
+    ? `/lecture/${item.sourceLectureId}?tab=summary&from=planos/${item.planId}`
     : usePlanItemRoute
       ? `/planos/${item.planId}/item/${item.id}`
       : externalAssetHref;

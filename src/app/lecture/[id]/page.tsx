@@ -149,6 +149,18 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [view, setView] = useState<LectureHeaderView>("live");
   const initialTranscriptView = initialTab === "summary" ? "summary" : undefined;
 
+  // `?from=<rota>` controla pra onde o botão Voltar vai. Permite que a tela
+  // canônica /lecture seja acessada de várias origens (biblioteca de resumos,
+  // plano de estudos, listagem de gravações) e Voltar respeite o contexto.
+  // Valores aceitos: "resumos", "planos/<planId>", "gravacoes" (default).
+  const fromParam = searchParams.get("from");
+  const backHref =
+    fromParam === "resumos"
+      ? "/resumos"
+      : fromParam && fromParam.startsWith("planos/")
+        ? `/${fromParam}`
+        : "/gravacoes";
+
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<MarkerFilter>("all");
   const [actionLoading, setActionLoading] = useState<NextActionId | null>(null);
@@ -1200,7 +1212,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         onAttachSlides={() => setAttachOpen(true)}
         attachingSlides={attaching}
         hasSlides={hasSlides}
-        onBack={() => router.push("/gravacoes")}
+        onBack={() => router.push(backHref)}
         planLink={planLink}
       />
 

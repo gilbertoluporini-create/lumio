@@ -252,33 +252,54 @@ export async function restoreSummaryAsync(
 export async function listStudyPlanSummaryIdsAsync(
   userId: string,
 ): Promise<Set<string>> {
-  const out = new Set<string>();
+  const map = await listStudyPlanForSummariesAsync(userId);
+  return new Set(map.keys());
+}
+
+/**
+ * Versão enriquecida: pra cada summary que veio de um plano, retorna
+ * `{planId, planTitle}` — usado no card da biblioteca pra mostrar badge
+ * "Do plano: <title>" clicável que leva pra trilha (/planos/[id]).
+ */
+export async function listStudyPlanForSummariesAsync(
+  userId: string,
+): Promise<Map<string, { planId: string; planTitle: string }>> {
+  const out = new Map<string, { planId: string; planTitle: string }>();
   if (!isSupabaseConfigured()) return out;
   try {
     const supabase = createClient();
-    // 1ª query: plan_ids do user
     const { data: plans, error: plansErr } = await supabase
       .from("study_plans")
-      .select("id")
+      .select("id, title")
       .eq("user_id", userId);
     if (plansErr) throw plansErr;
-    const planIds = ((plans ?? []) as Array<{ id: string }>).map((p) => p.id);
-    if (planIds.length === 0) return out;
-    // 2ª query: items dos plans com kind='summary' e asset_id != null
+    const planRows = (plans ?? []) as Array<{ id: string; title: string | null }>;
+    if (planRows.length === 0) return out;
+    const planTitleById = new Map<string, string>(
+      planRows.map((p) => [p.id, p.title ?? "Plano de estudos"]),
+    );
     const { data: items, error: itemsErr } = await supabase
       .from("study_plan_items")
-      .select("asset_id")
-      .in("plan_id", planIds)
+      .select("asset_id, plan_id")
+      .in("plan_id", planRows.map((p) => p.id))
       .eq("kind", "summary")
       .not("asset_id", "is", null);
     if (itemsErr) throw itemsErr;
-    for (const it of items ?? []) {
-      const aid = (it as { asset_id: string | null }).asset_id;
-      if (aid) out.add(aid);
+    for (const it of (items ?? []) as Array<{
+      asset_id: string | null;
+      plan_id: string;
+    }>) {
+      if (!it.asset_id) continue;
+      const planTitle = planTitleById.get(it.plan_id);
+      if (!planTitle) continue;
+      // Se o summary aparece em >1 plano, fica com o primeiro encontrado.
+      if (!out.has(it.asset_id)) {
+        out.set(it.asset_id, { planId: it.plan_id, planTitle });
+      }
     }
     return out;
   } catch (err) {
-    console.error("[summaries] listStudyPlanSummaryIds failed", err);
+    console.error("[summaries] listStudyPlanForSummaries failed", err);
     return out;
   }
 }
