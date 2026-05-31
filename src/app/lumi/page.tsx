@@ -14,6 +14,7 @@ import {
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  ArrowDown,
   ArrowUp,
   ChevronDown,
   Coins,
@@ -212,34 +213,6 @@ function LumiAssistant({ user }: { user: User }) {
     }
   }, [streamState?.status, streamState?.errorMsg, chat, user.id]);
 
-  // DEBUG TEMP: loga última mensagem do assistant pra entender por que card
-  // de tool não está persistindo. Remover após investigação.
-  useEffect(() => {
-    if (!chat?.messages?.length) return;
-    const last = chat.messages[chat.messages.length - 1];
-    if (last?.role !== "assistant") return;
-    const tools = last.tools;
-    // eslint-disable-next-line no-console
-    console.log("[lumi-debug] última msg assistant:", {
-      id: last.id,
-      contentPreview: last.content?.slice(0, 80),
-      hasTools: !!tools,
-      toolsCount: tools?.length ?? 0,
-      tools: tools?.map((t) => ({
-        name: t.name,
-        status: t.status,
-        outputType: typeof t.output,
-        outputKeys:
-          t.output && typeof t.output === "object"
-            ? Object.keys(t.output as object).slice(0, 10)
-            : null,
-        outputSucesso:
-          t.output && typeof t.output === "object"
-            ? (t.output as { sucesso?: unknown }).sucesso
-            : undefined,
-      })),
-    });
-  }, [chat?.messages]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -371,13 +344,46 @@ function LumiAssistant({ user }: { user: User }) {
     .map((t) => `${t.name}:${t.status}`)
     .join("|");
 
+  // Auto-scroll inteligente: PARA quando user rola pra cima manualmente,
+  // RELIGA quando user clica no botão "ir pra última mensagem" abaixo.
+  // Threshold de 80px do fundo pra considerar "perto do fundo" (small jitters
+  // do typewriter não devem pausar).
+  const [autoScrollPaused, setAutoScrollPaused] = useState(false);
+  const SCROLL_THRESHOLD = 80;
+
+  // Detecta scroll manual do user pra pausar/retomar auto-scroll.
   useEffect(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    const onScroll = () => {
+      const distFromBottom = box.scrollHeight - box.clientHeight - box.scrollTop;
+      if (distFromBottom > SCROLL_THRESHOLD) {
+        setAutoScrollPaused(true);
+      } else if (distFromBottom <= 2) {
+        // Voltou pro fundo manualmente → religa
+        setAutoScrollPaused(false);
+      }
+    };
+    box.addEventListener("scroll", onScroll, { passive: true });
+    return () => box.removeEventListener("scroll", onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (autoScrollPaused) return;
     const box = scrollRef.current;
     if (!box) return;
     box.scrollTop = box.scrollHeight;
     // Inclui streamingReply.length pra acompanhar o typewriter + streamingToolsKey
     // pra acompanhar quando tools mudam de running→done (cards renderam aí).
-  }, [messages.length, sending, streamingReply.length, streamingToolsKey]);
+  }, [messages.length, sending, streamingReply.length, streamingToolsKey, autoScrollPaused]);
+
+  // Clicar no botão "descer" força scroll pro fundo + religa auto-scroll.
+  const scrollToBottom = useCallback(() => {
+    const box = scrollRef.current;
+    if (!box) return;
+    box.scrollTop = box.scrollHeight;
+    setAutoScrollPaused(false);
+  }, []);
 
   const streak = useMemo(() => calculateStreak(lectures), [lectures]);
 
@@ -1288,7 +1294,18 @@ function LumiAssistant({ user }: { user: User }) {
         />
       ) : hasMessages ? (
         /* Chat view */
-        <div className="flex flex-1 min-h-0 flex-col overflow-hidden bg-card md:rounded-2xl md:border md:border-border/60">
+        <div className="relative flex flex-1 min-h-0 flex-col overflow-hidden bg-card md:rounded-2xl md:border md:border-border/60">
+          {autoScrollPaused && (
+            <button
+              type="button"
+              onClick={scrollToBottom}
+              aria-label="Ir pra última mensagem"
+              className="absolute bottom-24 left-1/2 z-20 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground shadow-lg transition-all hover:bg-secondary/60 animate-in fade-in slide-in-from-bottom-2"
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+              Última mensagem
+            </button>
+          )}
           <div
             ref={scrollRef}
             className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-4 md:px-10 md:pt-5"

@@ -48,6 +48,29 @@ export type StreamState = {
   onTypewriterEnd?: () => void;
 };
 
+/**
+ * Tronca strings longas dentro do output pra evitar inchar localStorage.
+ * Útil pra outputs grandes (markdown completo de resumo, transcripts, etc).
+ * Aplica recursivamente em objetos/arrays. Limite: 2KB por string.
+ */
+function truncateOutput(value: unknown, depth = 0): unknown {
+  if (depth > 5) return null;
+  if (typeof value === "string") {
+    return value.length > 2048 ? `${value.slice(0, 2048)}…[truncated]` : value;
+  }
+  if (Array.isArray(value)) {
+    return value.slice(0, 50).map((v) => truncateOutput(v, depth + 1));
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as object)) {
+      out[k] = truncateOutput(v, depth + 1);
+    }
+    return out;
+  }
+  return value;
+}
+
 /** Snapshot imutável retornado pra useSyncExternalStore. Re-criado quando version muda. */
 export type StreamSnapshot = {
   chatId: string;
@@ -340,37 +363,23 @@ async function runStream(state: StreamState, opts: StartOpts): Promise<void> {
     //    termina e vira só texto;
     //  - resto: guarda só o enxuto (url/titulo/navegacao) pra não inchar
     //    o localStorage com chunks de busca.
+    // Persistência: aceita QUALQUER tool com status terminal e output presente.
+    // Antes tentávamos filtrar por keys específicas (url/navegacao/sucesso/etc)
+    // pra economizar localStorage — mas era frágil (cards visuais como
+    // iniciar_modo_prova e perguntar_opcoes sumiam pq não casavam exato).
+    // Agora preserva output inteiro mas tronca strings >2KB e cap em 10 tools
+    // pra não inchar storage.
     const persistedTools = state.tools
       .filter((t) => {
-        const o = t.output as Record<string, unknown> | undefined;
-        if (!o || typeof o !== "object") return false;
-        if (t.name === "iniciar_modo_prova") {
-          return "sucesso" in o || "assets" in o || "cronograma" in o;
-        }
-        if (t.name === "perguntar_opcoes") {
-          return "pergunta" in o && "opcoes" in o;
-        }
-        return "url" in o || "navegacao" in o;
+        if (t.status !== "done" && t.status !== "error") return false;
+        return !!t.output && typeof t.output === "object";
       })
-      .map((t) => {
-        if (t.name === "iniciar_modo_prova" || t.name === "perguntar_opcoes") {
-          return {
-            name: t.name,
-            status: t.status,
-            output: t.output,
-          };
-        }
-        const o = t.output as Record<string, unknown>;
-        return {
-          name: t.name,
-          status: t.status,
-          output: {
-            url: o.url,
-            titulo: o.titulo,
-            navegacao: o.navegacao,
-          },
-        };
-      });
+      .slice(0, 10)
+      .map((t) => ({
+        name: t.name,
+        status: t.status,
+        output: truncateOutput(t.output),
+      }));
 
     // Persiste a mensagem final no chat (mesmo se user navegou pra fora)
     const assistantMsg: LumiChatMessage = {
