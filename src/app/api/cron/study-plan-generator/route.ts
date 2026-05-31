@@ -291,12 +291,21 @@ async function processSummaryItem(
     sections: [],
   };
 
+  // Constraint `summary_source_exclusive` na tabela summaries exige
+  // document_id XOR lecture_id (nunca ambos). Quando o item de tópico
+  // combina N PDFs + N aulas, escolhemos UMA source primária — preferimos
+  // lecture (transcript geralmente mais rico que slides); se só tem PDFs,
+  // usa document_id. Os demais source_ids ficam no item.source_*_ids[]
+  // pra navegação dentro do plano.
+  const primaryLectureId = item.source_lecture_id ?? null;
+  const primaryDocumentId = primaryLectureId ? null : item.source_document_id;
+
   const { data: sumRow, error: sumErr } = await admin
     .from("summaries")
     .insert({
       user_id: source.userId,
-      document_id: item.source_document_id,
-      lecture_id: item.source_lecture_id,
+      document_id: primaryDocumentId,
+      lecture_id: primaryLectureId,
       title: source.title,
       content: summaryContent,
     })
