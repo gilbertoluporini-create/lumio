@@ -22,12 +22,14 @@ export function SubjectGroupCard({
   docs,
   totalOrgRatio,
   onAssignSubject,
+  onDelete,
   defaultExpanded = true,
 }: {
   subject: Subject;
   docs: DocumentItem[];
   totalOrgRatio: number;
   onAssignSubject?: (doc: DocumentItem) => void;
+  onDelete?: (doc: DocumentItem) => void;
   defaultExpanded?: boolean;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
@@ -117,6 +119,7 @@ export function SubjectGroupCard({
               key={doc.id}
               doc={doc}
               onAssignSubject={onAssignSubject}
+              onDelete={onDelete}
               showSubject={false}
             />
           ))}

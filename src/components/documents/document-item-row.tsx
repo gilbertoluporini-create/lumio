@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { MoreHorizontal } from "lucide-react";
+import { MoreHorizontal, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn, formatRelativeTime } from "@/lib/utils";
@@ -20,12 +21,16 @@ import {
 export function DocumentItemRow({
   doc,
   onAssignSubject,
+  onDelete,
   className,
   showSubject = true,
   compact = false,
 }: {
   doc: DocumentItem;
   onAssignSubject?: (doc: DocumentItem) => void;
+  /** Quando provido, mostra "Excluir" no dropdown. Pai resolve a deleção
+   *  via deleteDocumentItemAsync (cobre todos os kinds). */
+  onDelete?: (doc: DocumentItem) => void;
   className?: string;
   showSubject?: boolean;
   compact?: boolean;
@@ -91,6 +96,21 @@ export function DocumentItemRow({
           <DropdownMenuItem asChild>
             <Link href={`/lecture/${doc.lectureId}`}>Abrir aula de origem</Link>
           </DropdownMenuItem>
+          {onDelete && doc.kind !== "transcription" && (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  onDelete(doc);
+                }}
+                className="text-destructive focus:text-destructive focus:bg-destructive/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Excluir
+              </DropdownMenuItem>
+            </>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

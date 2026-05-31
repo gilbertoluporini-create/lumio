@@ -207,6 +207,35 @@ function SubjectView({
       currentSubjectId: subjectId,
       currentFolderId: d.folderId ?? null,
     });
+  const handleDeleteAsset = async (a: SubjectAsset) => {
+    const label =
+      a.kind === "flashcards"
+        ? "esse conjunto de flashcards"
+        : a.kind === "quiz"
+          ? "esse quiz"
+          : "esse mapa mental";
+    const ok = await confirmAction({
+      title: `Excluir ${label}?`,
+      description: "A fonte original (aula ou PDF) permanece. Só esse asset some.",
+      destructive: true,
+      confirmText: "Excluir",
+    });
+    if (!ok) return;
+    const { createClient } = await import("@/lib/supabase/client");
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("lecture_assets")
+      .delete()
+      .eq("id", a.id)
+      .eq("user_id", user.id);
+    if (error) {
+      toast.error(`Erro ao excluir: ${error.message}`);
+      return;
+    }
+    setAssets((prev) => prev.filter((x) => x.id !== a.id));
+    toast.success("Excluído.");
+  };
+
   const moveAsset = (a: SubjectAsset) => {
     const lec = lectures.find((l) => l.id === a.lecture_id);
     setMoveTarget({
@@ -819,6 +848,7 @@ function SubjectView({
                       favorited={favIds.has(`asset:${a.id}`)}
                       onToggleFav={() => toggleFav(`asset:${a.id}`)}
                       onMove={() => moveAsset(a)}
+                      onDelete={() => handleDeleteAsset(a)}
                     />
                   ))}
                 </div>
@@ -836,6 +866,7 @@ function SubjectView({
                       favorited={favIds.has(`asset:${a.id}`)}
                       onToggleFav={() => toggleFav(`asset:${a.id}`)}
                       onMove={() => moveAsset(a)}
+                      onDelete={() => handleDeleteAsset(a)}
                     />
                   ))}
                 </div>
@@ -853,6 +884,7 @@ function SubjectView({
                       favorited={favIds.has(`asset:${a.id}`)}
                       onToggleFav={() => toggleFav(`asset:${a.id}`)}
                       onMove={() => moveAsset(a)}
+                      onDelete={() => handleDeleteAsset(a)}
                     />
                   ))}
                 </div>
@@ -1237,6 +1269,24 @@ function MoveButton({ onMove }: { onMove: () => void }) {
       className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-colors"
     >
       <FolderInput className="h-4 w-4" />
+    </button>
+  );
+}
+
+function DeleteAssetButton({ onDelete }: { onDelete: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        onDelete();
+      }}
+      aria-label="Excluir"
+      title="Excluir"
+      className="shrink-0 h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus:opacity-100 transition-colors"
+    >
+      <Trash2 className="h-4 w-4" />
     </button>
   );
 }
@@ -1674,11 +1724,13 @@ function AssetCard({
   favorited,
   onToggleFav,
   onMove,
+  onDelete,
 }: {
   asset: SubjectAsset;
   favorited: boolean;
   onToggleFav: () => void;
   onMove: () => void;
+  onDelete?: () => void;
 }) {
   // Mapeia kind → rota + ícone + descrição visível
   const meta = (() => {
@@ -1739,6 +1791,7 @@ function AssetCard({
         </div>
       </div>
       <MoveButton onMove={onMove} />
+      {onDelete && <DeleteAssetButton onDelete={onDelete} />}
       <FavStar active={favorited} onToggle={onToggleFav} />
       <ChevronRight className="h-4 w-4 text-muted-foreground/60 group-hover:text-primary group-hover:translate-x-0.5 transition-all shrink-0 mt-1" />
     </Link>
