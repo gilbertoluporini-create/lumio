@@ -47,6 +47,10 @@ function extOf(filename: string, mime: string): string {
  * Normaliza variantes de MIME (audio/x-*, audio/wave, etc) pros tipos canônicos
  * aceitos por buckets Supabase com whitelist. M4A vindo do macOS chega como
  * audio/x-m4a — bucket geralmente só aceita audio/mp4.
+ *
+ * Arquivos .mp4 (gravados como vídeo mas com áudio extraível pelo Whisper)
+ * chegam como video/mp4 — convertemos pra audio/mp4 pra o bucket aceitar.
+ * Idem video/webm e video/quicktime (gravações de tela com áudio).
  */
 function normalizeMime(mime: string, filename: string): string {
   const m = (mime || "").toLowerCase();
@@ -55,10 +59,13 @@ function normalizeMime(mime: string, filename: string): string {
   if (m === "audio/x-aac") return "audio/aac";
   if (m === "audio/x-flac") return "audio/flac";
   if (m === "audio/mp3") return "audio/mpeg";
+  // Vídeo com trilha de áudio — Whisper aceita os mesmos containers.
+  if (m === "video/mp4" || m === "video/quicktime") return "audio/mp4";
+  if (m === "video/webm") return "audio/webm";
   if (m) return m;
   // sem mime: deduz pela extensão
   const ext = filename.toLowerCase().match(/\.([a-z0-9]+)$/)?.[1] ?? "";
-  if (ext === "m4a" || ext === "mp4") return "audio/mp4";
+  if (ext === "m4a" || ext === "mp4" || ext === "mov") return "audio/mp4";
   if (ext === "mp3") return "audio/mpeg";
   if (ext === "wav") return "audio/wav";
   if (ext === "ogg") return "audio/ogg";
@@ -107,7 +114,7 @@ export function UploadAudioCard({
     }
     const mimeOk =
       ACCEPTED_MIME.includes(f.type) ||
-      /\.(mp3|m4a|wav|webm|ogg|aac|flac|mp4)$/i.test(f.name);
+      /\.(mp3|m4a|wav|webm|ogg|aac|flac|mp4|mov)$/i.test(f.name);
     if (!mimeOk) {
       toast.error("Formato não suportado. Envie MP3, M4A, WAV, OGG ou WEBM.");
       return;
@@ -223,7 +230,7 @@ export function UploadAudioCard({
         <input
           ref={inputRef}
           type="file"
-          accept="audio/*,.mp3,.m4a,.wav,.ogg,.webm,.aac,.flac,.mp4"
+          accept="audio/*,video/mp4,video/quicktime,video/webm,.mp3,.m4a,.wav,.ogg,.webm,.aac,.flac,.mp4,.mov"
           className="hidden"
           onChange={(e) => handleSelect(e.target.files?.[0] ?? null)}
         />
