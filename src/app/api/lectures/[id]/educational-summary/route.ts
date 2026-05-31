@@ -118,7 +118,9 @@ export async function POST(
   const admin = createAdminClient();
   const { data: lectureRow, error: lecErr } = await admin
     .from("lectures")
-    .select("title, subject_id, transcript_entries, transcript_chapters, slides")
+    .select(
+      "title, subject_id, transcript_entries, transcript_chapters, slides, messages",
+    )
     .eq("id", lectureId)
     .maybeSingle();
   if (lecErr || !lectureRow) {
@@ -132,6 +134,48 @@ export async function POST(
       { status: 400 },
     );
   }
+
+  // Multi-fontes: além da transcrição, cruzar slides da aula e as perguntas
+  // do chat in-lecture (lectures.messages). Slides cobrem o material visual
+  // que o professor projetou; chat captura o que o user perguntou/não
+  // entendeu — pontos de dúvida que o resumo deve esclarecer.
+  type SlideEntry = { pageNumber?: number; title?: string; text?: string };
+  const slides = Array.isArray(lectureRow.slides)
+    ? (lectureRow.slides as SlideEntry[])
+    : [];
+  type LectureMsg = { role?: string; content?: string };
+  const lectureMessages = Array.isArray(lectureRow.messages)
+    ? (lectureRow.messages as LectureMsg[])
+    : [];
+
+  // Cada fonte é truncada pra não estourar contexto Sonnet. Limites por
+  // ordem de prioridade: transcrição é a fonte principal; slides + chat são
+  // contexto adicional.
+  const slidesForPrompt =
+    slides.length > 0
+      ? slides
+          .slice(0, 50)
+          .map((s) => {
+            const head = s.title ? `[Slide ${s.pageNumber ?? "?"} — ${s.title}]` : `[Slide ${s.pageNumber ?? "?"}]`;
+            const body = (s.text ?? "").trim().slice(0, 600);
+            return body ? `${head}\n${body}` : head;
+          })
+          .join("\n\n")
+          .slice(0, 8000)
+      : "";
+
+  const chatForPrompt =
+    lectureMessages.length > 0
+      ? lectureMessages
+          .filter((m) => typeof m.content === "string" && m.content.trim())
+          .slice(-30) // últimas 30 trocas (mais recentes têm mais sinal)
+          .map(
+            (m) =>
+              `${m.role === "assistant" ? "Lumi" : "Aluno"}: ${(m.content ?? "").trim().slice(0, 800)}`,
+          )
+          .join("\n\n")
+          .slice(0, 6000)
+      : "";
 
   let subjectName = "Geral";
   if (lectureRow.subject_id) {
@@ -177,7 +221,32 @@ export async function POST(
       messages: [
         {
           role: "user",
-          content: `=== TRANSCRIÇÃO DA AULA ===\n\n${escapeForPrompt(transcriptForPrompt)}\n\n=== TAREFA ===\nGere o resumo educativo em markdown agora.`,
+          content: [
+            `=== TRANSCRIÇÃO DA AULA ===`,
+            ``,
+            escapeForPrompt(transcriptForPrompt),
+            ...(slidesForPrompt
+              ? [
+                  ``,
+                  `=== SLIDES DA AULA ===`,
+                  ``,
+                  escapeForPrompt(slidesForPrompt),
+                ]
+              : []),
+            ...(chatForPrompt
+              ? [
+                  ``,
+                  `=== CHAT DURANTE A AULA (dúvidas do aluno + respostas do Lumi) ===`,
+                  ``,
+                  `Use isso pra entender o que o aluno NÃO entendeu — destaque esses pontos no resumo.`,
+                  ``,
+                  escapeForPrompt(chatForPrompt),
+                ]
+              : []),
+            ``,
+            `=== TAREFA ===`,
+            `Gere o resumo educativo em markdown agora. Integre as informações dos slides e responda às dúvidas do chat (se houver) dentro das seções relevantes.`,
+          ].join("\n"),
         },
       ],
     });
