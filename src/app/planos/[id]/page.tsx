@@ -748,10 +748,6 @@ function TrailItem({
   const isRoutine = item.kind === "routine";
   const isDocument = item.kind === "document";
   const externalAssetHref = assetHrefFor(item);
-  // Pra summary/flashcards/quiz/mindmap COM source vinculada (PDF ou aula),
-  // o card abre a tela do item do plano: mostra contexto da trilha, status
-  // de geração (pending/done/failed) e sugestões de outros assets do mesmo
-  // material. Pros demais kinds abre direto a rota do asset.
   const inPlanKinds: StudyPlanItemKind[] = [
     "summary",
     "flashcards",
@@ -759,10 +755,19 @@ function TrailItem({
     "mindmap",
   ];
   const hasSource = !!item.sourceDocumentId || !!item.sourceLectureId;
-  const usePlanItemRoute = inPlanKinds.includes(item.kind) && hasSource;
-  const assetHref = usePlanItemRoute
-    ? `/planos/${item.planId}/item/${item.id}`
-    : externalAssetHref;
+  // Atalho: summary PRONTO com aula vinculada vai direto pra /lecture canônica
+  // (esqueleto unificado com tabs/imagens/TTS).
+  const directLectureSummary =
+    item.kind === "summary" &&
+    item.status === "done" &&
+    !!item.sourceLectureId;
+  const usePlanItemRoute =
+    !directLectureSummary && inPlanKinds.includes(item.kind) && hasSource;
+  const assetHref = directLectureSummary
+    ? `/lecture/${item.sourceLectureId}?tab=summary`
+    : usePlanItemRoute
+      ? `/planos/${item.planId}/item/${item.id}`
+      : externalAssetHref;
   // `hasAsset` indica que o item TEM uma rota pra abrir agora — usado pelo
   // botão "Abrir". Pode ser true mesmo enquanto o asset ainda está gerando,
   // porque a tela do plano-item lida com pending/failed/done sozinha.

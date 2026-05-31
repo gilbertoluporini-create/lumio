@@ -13,6 +13,7 @@ import {
   Save,
   Share2,
   Square,
+  Target,
   Trash2,
   type LucideIcon,
 } from "lucide-react";
@@ -53,6 +54,7 @@ export function LectureHeader({
   attachingSlides,
   hasSlides,
   onBack,
+  planLink,
 }: {
   title: string;
   subjectName?: string;
@@ -77,6 +79,9 @@ export function LectureHeader({
   attachingSlides?: boolean;
   hasSlides?: boolean;
   onBack: () => void;
+  /** Quando o summary dessa lecture é parte de um plano de estudos, mostra
+   *  uma tag clicável "Do plano: …" pro user identificar a origem e voltar. */
+  planLink?: { planId: string; planTitle: string } | null;
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [draft, setDraft] = useState(title);
@@ -167,6 +172,16 @@ export function LectureHeader({
                 <span className="inline-flex items-center gap-1.5">
                   <UserDot icon={Mic} /> {professorName}
                 </span>
+              )}
+              {planLink && (
+                <a
+                  href={`/planos/${planLink.planId}`}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 text-[11px] font-medium text-primary hover:bg-primary/15"
+                  title="Voltar pro plano de estudos"
+                >
+                  <Target className="h-3 w-3" />
+                  Do plano: {planLink.planTitle}
+                </a>
               )}
             </div>
           </div>

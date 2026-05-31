@@ -135,6 +135,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [showPdfBesides, setShowPdfBesides] = useState(true);
 
   const [summary, setSummary] = useState<LectureSummary | undefined>(undefined);
+  const [planLink, setPlanLink] = useState<{
+    planId: string;
+    planTitle: string;
+  } | null>(null);
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [structuringTranscript, setStructuringTranscript] = useState(false);
   const [syncingSlides, setSyncingSlides] = useState(false);
@@ -244,8 +248,34 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       const sm = await getSummaryByLectureIdAsync(user.id, l.id);
       if (sm?.content) {
         setSummary({ ...sm.content, images: sm.images ?? sm.content.images });
+        // Detecta se esse summary é parte de um plano de estudos (gerado
+        // via worker). Mostra tag "Do plano: …" no header.
+        try {
+          const supabase = (await import("@/lib/supabase/client")).createClient();
+          const { data: planItem } = await supabase
+            .from("study_plan_items")
+            .select("plan_id, study_plans(title)")
+            .eq("asset_id", sm.id)
+            .maybeSingle();
+          if (planItem) {
+            const planRow = (planItem as {
+              plan_id: string;
+              study_plans: { title: string } | { title: string }[] | null;
+            }).study_plans;
+            const planTitle = Array.isArray(planRow) ? planRow[0]?.title : planRow?.title;
+            if (planTitle) {
+              setPlanLink({
+                planId: (planItem as { plan_id: string }).plan_id,
+                planTitle,
+              });
+            }
+          } else {
+            setPlanLink(null);
+          }
+        } catch { /* tag é nice-to-have */ }
       } else {
         setSummary(undefined);
+        setPlanLink(null);
       }
 
       // Se a lecture é "shell" (sem transcript + sem slides) MAS tem summary,
@@ -1171,6 +1201,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         attachingSlides={attaching}
         hasSlides={hasSlides}
         onBack={() => router.push("/gravacoes")}
+        planLink={planLink}
       />
 
       <AttachSlidesDialog

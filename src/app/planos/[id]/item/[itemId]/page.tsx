@@ -162,6 +162,19 @@ function PlanItemView({
       .finally(() => setSummaryLoading(false));
   }, [user.id, currentItem?.kind, currentItem?.assetId, currentItem]);
 
+  // Redirect pra /lecture/[id]?tab=summary quando o item é summary com aula
+  // vinculada. A tela /lecture é o ESQUELETO CANÔNICO de resumo (tabs de
+  // transcrição revisada/crua/resumo, imagens, TTS, etc).
+  useEffect(() => {
+    if (!currentItem) return;
+    if (currentItem.kind !== "summary" || currentItem.status !== "done") return;
+    const primaryLectureId =
+      currentItem.sourceLectureIds?.[0] ?? currentItem.sourceLectureId ?? null;
+    if (primaryLectureId) {
+      router.replace(`/lecture/${primaryLectureId}?tab=summary`);
+    }
+  }, [currentItem, router]);
+
   // Poll enquanto pending — worker pode demorar uns segundos
   useEffect(() => {
     if (!currentItem || currentItem.status !== "pending") return;
