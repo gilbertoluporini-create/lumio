@@ -262,6 +262,71 @@ export function CreatePlanDialog({
     );
   }
 
+  /** Chama /api/study-plans/suggest-topics e substitui topics + map atuais
+   *  pela sugestão da Lumi. Só roda em sources já selecionadas. */
+  const [suggesting, setSuggesting] = useState(false);
+  async function handleAutoSuggest() {
+    const pickedSources: Array<{
+      kind: "doc" | "lec";
+      id: string;
+      title: string;
+    }> = [];
+    for (const key of Object.keys(sourceTopicMap)) {
+      const [kind, id] = key.split(":") as ["doc" | "lec", string];
+      const title =
+        kind === "doc"
+          ? documents.find((d) => d.id === id)?.title ?? ""
+          : lectures.find((l) => l.id === id)?.title ?? "";
+      if (title) pickedSources.push({ kind, id, title });
+    }
+    if (pickedSources.length < 2) {
+      toast.warning("Selecione ao menos 2 fontes pra eu poder agrupar.");
+      return;
+    }
+    setSuggesting(true);
+    try {
+      const res = await fetch("/api/study-plans/suggest-topics", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sources: pickedSources }),
+      });
+      const json = (await res.json()) as {
+        topics?: Array<{
+          title: string;
+          sourceIds: Array<{ kind: "doc" | "lec"; id: string }>;
+        }>;
+        error?: string;
+        fallback?: { topics: typeof json.topics };
+      };
+      const suggested = json.topics ?? json.fallback?.topics ?? null;
+      if (!res.ok && !suggested) {
+        toast.error(json.error ?? "Falha ao sugerir tópicos.");
+        return;
+      }
+      if (!suggested) return;
+
+      // Substitui state atual pela sugestão
+      const newTopics: typeof topics = {};
+      const newMap: Record<string, string> = {};
+      for (const sug of suggested) {
+        const tid = `t_${Math.random().toString(36).slice(2, 10)}`;
+        newTopics[tid] = { id: tid, title: sug.title, isAuto: false };
+        for (const s of sug.sourceIds) {
+          newMap[`${s.kind}:${s.id}`] = tid;
+        }
+      }
+      setTopics(newTopics);
+      setSourceTopicMap(newMap);
+      toast.success(
+        `Lumi organizou em ${suggested.length} tópico${suggested.length === 1 ? "" : "s"}.`,
+      );
+    } catch (err) {
+      toast.error(`Erro: ${(err as Error).message}`);
+    } finally {
+      setSuggesting(false);
+    }
+  }
+
   // Step 4 — estimate / submit
   const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
   const [estimating, setEstimating] = useState(false);
@@ -608,6 +673,8 @@ export function CreatePlanDialog({
               onRenameTopic={renameTopic}
               isPicked={isPicked}
               topicIdOf={topicIdOf}
+              onAutoSuggest={handleAutoSuggest}
+              suggesting={suggesting}
               loading={loadingSources}
               uploadingPdf={uploadingPdf}
               uploadPhase={uploadPhase}
@@ -832,6 +899,8 @@ function SourcesStep({
   onRenameTopic,
   isPicked,
   topicIdOf,
+  onAutoSuggest,
+  suggesting,
   loading,
   uploadingPdf,
   uploadPhase,
@@ -851,6 +920,8 @@ function SourcesStep({
   onRenameTopic: (topicId: string, newTitle: string) => void;
   isPicked: (kind: "doc" | "lec", id: string) => boolean;
   topicIdOf: (kind: "doc" | "lec", id: string) => string | null;
+  onAutoSuggest: () => Promise<void>;
+  suggesting: boolean;
   loading: boolean;
   uploadingPdf: boolean;
   uploadPhase: "extracting" | "uploading" | "saving" | null;
@@ -981,11 +1052,30 @@ function SourcesStep({
         )}
       </div>
 
-      {/* Resumo */}
-      <div className="text-xs text-muted-foreground border-t border-border/40 pt-2">
-        {totalPicked === 0
-          ? "Selecione ao menos 1 fonte."
-          : `${totalPicked} fonte${totalPicked === 1 ? "" : "s"} em ${topicCount} tópico${topicCount === 1 ? "" : "s"} = ${topicCount} card${topicCount === 1 ? "" : "s"} na trilha.`}
+      {/* Resumo + auto-sugerir */}
+      <div className="flex items-center justify-between gap-3 border-t border-border/40 pt-2">
+        <div className="text-xs text-muted-foreground flex-1 min-w-0">
+          {totalPicked === 0
+            ? "Selecione ao menos 1 fonte."
+            : `${totalPicked} fonte${totalPicked === 1 ? "" : "s"} em ${topicCount} tópico${topicCount === 1 ? "" : "s"} = ${topicCount} card${topicCount === 1 ? "" : "s"} na trilha.`}
+        </div>
+        {totalPicked >= 2 && (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => void onAutoSuggest()}
+            disabled={suggesting}
+            className="gap-1.5 shrink-0"
+          >
+            {suggesting ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Sparkles className="h-3.5 w-3.5" />
+            )}
+            {suggesting ? "Lumi pensando…" : "Lumi organiza pra mim"}
+          </Button>
+        )}
       </div>
     </div>
   );
