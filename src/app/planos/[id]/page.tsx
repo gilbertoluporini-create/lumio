@@ -135,8 +135,12 @@ function PlanoView({ user }: { user: User }) {
   /** Item de Rotina selecionado pra abrir RotinaWizardDialog. */
   const [rotinaItem, setRotinaItem] = useState<StudyPlanItem | null>(null);
 
+  // `reload` é chamado no mount E pelo polling de 10s enquanto há items
+  // pending. Não mexe em `loading` aqui — o estado de carregamento inicial
+  // é controlado só pelo `loading=true` inicial do useState. Antes,
+  // `setLoading(true)` a cada poll fazia a tela INTEIRA virar
+  // "Carregando…" a cada 5s, gerando flicker absurdo durante a geração.
   const reload = useCallback(async () => {
-    setLoading(true);
     const result = await getPlanAsync(user.id, planId);
     if (!result) {
       setNotFound(true);
@@ -687,7 +691,14 @@ function TrailItem({
   const assetHref = usePlanItemRoute
     ? `/planos/${item.planId}/item/${item.id}`
     : externalAssetHref;
+  // `hasAsset` indica que o item TEM uma rota pra abrir agora — usado pelo
+  // botão "Abrir". Pode ser true mesmo enquanto o asset ainda está gerando,
+  // porque a tela do plano-item lida com pending/failed/done sozinha.
   const hasAsset = !!assetHref;
+  // `isReady` significa "asset realmente gerado" — usado pelo badge "Pronto".
+  // Antes era acoplado a hasAsset, mas com a nova rota interna hasAsset virou
+  // sempre-true pra items in-plan e o badge aparecia em items ainda na fila.
+  const isReady = !!item.assetId && item.status === "done";
 
   return (
     <li
@@ -724,7 +735,7 @@ function TrailItem({
           <span className="text-[11px] text-muted-foreground">
             #{index + 1}
           </span>
-          {hasAsset && (
+          {isReady && (
             <span className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600">
               <CheckCircle2 className="h-3 w-3" />
               Pronto
