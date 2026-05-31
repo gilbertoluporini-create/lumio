@@ -237,6 +237,53 @@ export async function restoreSummaryAsync(
 }
 
 /**
+ * Retorna o set de summary IDs que estão referenciados em algum
+ * `study_plan_items` do usuário (kind='summary', asset_id não nulo).
+ *
+ * Usado pela biblioteca de resumos pra marcar visualmente quais resumos
+ * fazem parte de um plano de estudos (badge "Do plano") e habilitar
+ * filtro por origem "study_plan".
+ *
+ * Implementação em 2 queries porque o supabase-js precisaria de relação
+ * FK explícita (`study_plans!inner`) que pode falhar se o schema cache
+ * não reconhecer o nome da relação. As 2 queries são leves (indexadas)
+ * e a RLS garante que só vejamos plans do próprio user.
+ */
+export async function listStudyPlanSummaryIdsAsync(
+  userId: string,
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  if (!isSupabaseConfigured()) return out;
+  try {
+    const supabase = createClient();
+    // 1ª query: plan_ids do user
+    const { data: plans, error: plansErr } = await supabase
+      .from("study_plans")
+      .select("id")
+      .eq("user_id", userId);
+    if (plansErr) throw plansErr;
+    const planIds = ((plans ?? []) as Array<{ id: string }>).map((p) => p.id);
+    if (planIds.length === 0) return out;
+    // 2ª query: items dos plans com kind='summary' e asset_id != null
+    const { data: items, error: itemsErr } = await supabase
+      .from("study_plan_items")
+      .select("asset_id")
+      .in("plan_id", planIds)
+      .eq("kind", "summary")
+      .not("asset_id", "is", null);
+    if (itemsErr) throw itemsErr;
+    for (const it of items ?? []) {
+      const aid = (it as { asset_id: string | null }).asset_id;
+      if (aid) out.add(aid);
+    }
+    return out;
+  } catch (err) {
+    console.error("[summaries] listStudyPlanSummaryIds failed", err);
+    return out;
+  }
+}
+
+/**
  * Busca summary SOFT-DELETED pra uma lecture. Usado quando a UI quer
  * oferecer recuperação ao user ("você deletou esse resumo, quer recuperar
  * ou regerar?").

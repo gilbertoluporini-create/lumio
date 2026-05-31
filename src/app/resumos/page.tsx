@@ -51,6 +51,7 @@ import {
   Stethoscope,
   Syringe,
   Tag,
+  Target,
   Timer,
   Trash2,
   Users,
@@ -78,6 +79,7 @@ import {
 } from "@/lib/db";
 import {
   deleteSummaryAsync,
+  listStudyPlanSummaryIdsAsync,
   listSummariesAsync,
 } from "@/lib/summaries";
 import { listDocumentsAsync } from "@/lib/documents";
@@ -170,6 +172,8 @@ type ResumoItem = {
   lectureHref?: string;
   /** Tempo (durationSec da aula) quando aplicável; senão null. */
   durationSec: number;
+  /** True quando o resumo está vinculado a algum study_plan_items do user. */
+  fromStudyPlan?: boolean;
 };
 
 function formatDateBR(d: Date): string {
@@ -247,7 +251,12 @@ function ResumosView({ user }: { user: User }) {
   const [loading, setLoading] = useState(true);
   const [filterSubject, setFilterSubject] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<StatusFilter>("all");
-  const [filterOrigin, setFilterOrigin] = useState<"all" | "lecture" | "document">("all");
+  const [filterOrigin, setFilterOrigin] = useState<
+    "all" | "lecture" | "document" | "study_plan"
+  >("all");
+  const [studyPlanSummaryIds, setStudyPlanSummaryIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [sortOrder, setSortOrder] = useState<SortOrder>("recent");
   const [search, setSearch] = useState("");
   const [favorites, setFavorites] = useState<string[]>([]);
@@ -270,13 +279,15 @@ function ResumosView({ user }: { user: User }) {
       listLecturesAsync(user.id),
       listSummariesAsync(user.id),
       listDocumentsAsync(user.id),
+      listStudyPlanSummaryIdsAsync(user.id),
     ])
-      .then(([s, l, sm, d]) => {
+      .then(([s, l, sm, d, spIds]) => {
         if (!active) return;
         setSubjects(s);
         setLectures(l);
         setSummaries(sm);
         setDocuments(d);
+        setStudyPlanSummaryIds(spIds);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -363,6 +374,7 @@ function ResumosView({ user }: { user: User }) {
   // Lista unificada de resumos (de aula OU de documento)
   const resumoItems = useMemo<ResumoItem[]>(() => {
     return summaries.map((sm) => {
+      const fromStudyPlan = studyPlanSummaryIds.has(sm.id);
       if (sm.source.kind === "lecture") {
         const lec = lectureById[sm.source.lectureId];
         return {
@@ -375,6 +387,7 @@ function ResumosView({ user }: { user: User }) {
           href: `/resumo/${sm.source.lectureId}`,
           lectureHref: `/lecture/${sm.source.lectureId}`,
           durationSec: lec?.durationSec ?? 0,
+          fromStudyPlan,
         };
       }
       const doc = documentById[sm.source.documentId];
@@ -387,9 +400,10 @@ function ResumosView({ user }: { user: User }) {
         origin: "document" as const,
         href: `/resumo/doc/${sm.id}`,
         durationSec: 0,
+        fromStudyPlan,
       };
     });
-  }, [summaries, lectureById, documentById]);
+  }, [summaries, lectureById, documentById, studyPlanSummaryIds]);
 
   const firstName = user.name.split(" ")[0];
   const greeting = useMemo(() => {
@@ -418,7 +432,11 @@ function ResumosView({ user }: { user: User }) {
         return false;
       // filterStatus: hoje só "completed" existe — todo item já tem summary.
       if (filterStatus !== "all" && filterStatus !== "completed") return false;
-      if (filterOrigin !== "all" && item.origin !== filterOrigin) return false;
+      if (filterOrigin === "study_plan") {
+        if (item.fromStudyPlan !== true) return false;
+      } else if (filterOrigin !== "all" && item.origin !== filterOrigin) {
+        return false;
+      }
       if (search.trim()) {
         const q = search.toLowerCase();
         const subjName = subjectById[item.subjectId]?.name.toLowerCase() ?? "";
@@ -614,7 +632,9 @@ function ResumosView({ user }: { user: User }) {
                 ? "Toda origem"
                 : filterOrigin === "lecture"
                   ? "De aulas"
-                  : "De documentos"}
+                  : filterOrigin === "document"
+                    ? "De documentos"
+                    : "Do plano"}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start">
@@ -626,6 +646,9 @@ function ResumosView({ user }: { user: User }) {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setFilterOrigin("document")}>
               De documentos
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setFilterOrigin("study_plan")}>
+              Plano de estudos
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -1054,6 +1077,15 @@ function SummaryTableRow({
             >
               {fromLecture ? "De aula" : "De documento"}
             </span>
+            {item.fromStudyPlan === true && (
+              <Badge
+                variant="secondary"
+                className="gap-1 bg-violet-500/10 text-violet-600 dark:text-violet-400 border-violet-500/20 text-[10px] font-mono uppercase tracking-wider"
+              >
+                <Target className="h-3 w-3" />
+                Do plano
+              </Badge>
+            )}
             {/* Em mobile mostra matéria + data inline */}
             <span className="md:hidden text-xs text-muted-foreground truncate">
               · {subject?.name ?? "—"} · {dateLabel}
