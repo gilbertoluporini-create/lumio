@@ -8,9 +8,9 @@ import { buildPageMetadata, ogImage, SITE_URL } from "@/lib/seo";
 const PATH = "/para-medicina";
 const CANONICAL = `${SITE_URL}${PATH}`;
 
-const TITLE = "Lumio para Medicina · Ciclo básico e clínico, com método ativo";
+const TITLE = "Medicina no Lumio · Resumo, flashcards e quiz com IA";
 const DESCRIPTION =
-  "Pra estudante de medicina do 1º ao 4º ano. Sua aula vira resumo, flashcards, quiz e mapa em minutos — com SEU material e o vocabulário do professor. 50 coins grátis.";
+  "Transcreva aulas de farmacologia, anatomia e semiologia. O Lumio gera resumo, flashcards e quiz organizados por matéria. 50 coins grátis.";
 
 export const metadata: Metadata = buildPageMetadata({
   title: TITLE,
@@ -44,12 +44,12 @@ export default function ParaMedicinaPage() {
         slug="para-medicina"
         courseName="Medicina"
         courseLabel="Medicina"
-        heroTitle="Anatomia, fisio, farmaco — sem decoreba, com método ativo."
-        heroSub="Pra estudante de medicina do ciclo básico ao clínico. Lumio transcreve sua aula e devolve em resumo, flashcards, quiz e mapa — com SEU material e o vocabulário que o professor usou."
+        heroTitle="Volte a olhar pro paciente da prática. A gente cuida da farmacologia."
+        heroSub="Lumio transcreve sua aula em tempo real e transforma em resumo, flashcards e quiz — preservando o vocabulário clínico do jeito que o professor usou."
         pains={[
-          "Volume de conteúdo: anatomia, fisio, bioq, farmaco e semio caem juntos no semestre. Releer 4h e esquecer em 3 dias não rola mais.",
-          "Releitura passiva não fixa: 70% esquecido em 24h (curva de Ebbinghaus). Mas testar memória ativa é desconfortável — e por isso ninguém faz.",
-          "Material genérico de prova não serve pra entender: você precisa do vocabulário do SEU professor, do mecanismo do SEU caso clínico, da matéria que cai no SEU semestre.",
+          "Carga horária pesada: ambulatório de manhã, aula à tarde, plantão à noite. Não sobra tempo pra digitar caderno.",
+          "Volume de conteúdo: farmacologia clínica, anatomia, fisiopatologia e semiologia caem juntos nas provas — e em residência.",
+          "Vocabulário técnico denso: mecanismo de ação, dose, interação medicamentosa. Resumo genérico não serve.",
         ]}
         subjects={[
           "Farmacologia clínica",
@@ -88,27 +88,23 @@ export default function ParaMedicinaPage() {
         }}
         faqs={[
           {
-            q: "Lumio é pra ciclo básico, clínico ou pra residência?",
-            a: "Lumio é pra ciclo básico e clínico — quem ainda tem aula presencial, grava, anota e quer fixar a matéria do semestre com método ativo. Pra prova de residência o ideal é combinar com material de banca (Sanar, Medway, Estratégia). Não competimos com isso — somos a camada de ANTES.",
+            q: "Funciona com matérias do ciclo básico e do ciclo clínico?",
+            a: "Sim. Lumio cobre desde bioquímica e histologia no ciclo básico até semiologia, clínica médica e cirurgia no ciclo clínico. Você organiza por disciplina e o material gerado preserva o vocabulário técnico de cada uma.",
           },
           {
-            q: "Funciona com matérias específicas do ciclo básico (anatomia, histologia, bioq)?",
-            a: "Sim. O reconhecimento PT-BR nativo lida bem com termo de latim, nome de estrutura, nome de via metabólica. O resumo gerado preserva o vocabulário técnico e o foco que o professor deu — não vira texto raso.",
-          },
-          {
-            q: "E no ciclo clínico (semio, clínica médica, farmaco)?",
-            a: "Funciona. Você anexa PDF da diretriz, do artigo, do slide do professor — e o chat responde cruzando aula + documento. Útil pra fixar mecanismo de fármaco, raciocínio diagnóstico e protocolo de conduta sem ter que abrir 5 abas.",
+            q: "Os flashcards servem pra estudar pra prova de residência?",
+            a: "Os flashcards seguem o conteúdo da aula. Pra prova de residência o ideal é combinar com material específico de banca, mas o Lumio acelera a revisão da matéria do semestre, que é a base do que cai no R1.",
           },
           {
             q: "Posso anexar PDF de artigo ou diretriz e perguntar pra IA?",
             a: "Sim. Você anexa PDFs (artigos, diretrizes, slides do professor) e o chat do Lumio responde com contexto desses documentos — útil pra cruzar aula com Sanford, Harrison ou diretriz da SBC.",
           },
           {
-            q: "Por que não tem banco de questões de prova pronto?",
-            a: "Porque Lumio gera quiz e flashcards do SEU material de aula — não vende simulado pré-pronto. Quem quer banco de questão tradicional encontra em outras plataformas. Aqui o método é: você grava, IA processa, você revisa ativo. É outro jeito de estudar.",
+            q: "A transcrição entende termos médicos em latim e nomes de fármacos?",
+            a: "O reconhecimento usa português brasileiro nativo do navegador e funciona bem com terminologia médica. Em palavras muito raras pode haver pequeno erro, mas o resumo gerado pela IA corrige a partir do contexto da aula.",
           },
         ]}
-        closingLine="Sua próxima aula de anatomia, fisio ou farmaco já podia estar virando método."
+        closingLine="Sua próxima aula de farmacologia já podia estar resumida."
       />
     </>
   );
