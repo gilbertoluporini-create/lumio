@@ -1223,8 +1223,13 @@ function SummaryTableRow({
               </DropdownMenuItem>
             )}
             <DropdownMenuItem
-              onSelect={(e) => {
+              onClick={(e) => {
+                // Bug: o dropdown vive DENTRO do <Link> da row inteira. Sem
+                // stopPropagation, click do item subia até o Link e abria a
+                // tela do resumo enquanto a ação rodava (ex: aparecia tela
+                // do resumo + toast "Excluído" simultâneos).
                 e.preventDefault();
+                e.stopPropagation();
                 onToggleFavorite(item.summary.id);
               }}
               className="gap-2"
@@ -1238,8 +1243,9 @@ function SummaryTableRow({
               {isFavorite ? "Remover favorito" : "Marcar como favorito"}
             </DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={(e) => {
+              onClick={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 toast("Exportar PDF — em breve", {
                   description: "Estamos finalizando o gerador de PDF.",
                 });
@@ -1250,8 +1256,9 @@ function SummaryTableRow({
               Exportar PDF
             </DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={(e) => {
+              onClick={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 onMoveSummary(item);
               }}
               className="gap-2"
@@ -1260,8 +1267,9 @@ function SummaryTableRow({
               Mover pra outra matéria
             </DropdownMenuItem>
             <DropdownMenuItem
-              onSelect={(e) => {
+              onClick={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 onDeleteSummary(item);
               }}
               className="gap-2 text-red-600 focus:text-red-700"
