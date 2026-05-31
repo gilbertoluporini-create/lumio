@@ -874,19 +874,23 @@ function CalCard({
         )}
 
         <div className="flex items-center gap-1 flex-wrap pt-1">
-          {draft.status !== "published" && draft.status !== "rejected" && (
+          {draft.status !== "rejected" && (
             <button
               onClick={() => onPublishNow(draft)}
               disabled={publishing}
               className="text-[10px] h-6 px-2 rounded bg-fuchsia-600 hover:bg-fuchsia-500 disabled:opacity-50 text-white inline-flex items-center gap-1"
-              title="Publicar agora"
+              title={
+                draft.status === "published"
+                  ? "Republicar (cria novo post nas redes)"
+                  : "Publicar agora"
+              }
             >
               {publishing ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
               ) : (
                 <Send className="h-3 w-3" />
               )}
-              Publicar
+              {draft.status === "published" ? "Republicar" : "Publicar"}
             </button>
           )}
           {draft.status !== "published" && (
