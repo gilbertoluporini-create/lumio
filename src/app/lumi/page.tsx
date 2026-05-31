@@ -1157,8 +1157,12 @@ function LumiAssistant({ user }: { user: User }) {
       />
 
       {/* Header de ações — desktop only. No mobile o único cabeçalho é o do
-          app-shell (topo global); o chat ocupa a tela toda, só as mensagens rolam. */}
-      <div className="hidden md:block sticky top-[60px] z-20 -mx-4 lg:-mx-8 mb-4 border-b border-border/40 bg-background/85 px-4 lg:px-8 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+          app-shell (topo global); o chat ocupa a tela toda, só as mensagens rolam.
+          Fundo OPACO + sombra leve — antes era bg-background/85 + backdrop-blur
+          (semi-transparente), o que deixava as bolhas do chat "vazarem"
+          visualmente quando rolavam atrás do header. z-30 garante que fica
+          sempre acima do scroll area do chat. */}
+      <div className="hidden md:block sticky top-[60px] z-30 -mx-4 lg:-mx-8 mb-4 border-b border-border/60 bg-background px-4 lg:px-8 py-3 shadow-sm">
         <div className="flex items-center justify-between gap-3">
           {/* Left: context picker (kept) */}
           <div className="hidden md:flex">
