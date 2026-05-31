@@ -47,7 +47,6 @@ import {
   type LumiContext,
 } from "@/components/lumi/lumi-context-picker";
 import { LumiMessageBubble } from "@/components/lumi/lumi-message-bubble";
-import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
 import {
   getStreamSnapshot,
   startLumiStream,
@@ -1317,22 +1316,11 @@ function LumiAssistant({ user }: { user: User }) {
                 </div>
               ))}
 
-              {/* Tool execution cards (inline durante a turn ativa) */}
-              {sending && streamingTools.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  {streamingTools.map((t) => (
-                    <LumiToolCard
-                      key={t.id}
-                      name={t.name}
-                      status={t.status}
-                      input={t.input}
-                      output={t.output}
-                    />
-                  ))}
-                </div>
-              )}
-
-              {sending && streamingReply.length > 0 && (
+              {/* Durante a turn ativa: thinking → texto streaming.
+                  Tool cards NÃO aparecem inline aqui — eles só renderizam na
+                  mensagem final (LumiMessageBubble persistida com tools),
+                  garantindo ordem visual texto-primeiro, cards-depois. */}
+              {sending && streamingReply.length > 0 ? (
                 <div className="flex flex-col gap-3">
                   <LumiMessageBubble
                     message={{
@@ -1344,13 +1332,9 @@ function LumiAssistant({ user }: { user: User }) {
                     isStreaming
                   />
                 </div>
-              )}
-
-              {sending &&
-                streamingReply.length === 0 &&
-                streamingTools.length === 0 && (
+              ) : sending ? (
                 <LumiThinking variant="card" />
-              )}
+              ) : null}
             </div>
           </div>
 
