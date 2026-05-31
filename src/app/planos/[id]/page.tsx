@@ -125,12 +125,17 @@ function formatExamDate(iso: string | null): string | null {
  * visual de quanto tempo já passou desde que o worker pegou o item. Quando
  * passa do ETA, a barra trava em 95% pra não dar a falsa impressão de
  * "terminou" antes do worker realmente confirmar via reload.
+ *
+ * Calibrado em runs reais (ai_usage_log): summary com ~4k output tokens em
+ * Sonnet 4.5 → ~50s só de geração + latência + save + busca de material
+ * complementar = ~75-90s totais. Flashcards/quiz/mindmap com payload JSON
+ * menor saem mais rápido.
  */
 const KIND_ETA_MS: Record<string, number> = {
-  summary: 30_000,
-  flashcards: 25_000,
-  quiz: 25_000,
-  mindmap: 20_000,
+  summary: 90_000,
+  flashcards: 50_000,
+  quiz: 50_000,
+  mindmap: 40_000,
 };
 
 function PlanoView({ user }: { user: User }) {
