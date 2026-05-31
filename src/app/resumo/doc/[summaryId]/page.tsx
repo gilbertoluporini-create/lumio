@@ -3,23 +3,40 @@
 /**
  * /resumo/doc/[summaryId] — visualização de resumo de documento (PDF puro).
  *
- * Esqueleto unificado: usa o mesmo LectureHeader + LiveTranscriptColumn da
- * /lecture/[id]. O LiveTranscriptColumn detecta entries=[]+hasAudio=false e
- * automaticamente força modo "summary" + esconde as tabs de transcrição.
+ * Esta tela é uma DERIVAÇÃO QUASE-IDÊNTICA da canônica `/lecture/[id]?tab=summary`
+ * — mesmo header, mesmo grid, mesmo LiveTranscriptColumn forçado em modo resumo,
+ * mesmo SlidesColumn lateral, mesmo ChatColumn lateral, mesma faixa de CTAs
+ * (flashcards / quiz / mapa mental).
  *
- * Phase 3 (esta versão): ganha 2 features que existem em /lecture/[id]:
- *  1. PDF viewer lateral (SlidesColumn) renderizando o PDF original do `doc`
- *     pra o user ler o resumo enquanto consulta as páginas.
- *  2. Chat Lumi embutido (LumiChatPanel) pra perguntar sobre o resumo.
- *
- * Layout desktop (md+): grid de até 3 colunas — [summary | slides? | chat?].
- * Mobile (<md): empilhado, sem painéis laterais. Slides e chat ficam ocultos
- * por toggles separados (botões na toolbar acima do conteúdo).
+ * Diferenças vs `/lecture/[id]`:
+ *   1. Sem player de áudio (PDF puro não tem áudio).
+ *   2. Sem botão "Iniciar gravação" funcional — o callback existe pra manter
+ *      a interface do LectureHeader, mas só dispara toast.info explicando.
+ *   3. Sem aba "Transcrição revisada/crua" — LiveTranscriptColumn detecta
+ *      entries=[] + hasAudio=false e esconde tabs automaticamente.
+ *   4. Sem botão "Estruturar transcrição" (não há transcrição pra estruturar).
+ *   5. Sem sync de slides com timestamps (não há timestamps em PDF puro).
+ *   6. CTAs flashcards/quiz/mindmap abrem o ContentWizard com o documento
+ *      desta tela pré-selecionado (em vez de gerar direto, porque os
+ *      endpoints /api/flashcards|quiz|mindmap exigem lectureId — sem
+ *      lecture aqui, o caminho limpo é via wizard que sabe criar asset
+ *      a partir de Document).
+ *   7. Chat (ChatColumn) usa endpoint /api/ai/chat-summary (com summaryId)
+ *      em vez de /api/chat (que exige lectureId). Mensagens ficam só em
+ *      memória local — não há persistência cross-session (limitação
+ *      conhecida; o resumo-doc não tem coluna messages no DB).
  */
 
-import { use, useEffect, useState } from "react";
+import { use, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, FileText, MessageSquare } from "lucide-react";
+import {
+  Brain,
+  FileText,
+  HelpCircle,
+  Layers,
+  Loader2,
+  MessageSquare,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { AuthGuard } from "@/components/app/auth-guard";
@@ -32,7 +49,7 @@ import {
 } from "@/components/lecture/lecture-header";
 import { LiveTranscriptColumn } from "@/components/lecture/live-transcript-column";
 import { SlidesColumn } from "@/components/lecture/slides-column";
-import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
+import { ChatColumn } from "@/components/lecture/chat-column";
 import { ContentWizard } from "@/components/ai/content-wizard";
 import {
   deleteSummaryAsync,
@@ -42,7 +59,10 @@ import {
 import { getDocumentAsync } from "@/lib/documents";
 import { getSubjectAsync } from "@/lib/db";
 import { renderPdfToImages } from "@/lib/pdf-render";
+import { COIN_COSTS } from "@/lib/coin-costs";
+import { generateId, stripChatFormatting } from "@/lib/utils";
 import type {
+  ChatMessage,
   Document as LumioDocument,
   Slide,
   Subject,
@@ -52,6 +72,15 @@ import type {
 } from "@/lib/types";
 
 type MarkerFilter = TranscriptMarker | "all";
+
+type AssetKind = "flashcards" | "quiz" | "mindmap";
+
+const SUGGESTED_PROMPTS = [
+  "Faz um resumo do material",
+  "Quais os pontos principais?",
+  "Crie 5 questões pra revisão",
+  "Explica de novo a parte mais difícil",
+];
 
 export default function ResumoDocPage({
   params,
@@ -84,7 +113,19 @@ function ResumoDocView({
   const [subject, setSubject] = useState<Subject | null>(null);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
+
+  // ContentWizard pode rodar em dois fluxos:
+  //  - regenerar o RESUMO atual (mode = "summary")
+  //  - criar novo asset (flashcards / quiz / mindmap) ancorado no doc
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardMode, setWizardMode] = useState<
+    "summary" | "flashcards" | "quiz" | "mindmap"
+  >("summary");
+
+  // Loading dos CTAs (apenas pra mostrar spinner ao abrir wizard).
+  // Cada CTA fica num estado de "preparando..." entre o click e o open
+  // do wizard pra dar feedback visual instantâneo.
+  const [actionLoading, setActionLoading] = useState<AssetKind | null>(null);
 
   // Header view state. Inicia em "summary" porque a aba relevante aqui é só
   // resumo. LiveTranscriptColumn esconde tabs de transcrição automaticamente
@@ -107,6 +148,15 @@ function ResumoDocView({
   // Default: chat fechado. User abre quando quer perguntar. Evita poluir a
   // tela de leitura passiva.
   const [showChat, setShowChat] = useState(false);
+  // Messages vivem só em memória local — não há coluna `messages` na tabela
+  // `summaries` (diferente de `lectures.messages`). Limitação conhecida:
+  // recarregar a página perde o histórico. Pra resolver de verdade, seria
+  // necessário criar uma tabela summary_messages ou estender summaries com
+  // jsonb messages — fora do escopo desta refatoração.
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [streamingReply, setStreamingReply] = useState("");
 
   // `?from=<rota>` define pra onde Voltar leva — espelhando /lecture/[id].
   // Valores aceitos: "resumos" (default), "planos/<planId>", "documentos".
@@ -232,6 +282,195 @@ function ResumoDocView({
     }
   }
 
+  // ===== Handler dos CTAs (flashcards/quiz/mindmap) =====
+  // Paridade com /lecture/[id]: chama endpoint direto (sem passar pelo wizard).
+  // Os 3 endpoints (/api/flashcards, /api/quiz, /api/mindmap) aceitam
+  // documentId além de lectureId desde a refatoração paralela — usamos
+  // documentId aqui.
+  async function handleNextAction(kind: AssetKind) {
+    if (!doc) {
+      toast.error("Documento original não encontrado pra gerar este conteúdo.");
+      return;
+    }
+    if (!summary) return;
+    const endpoint =
+      kind === "flashcards"
+        ? "/api/flashcards"
+        : kind === "quiz"
+          ? "/api/quiz"
+          : "/api/mindmap";
+    const label =
+      kind === "flashcards"
+        ? "flashcards"
+        : kind === "quiz"
+          ? "quiz"
+          : "mapa mental";
+    const targetRoute =
+      kind === "flashcards"
+        ? "/flashcards"
+        : kind === "quiz"
+          ? "/quiz"
+          : "/documentos";
+    setActionLoading(kind);
+    const t = toast.loading(`Gerando ${label}...`);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          documentId: doc.id,
+          lectureTitle: doc.title || summary.title,
+          subject: subject?.name ?? "Geral",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const msg = (data as { error?: string })?.error || `HTTP ${res.status}`;
+        toast.error(`Erro ao gerar ${label}: ${msg}`, { id: t });
+        return;
+      }
+      toast.success(
+        `${label.charAt(0).toUpperCase() + label.slice(1)} gerado.`,
+        {
+          id: t,
+          action: {
+            label: "Ver",
+            onClick: () => router.push(targetRoute),
+          },
+        },
+      );
+    } catch (err) {
+      toast.error(`Erro ao gerar ${label}: ${(err as Error).message}`, {
+        id: t,
+      });
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  // ===== Chat handler =====
+  // Usa /api/ai/chat-summary com stream:true (SSE), que aceita summaryId
+  // direto — endpoint já busca o resumo, monta o system prompt com o
+  // conteúdo e cobra 1 coin por mensagem. Igual ao fluxo de /lecture/[id]
+  // visualmente, só muda o endpoint underneath.
+  const sendMessage = useCallback(async () => {
+    const text = input.trim();
+    if (!text || sending || !summary) return;
+    const userMsg: ChatMessage = {
+      id: generateId(),
+      role: "user",
+      content: text,
+      createdAt: new Date().toISOString(),
+    };
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
+    setInput("");
+    setSending(true);
+    setStreamingReply("");
+
+    try {
+      const res = await fetch("/api/ai/chat-summary", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          summaryId: summary.id,
+          message: text,
+          history: messages.map((m) => ({ role: m.role, content: m.content })),
+          stream: true,
+        }),
+      });
+      if (!res.ok) {
+        // Resposta SSE não-OK vem como JSON normal (ex.: 402 saldo).
+        const data = await res.json().catch(() => ({}));
+        const msg = data?.error ?? `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
+      if (!res.body) throw new Error("Resposta vazia.");
+
+      // Parser SSE: cada evento é "data: {json}\n\n". `delta` é o token,
+      // `done: true` fecha o stream com `reply` final.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let acc = "";
+      let finalReply: string | undefined;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // Processa eventos completos (\n\n separa)
+        let sepIdx: number;
+        while ((sepIdx = buffer.indexOf("\n\n")) !== -1) {
+          const rawEvent = buffer.slice(0, sepIdx);
+          buffer = buffer.slice(sepIdx + 2);
+          // Linhas que começam com "data: "
+          for (const line of rawEvent.split("\n")) {
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (!payload) continue;
+            try {
+              const obj = JSON.parse(payload) as {
+                delta?: string;
+                done?: boolean;
+                reply?: string;
+                error?: string;
+              };
+              if (obj.error) throw new Error(obj.error);
+              if (typeof obj.delta === "string") {
+                acc += obj.delta;
+                setStreamingReply(acc);
+              }
+              if (obj.done && typeof obj.reply === "string") {
+                finalReply = obj.reply;
+              }
+            } catch (parseErr) {
+              // Linha inválida ou error do server — propaga
+              if (parseErr instanceof Error) throw parseErr;
+            }
+          }
+        }
+      }
+
+      const replyText = (finalReply ?? acc).trim();
+      if (!replyText) throw new Error("Resposta vazia do Lumi.");
+
+      const assistantMsg: ChatMessage = {
+        id: generateId(),
+        role: "assistant",
+        content: stripChatFormatting(replyText),
+        createdAt: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+      setStreamingReply("");
+    } catch (err) {
+      console.error("[resumo/doc] chat failed", err);
+      toast.error(`Erro ao conversar com o Lumi: ${(err as Error).message}`);
+      // Remove a mensagem do user se a IA não respondeu — evita ficar
+      // com pergunta pendurada sem resposta.
+      setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
+    } finally {
+      setSending(false);
+    }
+  }, [input, sending, summary, messages]);
+
+  // Suggestions estáticas (não temos keyTerms aqui — resumo-doc não tem
+  // transcript-insights). Podemos enriquecer com highlights do summary
+  // pra ficar mais ancorado no conteúdo.
+  const suggestions = useMemo(() => {
+    const highlights = summary?.content?.highlights;
+    if (highlights && highlights.length >= 2) {
+      const top = highlights.slice(0, 2);
+      return [
+        `Explique melhor: ${top[0]}`,
+        `Como ${top[1]} se conecta ao resto?`,
+        SUGGESTED_PROMPTS[2],
+        SUGGESTED_PROMPTS[3],
+      ];
+    }
+    return SUGGESTED_PROMPTS;
+  }, [summary?.content?.highlights]);
+
   if (loading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -245,15 +484,41 @@ function ResumoDocView({
   const hasPdf = !!doc?.sourceUrl && doc.sourceKind === "pdf";
   const showSlidesColumn = hasPdf && showPdfBesides;
   // Grid columns. Só ativa colunas extras no md+ pra preservar mobile sem
-  // scroll horizontal — mobile vê só o resumo (toggles ficam disabled).
+  // scroll horizontal — mobile vê só o resumo (toggles ficam ocultos).
   const gridCols =
     showSlidesColumn && showChat
-      ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_360px]"
+      ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)_380px]"
       : showSlidesColumn
         ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)]"
         : showChat
-          ? "md:grid-cols-[minmax(0,1fr)_360px]"
+          ? "md:grid-cols-[minmax(0,1fr)_400px]"
           : "md:grid-cols-1";
+
+  // CTAs igual à canônica /lecture/[id]/page.tsx (linhas ~1285-1338).
+  // Mantém ordem, ícones, cores e formato de copy.
+  const ctaItems = [
+    {
+      id: "flashcards" as const,
+      label: "Criar flashcards",
+      icon: Layers,
+      cost: COIN_COSTS.flashcards,
+      iconColor: "text-emerald-500",
+    },
+    {
+      id: "quiz" as const,
+      label: "Gerar quiz",
+      icon: HelpCircle,
+      cost: COIN_COSTS.quiz,
+      iconColor: "text-amber-500",
+    },
+    {
+      id: "mindmap" as const,
+      label: "Mapa mental",
+      icon: Brain,
+      cost: COIN_COSTS.mindmap,
+      iconColor: "text-rose-500",
+    },
+  ];
 
   return (
     <>
@@ -270,7 +535,9 @@ function ResumoDocView({
         onToggleRecording={() => {
           // Não há gravação nessa rota (resumo de PDF puro). Botão "Iniciar
           // gravação" do header fica visível por consistência, mas no-op aqui.
-          toast.info("Essa tela é só de leitura. Pra gravar aula, vá em Gravações.");
+          toast.info(
+            "Essa tela é só de leitura. Pra gravar aula, vá em Gravações.",
+          );
         }}
         onChangeView={(v) => setView(v)}
         onSave={() => {
@@ -318,6 +585,44 @@ function ResumoDocView({
           )}
         </div>
 
+        {/* Faixa de CTAs — flashcards / quiz / mapa mental.
+            Mesmo grid 3-col da canônica /lecture/[id] (linhas 1285-1338).
+            Diferença: como não há áudio aqui, ocupa a largura inteira em
+            todos os breakpoints (não compete com o player de áudio). */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          {ctaItems.map((a) => {
+            const Icon = a.icon;
+            const isLoading = actionLoading === a.id;
+            const anyLoading = !!actionLoading;
+            const disabled = anyLoading || !doc;
+            return (
+              <button
+                key={a.id}
+                type="button"
+                onClick={() => handleNextAction(a.id)}
+                disabled={disabled}
+                className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card hover:bg-secondary/50 px-3 py-2.5 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="h-9 w-9 shrink-0 rounded-lg bg-secondary/60 flex items-center justify-center">
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  ) : (
+                    <Icon className={`h-4 w-4 ${a.iconColor}`} />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold truncate leading-tight">
+                    {isLoading ? "Abrindo…" : a.label}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                    {a.cost} coins
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
         <div className={`grid gap-6 grid-cols-1 ${gridCols}`}>
           <LiveTranscriptColumn
             entries={[]}
@@ -330,7 +635,10 @@ function ResumoDocView({
             activeFilter={activeFilter}
             summary={summary.content}
             generatingSummary={false}
-            onGenerateSummary={() => setWizardOpen(true)}
+            onGenerateSummary={() => {
+              setWizardMode("summary");
+              setWizardOpen(true);
+            }}
             summaryImages={summary.images}
             onSearchChange={setSearch}
             onFilterChange={setActiveFilter}
@@ -360,19 +668,14 @@ function ResumoDocView({
 
           {showChat && (
             <div className="hidden md:block min-w-0 md:sticky md:top-4 md:self-start">
-              {/* Como esse resumo é de Document (não Lecture), passamos
-                  summaryId direto — o endpoint /api/ai/chat-summary aceita
-                  EITHER lectureId OR summaryId e monta o mesmo contexto
-                  (generalSummary + highlights + sections) buscando direto
-                  na tabela summaries. Assim o Lumi conhece o resumo em vez
-                  de cair em modo free. */}
-              <LumiChatPanel
-                lectureId=""
-                summaryId={summary.id}
-                variant="summary"
-                contextLabel={summary.title}
-                placeholder="Pergunte sobre este resumo… (Enter envia)"
-                historyHeight={420}
+              <ChatColumn
+                messages={messages}
+                streamingReply={streamingReply}
+                suggestions={suggestions}
+                input={input}
+                onInputChange={setInput}
+                onSend={sendMessage}
+                sending={sending}
               />
             </div>
           )}
@@ -381,13 +684,29 @@ function ResumoDocView({
 
       <ContentWizard
         open={wizardOpen}
-        onOpenChange={setWizardOpen}
-        mode="summary"
+        onOpenChange={(open) => {
+          setWizardOpen(open);
+          if (!open) {
+            // Reset pra "summary" — fluxo de gerar resumo é o default da tela.
+            setWizardMode("summary");
+          }
+        }}
+        mode={wizardMode}
         userId={user.id}
-        onCreated={({ summaryId: newId }) => {
-          if (newId && newId !== summaryId) {
+        // Ancora o wizard no doc desta tela. Quando o user dispara um CTA
+        // (flashcards/quiz/mindmap), o wizard já abre com o PDF certo
+        // pré-selecionado, sem precisar buscar de novo na lista.
+        initialSourceDocumentId={
+          doc?.id && summary.source.kind === "document" ? doc.id : undefined
+        }
+        initialSubjectId={summary.subjectId || undefined}
+        onCreated={({ summaryId: newId, mode }) => {
+          // Resumo regerado: navega pra nova URL (id muda).
+          if (mode === "summary" && newId && newId !== summaryId) {
             router.push(`/resumo/doc/${newId}`);
           }
+          // Para flashcards/quiz/mindmap o wizard já mostra toast e redireciona
+          // sozinho — nada a fazer aqui.
         }}
       />
 

@@ -135,6 +135,17 @@ export type ContentWizardProps = {
   /** Pré-seleciona uma aula como fonte (ex: usuário entrou pelo botão da própria aula) */
   initialSourceLectureId?: string;
   /**
+   * Pré-seleciona um documento (PDF) específico como fonte. Usado quando o
+   * wizard é aberto a partir de uma tela ancorada num doc — ex.: os CTAs
+   * de flashcards/quiz/mindmap em /resumo/doc/[summaryId], onde já existe
+   * exatamente o PDF que deve virar o asset.
+   *
+   * Quando setado:
+   *   - pré-seleciona APENAS esse doc (limpa o auto-select de docsOfSubject)
+   *   - desativa a expansão automática pra "todos os PDFs da matéria"
+   */
+  initialSourceDocumentId?: string;
+  /**
    * Quando o wizard é aberto a partir de uma matéria específica
    * (ex: tela /subject/[id]), ancora a geração nessa matéria:
    *  - usa essa matéria como subjectId no save (sem cair em subjects[0])
@@ -166,6 +177,7 @@ export function ContentWizard({
   mode,
   userId,
   initialSourceLectureId,
+  initialSourceDocumentId,
   initialSubjectId,
   onCreated,
 }: ContentWizardProps) {
@@ -231,18 +243,31 @@ export function ContentWizard({
         ) {
           setSelectedLectureIds(new Set([initialSourceLectureId]));
         }
+        // Pré-seleciona doc específico (ex.: CTAs do /resumo/doc/[summaryId]).
+        // Tem prioridade sobre o auto-select por matéria — quando a tela já
+        // tem UM doc canônico, não faz sentido jogar todos os outros PDFs
+        // da matéria como fonte por padrão.
+        const hasInitialDoc =
+          initialSourceDocumentId &&
+          d.some((x) => x.id === initialSourceDocumentId);
+        if (hasInitialDoc) {
+          setSelectedDocumentIds(new Set([initialSourceDocumentId as string]));
+        }
         // Se o wizard foi aberto a partir de uma matéria, ancora pré-selecionando
         // todos os PDFs salvos dessa matéria + aulas com transcrição da mesma.
+        // Skip do auto-select de docs quando já temos doc inicial específico.
         if (initialSubjectId) {
-          const docsOfSubject = d
-            .filter(
-              (x) =>
-                x.subjectId === initialSubjectId &&
-                (x.sourceText ?? "").trim().length > 0,
-            )
-            .map((x) => x.id);
-          if (docsOfSubject.length > 0) {
-            setSelectedDocumentIds(new Set(docsOfSubject));
+          if (!hasInitialDoc) {
+            const docsOfSubject = d
+              .filter(
+                (x) =>
+                  x.subjectId === initialSubjectId &&
+                  (x.sourceText ?? "").trim().length > 0,
+              )
+              .map((x) => x.id);
+            if (docsOfSubject.length > 0) {
+              setSelectedDocumentIds(new Set(docsOfSubject));
+            }
           }
           // Só pré-seleciona aulas se não tiver vindo initialSourceLectureId
           if (!initialSourceLectureId) {
@@ -265,7 +290,13 @@ export function ContentWizard({
     return () => {
       cancel = true;
     };
-  }, [open, userId, initialSourceLectureId, initialSubjectId]);
+  }, [
+    open,
+    userId,
+    initialSourceLectureId,
+    initialSourceDocumentId,
+    initialSubjectId,
+  ]);
 
   // Reset quando fecha
   useEffect(() => {
