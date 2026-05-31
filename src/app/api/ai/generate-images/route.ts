@@ -149,6 +149,8 @@ function buildPrompt(opts: { titleEn: string; bodyPt: string }): string {
     ``,
     `Avoid: generic body silhouettes unless the topic IS about whole-body anatomy. Avoid random organs if the concept is molecular/genetic. Pick relevant visuals.`,
     ``,
+    `ANATOMICAL ACCURACY (critical): each label MUST point to the structure that ACTUALLY contains it. Examples: a "gene" label must point to DNA inside the nucleus (NOT to a mitochondrion); "ribossomo" must point to small dots on rough ER or in cytoplasm (NOT inside the nucleus); "mitocôndria" must point to the bean-shaped organelle with cristae; "RNA mensageiro" must point to a strand leaving the nucleus toward a ribosome; "proteína" must point to the ribosome output, not to the DNA. Cell membrane transporters (like NIS, GLUT, etc.) sit ON the membrane bilayer, not floating inside. Double-check every arrow before finalizing.`,
+    ``,
     `Aspect: 1536x1024 landscape.`,
   ].join("\n");
 }
