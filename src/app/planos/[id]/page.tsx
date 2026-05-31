@@ -119,6 +119,20 @@ function formatExamDate(iso: string | null): string | null {
   }
 }
 
+/**
+ * Tempo médio estimado por kind, em ms. O worker é binário (envia LLM call,
+ * espera resposta), não tem progresso real, então a barra é uma ESTIMATIVA
+ * visual de quanto tempo já passou desde que o worker pegou o item. Quando
+ * passa do ETA, a barra trava em 95% pra não dar a falsa impressão de
+ * "terminou" antes do worker realmente confirmar via reload.
+ */
+const KIND_ETA_MS: Record<string, number> = {
+  summary: 30_000,
+  flashcards: 25_000,
+  quiz: 25_000,
+  mindmap: 20_000,
+};
+
 function PlanoView({ user }: { user: User }) {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -132,6 +146,15 @@ function PlanoView({ user }: { user: User }) {
   const [addOpen, setAddOpen] = useState(false);
   /** Item da trilha selecionado pra "Gerar agora" — abre o ContentWizard. */
   const [genItem, setGenItem] = useState<StudyPlanItem | null>(null);
+  /**
+   * Timestamps de quando cada item virou `generating` (capturado no client
+   * porque o tipo não traz updated_at). Usado pra calcular a barra de
+   * progresso estimada. Map persiste durante a sessão; itens que saem de
+   * generating são removidos.
+   */
+  const generatingStartRef = useRef<Map<string, number>>(new Map());
+  /** Tick global pra rerender a barra a cada 1s enquanto há generating. */
+  const [progressTick, setProgressTick] = useState(0);
   /** Item de Rotina selecionado pra abrir RotinaWizardDialog. */
   const [rotinaItem, setRotinaItem] = useState<StudyPlanItem | null>(null);
 
@@ -177,6 +200,35 @@ function PlanoView({ user }: { user: User }) {
     }, 5000);
     return () => clearInterval(t);
   }, [hasInflight, reload]);
+
+  // Mantém o Map de "quando cada item virou generating" sincronizado com
+  // o estado atual. Quando um item entra em generating, registra agora;
+  // quando sai, remove. Essa ref alimenta a barra de progresso por item.
+  useEffect(() => {
+    const map = generatingStartRef.current;
+    const seen = new Set<string>();
+    for (const i of items) {
+      if (i.status === "generating") {
+        seen.add(i.id);
+        if (!map.has(i.id)) map.set(i.id, Date.now());
+      }
+    }
+    for (const id of Array.from(map.keys())) {
+      if (!seen.has(id)) map.delete(id);
+    }
+  }, [items]);
+
+  // Tick de 1s pra avançar visualmente a barra de progresso. Só roda se
+  // há pelo menos um item generating — fica idle caso contrário.
+  const anyGenerating = useMemo(
+    () => items.some((i) => i.status === "generating"),
+    [items],
+  );
+  useEffect(() => {
+    if (!anyGenerating) return;
+    const t = setInterval(() => setProgressTick((n) => n + 1), 1000);
+    return () => clearInterval(t);
+  }, [anyGenerating]);
 
   // Trigger client-side do worker enquanto há items pending. Substitui
   // Vercel Cron porque conta Hobby não suporta cron sub-diário. Cada call
@@ -589,18 +641,29 @@ function PlanoView({ user }: { user: User }) {
         </div>
       ) : (
         <ol className="flex flex-col gap-2">
-          {items.map((item, idx) => (
-            <TrailItem
-              key={item.id}
-              item={item}
-              index={idx}
-              onToggle={() => void handleToggle(item)}
-              onDelete={() => void handleDeleteItem(item)}
-              onGenerate={() => setGenItem(item)}
-              onGenerateRotina={() => setRotinaItem(item)}
-              onAttachPdf={(file) => void handleAttachPdf(item, file)}
-            />
-          ))}
+          {items.map((item, idx) => {
+            // progressTick força re-render a cada 1s pra recalcular Date.now().
+            void progressTick;
+            const startedAt = generatingStartRef.current.get(item.id) ?? null;
+            const eta = KIND_ETA_MS[item.kind] ?? 30_000;
+            const progressPct =
+              item.status === "generating" && startedAt
+                ? Math.min(95, Math.round(((Date.now() - startedAt) / eta) * 100))
+                : null;
+            return (
+              <TrailItem
+                key={item.id}
+                item={item}
+                index={idx}
+                progressPct={progressPct}
+                onToggle={() => void handleToggle(item)}
+                onDelete={() => void handleDeleteItem(item)}
+                onGenerate={() => setGenItem(item)}
+                onGenerateRotina={() => setRotinaItem(item)}
+                onAttachPdf={(file) => void handleAttachPdf(item, file)}
+              />
+            );
+          })}
         </ol>
       )}
 
@@ -647,6 +710,7 @@ function PlanoView({ user }: { user: User }) {
 function TrailItem({
   item,
   index,
+  progressPct,
   onToggle,
   onDelete,
   onGenerate,
@@ -655,6 +719,9 @@ function TrailItem({
 }: {
   item: StudyPlanItem;
   index: number;
+  /** % estimada quando o worker está gerando o asset. `null` quando o
+   *  item não está em generating. Calculada no parent baseada em ETA por kind. */
+  progressPct: number | null;
   onToggle: () => void;
   onDelete: () => void;
   /** Abre ContentWizard (summary/mindmap/quiz/flashcards). */
@@ -779,6 +846,37 @@ function TrailItem({
         >
           {item.title}
         </h3>
+
+        {/* Barra de progresso. Em `generating` mostra % estimada (ETA fixo por
+            kind, trava em 95% até o reload confirmar done). Em `pending` com
+            source mostra animação indeterminada (waiting in queue). */}
+        {item.status === "generating" && progressPct !== null && (
+          <div className="mt-2 space-y-1">
+            <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-sky-500 transition-all duration-700 ease-out"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-muted-foreground">
+              {progressPct < 95
+                ? `~${progressPct}% — Lumi está gerando agora`
+                : "quase lá — finalizando…"}
+            </p>
+          </div>
+        )}
+        {item.status === "pending" &&
+          (item.sourceDocumentId !== null || item.sourceLectureId !== null) && (
+            <div className="mt-2 space-y-1">
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+                <div className="h-full w-full animate-pulse rounded-full bg-amber-400/40" />
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                aguardando o worker pegar — até 3 items processam em paralelo
+              </p>
+            </div>
+          )}
+
         {hasDescription && (
           <>
             <button
