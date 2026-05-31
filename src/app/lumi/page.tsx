@@ -211,6 +211,35 @@ function LumiAssistant({ user }: { user: User }) {
       toast.error(streamState.errorMsg);
     }
   }, [streamState?.status, streamState?.errorMsg, chat, user.id]);
+
+  // DEBUG TEMP: loga última mensagem do assistant pra entender por que card
+  // de tool não está persistindo. Remover após investigação.
+  useEffect(() => {
+    if (!chat?.messages?.length) return;
+    const last = chat.messages[chat.messages.length - 1];
+    if (last?.role !== "assistant") return;
+    const tools = last.tools;
+    // eslint-disable-next-line no-console
+    console.log("[lumi-debug] última msg assistant:", {
+      id: last.id,
+      contentPreview: last.content?.slice(0, 80),
+      hasTools: !!tools,
+      toolsCount: tools?.length ?? 0,
+      tools: tools?.map((t) => ({
+        name: t.name,
+        status: t.status,
+        outputType: typeof t.output,
+        outputKeys:
+          t.output && typeof t.output === "object"
+            ? Object.keys(t.output as object).slice(0, 10)
+            : null,
+        outputSucesso:
+          t.output && typeof t.output === "object"
+            ? (t.output as { sucesso?: unknown }).sucesso
+            : undefined,
+      })),
+    });
+  }, [chat?.messages]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const bottomTextareaRef = useRef<HTMLTextAreaElement>(null);
