@@ -179,12 +179,16 @@ async function syncOnePost(
       continue; // arquivo não existe, pula
     }
     const prev = existingImages[`ratio_${ratio}`];
+    // URLs antigas (sem hash no nome) precisam ser regeneradas pra ganhar
+    // cache-bust. Pattern novo: <ratio>-<8chars>.jpg
+    const hasHash = prev?.url ? /-[a-f0-9]{8}\.jpg$/.test(prev.url) : false;
     if (
       prev?.url &&
       prev.uploaded_at &&
+      hasHash &&
       fileStat.mtime <= new Date(prev.uploaded_at)
     ) {
-      // arquivo não mudou desde o último sync → reusa URL existente
+      // arquivo não mudou desde o último sync e URL já tem hash → reusa
       images[`ratio_${ratio}`] = prev;
       continue;
     }
@@ -208,9 +212,11 @@ async function syncOnePost(
     }
     const keyName = `slide_${n}`;
     const prev = existingImages[keyName];
+    const hasHash = prev?.url ? /-[a-f0-9]{8}\.jpg$/.test(prev.url) : false;
     if (
       prev?.url &&
       prev.uploaded_at &&
+      hasHash &&
       fileStat.mtime <= new Date(prev.uploaded_at)
     ) {
       images[keyName] = prev;
