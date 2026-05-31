@@ -22,10 +22,11 @@ export type ImageOutputFormat = "png" | "jpeg" | "webp";
 
 export const DEFAULT_OPENAI_IMAGE_MODEL: ImageModel =
   (process.env.OPENAI_IMAGE_MODEL as ImageModel | undefined) ??
-  // gpt-image-1 = qualidade boa, 5-10x mais barato que gpt-image-2.
-  // gpt-image-2 cobrava ~$0.50/imagem (high+refs); gpt-image-1 medium ~$0.04.
-  // Override via env OPENAI_IMAGE_MODEL=gpt-image-2 quando o ROI compensar.
-  "gpt-image-1";
+  // gpt-image-2 medium 1536x1024 = ~$0.041/img (3 imgs = $0.123 ≈ R$0.62),
+  // mesmo preço do gpt-image-1 medium mas qualidade muito superior.
+  // High dispara pra ~$0.165/img — não cobre no pricing atual (18 coins).
+  // Override via env OPENAI_IMAGE_MODEL pra forçar outro modelo.
+  "gpt-image-2";
 
 type OpenAIImageResponse = {
   created: number;
