@@ -5,9 +5,11 @@
  * estudo criados pelo wizard, gera o asset correspondente, vincula em
  * asset_id e marca status='done'.
  *
- * Atualmente só `summary` é suportado — outros kinds (flashcards/quiz/
- * mindmap) caem em status='failed' até serem implementados nas próximas
- * sub-tarefas.
+ * Suporta os 4 kinds principais:
+ *   - summary    → tabela `summaries`, custo dinâmico (calculateSummaryCoins)
+ *   - flashcards → tabela `lecture_assets`, custo fixo COIN_COSTS.flashcards
+ *   - quiz       → tabela `lecture_assets`, custo fixo COIN_COSTS.quiz
+ *   - mindmap    → tabela `lecture_assets`, custo fixo COIN_COSTS.mindmap
  *
  * Contexto cruzado: antes de gerar o resumo, o worker carrega até 3 docs
  * e 3 lectures da MESMA matéria do plano (excluindo a própria fonte) e
@@ -23,7 +25,7 @@ import { NextResponse } from "next/server";
 import { createMessage } from "@/lib/llm-fallback";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { chargeCoins, creditCoins } from "@/lib/coins";
-import { calculateSummaryCoins } from "@/lib/coin-costs";
+import { calculateSummaryCoins, COIN_COSTS } from "@/lib/coin-costs";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { logAiUsage } from "@/lib/ai-usage";
 import type { LectureSummary } from "@/lib/types";
@@ -317,6 +319,294 @@ async function processSummaryItem(
   return { ok: true };
 }
 
+/* ----------------------------- JSON asset handlers ----------------------------- */
+
+/**
+ * Config genérica pra geração de assets JSON (flashcards/quiz/mindmap).
+ * Cada kind tem prompt próprio + parser próprio, mas o fluxo é igual:
+ * cobra → LLM → parse → salva em lecture_assets → vincula item.
+ */
+type JsonAssetConfig = {
+  kind: "flashcards" | "quiz" | "mindmap";
+  cost: number;
+  systemPrompt: string;
+  /** Parse + valida JSON. Retorna null se inválido. */
+  parsePayload: (rawText: string) => Record<string, unknown> | null;
+  /** Nome no logAiUsage. */
+  endpointLabel: string;
+};
+
+const ASSET_MODEL = "claude-sonnet-4-5-20250929";
+
+function stripJsonWrappers(text: string): string {
+  return text
+    .trim()
+    .replace(/^```json\s*/i, "")
+    .replace(/^```\s*/i, "")
+    .replace(/```$/i, "")
+    .trim();
+}
+
+function tryParseJsonObject(text: string): Record<string, unknown> | null {
+  const cleaned = stripJsonWrappers(text);
+  try {
+    const parsed = JSON.parse(cleaned);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {}
+  const m = cleaned.match(/\{[\s\S]*\}/);
+  if (m) {
+    try {
+      const parsed = JSON.parse(m[0]);
+      return parsed && typeof parsed === "object" ? parsed : null;
+    } catch {}
+  }
+  return null;
+}
+
+/* ---------- Prompts (espelham os endpoints /api/{kind}) ---------- */
+
+const FLASHCARDS_SYSTEM = `Você é um gerador de FLASH CARDS de revisão pra estudantes universitários brasileiros.
+
+Recebe a FONTE PRINCIPAL (PDF extraído OU transcrição de aula) e, opcionalmente, MATERIAL COMPLEMENTAR de outros estudos da mesma matéria.
+
+Sua tarefa: gerar flash cards pergunta-resposta otimizados pra revisão ativa.
+
+REGRAS:
+- Responda APENAS com JSON válido. Sem markdown wrappers.
+- Crie 10 flash cards (a menos que o conteúdo seja insuficiente).
+- Cada card foca em UM conceito-chave, fato importante ou definição da FONTE PRINCIPAL.
+- Pergunta direta (1 frase), resposta concisa (1-3 frases).
+- Inclua "hint" opcional (uma pista curta) e "difficulty" (easy/medium/hard).
+- Variedade: conceitos, definições, comparações, fatos numéricos, aplicações práticas.
+- Use o MATERIAL COMPLEMENTAR só pra dar consistência de termos. Não invente fatos.
+- Em português brasileiro.
+
+FORMATO:
+{
+  "cards": [
+    { "question": "<...>", "answer": "<...>", "hint": "<...>", "difficulty": "easy|medium|hard" }
+  ]
+}`;
+
+const QUIZ_SYSTEM = `Você gera QUIZZES de revisão pra estudantes universitários brasileiros.
+
+Recebe a FONTE PRINCIPAL (PDF extraído OU transcrição de aula) e, opcionalmente, MATERIAL COMPLEMENTAR.
+
+Gere questões de múltipla escolha com EXATAMENTE 4 opções cada, onde APENAS 1 está correta.
+
+REGRAS:
+- Responda APENAS com JSON válido. Sem markdown wrappers.
+- Crie 8 questões.
+- Cada questão testa UM conceito-chave da FONTE PRINCIPAL.
+- 4 opções (A, B, C, D) — uma certa, três plausíveis mas erradas.
+- correctIndex: 0..3.
+- explanation: 1-2 frases explicando por que a resposta correta é correta.
+- Variedade: fatos, conceitos, comparações, aplicações.
+- Use o MATERIAL COMPLEMENTAR só pra consistência. Não invente fatos.
+- Em português brasileiro.
+
+FORMATO:
+{
+  "questions": [
+    { "question": "<...>", "options": ["A","B","C","D"], "correctIndex": 0, "explanation": "<...>" }
+  ]
+}`;
+
+const MINDMAP_SYSTEM = `Você gera MAPAS MENTAIS de aulas universitárias em português brasileiro.
+
+Recebe a FONTE PRINCIPAL (PDF extraído OU transcrição de aula) e, opcionalmente, MATERIAL COMPLEMENTAR.
+
+Sua tarefa: extrair a estrutura hierárquica da FONTE PRINCIPAL em forma de mapa mental.
+
+REGRAS:
+- Responda APENAS com JSON válido. Sem markdown wrappers.
+- centralTopic: 1 frase curta resumindo o tema central.
+- branches: 3-6 ramos principais (grandes conceitos/seções).
+- Cada branch pode ter 2-5 children (sub-tópicos).
+- Sub-tópicos podem ter mais children (max 3 níveis de profundidade total).
+- label: nome curto (1-4 palavras).
+- detail (opcional): 1 frase de contexto se útil.
+- Use o MATERIAL COMPLEMENTAR só pra consistência de termos. Não invente fatos.
+
+FORMATO:
+{
+  "centralTopic": "<tema>",
+  "branches": [
+    { "label": "<ramo>", "detail": "<opc>", "children": [{ "label": "<sub>", "children": [...] }] }
+  ]
+}`;
+
+/** Mensagem user padrão pros 3 kinds JSON: FONTE PRINCIPAL + MATERIAL COMPLEMENTAR. */
+function buildJsonUserMessage(
+  source: ItemSource,
+  complementaryContext: string,
+  sourceLabel: "PDF" | "AULA",
+): string {
+  const main = `=== FONTE PRINCIPAL (${sourceLabel}): ${source.title} ===\n\n${source.text.slice(0, 60_000)}`;
+  const comp = complementaryContext
+    ? `\n\n=== MATERIAL COMPLEMENTAR DA MESMA MATÉRIA ===\nUse só pra consistência de termos. Não invente fatos.\n\n${complementaryContext}`
+    : "";
+  return `${main}${comp}\n\nGere o asset seguindo o formato JSON definido.`;
+}
+
+const FLASHCARDS_CONFIG: JsonAssetConfig = {
+  kind: "flashcards",
+  cost: COIN_COSTS.flashcards,
+  systemPrompt: FLASHCARDS_SYSTEM,
+  parsePayload: (raw) => {
+    const obj = tryParseJsonObject(raw);
+    if (!obj || !Array.isArray(obj.cards) || obj.cards.length === 0) return null;
+    return obj;
+  },
+  endpointLabel: "study-plan-flashcards",
+};
+
+const QUIZ_CONFIG: JsonAssetConfig = {
+  kind: "quiz",
+  cost: COIN_COSTS.quiz,
+  systemPrompt: QUIZ_SYSTEM,
+  parsePayload: (raw) => {
+    const obj = tryParseJsonObject(raw);
+    if (!obj || !Array.isArray(obj.questions) || obj.questions.length === 0) return null;
+    return obj;
+  },
+  endpointLabel: "study-plan-quiz",
+};
+
+const MINDMAP_CONFIG: JsonAssetConfig = {
+  kind: "mindmap",
+  cost: COIN_COSTS.mindmap,
+  systemPrompt: MINDMAP_SYSTEM,
+  parsePayload: (raw) => {
+    const obj = tryParseJsonObject(raw);
+    if (!obj || typeof obj.centralTopic !== "string" || !Array.isArray(obj.branches)) return null;
+    return obj;
+  },
+  endpointLabel: "study-plan-mindmap",
+};
+
+/**
+ * Handler genérico pros 3 kinds JSON. Mesma sequência do summary:
+ * cobra → LLM → parse → salva em lecture_assets vinculado ao
+ * source_document_id OU source_lecture_id do item → atualiza item.asset_id.
+ *
+ * Refund automático em qualquer falha após a cobrança.
+ */
+async function processJsonAssetItem(
+  admin: ReturnType<typeof createAdminClient>,
+  item: PlanItemRow,
+  source: ItemSource,
+  complementaryContext: string,
+  config: JsonAssetConfig,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!source.text || source.text.trim().length < 200) {
+    return {
+      ok: false,
+      error: item.source_document_id
+        ? "PDF sem texto extraído suficiente."
+        : "Aula sem transcrição suficiente.",
+    };
+  }
+
+  const charged = await chargeCoins(source.userId, config.cost, config.kind, {
+    planItemId: item.id,
+  });
+  if (!charged.ok) {
+    return {
+      ok: false,
+      error: `Coins insuficientes (precisa ${config.cost}, tem ${charged.balance}).`,
+    };
+  }
+
+  const refund = async (reason: string) => {
+    await creditCoins(source.userId, config.cost, "refund", {
+      planItemId: item.id,
+      kind: `${config.kind}_${reason}`,
+    });
+  };
+
+  const sourceLabel = item.source_document_id ? "PDF" : "AULA";
+  let raw = "";
+  let usage: { input_tokens: number; output_tokens: number } | undefined;
+  try {
+    const resp = await createMessage({
+      model: ASSET_MODEL,
+      max_tokens: 6000,
+      system: config.systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: buildJsonUserMessage(source, complementaryContext, sourceLabel),
+        },
+      ],
+    });
+    const block = resp.content.find((b) => b.type === "text");
+    raw = block && block.type === "text" ? block.text : "";
+    if (resp.usage) {
+      usage = {
+        input_tokens: resp.usage.input_tokens,
+        output_tokens: resp.usage.output_tokens,
+      };
+    }
+  } catch (err) {
+    await refund("llm_error");
+    return { ok: false, error: `LLM error: ${(err as Error).message}` };
+  }
+
+  const parsed = config.parsePayload(raw);
+  if (!parsed) {
+    await refund("parse_failed");
+    return { ok: false, error: "Resposta do LLM em formato inválido." };
+  }
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    ...parsed,
+  };
+
+  const { data: assetRow, error: assetErr } = await admin
+    .from("lecture_assets")
+    .insert({
+      user_id: source.userId,
+      lecture_id: item.source_lecture_id,
+      document_id: item.source_document_id,
+      kind: config.kind,
+      payload,
+      coins_spent: config.cost,
+    })
+    .select("id")
+    .single();
+
+  if (assetErr || !assetRow) {
+    await refund("save_failed");
+    return { ok: false, error: `Save failed: ${assetErr?.message ?? "no row"}` };
+  }
+
+  const assetId = (assetRow as { id: string }).id;
+
+  await admin
+    .from("study_plan_items")
+    .update({
+      asset_id: assetId,
+      status: "done",
+      error_message: null,
+    })
+    .eq("id", item.id);
+
+  if (usage) {
+    void logAiUsage({
+      userId: source.userId,
+      endpoint: `/api/cron/study-plan-generator:${config.endpointLabel}`,
+      model: ASSET_MODEL,
+      inputTokens: usage.input_tokens,
+      outputTokens: usage.output_tokens,
+      coinsCharged: config.cost,
+    }).catch(() => {});
+  }
+
+  return { ok: true };
+}
+
 /* ----------------------------- Worker core ----------------------------- */
 
 /**
@@ -362,13 +652,14 @@ async function runWorker(restrictPlanIds: string[] | null) {
       continue;
     }
 
-    // 3) Kinds não-summary: marca como failed temporário
-    if (item.kind !== "summary") {
+    // 3) Valida kind. Kinds suportados: summary, flashcards, quiz, mindmap.
+    const supportedKinds = new Set(["summary", "flashcards", "quiz", "mindmap"]);
+    if (!supportedKinds.has(item.kind)) {
       await admin
         .from("study_plan_items")
         .update({
           status: "failed",
-          error_message: `Tipo "${item.kind}" ainda não suportado pelo worker.`,
+          error_message: `Tipo "${item.kind}" não suportado pelo worker.`,
         })
         .eq("id", item.id);
       summary.unsupported++;
@@ -442,13 +733,41 @@ async function runWorker(restrictPlanIds: string[] | null) {
       console.warn("[plan-worker] complementary context failed", err);
     }
 
-    // 6) Processa
-    const result = await processSummaryItem(
-      admin,
-      item,
-      source,
-      complementaryContext,
-    );
+    // 6) Processa conforme o kind
+    let result: { ok: boolean; error?: string };
+    if (item.kind === "summary") {
+      result = await processSummaryItem(
+        admin,
+        item,
+        source,
+        complementaryContext,
+      );
+    } else if (item.kind === "flashcards") {
+      result = await processJsonAssetItem(
+        admin,
+        item,
+        source,
+        complementaryContext,
+        FLASHCARDS_CONFIG,
+      );
+    } else if (item.kind === "quiz") {
+      result = await processJsonAssetItem(
+        admin,
+        item,
+        source,
+        complementaryContext,
+        QUIZ_CONFIG,
+      );
+    } else {
+      // mindmap
+      result = await processJsonAssetItem(
+        admin,
+        item,
+        source,
+        complementaryContext,
+        MINDMAP_CONFIG,
+      );
+    }
     if (result.ok) {
       summary.processed++;
     } else {
