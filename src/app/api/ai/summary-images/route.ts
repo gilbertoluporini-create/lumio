@@ -362,11 +362,15 @@ export async function POST(req: Request) {
         { status: 404 },
       );
     }
+    // order+limit pra robustez contra duplicatas históricas (vide
+    // educational-summary/route.ts).
     const { data: sumRow } = await readClient
       .from("summaries")
       .select("content")
       .eq("lecture_id", body.lectureId)
       .eq("user_id", userId)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
     lectureSummary = (sumRow?.content as LectureSummary | null) ?? null;
   }

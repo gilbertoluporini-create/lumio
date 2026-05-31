@@ -344,13 +344,19 @@ export async function POST(
       highlights: [],
       sections: [],
     };
-    // Procura row existente pra mesma lecture
+    // Procura row existente pra mesma lecture. NOTA: usa .order().limit(1) +
+    // maybeSingle pra ser ROBUSTO a duplicatas históricas (havia lectures
+    // com 2-3 summaries por causa de race condition antiga). Sem isso,
+    // maybeSingle dava erro silencioso 'multiple rows' → INSERT criava
+    // duplicata, summary-images depois não achava e ficava sem imagens.
     const { data: existingSummary } = await admin
       .from("summaries")
       .select("id")
       .eq("lecture_id", lectureId)
       .eq("user_id", userId)
       .is("deleted_at", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
     if (existingSummary?.id) {
       await admin
