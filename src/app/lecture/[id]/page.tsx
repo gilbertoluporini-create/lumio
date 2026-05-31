@@ -70,6 +70,7 @@ import {
 import { LiveTranscriptColumn } from "@/components/lecture/live-transcript-column";
 import { SlidesColumn } from "@/components/lecture/slides-column";
 import { ChatColumn } from "@/components/lecture/chat-column";
+import { AttachSlidesDialog } from "@/components/lecture/attach-slides-dialog";
 import { KeyPointsCard } from "@/components/lecture/bottom-cards/key-points";
 import { TopicsListCard } from "@/components/lecture/bottom-cards/topics-list";
 import {
@@ -146,7 +147,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [activeFilter, setActiveFilter] = useState<MarkerFilter>("all");
   const [actionLoading, setActionLoading] = useState<NextActionId | null>(null);
 
-  const slidesInputRef = useRef<HTMLInputElement>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
   const timerRef = useRef<number | null>(null);
   const lastTickRef = useRef<number | null>(null);
 
@@ -563,7 +564,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       toast.error(`Erro ao processar PDF: ${(err as Error).message}`, { id: t });
     } finally {
       setAttaching(false);
-      if (slidesInputRef.current) slidesInputRef.current.value = "";
     }
   }
 
@@ -1090,17 +1090,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
 
   return (
     <>
-      <input
-        ref={slidesInputRef}
-        type="file"
-        accept="application/pdf"
-        className="hidden"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          if (f) handleSlidesFile(f);
-        }}
-      />
-
       <LectureHeader
         title={lecture.title}
         subjectName={subject?.name}
@@ -1136,10 +1125,18 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
             note: "Move a AULA INTEIRA (transcrição, resumo, flashcards, quiz, mapa) pra a nova matéria.",
           })
         }
-        onAttachSlides={() => slidesInputRef.current?.click()}
+        onAttachSlides={() => setAttachOpen(true)}
         attachingSlides={attaching}
         hasSlides={hasSlides}
         onBack={() => router.push("/gravacoes")}
+      />
+
+      <AttachSlidesDialog
+        open={attachOpen}
+        onOpenChange={setAttachOpen}
+        userId={user.id}
+        subjectId={lecture.subjectId ?? null}
+        onFile={(file) => handleSlidesFile(file)}
       />
 
       <div className="mx-auto max-w-[1600px] px-4 py-5 space-y-5">
@@ -1314,7 +1311,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                     onTogglePdfBesides={setShowPdfBesides}
                     currentIdx={currentSlideIdx}
                     onSelect={setCurrentSlideIdx}
-                    onAttachClick={() => slidesInputRef.current?.click()}
+                    onAttachClick={() => setAttachOpen(true)}
                     onRemove={removeSlides}
                     syncedSlideIdx={syncedSlideIdx}
                   />
