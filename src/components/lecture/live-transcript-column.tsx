@@ -43,6 +43,22 @@ function injectImagesIntoMarkdown(
   images: import("@/lib/types").LectureSummaryImage[],
 ): string {
   if (!images || images.length === 0) return markdown;
+
+  // Idempotência: o summary-images server-side já injeta as imagens no
+  // markdown salvo em summaries.content.generalSummary E em
+  // lectures.summary_educational.markdown. Quando o client chama essa
+  // função de novo (defesa em profundidade pro caso de race com geração
+  // assíncrona), precisamos pular as imagens cuja URL JÁ está presente
+  // — senão cada imagem aparece duplicada.
+  const presentUrls = new Set<string>();
+  const imgRe = /!\[[^\]]*\]\(([^)]+)\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = imgRe.exec(markdown)) !== null) {
+    presentUrls.add(m[1]);
+  }
+  const remainingImages = images.filter((img) => !presentUrls.has(img.url));
+  if (remainingImages.length === 0) return markdown;
+
   const lines = markdown.split("\n");
   const h2Indexes = lines
     .map((line, index) => ({ line, index }))
@@ -50,8 +66,8 @@ function injectImagesIntoMarkdown(
 
   let offset = 0;
   const used = new Set<number>();
-  for (let i = 0; i < images.length; i++) {
-    const img = images[i];
+  for (let i = 0; i < remainingImages.length; i++) {
+    const img = remainingImages[i];
     if (typeof img.sectionIndex !== "number") continue;
     const target = h2Indexes[img.sectionIndex];
     if (!target) continue;
@@ -68,7 +84,7 @@ function injectImagesIntoMarkdown(
   }
 
   // Imagens sem sectionIndex válido: cai em galeria no final
-  const leftovers = images.filter((_, i) => !used.has(i));
+  const leftovers = remainingImages.filter((_, i) => !used.has(i));
   if (leftovers.length > 0) {
     lines.push("", "---", "");
     for (const img of leftovers) {
