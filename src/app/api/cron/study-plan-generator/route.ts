@@ -32,10 +32,20 @@ import type { LectureSummary } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// Sonnet 4.5 com source combinada (PDF + transcript de aula) leva 50-80s
+// só no LLM call. Worker processa até MAX_PER_RUN items, então 240s cobre
+// 3 × ~70s com margem. Antes era 60s — função era killed no meio da
+// chamada e o item ficava stuck em 'generating' pra sempre.
+export const maxDuration = 240;
 
 const MAX_PER_RUN = 3;
 const SUMMARY_MODEL = "claude-sonnet-4-5-20250929";
+
+/** Items em `generating` há mais que esse threshold viram `pending` de
+ *  novo no início de cada exec — significa que o worker anterior morreu
+ *  sem completar (timeout Vercel, crash, network). 5 min cobre maxDuration
+ *  (4 min) + 1 min de margem antes de considerar stuck. */
+const STUCK_RECOVERY_MS = 5 * 60 * 1000;
 
 type PlanItemRow = {
   id: string;
@@ -631,7 +641,34 @@ async function runWorker(restrictPlanIds: string[] | null) {
     failed: 0,
     skipped: 0,
     unsupported: 0,
+    recovered: 0,
   };
+
+  // Recovery de items stuck: alguns LLM calls passam do maxDuration da
+  // função Vercel e o worker é killed antes de marcar done/failed. Esses
+  // items ficam em `generating` pra sempre porque o filtro do select
+  // pega só `pending`. Aqui detectamos pelo `updated_at` mais antigo
+  // que STUCK_RECOVERY_MS e devolvemos pra fila.
+  try {
+    const cutoff = new Date(Date.now() - STUCK_RECOVERY_MS).toISOString();
+    let recoverQ = admin
+      .from("study_plan_items")
+      .update({
+        status: "pending",
+        error_message:
+          "Retomada automática — geração anterior demorou demais.",
+      })
+      .eq("status", "generating")
+      .lt("updated_at", cutoff)
+      .select("id");
+    if (restrictPlanIds && restrictPlanIds.length > 0) {
+      recoverQ = recoverQ.in("plan_id", restrictPlanIds);
+    }
+    const { data: recoveredRows } = await recoverQ;
+    summary.recovered = (recoveredRows ?? []).length;
+  } catch (err) {
+    console.warn("[plan-worker] stuck recovery failed", err);
+  }
 
   for (let i = 0; i < MAX_PER_RUN; i++) {
     // 1) Pega 1 item pending com source (document OU lecture, single OU
