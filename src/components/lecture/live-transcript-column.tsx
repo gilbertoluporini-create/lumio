@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useEffect, useState } from "react";
-import { Bookmark, ChevronDown, Expand, FileText, Filter, Loader2, Play, Search, Sparkles, Wand2 } from "lucide-react";
+import { Bookmark, ChevronDown, Expand, FileText, Filter, Layers, Loader2, Play, Search, Sparkles, Wand2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Input } from "@/components/ui/input";
@@ -547,29 +547,53 @@ export function LiveTranscriptColumn({
                 </div>
                 {/* Sincronizar capítulos ↔ slides do PDF anexado.
                     Aparece quando: tem slides E pelo menos 1 capítulo ainda
-                    não foi correlacionado a um slide. */}
+                    não foi correlacionado a um slide. Destacado em
+                    gradient sky→violet pra puxar o olho do user. */}
                 {slidesCount > 0 &&
                   onSyncSlides &&
                   revisedChapters.some((c) => typeof c.slideIndex !== "number") && (
-                    <div className="flex items-center justify-between gap-2 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-[11px]">
-                      <span className="inline-flex items-center gap-1.5 text-sky-700 dark:text-sky-300">
-                        <FileText className="h-3 w-3" />
-                        Sincronizar capítulos com os {slidesCount} slides anexados
-                      </span>
-                      <button
-                        onClick={onSyncSlides}
-                        disabled={syncingSlides}
-                        className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 inline-flex items-center gap-1"
-                      >
-                        {syncingSlides ? (
-                          <>
-                            <Loader2 className="h-2.5 w-2.5 animate-spin" />
-                            Sincronizando...
-                          </>
-                        ) : (
-                          "Sincronizar com IA (3 coins)"
-                        )}
-                      </button>
+                    <div className="relative overflow-hidden rounded-xl border border-sky-500/40 bg-gradient-to-br from-sky-500/10 via-violet-500/10 to-fuchsia-500/10 p-3.5">
+                      <div className="flex items-start gap-3">
+                        <div className="relative h-9 w-9 shrink-0 rounded-lg bg-gradient-to-br from-sky-500 to-violet-500 flex items-center justify-center shadow-sm">
+                          <Layers className="h-4 w-4 text-white" />
+                          {!syncingSlides && (
+                            <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5">
+                              <span className="absolute inset-0 rounded-full bg-fuchsia-400 animate-ping opacity-75" />
+                              <span className="absolute inset-0 rounded-full bg-fuchsia-500" />
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-semibold text-foreground">
+                            Conectar capítulos aos {slidesCount} slides do PDF
+                          </p>
+                          <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
+                            A IA descobre qual slide cada capítulo cobre — fica
+                            mais fácil pular pra parte certa da aula.
+                          </p>
+                          <div className="mt-2.5">
+                            <Button
+                              onClick={onSyncSlides}
+                              disabled={syncingSlides}
+                              size="sm"
+                              variant="gradient"
+                              className="h-7 gap-1.5 text-[11px]"
+                            >
+                              {syncingSlides ? (
+                                <>
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                  Sincronizando...
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="h-3 w-3" />
+                                  Sincronizar com IA (3 coins)
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
               </div>
