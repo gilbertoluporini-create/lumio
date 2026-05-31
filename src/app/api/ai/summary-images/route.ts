@@ -519,5 +519,36 @@ export async function POST(req: Request) {
     .eq("lecture_id", body.lectureId)
     .eq("user_id", user.id);
 
+  // 6) Espelhar imagens em lectures.summary_educational.images.
+  // Sem isso, se o user deletar o resumo na /resumos, a aula perde as imagens
+  // mas o markdown sobrevive (vive em lectures.summary_educational.markdown)
+  // — resulta em resumo educativo "pelado" no /lecture/[id]. Espelhando
+  // garantimos que a tela da aula nunca perde as imagens.
+  try {
+    const admin = createAdminClient();
+    const { data: lecRow } = await admin
+      .from("lectures")
+      .select("summary_educational")
+      .eq("id", body.lectureId)
+      .maybeSingle();
+    const existingEdu =
+      (lecRow?.summary_educational as
+        | { markdown?: string; generatedAt?: string; images?: unknown }
+        | null) ?? null;
+    if (existingEdu?.markdown) {
+      await admin
+        .from("lectures")
+        .update({
+          summary_educational: {
+            ...existingEdu,
+            images,
+          },
+        })
+        .eq("id", body.lectureId);
+    }
+  } catch (err) {
+    console.warn("[summary-images] mirror to lectures.summary_educational failed", err);
+  }
+
   return Response.json({ images });
 }

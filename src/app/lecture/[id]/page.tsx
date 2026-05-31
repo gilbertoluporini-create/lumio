@@ -1284,7 +1284,11 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 onGenerateSummary={() => generateSummary()}
                 onOpenSummaryFull={() => router.push(`/resumo/${lecture.id}`)}
                 summaryEducational={lecture.summaryEducational}
-                summaryImages={summary?.images}
+                summaryImages={
+                  summary?.images && summary.images.length > 0
+                    ? summary.images
+                    : lecture.summaryEducational?.images
+                }
                 generatingEducational={generatingEducational}
                 onGenerateEducational={generateEducationalSummary}
                 onSearchChange={setSearch}
