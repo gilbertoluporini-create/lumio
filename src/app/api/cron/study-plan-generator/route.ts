@@ -332,10 +332,12 @@ async function processSummaryItem(
     })
     .eq("id", item.id);
 
-  // 4b) Dispara geração de imagens em background (fire-and-forget) — só
-  // pra items com lecture vinculada (summary-images depende de
-  // lectures.transcript/slides/subject). Items PDF-puro ficam sem
-  // ilustrações por ora; user ainda pode disparar manualmente na /resumo.
+  // 4b) Dispara geração de imagens em background (fire-and-forget).
+  // Suporta dois caminhos:
+  //  - lecture vinculada → summary-images carrega transcript + slides
+  //  - document vinculado (PDF puro) → summary-images carrega source_text
+  // Items sem nenhum dos dois (caso impossível na prática, guardado por
+  // safety) ficam sem ilustrações.
   //
   // É await DENTRO do void IIFE pra que enquanto o worker segue
   // processando o próximo item, esta chamada vai rodando em paralelo.
@@ -343,7 +345,16 @@ async function processSummaryItem(
   // handler retorna, mas /api/ai/summary-images tem maxDuration próprio
   // (180s) — o request HTTP chega e a função do summary-images segue
   // rodando independente mesmo se o worker terminar antes.
-  if (primaryLectureId) {
+  if (primaryLectureId || primaryDocumentId) {
+    const triggerBody: Record<string, unknown> = {
+      userId: source.userId,
+      count: 3,
+    };
+    if (primaryLectureId) {
+      triggerBody.lectureId = primaryLectureId;
+    } else {
+      triggerBody.documentId = primaryDocumentId;
+    }
     void (async () => {
       try {
         const rawBase =
@@ -359,11 +370,7 @@ async function processSummaryItem(
             "content-type": "application/json",
             "x-internal-key": process.env.CRON_SECRET ?? "",
           },
-          body: JSON.stringify({
-            lectureId: primaryLectureId,
-            userId: source.userId,
-            count: 3,
-          }),
+          body: JSON.stringify(triggerBody),
           signal: ctrl.signal,
         });
         clearTimeout(timeoutId);

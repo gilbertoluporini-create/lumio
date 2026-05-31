@@ -1,11 +1,18 @@
 /**
  * POST /api/ai/summary-images
  *
- * Dado um lectureId que já tem summary gerado, extrai 2-3 conceitos visuais
- * do markdown via Haiku, chama OpenAI GPT Image (com refs do PDF/slides quando
- * disponíveis) e salva as URLs em lecture.summary.images.
+ * Dado um lectureId OU documentId que já tem summary gerado, extrai 2-3
+ * conceitos visuais do markdown via Haiku, chama OpenAI GPT Image (com
+ * refs do PDF/slides quando disponíveis) e salva as URLs no summary.
  *
- * Body: { lectureId: string, count?: 2|3|4,
+ * - lectureId: usa lectures.transcript + lectures.slides como contexto.
+ * - documentId: usa documents.source_text como "transcript equivalente"
+ *   (PDF puro — sem slides extraídos nem referenceImages).
+ *
+ * Pelo menos um dos dois é obrigatório. lectureId tem precedência se ambos
+ * vierem (não deve acontecer na prática — worker manda só um).
+ *
+ * Body: { lectureId?: string, documentId?: string, count?: 2|3|4,
  *         referenceImages?: Array<{ filename?: string, dataUrl?: string }> }
  * Response: { images: LectureSummaryImage[] }
  */
@@ -373,6 +380,7 @@ export async function POST(req: Request) {
 
   let body: {
     lectureId?: string;
+    documentId?: string;
     count?: number;
     userId?: string;
     referenceImages?: Array<{ filename?: string; dataUrl?: string }>;
@@ -380,6 +388,7 @@ export async function POST(req: Request) {
   try {
     body = (await req.json()) as {
       lectureId?: string;
+      documentId?: string;
       count?: number;
       userId?: string;
       referenceImages?: Array<{ filename?: string; dataUrl?: string }>;
@@ -411,36 +420,96 @@ export async function POST(req: Request) {
   const cap = await checkDailyCostCap(userId);
   if (!cap.ok) return dailyCapResponse(cap);
 
-  if (!body.lectureId) {
+  // Precedência: lectureId > documentId. Pelo menos um obrigatório.
+  if (!body.lectureId && !body.documentId) {
     return Response.json(
-      { error: "lectureId obrigatório." },
+      { error: "lectureId ou documentId obrigatório." },
       { status: 400 },
     );
   }
+  const useDocument = !body.lectureId && Boolean(body.documentId);
   const count = Math.max(2, Math.min(4, body.count ?? 3));
 
   // Em chamadas internas usamos admin client pras leituras (bypassa RLS
   // porque o worker autentica via CRON_SECRET, não via sessão de user).
   const readClient = isInternalCall ? createAdminClient() : supabase;
 
-  // Carrega lecture com TODO contexto pra ancorar a geração:
-  // transcript + slides + título + matéria. Summary vem de summaries table.
-  const { data: lectureRow, error: lecErr } = await readClient
-    .from("lectures")
-    .select("id, title, subject_id, transcript, slides")
-    .eq("id", body.lectureId)
-    .eq("user_id", userId)
-    .maybeSingle();
-  if (lecErr || !lectureRow) {
-    return Response.json({ error: "Lecture não encontrada." }, { status: 404 });
+  // Variáveis comuns aos dois caminhos (lecture vs document).
+  let sourceTitle = "Aula";
+  let subjectId: string | null = null;
+  let transcriptText: string | undefined;
+  let slidesText = "";
+  let lectureSummary: LectureSummary | null = null;
+
+  if (useDocument) {
+    // Caminho PDF puro: carrega documents.source_text como "transcript".
+    const { data: docRow, error: docErr } = await readClient
+      .from("documents")
+      .select("id, title, subject_id, source_text")
+      .eq("id", body.documentId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (docErr || !docRow) {
+      return Response.json(
+        { error: "Document não encontrado." },
+        { status: 404 },
+      );
+    }
+    sourceTitle = (docRow.title as string) ?? "Documento";
+    subjectId = (docRow.subject_id as string | null) ?? null;
+    // source_text pode ser MUITO grande (>30k chars em PDFs longos). O
+    // extractVisualConcepts já corta em 4000 chars no bloco "TRANSCRIÇÃO",
+    // mas truncamos antes em 12k pra evitar custo de transporte/string
+    // manipulation desnecessária quando o doc é absurdo (200k+).
+    const rawText = (docRow.source_text as string | null) ?? "";
+    transcriptText = rawText.slice(0, 12_000);
+
+    const { data: sumRow } = await readClient
+      .from("summaries")
+      .select("content")
+      .eq("document_id", body.documentId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    lectureSummary = (sumRow?.content as LectureSummary | null) ?? null;
+  } else {
+    // Caminho clássico: lecture com transcript + slides.
+    const { data: lectureRow, error: lecErr } = await readClient
+      .from("lectures")
+      .select("id, title, subject_id, transcript, slides")
+      .eq("id", body.lectureId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (lecErr || !lectureRow) {
+      return Response.json(
+        { error: "Lecture não encontrada." },
+        { status: 404 },
+      );
+    }
+    sourceTitle = (lectureRow.title as string) ?? "Aula";
+    subjectId = (lectureRow.subject_id as string | null) ?? null;
+    transcriptText = (lectureRow.transcript as string | null) ?? undefined;
+
+    // Serializa slides como texto (PDF puro não chega aqui).
+    type SlideRow = { pageNumber?: number; title?: string; text?: string };
+    const slidesArr = (lectureRow.slides ?? []) as SlideRow[];
+    slidesText = Array.isArray(slidesArr)
+      ? slidesArr
+          .map(
+            (s) =>
+              `[Slide ${s.pageNumber ?? "?"}${s.title ? ` — ${s.title}` : ""}]\n${s.text ?? ""}`,
+          )
+          .join("\n\n")
+      : "";
+
+    const { data: sumRow } = await readClient
+      .from("summaries")
+      .select("content")
+      .eq("lecture_id", body.lectureId)
+      .eq("user_id", userId)
+      .maybeSingle();
+    lectureSummary = (sumRow?.content as LectureSummary | null) ?? null;
   }
-  const { data: sumRow } = await readClient
-    .from("summaries")
-    .select("content")
-    .eq("lecture_id", body.lectureId)
-    .eq("user_id", userId)
-    .maybeSingle();
-  const lectureSummary = (sumRow?.content as LectureSummary | null) ?? null;
+
   if (!lectureSummary?.generalSummary) {
     return Response.json(
       { error: "Summary ainda não foi gerado." },
@@ -450,27 +519,15 @@ export async function POST(req: Request) {
 
   // Tenta puxar nome da matéria
   let subjectName = "Geral";
-  if (lectureRow.subject_id) {
+  if (subjectId) {
     const { data: subj } = await readClient
       .from("subjects")
       .select("name")
-      .eq("id", lectureRow.subject_id)
+      .eq("id", subjectId)
       .eq("user_id", userId)
       .maybeSingle();
     if (subj?.name) subjectName = subj.name as string;
   }
-
-  // Serializa slides como texto
-  type SlideRow = { pageNumber?: number; title?: string; text?: string };
-  const slidesArr = (lectureRow.slides ?? []) as SlideRow[];
-  const slidesText = Array.isArray(slidesArr)
-    ? slidesArr
-        .map(
-          (s) =>
-            `[Slide ${s.pageNumber ?? "?"}${s.title ? ` — ${s.title}` : ""}]\n${s.text ?? ""}`,
-        )
-        .join("\n\n")
-    : "";
 
   // Seções numeradas pra o Haiku ancorar cada imagem na seção certa
   // (intercalação inline no resumo em vez de galeria agrupada).
@@ -484,10 +541,10 @@ export async function POST(req: Request) {
 
   // 1) Extrair conceitos ancorados no contexto completo
   const { concepts } = await extractVisualConcepts({
-    lectureTitle: (lectureRow.title as string) ?? "Aula",
+    lectureTitle: sourceTitle,
     subjectName,
     markdown: lectureSummary.generalSummary,
-    transcript: (lectureRow.transcript as string | null) ?? undefined,
+    transcript: transcriptText,
     slidesText,
     sections: sectionsForMap.length > 0 ? sectionsForMap : markdownSections,
     count,
@@ -647,46 +704,55 @@ export async function POST(req: Request) {
   };
   // Em chamada interna o admin client bypassa RLS; em chamada normal de
   // user o supabase autenticado já tem RLS pra impor user_id correto.
-  await (isInternalCall ? createAdminClient() : supabase)
+  // Filtra por lecture_id OU document_id conforme o caminho.
+  const updateClient = isInternalCall ? createAdminClient() : supabase;
+  const updateQ = updateClient
     .from("summaries")
     .update({ content: updatedSummary, images })
-    .eq("lecture_id", body.lectureId)
     .eq("user_id", userId);
+  if (useDocument) {
+    await updateQ.eq("document_id", body.documentId);
+  } else {
+    await updateQ.eq("lecture_id", body.lectureId);
+  }
 
   // 6) Espelhar tudo em lectures.summary_educational — markdown injetado
   // E array de images. Sem isso:
   //  (a) se user deletar resumo na /resumos, a tela da aula perde imagens
   //  (b) o /lecture renderiza markdown sem inline (depende da prop summaryImages)
   // Mantendo o markdown atualizado, /lecture e /resumo ficam consistentes.
-  try {
-    const admin = createAdminClient();
-    const { data: lecRow } = await admin
-      .from("lectures")
-      .select("summary_educational")
-      .eq("id", body.lectureId)
-      .maybeSingle();
-    const existingEdu =
-      (lecRow?.summary_educational as
-        | { markdown?: string; generatedAt?: string; images?: unknown }
-        | null) ?? null;
-    if (existingEdu?.markdown) {
-      const eduMarkdownWithImages = injectImagesIntoMarkdown(
-        existingEdu.markdown,
-        images,
-      );
-      await admin
+  // Só faz sentido pro caminho lecture — PDF puro não tem lectures row.
+  if (!useDocument) {
+    try {
+      const admin = createAdminClient();
+      const { data: lecRow } = await admin
         .from("lectures")
-        .update({
-          summary_educational: {
-            ...existingEdu,
-            markdown: eduMarkdownWithImages,
-            images,
-          },
-        })
-        .eq("id", body.lectureId);
+        .select("summary_educational")
+        .eq("id", body.lectureId)
+        .maybeSingle();
+      const existingEdu =
+        (lecRow?.summary_educational as
+          | { markdown?: string; generatedAt?: string; images?: unknown }
+          | null) ?? null;
+      if (existingEdu?.markdown) {
+        const eduMarkdownWithImages = injectImagesIntoMarkdown(
+          existingEdu.markdown,
+          images,
+        );
+        await admin
+          .from("lectures")
+          .update({
+            summary_educational: {
+              ...existingEdu,
+              markdown: eduMarkdownWithImages,
+              images,
+            },
+          })
+          .eq("id", body.lectureId);
+      }
+    } catch (err) {
+      console.warn("[summary-images] mirror to lectures.summary_educational failed", err);
     }
-  } catch (err) {
-    console.warn("[summary-images] mirror to lectures.summary_educational failed", err);
   }
 
   return Response.json({ images });
