@@ -1201,8 +1201,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                   label: "Gerar resumo",
                   icon: FileText,
                   cost: 10,
-                  bg: "bg-violet-500/10 hover:bg-violet-500/15",
-                  border: "border-violet-500/30",
                   iconColor: "text-violet-500",
                 },
                 {
@@ -1210,8 +1208,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                   label: "Criar flashcards",
                   icon: Layers,
                   cost: 8,
-                  bg: "bg-emerald-500/10 hover:bg-emerald-500/15",
-                  border: "border-emerald-500/30",
                   iconColor: "text-emerald-500",
                 },
                 {
@@ -1219,8 +1215,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                   label: "Gerar quiz",
                   icon: HelpCircle,
                   cost: 8,
-                  bg: "bg-amber-500/10 hover:bg-amber-500/15",
-                  border: "border-amber-500/30",
                   iconColor: "text-amber-500",
                 },
                 {
@@ -1228,8 +1222,6 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                   label: "Mapa mental",
                   icon: Brain,
                   cost: 6,
-                  bg: "bg-rose-500/10 hover:bg-rose-500/15",
-                  border: "border-rose-500/30",
                   iconColor: "text-rose-500",
                 },
               ].map((a) => {
@@ -1242,15 +1234,13 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                     type="button"
                     onClick={() => handleNextAction(a.id)}
                     disabled={anyLoading || sync.entries.length === 0}
-                    className={`group flex items-center gap-3 rounded-xl border ${a.border} ${a.bg} px-3 py-2.5 text-left transition-all hover:shadow-sm disabled:opacity-50 disabled:cursor-not-allowed`}
+                    className="group flex items-center gap-3 rounded-xl border border-border/60 bg-card hover:bg-secondary/50 px-3 py-2.5 text-left transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <div
-                      className={`h-9 w-9 shrink-0 rounded-lg bg-background/70 flex items-center justify-center ${a.iconColor}`}
-                    >
+                    <div className="h-9 w-9 shrink-0 rounded-lg bg-secondary/60 flex items-center justify-center">
                       {isLoading ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                       ) : (
-                        <Icon className="h-4 w-4" />
+                        <Icon className={`h-4 w-4 ${a.iconColor}`} />
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
