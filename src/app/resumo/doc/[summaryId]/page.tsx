@@ -360,14 +360,15 @@ function ResumoDocView({
 
           {showChat && (
             <div className="hidden md:block min-w-0 md:sticky md:top-4 md:self-start">
-              {/* Decisão de contexto: o endpoint /api/ai/chat-summary só puxa
-                  conteúdo do banco via lectureId (tabela summaries). Como esse
-                  resumo é de Document, não Lecture, passamos lectureId="" pra
-                  cair no modo "chat-free". O Lumi ainda responde, mas SEM
-                  contexto direto do resumo — limitação documentada até existir
-                  endpoint que aceite summaryId/documentId. */}
+              {/* Como esse resumo é de Document (não Lecture), passamos
+                  summaryId direto — o endpoint /api/ai/chat-summary aceita
+                  EITHER lectureId OR summaryId e monta o mesmo contexto
+                  (generalSummary + highlights + sections) buscando direto
+                  na tabela summaries. Assim o Lumi conhece o resumo em vez
+                  de cair em modo free. */}
               <LumiChatPanel
                 lectureId=""
+                summaryId={summary.id}
                 variant="summary"
                 contextLabel={summary.title}
                 placeholder="Pergunte sobre este resumo… (Enter envia)"

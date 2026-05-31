@@ -1,11 +1,16 @@
 /**
  * POST /api/ai/chat-summary
  *
- * Q&A contextual sobre um material de aula (resumo, deck, quiz, mapa).
- * Cobra 1 coin por mensagem do usuário e roda em cima do resumo da
- * lecture (markdown) + título da aula + matéria.
+ * Q&A contextual sobre um material de aula (resumo, deck, quiz, mapa)
+ * OU sobre um resumo de documento (PDF puro).
  *
- * Body: { lectureId: string, message: string, history?: {role,content}[] }
+ * Cobra 1 coin por mensagem do usuário. Aceita DOIS modos de contexto:
+ *   - `lectureId`: busca summary via tabela summaries.lecture_id (fluxo /lecture/[id])
+ *   - `summaryId`: busca summary direto via summaries.id (fluxo /resumo/doc/[summaryId])
+ * Se nenhum vier, cai em modo "free" (sem contexto de material).
+ * Se ambos vierem, lectureId tem prioridade (retrocompat).
+ *
+ * Body: { lectureId?: string, summaryId?: string, message: string, history?: {role,content}[] }
  * Resp: { reply: string, coinsCharged: number, balanceAfter?: number }
  */
 
@@ -41,6 +46,8 @@ type ChatAttachmentPayload = {
 
 type Body = {
   lectureId?: string;
+  /** Alternativa a lectureId pra resumos avulsos (ex.: PDF puro em /resumo/doc/[id]). */
+  summaryId?: string;
   message: string;
   history?: HistoryTurn[];
   mode?: ChatMode;
@@ -273,6 +280,13 @@ export async function POST(req: Request) {
   const mode: ChatMode =
     body.mode === "english_medical" ? "english_medical" : "default";
   const hasLecture = typeof body.lectureId === "string" && body.lectureId.length > 0;
+  // Só consideramos summaryId quando lectureId não veio — lectureId tem prioridade
+  // pra preservar o fluxo antigo de /lecture/[id] e evitar dupla busca.
+  const hasSummaryId =
+    !hasLecture &&
+    typeof body.summaryId === "string" &&
+    body.summaryId.length > 0;
+  const hasContext = hasLecture || hasSummaryId;
   if (message.length > MAX_MESSAGE_CHARS) {
     return Response.json(
       { error: "Mensagem muito longa (limite 2.000 caracteres)." },
@@ -357,6 +371,53 @@ export async function POST(req: Request) {
         const subj = (subjData as SubjectRow | null) ?? null;
         if (subj?.name) subjectName = subj.name;
       }
+    } else if (hasSummaryId) {
+      // Fluxo /resumo/doc/[summaryId]: resumo de PDF puro, sem lecture associada.
+      // Buscamos direto na tabela summaries restringindo por user_id pra garantir
+      // ownership (defesa em profundidade — RLS também cobre, mas usamos admin
+      // client aqui pra paridade com o fluxo de lecture acima).
+      const admin = createAdminClient();
+      const { data: sumRow } = await admin
+        .from("summaries")
+        .select("id, user_id, subject_id, title, content")
+        .eq("id", body.summaryId as string)
+        .eq("user_id", uid)
+        .maybeSingle();
+      const summaryRecord = sumRow as
+        | {
+            id: string;
+            user_id: string;
+            subject_id: string | null;
+            title: string | null;
+            content: LectureSummary | null;
+          }
+        | null;
+      if (!summaryRecord) {
+        return Response.json(
+          { error: "Resumo não encontrado." },
+          { status: 404 },
+        );
+      }
+      // Monta um LectureRow "sintético" reaproveitando o mesmo pipeline de prompt.
+      // Não há lecture real → id e user_id apontam pro próprio summary; transcript
+      // fica vazio (resumo de PDF puro não tem áudio/transcrição).
+      lecture = {
+        id: summaryRecord.id,
+        user_id: summaryRecord.user_id,
+        subject_id: summaryRecord.subject_id,
+        title: summaryRecord.title ?? "Resumo sem título",
+        transcript: null,
+        summary: summaryRecord.content ?? null,
+      };
+      if (summaryRecord.subject_id) {
+        const { data: subjData } = await admin
+          .from("subjects")
+          .select("id, name")
+          .eq("id", summaryRecord.subject_id)
+          .maybeSingle();
+        const subj = (subjData as SubjectRow | null) ?? null;
+        if (subj?.name) subjectName = subj.name;
+      }
     }
 
     // RAG: busca chunks dos PDFs/lectures da MESMA matéria (não só a lecture
@@ -385,7 +446,8 @@ export async function POST(req: Request) {
     // Cobrança de 1 coin
     const charge = await chargeCoins(uid, CHAT_SUMMARY_COST, "chat", {
       lecture_id: body.lectureId ?? null,
-      scope: hasLecture ? "chat-summary" : "chat-free",
+      summary_id: hasSummaryId ? (body.summaryId as string) : null,
+      scope: hasContext ? "chat-summary" : "chat-free",
     });
     if (!charge.ok) {
       return Response.json(
@@ -421,7 +483,7 @@ export async function POST(req: Request) {
   const attachments = sanitizeAttachments(body.attachments);
   const attachmentsBlock = buildAttachmentsBlock(attachments);
 
-  const system = hasLecture
+  const system = hasContext
     ? buildSystemPrompt({
         lectureTitle: lecture?.title ?? "Aula sem título",
         subjectName,
