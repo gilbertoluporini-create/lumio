@@ -214,7 +214,7 @@ export function deleteLecture(userId: string, id: string) {
 export type Theme = "light" | "dark" | "system";
 
 export function getStoredTheme(): Theme {
-  return read<Theme>(STORAGE_KEYS.theme, "system");
+  return read<Theme>(STORAGE_KEYS.theme, "light");
 }
 
 export function setStoredTheme(theme: Theme) {
