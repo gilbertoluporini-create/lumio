@@ -64,12 +64,12 @@ const snapshotCache = new Map<string, { version: number; snap: StreamSnapshot }>
  * - Adaptativo: gap grande = mais chars/tick pra não acumular delay.
  * - Quando stream terminou (status≠running), acelera pra fechar em <2s mesmo com texto longo.
  */
-const TICK_MS = 16;
+const TICK_MS = 25;
 const CHARS_PER_TICK_MIN = 1;
-const CHARS_PER_TICK_MAX = 8;
-const CATCHUP_DIVISOR = 40;
-const FINISH_DIVISOR = 50;
-const FINISH_CHARS_PER_TICK_MIN = 3;
+const CHARS_PER_TICK_MAX = 2;
+const CATCHUP_DIVISOR = 100;
+const FINISH_DIVISOR = 70;
+const FINISH_CHARS_PER_TICK_MIN = 2;
 
 function startTypewriter(state: StreamState) {
   if (state.typewriterTimer) return;
