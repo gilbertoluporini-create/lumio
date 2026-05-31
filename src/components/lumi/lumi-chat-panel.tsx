@@ -36,8 +36,18 @@ export type ChatTurn = {
 };
 
 export type LumiChatPanelProps = {
-  /** lectureId origem do conteúdo (sempre tem uma lecture base, mesmo pra decks/quizzes/mapas). */
+  /**
+   * lectureId origem do conteúdo (sempre tem uma lecture base em decks/quizzes/mapas
+   * gerados a partir de aula). Vazio (`""`) significa "sem lecture" — pode rolar
+   * em modo free ou ancorado em `summaryId`.
+   */
   lectureId: string;
+  /**
+   * Alternativa a `lectureId` pra resumos avulsos (PDF puro em /resumo/doc/[id]).
+   * Quando setado e `lectureId` vazio, o endpoint puxa o conteúdo do summary
+   * diretamente — assim o Lumi conhece o material em vez de cair em modo free.
+   */
+  summaryId?: string;
   /** Título do material que aparece como contexto pro usuário. */
   contextLabel?: string;
   /** Sugestões fixas que viram chips clicáveis acima do input. */
@@ -88,6 +98,7 @@ const VARIANT_SUBTITLE: Record<NonNullable<LumiChatPanelProps["variant"]>, strin
 
 export function LumiChatPanel({
   lectureId,
+  summaryId,
   contextLabel,
   suggestedQuestions,
   placeholder,
@@ -188,7 +199,10 @@ export function LumiChatPanel({
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            lectureId,
+            // Só envia o campo quando há valor — evita ambiguidade no backend
+            // (que prioriza lectureId quando ambos chegam).
+            ...(lectureId ? { lectureId } : {}),
+            ...(summaryId && !lectureId ? { summaryId } : {}),
             message: trimmed,
             history: turns.map((t) => ({ role: t.role, content: t.content })),
             stream: true,
@@ -302,7 +316,7 @@ export function LumiChatPanel({
         setSending(false);
       }
     },
-    [lectureId, sending, turns],
+    [lectureId, summaryId, sending, turns],
   );
 
   const handleKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
