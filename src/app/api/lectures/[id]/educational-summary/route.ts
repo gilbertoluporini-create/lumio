@@ -8,6 +8,132 @@ import { assertLectureOwnership } from "@/lib/lecture-auth";
 import { logAiUsage } from "@/lib/ai-usage";
 import type { TranscriptEntry, TranscriptChapters } from "@/lib/types";
 
+// === Atlas (modo imagem real) ===
+// Distância cosseno máxima aceita pra considerar uma figura do atlas
+// (PDF do user + atlas global Gray's/Sobotta) um "match" semântico da
+// seção. Threshold passado pra RPC `search_atlas_combined` (migration 039).
+// Calibrado 2026-06-01 com queries PT-BR reais — ver /tmp/atlas-calibrate.out
+// (0.78 dava 0% recall em 10 queries; 0.70 só 5/10; 0.60 entrega top-3
+// topicamente coerente em todas as queries do corpus Sobotta/Gray's).
+const ATLAS_MAX_DISTANCE = 0.4;
+const ATLAS_MIN_SIMILARITY = 1 - ATLAS_MAX_DISTANCE; // 0.60
+/** Máx imagens REAIS por resumo inteiro (defensivo contra atlas dominante) */
+const ATLAS_MAX_REAL_IMAGES = 5;
+/** Tamanho do corpo da seção H2 usado pra embed semântico (chars). */
+const ATLAS_SECTION_BODY_CHARS = 500;
+/** Quantas imagens (no máx) o summary-images fallback gera quando NÃO estamos
+ *  em modo Atlas. Em modo Atlas, o count é dimensionado dinamicamente pra
+ *  cobrir só as seções entre as N primeiras que NÃO receberam imagem real. */
+const FALLBACK_IMAGE_SLOT_COUNT = 3;
+
+/**
+ * Escapa caracteres especiais do markdown DENTRO do alt text/caption pra
+ * prevenir injection (`]` fechando o alt, `(` abrindo URL falsa, etc).
+ * Caption no DB vem do PDF do user — não confiamos no conteúdo.
+ * Trunca em 200 chars pq alt text grandão polui o markdown sem ganho.
+ */
+function escapeMarkdownImage(s: string): string {
+  return s.replace(/[\\[\]()`*_~]/g, "\\$&").slice(0, 200);
+}
+
+type AtlasMatchRow = {
+  id: string;
+  source: "user" | "global";
+  document_id: string | null;
+  book_slug: string | null;
+  page_number: number;
+  storage_path: string;
+  caption_text: string | null;
+  classification: string | null;
+  distance: number;
+};
+
+type AtlasSection = {
+  index: number; // sectionIndex (0-based no array de H2 do markdown)
+  title: string;
+  body: string;
+  startLine: number;
+  endLine: number; // linha exclusiva (próximo H2 ou EOF)
+};
+
+/**
+ * Extrai TODAS as seções H2 do markdown com o range de linhas que ocupam.
+ * `body` é os primeiros ATLAS_SECTION_BODY_CHARS chars do corpo (sem header)
+ * — material pra embed semântico contra `pdf_extracted_images.embedding`.
+ */
+function extractAtlasSections(markdown: string): AtlasSection[] {
+  const lines = markdown.split("\n");
+  const h2Idx: number[] = [];
+  lines.forEach((line, i) => {
+    if (line.startsWith("## ")) h2Idx.push(i);
+  });
+  const out: AtlasSection[] = [];
+  for (let i = 0; i < h2Idx.length; i++) {
+    const start = h2Idx[i];
+    const end = i + 1 < h2Idx.length ? h2Idx[i + 1] : lines.length;
+    const title = lines[start].replace(/^##\s+/, "").trim();
+    const body = lines
+      .slice(start + 1, end)
+      .join("\n")
+      .trim()
+      .slice(0, ATLAS_SECTION_BODY_CHARS);
+    out.push({ index: i, title, body, startLine: start, endLine: end });
+  }
+  return out;
+}
+
+/**
+ * Insere o bloco markdown da imagem (real ou IA) no FIM da seção indicada,
+ * imediatamente ANTES do próximo H2 (ou EOF se for a última seção).
+ *
+ * Padrão alvo:
+ *   ... fim do texto da seção ...
+ *                                   <- linha em branco
+ *   ![caption](url)
+ *   *Atlas: p.X*
+ *                                   <- linha em branco
+ *   ## Próxima seção
+ *
+ * Mesma estratégia de `injectImagesIntoMarkdown` em summary-images:
+ * inserção descendente (sort por insertAt DESC) pra não invalidar offsets
+ * das próximas inserções.
+ *
+ * Detalhe: se a linha imediatamente antes da posição de inserção já é
+ * blank (markdown padrão tem blank antes de heading), NÃO adicionamos
+ * outra — evita "double blank" visualmente ruim. Mesma lógica pra blank
+ * APÓS o bloco se a próxima linha já é blank.
+ */
+function injectAtlasBlocksIntoMarkdown(
+  markdown: string,
+  blocks: Array<{ sectionIndex: number; markdownBlock: string }>,
+): string {
+  if (blocks.length === 0) return markdown;
+  const lines = markdown.split("\n");
+  const h2Lines: number[] = [];
+  lines.forEach((line, i) => {
+    if (line.startsWith("## ")) h2Lines.push(i);
+  });
+  const plans = blocks
+    .filter(
+      (b) => b.sectionIndex >= 0 && b.sectionIndex < h2Lines.length,
+    )
+    .map((b) => {
+      const nextH2 = h2Lines[b.sectionIndex + 1];
+      const insertAt = nextH2 !== undefined ? nextH2 : lines.length;
+      return { insertAt, block: b.markdownBlock };
+    })
+    .sort((a, b) => b.insertAt - a.insertAt);
+  for (const p of plans) {
+    const blockLines = p.block.split("\n");
+    const prevLine = p.insertAt > 0 ? lines[p.insertAt - 1] : "";
+    const nextLine = p.insertAt < lines.length ? lines[p.insertAt] : "";
+    const leadingBlank = prevLine.trim() === "" ? [] : [""];
+    const trailingBlank = nextLine.trim() === "" ? [] : [""];
+    lines.splice(p.insertAt, 0, ...leadingBlank, ...blockLines, ...trailingBlank);
+  }
+  return lines.join("\n");
+}
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // Aulas de 1h30+ geram markdown de 1500-2500 palavras com Sonnet 4.5.
@@ -71,6 +197,116 @@ function buildTranscriptForPrompt(
   }
   // Fallback: junta entries cruas em parágrafos
   return entries.map((e) => e.text).join(" ");
+}
+
+/**
+ * Atlas matching: pra cada seção H2 do markdown, embeda o texto e busca a
+ * figura REAL mais próxima (RPC search_atlas_combined — une PDF do user com
+ * atlas global Gray's/Sobotta).
+ * Retorna lista de matches (1 por seção, ou nenhum se distance >= ATLAS_MAX_DISTANCE).
+ *
+ * Idempotente: se OPENAI_API_KEY ausente ou nenhuma seção H2, retorna vazio
+ * sem cobrar nada (cobrança já aconteceu antes).
+ *
+ * `documentIds` é o conjunto de PDFs da MATÉRIA da lecture. Se vazio, RPC
+ * retorna nada (e fallback IA pega TODAS as seções).
+ */
+async function runAtlasMatching(opts: {
+  userId: string;
+  markdown: string;
+  documentIds: string[];
+  admin: ReturnType<typeof createAdminClient>;
+}): Promise<{
+  matches: Array<{ section: AtlasSection; row: AtlasMatchRow }>;
+  sectionsWithoutMatch: AtlasSection[];
+  embeddingTokensUsed: number;
+  sectionsProcessed: number;
+}> {
+  const sections = extractAtlasSections(opts.markdown);
+  const apiKey = process.env.OPENAI_API_KEY ?? "";
+  if (sections.length === 0 || !apiKey) {
+    return {
+      matches: [],
+      sectionsWithoutMatch: sections,
+      embeddingTokensUsed: 0,
+      sectionsProcessed: 0,
+    };
+  }
+
+  let embeddingTokensUsed = 0;
+  const matches: Array<{ section: AtlasSection; row: AtlasMatchRow }> = [];
+  const sectionsWithoutMatch: AtlasSection[] = [];
+  // Reservamos slots — máx ATLAS_MAX_REAL_IMAGES por resumo inteiro.
+  let realSlotsLeft = ATLAS_MAX_REAL_IMAGES;
+  const usedImageIds = new Set<string>();
+
+  for (const section of sections) {
+    if (realSlotsLeft <= 0 || opts.documentIds.length === 0) {
+      sectionsWithoutMatch.push(section);
+      continue;
+    }
+    const probe = `${section.title}\n\n${section.body}`.trim();
+    if (probe.length < 20) {
+      sectionsWithoutMatch.push(section);
+      continue;
+    }
+
+    let embedding: number[];
+    try {
+      const e = await generateEmbedding(probe, apiKey);
+      embedding = e.embedding;
+      embeddingTokensUsed += e.totalTokens;
+    } catch (err) {
+      console.warn("[summary][atlas] embedding failed for section", {
+        title: section.title,
+        err: (err as Error).message,
+      });
+      sectionsWithoutMatch.push(section);
+      continue;
+    }
+
+    try {
+      // Migrado 2026-06-01 de search_pdf_extracted_images → search_atlas_combined
+      // (migration 039). Agora une imagens do user (PDF próprio) + atlas global
+      // (Gray's 1918 + Sobotta vols 1+2 = ~1994 imagens, ingest 2026-06-01).
+      // Caption "*Referência anatômica · p.X*" obfusca a fonte do livro do user.
+      const { data, error } = await opts.admin.rpc(
+        "search_atlas_combined",
+        {
+          query_embedding: embedding,
+          user_id_input: opts.userId,
+          document_ids_input: opts.documentIds,
+          match_threshold: ATLAS_MIN_SIMILARITY,
+          match_count: 3,
+        },
+      );
+      if (error) {
+        console.warn("[summary][atlas] rpc error", error);
+        sectionsWithoutMatch.push(section);
+        continue;
+      }
+      const rows = (Array.isArray(data) ? data : []) as AtlasMatchRow[];
+      // Top match (RPC já ordena por <=> ASC) que ainda não foi usado.
+      const pick = rows.find((r) => !usedImageIds.has(r.id));
+      if (!pick) {
+        sectionsWithoutMatch.push(section);
+        continue;
+      }
+      matches.push({ section, row: pick });
+      usedImageIds.add(pick.id);
+      realSlotsLeft -= 1;
+    } catch (err) {
+      console.warn("[summary][atlas] rpc threw", err);
+      sectionsWithoutMatch.push(section);
+    }
+  }
+
+  return {
+    matches,
+    sectionsWithoutMatch,
+    embeddingTokensUsed,
+    sectionsProcessed: sections.length,
+  };
 }
 
 export async function POST(
