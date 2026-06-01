@@ -328,8 +328,17 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
  * via stripe_events (dedupe na entrada do webhook).
  */
 async function handleChargeRefunded(charge: Stripe.Charge) {
-  if (!charge.invoice) return; // refund avulso (não-subscription) — não há comissão
-  const invoiceId = typeof charge.invoice === "string" ? charge.invoice : charge.invoice.id;
+  // Stripe SDK 22+ removeu `invoice` do tipo Stripe.Charge (acessível só via
+  // expand). API ainda devolve o campo — castamos pro shape esperado pra
+  // não quebrar build com TS strict.
+  const chargeWithInvoice = charge as Stripe.Charge & {
+    invoice?: string | { id: string } | null;
+  };
+  if (!chargeWithInvoice.invoice) return; // refund avulso (não-subscription) — não há comissão
+  const invoiceId =
+    typeof chargeWithInvoice.invoice === "string"
+      ? chargeWithInvoice.invoice
+      : chargeWithInvoice.invoice.id;
   if (!invoiceId) return;
 
   // amount_refunded é cumulativo em centavos (Stripe). Em refunds parciais
@@ -371,8 +380,15 @@ async function handleChargeDisputeCreated(dispute: Stripe.Dispute) {
     return;
   }
 
-  if (!charge.invoice) return;
-  const invoiceId = typeof charge.invoice === "string" ? charge.invoice : charge.invoice.id;
+  // Mesmo workaround SDK 22+ do handleChargeRefunded.
+  const chargeWithInvoice = charge as Stripe.Charge & {
+    invoice?: string | { id: string } | null;
+  };
+  if (!chargeWithInvoice.invoice) return;
+  const invoiceId =
+    typeof chargeWithInvoice.invoice === "string"
+      ? chargeWithInvoice.invoice
+      : chargeWithInvoice.invoice.id;
   if (!invoiceId) return;
 
   await reverseAmbassadorCommissionForRefund({

@@ -99,7 +99,7 @@ Responda APENAS com JSON válido no formato:
 { "classifications": [ { "id": "<id>", "marker": "concept"|"doubt"|"example"|null } ] }
 Sem markdown, sem prosa.`;
 
-  const user = JSON.stringify({
+  const userMessage = JSON.stringify({
     entries: entries.map((e) => ({ id: e.id, text: e.text })),
   });
 
@@ -108,7 +108,7 @@ Sem markdown, sem prosa.`;
       model: "claude-haiku-4-5",
       max_tokens: 800,
       system,
-      messages: [{ role: "user", content: user }],
+      messages: [{ role: "user", content: userMessage }],
     });
     const block = resp.content.find((b) => b.type === "text");
     const text = block && block.type === "text" ? block.text.trim() : "";
