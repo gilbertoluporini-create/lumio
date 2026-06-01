@@ -140,48 +140,72 @@ export async function sendPushToUser(
 
   const serialized = JSON.stringify({ title, body, payload });
 
-  for (const sub of subList) {
-    try {
-      await webpush.sendNotification(
-        {
-          endpoint: sub.endpoint,
-          keys: { p256dh: sub.p256dh, auth: sub.auth_key },
-        },
-        serialized,
-      );
-      result.sent++;
-    } catch (err) {
-      const statusCode =
-        (err as { statusCode?: number; status?: number }).statusCode ??
-        (err as { statusCode?: number; status?: number }).status ??
-        0;
-      if (statusCode === 404 || statusCode === 410) {
-        // Sub morta — remove
-        await admin
-          .from("push_subscriptions")
-          .delete()
-          .eq("id", sub.id);
-        result.removed++;
-      } else {
-        console.warn(
-          "[web-push] send failed",
-          statusCode,
-          (err as Error).message,
+  // Paraleliza envios pra evitar que 1 endpoint pendurado (FCM/Mozilla)
+  // segure o cron. Timeout duro de 5s por chamada via AbortSignal.
+  const PUSH_TIMEOUT_MS = 5000;
+  let timeoutCount = 0;
+  await Promise.allSettled(
+    subList.map(async (sub) => {
+      try {
+        await webpush.sendNotification(
+          {
+            endpoint: sub.endpoint,
+            keys: { p256dh: sub.p256dh, auth: sub.auth_key },
+          },
+          serialized,
+          { signal: AbortSignal.timeout(PUSH_TIMEOUT_MS) },
         );
-        result.failed++;
+        result.sent++;
+      } catch (err) {
+        const statusCode =
+          (err as { statusCode?: number; status?: number }).statusCode ??
+          (err as { statusCode?: number; status?: number }).status ??
+          0;
+        const errName = (err as { name?: string }).name ?? "";
+        const isTimeout =
+          errName === "TimeoutError" || errName === "AbortError";
+        if (statusCode === 404 || statusCode === 410) {
+          // Sub morta — remove
+          await admin
+            .from("push_subscriptions")
+            .delete()
+            .eq("id", sub.id);
+          result.removed++;
+        } else if (isTimeout) {
+          console.warn(
+            "[web-push] send timeout",
+            sub.endpoint.slice(0, 60),
+          );
+          timeoutCount++;
+          result.failed++;
+        } else {
+          console.warn(
+            "[web-push] send failed",
+            statusCode,
+            (err as Error).message,
+          );
+          result.failed++;
+        }
       }
-    }
-  }
+    }),
+  );
 
   // Loga 1 row por envio (representa a notificação lógica, não por device).
-  // Status 'sent' se pelo menos 1 device recebeu; 'failed' se 0 devices.
+  // Status 'sent' se pelo menos 1 device recebeu; 'timeout' se todas as
+  // falhas foram timeout; 'failed' caso contrário.
+  const logStatus =
+    result.sent > 0
+      ? "sent"
+      : timeoutCount > 0 && timeoutCount === result.failed
+        ? "timeout"
+        : "failed";
   await admin.from("notifications_log").insert({
     user_id: userId,
     type,
     title,
     body,
     payload,
-    status: result.sent > 0 ? "sent" : "failed",
+    status: logStatus,
   });
 
   return result;
