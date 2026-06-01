@@ -644,10 +644,11 @@ export function ContentWizard({
                 cacheControl: "3600",
               });
             if (!docUpErr) {
-              const { data: pub } = supabase.storage
+              // Bucket privado: signed URL com TTL 7d pra persistir.
+              const { data: signed, error: signedErr } = await supabase.storage
                 .from("user-documents")
-                .getPublicUrl(docPath);
-              publicUrl = pub?.publicUrl;
+                .createSignedUrl(docPath, 60 * 60 * 24 * 7);
+              if (!signedErr) publicUrl = signed?.signedUrl;
             }
           }
           if (!docId) {
@@ -1122,13 +1123,14 @@ export function ContentWizard({
                   upsert: true,
                 });
               if (!upErr) {
-                const { data: pub } = supabase.storage
+                // Bucket privado: signed URL com TTL 7d pra persistir.
+                const { data: signed, error: signedErr } = await supabase.storage
                   .from("user-documents")
-                  .getPublicUrl(storageKey);
-                if (pub?.publicUrl) {
+                  .createSignedUrl(storageKey, 60 * 60 * 24 * 7);
+                if (!signedErr && signed?.signedUrl) {
                   await supabase
                     .from("documents")
-                    .update({ source_url: pub.publicUrl })
+                    .update({ source_url: signed.signedUrl })
                     .eq("id", doc.id);
                 }
               }
@@ -1260,14 +1262,27 @@ export function ContentWizard({
                   `storage.upload:${p.name}`,
                 );
                 if (upRes && !upRes.error) {
-                  const { data: pub } = supabase.storage
-                    .from("user-documents")
-                    .getPublicUrl(storageKey);
-                  if (pub?.publicUrl) {
+                  // Bucket privado: signed URL com TTL 7d pra persistir.
+                  const signedRes = await withTimeout<{
+                    data: { signedUrl: string } | null;
+                    error: { message: string } | null;
+                  }>(
+                    supabase.storage
+                      .from("user-documents")
+                      .createSignedUrl(storageKey, 60 * 60 * 24 * 7) as unknown as Promise<{
+                      data: { signedUrl: string } | null;
+                      error: { message: string } | null;
+                    }>,
+                    10_000,
+                    `storage.signedUrl:${p.name}`,
+                  );
+                  const signedUrl =
+                    signedRes && !signedRes.error ? signedRes.data?.signedUrl : null;
+                  if (signedUrl) {
                     await withTimeout(
                       supabase
                         .from("documents")
-                        .update({ source_url: pub.publicUrl })
+                        .update({ source_url: signedUrl })
                         .eq("id", docCreated.id),
                       10_000,
                       `documents.update:${docCreated.id}`,

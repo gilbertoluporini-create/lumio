@@ -8,12 +8,18 @@ import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
  * Estrutura de path: `${userId}/${lectureId}.${ext}` — RLS no Supabase deve
  * permitir apenas operações onde `auth.uid()::text = (storage.foldername(name))[1]`.
  *
- * Bucket precisa existir manualmente no Supabase Dashboard antes de funcionar.
- * Configure como PUBLIC pra simplificar leitura (audio_url salvo na lecture
- * é uma URL pública) — ou troque pra createSignedUrl pra restrigir.
+ * Bucket é PRIVADO (migration 2026-06-01): leitura via createSignedUrl com TTL.
+ * URL persistida em `lectures.audio_url` usa TTL longo (7 dias) porque o cron
+ * `renew-signed-urls` só cobre markdown de resumo, não esta coluna. Sessões de
+ * playback regeneram via `getSignedLectureAudioUrl` quando necessário.
  */
 
 const BUCKET = "lectures-audio";
+
+/** TTL da signed URL salva em `lectures.audio_url`. 7 dias dá folga pro user
+ *  voltar na aula em sessões posteriores. Quando expirar, o player vai dar
+ *  401 e a UI deve regenerar via signed URL fresca. */
+const PERSISTED_AUDIO_URL_TTL_SEC = 60 * 60 * 24 * 7;
 
 function extFromMime(mime: string): string {
   if (mime.includes("webm")) return "webm";
@@ -35,7 +41,7 @@ export type UploadResult = {
 };
 
 /**
- * Faz upload do blob de áudio. Retorna URL pública pra salvar em
+ * Faz upload do blob de áudio. Retorna URL assinada (TTL 7d) pra salvar em
  * `lecture.audioUrl`, ou `null` em caso de erro.
  *
  * `upsert: true` permite re-gravar a mesma aula (sobrescreve arquivo anterior).
@@ -72,10 +78,15 @@ export async function uploadLectureAudio(
       return null;
     }
 
-    const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(path);
-    const url: string | undefined = publicData?.publicUrl;
-    if (!url) {
-      console.error("[audio-storage] getPublicUrl retornou vazio");
+    // Bucket é privado: gera signed URL pra persistir em lectures.audio_url.
+    // TTL 7 dias cobre maioria das sessões; quando expirar, regenerar via
+    // getSignedLectureAudioUrl.
+    const { data: signedData, error: signedErr } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(path, PERSISTED_AUDIO_URL_TTL_SEC);
+    const url: string | undefined = signedData?.signedUrl;
+    if (signedErr || !url) {
+      console.error("[audio-storage] createSignedUrl falhou", signedErr);
       return null;
     }
 

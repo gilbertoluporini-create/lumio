@@ -3,6 +3,7 @@ import { z } from "zod";
 import { cookies, headers } from "next/headers";
 import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getAppUrl } from "@/lib/stripe";
+import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -163,6 +164,13 @@ function fireSignupEventServerSide(
 }
 
 export async function POST(req: Request) {
+  // Rate limit por IP: previne criação massiva de contas falsas / abuso de
+  // signup (poluir base, gastar quota de email Supabase, fake referrals).
+  // 5 cadastros / 10min é generoso pra household real e barra bots.
+  const ip = getClientIp(req);
+  const ipLimit = limitOrThrow(`signup:ip:${ip}`, 5, 600_000);
+  if (ipLimit) return ipLimit;
+
   let parsed: z.infer<typeof Body>;
   try {
     parsed = Body.parse(await req.json());

@@ -521,10 +521,11 @@ export async function POST(req: Request) {
       { status: 500 },
     );
   }
-  const { data: pub } = admin.storage
+  // Bucket privado: signed URL com TTL longo (7d) — admin client bypassa RLS.
+  const { data: signed, error: signedErr } = await admin.storage
     .from("user-documents")
-    .getPublicUrl(storageKey);
-  publicUrl = pub?.publicUrl ?? null;
+    .createSignedUrl(storageKey, 60 * 60 * 24 * 7);
+  publicUrl = signedErr || !signed ? null : signed.signedUrl;
   if (publicUrl) {
     await admin
       .from("documents")

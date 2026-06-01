@@ -281,16 +281,18 @@ export async function attachLecturePdfAsDocument(input: {
       await supabase.from("documents").delete().eq("id", doc.id);
       return null;
     }
-    const { data: pub } = supabase.storage
+    // Bucket é privado: gera signed URL com TTL longo (7d) pra persistir.
+    // URLs in-page geram fresca on-demand quando precisar via createSignedUrl.
+    const { data: signed, error: signedErr } = await supabase.storage
       .from("user-documents")
-      .getPublicUrl(storageKey);
-    const publicUrl = pub?.publicUrl ?? null;
-    if (publicUrl) {
+      .createSignedUrl(storageKey, 60 * 60 * 24 * 7);
+    const signedUrl = signedErr || !signed ? null : signed.signedUrl;
+    if (signedUrl) {
       await supabase
         .from("documents")
-        .update({ source_url: publicUrl })
+        .update({ source_url: signedUrl })
         .eq("id", doc.id);
-      doc.sourceUrl = publicUrl;
+      doc.sourceUrl = signedUrl;
     }
     return doc;
   } catch (err) {

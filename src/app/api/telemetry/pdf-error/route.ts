@@ -9,6 +9,8 @@
  * Não persiste em DB nem retorna nada útil — apenas log.
  */
 
+import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
+
 type Payload = {
   fileName?: string;
   fileSize?: number;
@@ -19,6 +21,13 @@ type Payload = {
 };
 
 export async function POST(req: Request) {
+  // Rate limit por IP: endpoint é público sem auth e só logga texto livre —
+  // atacante poderia inundar logs do Vercel e estourar custo. 20 / min cobre
+  // usuários reais que tentam upload em sequência após falha.
+  const ip = getClientIp(req);
+  const ipLimit = limitOrThrow(`tele-pdf:ip:${ip}`, 20, 60_000);
+  if (ipLimit) return ipLimit;
+
   try {
     const body = (await req.json().catch(() => ({}))) as Payload;
     console.warn("[telemetry/pdf-error]", {

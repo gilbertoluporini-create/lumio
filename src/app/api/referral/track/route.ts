@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { cookies, headers } from "next/headers";
 import { createAdminClient } from "@/lib/supabase/server";
+import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -88,6 +89,15 @@ export async function POST(req: Request) {
  * Aceita query string, redireciona pra raiz após registrar.
  */
 export async function GET(req: Request) {
+  // Rate limit por IP: GET é hit por qualquer crawler/share-preview; sem cap,
+  // bot pode inflar contagem de cliques de um embaixador (fraude no programa).
+  // 10 / min cobre uso real (clicou várias vezes no link). Acima disso,
+  // retorna 429 mas o redirect pra "/" não acontece — comportamento aceitável
+  // pois o atacante não é um user real navegando.
+  const ip = getClientIp(req);
+  const ipLimit = limitOrThrow(`referral-get:ip:${ip}`, 10, 60_000);
+  if (ipLimit) return ipLimit;
+
   const url = new URL(req.url);
   const code = url.searchParams.get("code") || url.searchParams.get("ref");
 

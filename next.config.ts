@@ -11,7 +11,14 @@ const csp = [
   // 'unsafe-eval' só em dev (Turbopack / source maps); remover em prod-only build
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://js.stripe.com https://www.googletagmanager.com https://www.google-analytics.com https://connect.facebook.net https://us-assets.i.posthog.com https://us.i.posthog.com`,
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "img-src 'self' data: blob: https:",
+  // img-src whitelist — substitui o `https:` aberto. Inclui:
+  //  - Supabase Storage (uploads, atlas, anexos)
+  //  - GA4 collect beacons (gtag.js posta pixel em <img>)
+  //  - GTM (servindo imagens de tag templates)
+  //  - Meta Pixel <img> beacon noscript (https://www.facebook.com/tr?…)
+  //  - PostHog (autocapture screenshots + heatmaps assets)
+  //  - lumioapp.net (OG/illustrations servidos pelo próprio domínio)
+  "img-src 'self' data: blob: https://*.supabase.co https://www.googletagmanager.com https://www.google-analytics.com https://*.google-analytics.com https://www.facebook.com https://us.i.posthog.com https://us-assets.i.posthog.com https://lumioapp.net https://www.lumioapp.net",
   // media-src precisa whitelistar o bucket Supabase (tts-audio) pra que o
   // <audio> do voice mode toque. Sem isso, browser bloqueia com MEDIA_ERR_SRC_NOT_SUPPORTED.
   "media-src 'self' blob: https://*.supabase.co",
@@ -75,6 +82,29 @@ const nextConfig: NextConfig = {
                   value: "max-age=31536000; includeSubDomains; preload",
                 },
               ]),
+        ],
+      },
+      {
+        // CORS restrito pras rotas /api/* — Vercel default expõe `*` o que
+        // permite que qualquer origem use os endpoints com cookies/credentials
+        // bloqueados, mas ainda assim é amplo demais pra endpoints públicos
+        // (CSRF + scraping). Fixamos a origem no domínio canônico.
+        source: "/api/:path*",
+        headers: [
+          {
+            key: "Access-Control-Allow-Origin",
+            value: "https://www.lumioapp.net",
+          },
+          { key: "Access-Control-Allow-Credentials", value: "true" },
+          {
+            key: "Access-Control-Allow-Methods",
+            value: "GET,POST,PATCH,DELETE,OPTIONS",
+          },
+          {
+            key: "Access-Control-Allow-Headers",
+            value: "Content-Type, Authorization",
+          },
+          { key: "Vary", value: "Origin" },
         ],
       },
     ];

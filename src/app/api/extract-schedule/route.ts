@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createMessage } from "@/lib/llm-fallback";
 import { LIMITS, logAndSanitize, sniffMagic } from "@/lib/api-security";
+import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -120,6 +121,47 @@ function tryParseJson(text: string): ExtractedPayload | null {
 }
 
 export async function POST(req: Request) {
+  // Defense-in-depth: além do auth gate em proxy.ts, aplicamos rate-limit
+  // direto na rota porque o endpoint também é acessível via /calendario-onboarding
+  // (público pra leads) e roda Vision Sonnet com PDF até 10MB — caríssimo.
+  // Limites agressivos pq custo por chamada é alto.
+  const ip = getClientIp(req);
+  const userAgent = req.headers.get("user-agent")?.slice(0, 120) ?? "unknown";
+
+  // 1) Rate-limit por IP: 2 req / 60s
+  const ipLimit = limitOrThrow(`extract-schedule:ip:${ip}`, 2, 60_000);
+  if (ipLimit) {
+    console.warn(
+      `[extract-schedule] rate-limit ip exceeded ip=${ip} ua=${userAgent}`,
+    );
+    return ipLimit;
+  }
+
+  // 2) Rate-limit GLOBAL (defesa contra distribuição): 30 req / 60s
+  const globalLimit = limitOrThrow(`extract-schedule:global`, 30, 60_000);
+  if (globalLimit) {
+    console.warn(
+      `[extract-schedule] rate-limit global exceeded ip=${ip} ua=${userAgent}`,
+    );
+    return globalLimit;
+  }
+
+  // 3) Content-Length guard — barra payload antes mesmo de formData() consumir
+  const contentLength = Number(req.headers.get("content-length") ?? 0);
+  if (
+    Number.isFinite(contentLength) &&
+    contentLength > 0 &&
+    contentLength > LIMITS.IMAGE_BYTES
+  ) {
+    console.warn(
+      `[extract-schedule] content-length too large ip=${ip} bytes=${contentLength}`,
+    );
+    return Response.json(
+      { error: "Tamanho inválido (máx 10MB)." },
+      { status: 413 },
+    );
+  }
+
   let form: FormData;
   try {
     form = await req.formData();

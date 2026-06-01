@@ -208,10 +208,15 @@ function DocumentView({
       if (upErr) {
         console.warn("[document] storage upload failed", upErr);
       } else {
-        const { data: pub } = supabase.storage
+        // Bucket privado: signed URL com TTL 7d pra persistir em source_url.
+        const { data: signed, error: signedErr } = await supabase.storage
           .from("user-documents")
-          .getPublicUrl(storageKey);
-        publicUrl = pub?.publicUrl;
+          .createSignedUrl(storageKey, 60 * 60 * 24 * 7);
+        if (signedErr) {
+          console.warn("[document] createSignedUrl failed", signedErr);
+        } else {
+          publicUrl = signed?.signedUrl;
+        }
       }
 
       const { error } = await supabase

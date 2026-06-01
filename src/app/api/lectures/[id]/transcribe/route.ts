@@ -140,9 +140,15 @@ export async function POST(
       onProgress,
     });
 
-    // URL pública do áudio (mesmo padrão do live)
-    const { data: pub } = admin.storage.from(STORAGE_BUCKET).getPublicUrl(body.storagePath);
-    const audioUrl = pub?.publicUrl ?? null;
+    // Bucket privado: signed URL com TTL longo (7d) — admin bypassa RLS.
+    // Quando expirar, o player precisa regenerar via signed URL fresca.
+    const { data: signed, error: signedErr } = await admin.storage
+      .from(STORAGE_BUCKET)
+      .createSignedUrl(body.storagePath, 60 * 60 * 24 * 7);
+    const audioUrl = signedErr || !signed ? null : signed.signedUrl;
+    if (signedErr) {
+      console.warn("[lectures/transcribe] createSignedUrl failed", signedErr);
+    }
 
     const { error: updErr } = await admin
       .from("lectures")

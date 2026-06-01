@@ -423,13 +423,14 @@ function PlanoView({ user }: { user: User }) {
           });
         if (upErr) throw new Error(upErr.message);
 
-        const { data: pub } = supabase.storage
+        // Bucket privado: signed URL com TTL 7d pra persistir em source_url.
+        const { data: signed, error: signedErr } = await supabase.storage
           .from("user-documents")
-          .getPublicUrl(storageKey);
-        if (pub?.publicUrl) {
+          .createSignedUrl(storageKey, 60 * 60 * 24 * 7);
+        if (!signedErr && signed?.signedUrl) {
           await supabase
             .from("documents")
-            .update({ source_url: pub.publicUrl })
+            .update({ source_url: signed.signedUrl })
             .eq("id", doc.id);
         }
 
