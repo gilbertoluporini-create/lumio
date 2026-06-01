@@ -424,7 +424,7 @@ function LumiCalendarEventCard({
           )}
         </div>
         <Link
-          href="/calendario"
+          href="/schedule"
           className="self-center text-xs font-medium hover:underline"
         >
           Ver agenda →
