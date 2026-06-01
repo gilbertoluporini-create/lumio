@@ -1721,12 +1721,15 @@ function LumiAssistant({ user }: { user: User }) {
           subjectId={uploadDialog.subjectId}
           subjectName={uploadDialog.subjectName}
           onUploaded={({ count, titles }) => {
-            const titlesStr = titles.slice(0, 5).join(", ");
+            const titlesStr = titles
+              .slice(0, 5)
+              .map((t) => `"${t}"`)
+              .join(", ");
             const more = titles.length > 5 ? ` e mais ${titles.length - 5}` : "";
             const msg =
               count === 1
-                ? `Acabei de subir "${titles[0]}" em ${uploadDialog.subjectName}. Pode usar pra estudar.`
-                : `Acabei de subir ${count} arquivos em ${uploadDialog.subjectName}: ${titlesStr}${more}. Pode usar pra estudar.`;
+                ? `Pronto, subi ${titlesStr} em ${uploadDialog.subjectName}. Lista o que eu tenho agora dessa matéria e me ajuda a montar a estratégia.`
+                : `Pronto, subi ${count} arquivos em ${uploadDialog.subjectName}: ${titlesStr}${more}. Lista o que eu tenho agora dessa matéria e me ajuda a montar a estratégia.`;
             setUploadDialog(null);
             void sendMessage(msg);
           }}
