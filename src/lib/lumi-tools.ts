@@ -26,8 +26,16 @@ export type LumiToolName =
   | "listar_aulas_e_docs"
   | "buscar_no_material"
   | "criar_materia"
+  | "renomear_materia"
+  | "excluir_materia"
   | "listar_pastas"
   | "criar_pasta"
+  | "renomear_pasta"
+  | "excluir_pasta"
+  | "mover_aula_para_pasta"
+  | "excluir_aula"
+  | "excluir_resumo"
+  | "marcar_item_plano_concluido"
   | "gerar_resumo"
   | "criar_flashcards"
   | "criar_quiz"
@@ -157,6 +165,114 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ["subjectId", "nome"],
+    },
+  },
+  {
+    name: "renomear_materia",
+    description:
+      "Renomeia uma matéria existente. Sempre confirme antes via perguntar_opcoes ('Renomear X para Y?'). Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: { type: "string", description: "UUID da matéria." },
+        novoNome: { type: "string", description: "Novo nome (2-80 chars)." },
+      },
+      required: ["subjectId", "novoNome"],
+    },
+  },
+  {
+    name: "excluir_materia",
+    description:
+      "Exclui uma matéria E TODO O CONTEÚDO DELA (aulas, pastas, resumos, etc) — ação DESTRUTIVA e PERMANENTE. SEMPRE confirme 2x via perguntar_opcoes ('Tem certeza? Vai apagar N aulas e M resumos.'). Avise o impacto antes de chamar. Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: { type: "string", description: "UUID da matéria a excluir." },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
+    name: "renomear_pasta",
+    description:
+      "Renomeia uma pasta dentro de uma matéria. Confirme antes via perguntar_opcoes. Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        folderId: { type: "string", description: "UUID da pasta." },
+        novoNome: { type: "string", description: "Novo nome (2-80 chars)." },
+      },
+      required: ["folderId", "novoNome"],
+    },
+  },
+  {
+    name: "excluir_pasta",
+    description:
+      "Exclui uma pasta. Aulas/docs dentro dela viram raiz da matéria (não são apagadas). Confirme antes via perguntar_opcoes. Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        folderId: { type: "string", description: "UUID da pasta." },
+      },
+      required: ["folderId"],
+    },
+  },
+  {
+    name: "mover_aula_para_pasta",
+    description:
+      "Move uma aula (lecture) pra outra pasta DENTRO DA MESMA matéria. Pra mover pra raiz, omita folderId. NUNCA muda subjectId (a aula fica na mesma matéria). Confirme só se for ambíguo. Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        lectureId: { type: "string", description: "UUID da aula a mover." },
+        folderId: {
+          type: "string",
+          description:
+            "UUID da pasta destino. Omita ou deixe vazio pra mover pra raiz da matéria.",
+        },
+      },
+      required: ["lectureId"],
+    },
+  },
+  {
+    name: "excluir_aula",
+    description:
+      "Exclui uma aula (soft-delete — vai pra lixeira, dá pra restaurar). Confirme antes via perguntar_opcoes ('Excluir aula X?'). Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        lectureId: { type: "string", description: "UUID da aula." },
+      },
+      required: ["lectureId"],
+    },
+  },
+  {
+    name: "excluir_resumo",
+    description:
+      "Exclui um resumo (soft-delete). Confirme antes via perguntar_opcoes. Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        summaryId: { type: "string", description: "UUID do resumo." },
+      },
+      required: ["summaryId"],
+    },
+  },
+  {
+    name: "marcar_item_plano_concluido",
+    description:
+      "Marca um item de plano de estudo como concluído (ou desmarca). Use quando o user disser 'já fiz X', 'terminei Y', 'pode marcar Z como pronto'. Não exige confirmação. Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        itemId: { type: "string", description: "UUID do study_plan_item." },
+        concluido: {
+          type: "boolean",
+          description:
+            "true=marca como done, false=volta pra pending. Default true se omitido.",
+        },
+      },
+      required: ["itemId"],
     },
   },
   {
@@ -808,6 +924,246 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       navegacao: { path: `/subject/${subjectId}`, motivo: "Pasta criada" },
       instrucao_pro_client:
         "Pasta criada. Aulas/PDFs subidos depois podem ser vinculados a essa pasta via folderId. Ofereça abrir /subject/<id> pra user organizar o material.",
+    };
+  },
+
+  async renomear_materia(input, ctx) {
+    const subjectId = str(input.subjectId).trim();
+    const novoNome = str(input.novoNome).trim();
+    if (!subjectId) return { error: "subjectId obrigatório" };
+    if (!novoNome) return { error: "novoNome obrigatório" };
+    if (novoNome.length < 2 || novoNome.length > 80) {
+      return { error: "novoNome precisa ter 2-80 chars" };
+    }
+    const { data, error } = await ctx.supabaseAdmin
+      .from("subjects")
+      .update({ name: novoNome })
+      .eq("id", subjectId)
+      .eq("user_id", ctx.userId)
+      .select("id, name")
+      .single();
+    if (error || !data) {
+      return { error: error?.message ?? "matéria não encontrada" };
+    }
+    return { sucesso: true, subjectId: data.id, nome: data.name };
+  },
+
+  async excluir_materia(input, ctx) {
+    const subjectId = str(input.subjectId).trim();
+    if (!subjectId) return { error: "subjectId obrigatório" };
+    // Confirma ownership antes de deletar.
+    const { data: subj } = await ctx.supabaseAdmin
+      .from("subjects")
+      .select("id, name")
+      .eq("id", subjectId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    if (!subj) {
+      return { error: "matéria não encontrada ou não pertence ao user" };
+    }
+    const { error } = await ctx.supabaseAdmin
+      .from("subjects")
+      .delete()
+      .eq("id", subjectId)
+      .eq("user_id", ctx.userId);
+    if (error) return { error: error.message };
+    return {
+      sucesso: true,
+      nome: subj.name,
+      instrucao_pro_client:
+        "Matéria excluída. Cascade do DB removeu folders/lectures/etc associados. Confirme ao user que foi feito.",
+    };
+  },
+
+  async renomear_pasta(input, ctx) {
+    const folderId = str(input.folderId).trim();
+    const novoNome = str(input.novoNome).trim();
+    if (!folderId) return { error: "folderId obrigatório" };
+    if (!novoNome) return { error: "novoNome obrigatório" };
+    if (novoNome.length < 2 || novoNome.length > 80) {
+      return { error: "novoNome precisa ter 2-80 chars" };
+    }
+    const { data, error } = await ctx.supabaseAdmin
+      .from("folders")
+      .update({ name: novoNome })
+      .eq("id", folderId)
+      .eq("user_id", ctx.userId)
+      .select("id, name")
+      .single();
+    if (error || !data) {
+      return { error: error?.message ?? "pasta não encontrada" };
+    }
+    return { sucesso: true, folderId: data.id, nome: data.name };
+  },
+
+  async excluir_pasta(input, ctx) {
+    const folderId = str(input.folderId).trim();
+    if (!folderId) return { error: "folderId obrigatório" };
+    const { data: folder } = await ctx.supabaseAdmin
+      .from("folders")
+      .select("id, name")
+      .eq("id", folderId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    if (!folder) {
+      return { error: "pasta não encontrada ou não pertence ao user" };
+    }
+    // Aulas/docs apontando pra essa pasta viram raiz (folder_id = null).
+    await ctx.supabaseAdmin
+      .from("lectures")
+      .update({ folder_id: null })
+      .eq("user_id", ctx.userId)
+      .eq("folder_id", folderId);
+    await ctx.supabaseAdmin
+      .from("folders")
+      .update({ parent_folder_id: null })
+      .eq("user_id", ctx.userId)
+      .eq("parent_folder_id", folderId);
+    const { error } = await ctx.supabaseAdmin
+      .from("folders")
+      .delete()
+      .eq("id", folderId)
+      .eq("user_id", ctx.userId);
+    if (error) return { error: error.message };
+    return {
+      sucesso: true,
+      nome: folder.name,
+      instrucao_pro_client:
+        "Pasta excluída. Conteúdo dentro dela voltou pra raiz da matéria.",
+    };
+  },
+
+  async mover_aula_para_pasta(input, ctx) {
+    const lectureId = str(input.lectureId).trim();
+    if (!lectureId) return { error: "lectureId obrigatório" };
+    const folderId = str(input.folderId).trim() || null;
+    // Carrega aula pra pegar subject_id (validar folder destino).
+    const { data: lecture } = await ctx.supabaseAdmin
+      .from("lectures")
+      .select("id, subject_id, title")
+      .eq("id", lectureId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    if (!lecture) {
+      return { error: "aula não encontrada ou não pertence ao user" };
+    }
+    if (folderId) {
+      const { data: folder } = await ctx.supabaseAdmin
+        .from("folders")
+        .select("id, subject_id, name")
+        .eq("id", folderId)
+        .eq("user_id", ctx.userId)
+        .maybeSingle();
+      if (!folder) return { error: "pasta destino não encontrada" };
+      if (folder.subject_id !== lecture.subject_id) {
+        return {
+          error:
+            "pasta destino é de outra matéria — só dá pra mover aula entre pastas DA MESMA matéria",
+        };
+      }
+    }
+    const { error } = await ctx.supabaseAdmin
+      .from("lectures")
+      .update({ folder_id: folderId })
+      .eq("id", lectureId)
+      .eq("user_id", ctx.userId);
+    if (error) return { error: error.message };
+    return {
+      sucesso: true,
+      lectureId,
+      titulo: lecture.title,
+      folderId,
+      instrucao_pro_client: folderId
+        ? "Aula movida pra pasta."
+        : "Aula movida pra raiz da matéria.",
+    };
+  },
+
+  async excluir_aula(input, ctx) {
+    const lectureId = str(input.lectureId).trim();
+    if (!lectureId) return { error: "lectureId obrigatório" };
+    const { data: lecture } = await ctx.supabaseAdmin
+      .from("lectures")
+      .select("id, title")
+      .eq("id", lectureId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    if (!lecture) {
+      return { error: "aula não encontrada ou não pertence ao user" };
+    }
+    // Soft-delete (pattern do app).
+    const { error } = await ctx.supabaseAdmin
+      .from("lectures")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", lectureId)
+      .eq("user_id", ctx.userId);
+    if (error) return { error: error.message };
+    return {
+      sucesso: true,
+      titulo: lecture.title,
+      instrucao_pro_client:
+        "Aula movida pra lixeira (soft-delete). Pode ser restaurada nos próximos 30 dias.",
+    };
+  },
+
+  async excluir_resumo(input, ctx) {
+    const summaryId = str(input.summaryId).trim();
+    if (!summaryId) return { error: "summaryId obrigatório" };
+    const { data: summary } = await ctx.supabaseAdmin
+      .from("summaries")
+      .select("id, title")
+      .eq("id", summaryId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    if (!summary) {
+      return { error: "resumo não encontrado ou não pertence ao user" };
+    }
+    const { error } = await ctx.supabaseAdmin
+      .from("summaries")
+      .update({ deleted_at: new Date().toISOString() })
+      .eq("id", summaryId)
+      .eq("user_id", ctx.userId);
+    if (error) return { error: error.message };
+    return {
+      sucesso: true,
+      titulo: summary.title,
+      instrucao_pro_client: "Resumo excluído (soft-delete).",
+    };
+  },
+
+  async marcar_item_plano_concluido(input, ctx) {
+    const itemId = str(input.itemId).trim();
+    if (!itemId) return { error: "itemId obrigatório" };
+    const concluido = input.concluido === false ? false : true;
+    // Confirma ownership via join (study_plan_items.plan_id → study_plans.user_id).
+    const { data: item } = await ctx.supabaseAdmin
+      .from("study_plan_items")
+      .select("id, title, plan_id, study_plans(user_id)")
+      .eq("id", itemId)
+      .maybeSingle();
+    const ownerId = (
+      item as { study_plans?: { user_id?: string } } | null
+    )?.study_plans?.user_id;
+    if (!item || ownerId !== ctx.userId) {
+      return { error: "item não encontrado ou não pertence ao user" };
+    }
+    const patch: Record<string, unknown> = {
+      status: concluido ? "done" : "pending",
+      completed_at: concluido ? new Date().toISOString() : null,
+    };
+    const { error } = await ctx.supabaseAdmin
+      .from("study_plan_items")
+      .update(patch)
+      .eq("id", itemId);
+    if (error) return { error: error.message };
+    return {
+      sucesso: true,
+      itemId,
+      titulo: (item as { title?: string }).title,
+      concluido,
+      instrucao_pro_client: concluido
+        ? "Item marcado como concluído. Pode dar parabéns ao user."
+        : "Item voltou pra pending.",
     };
   },
 
