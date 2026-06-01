@@ -10,11 +10,14 @@ import { generateEmbedding } from "@/lib/embeddings";
 import type { TranscriptEntry, TranscriptChapters } from "@/lib/types";
 
 // === Atlas (modo imagem real) ===
-// Distância cosseno máxima aceita pra considerar uma figura do PDF do user
-// um "match" semântico da seção. 0.22 ≈ similarity > 0.78. Threshold é
-// também o default da RPC `search_pdf_extracted_images` (migration 035).
-const ATLAS_MAX_DISTANCE = 0.22;
-const ATLAS_MIN_SIMILARITY = 1 - ATLAS_MAX_DISTANCE; // 0.78
+// Distância cosseno máxima aceita pra considerar uma figura do atlas
+// (PDF do user + atlas global Gray's/Sobotta) um "match" semântico da
+// seção. Threshold passado pra RPC `search_atlas_combined` (migration 039).
+// Calibrado 2026-06-01 com queries PT-BR reais — ver /tmp/atlas-calibrate.out
+// (0.78 dava 0% recall em 10 queries; 0.70 só 5/10; 0.60 entrega top-3
+// topicamente coerente em todas as queries do corpus Sobotta/Gray's).
+const ATLAS_MAX_DISTANCE = 0.4;
+const ATLAS_MIN_SIMILARITY = 1 - ATLAS_MAX_DISTANCE; // 0.60
 /** Máx imagens REAIS por resumo inteiro (defensivo contra atlas dominante) */
 const ATLAS_MAX_REAL_IMAGES = 5;
 /** Tamanho do corpo da seção H2 usado pra embed semântico (chars). */
@@ -36,12 +39,14 @@ function escapeMarkdownImage(s: string): string {
 
 type AtlasMatchRow = {
   id: string;
-  document_id: string;
+  source: "user" | "global";
+  document_id: string | null;
+  book_slug: string | null;
   page_number: number;
-  image_url: string;
+  storage_path: string;
   caption_text: string | null;
   classification: string | null;
-  similarity: number;
+  distance: number;
 };
 
 type AtlasSection = {
@@ -197,7 +202,8 @@ function buildTranscriptForPrompt(
 
 /**
  * Atlas matching: pra cada seção H2 do markdown, embeda o texto e busca a
- * figura REAL mais próxima em `pdf_extracted_images` (RPC search_pdf_extracted_images).
+ * figura REAL mais próxima (RPC search_atlas_combined — une PDF do user com
+ * atlas global Gray's/Sobotta).
  * Retorna lista de matches (1 por seção, ou nenhum se distance >= ATLAS_MAX_DISTANCE).
  *
  * Idempotente: se OPENAI_API_KEY ausente ou nenhuma seção H2, retorna vazio
@@ -261,13 +267,16 @@ async function runAtlasMatching(opts: {
     }
 
     try {
+      // Migrado 2026-06-01 de search_pdf_extracted_images → search_atlas_combined
+      // (migration 039). Agora une imagens do user (PDF próprio) + atlas global
+      // (Gray's 1918 + Sobotta vols 1+2 = ~1994 imagens, ingest 2026-06-01).
+      // Caption "*Referência anatômica · p.X*" obfusca a fonte do livro do user.
       const { data, error } = await opts.admin.rpc(
-        "search_pdf_extracted_images",
+        "search_atlas_combined",
         {
           query_embedding: embedding,
           user_id_input: opts.userId,
           document_ids_input: opts.documentIds,
-          classification_input: null,
           match_threshold: ATLAS_MIN_SIMILARITY,
           match_count: 3,
         },
