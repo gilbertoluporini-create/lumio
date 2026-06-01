@@ -1338,11 +1338,30 @@ function LumiAssistant({ user }: { user: User }) {
             className="flex-1 min-h-0 overflow-y-auto px-4 pb-4 pt-4 md:px-10 md:pt-5"
           >
             <div className="mx-auto flex max-w-3xl flex-col gap-6">
-              {messages.map((m) => (
-                <div key={m.id} className="flex flex-col gap-3">
-                  <LumiMessageBubble message={m} />
-                </div>
-              ))}
+              {messages.map((m, idx) => {
+                // Anima caractere por caractere SÓ na última msg assistant
+                // e se foi criada recentemente (<15s). Mensagens antigas
+                // do histórico aparecem instantâneas.
+                const isLastAssistant =
+                  idx === messages.length - 1 && m.role === "assistant";
+                const isFresh = (() => {
+                  try {
+                    return (
+                      Date.now() - new Date(m.createdAt).getTime() < 15_000
+                    );
+                  } catch {
+                    return false;
+                  }
+                })();
+                return (
+                  <div key={m.id} className="flex flex-col gap-3">
+                    <LumiMessageBubble
+                      message={m}
+                      playTypewriter={isLastAssistant && isFresh}
+                    />
+                  </div>
+                );
+              })}
 
               {/* Durante a turn ativa: mostra AÇÕES inline (tool cards com
                   status loading/done) + LumiThinking. Texto streaming NÃO é
@@ -1372,15 +1391,19 @@ function LumiAssistant({ user }: { user: User }) {
           </div>
 
           {/* Bottom input */}
-          <div className="border-t border-border/60 bg-card/80 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] md:p-4">
+          <div className="relative border-t border-border/60 bg-card/80 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] md:p-4">
+            {/* Pergunta pendente da Lumi (perguntar_opcoes) — overlay FLUTUA
+                acima do input bar sem empurrar nada (position absolute).
+                Click numa opção dispara CustomEvent lumi-pick-option e o
+                card some quando a próxima user message chega. */}
+            {pendingQuestion && (
+              <div className="pointer-events-none absolute bottom-full left-0 right-0 px-3 pb-3 md:px-4 md:pb-4">
+                <div className="pointer-events-auto mx-auto max-w-3xl">
+                  <LumiQuestionCard output={pendingQuestion} />
+                </div>
+              </div>
+            )}
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
-              {/* Pergunta pendente da Lumi (perguntar_opcoes) — ancorada
-                  acima do input, estilo Claude Code AskUserQuestion. Click
-                  numa opção dispara o CustomEvent lumi-pick-option e a
-                  pergunta some quando a próxima user message chega. */}
-              {pendingQuestion && (
-                <LumiQuestionCard output={pendingQuestion} />
-              )}
               {attachments.length > 0 && (
                 <AttachmentChips
                   attachments={attachments}

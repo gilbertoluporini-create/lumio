@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -28,7 +28,42 @@ type Props = {
   message: LumiChatMessage;
   /** Quando true, mostra cursor piscando no fim e oculta toolbar (resposta ao vivo) */
   isStreaming?: boolean;
+  /** Quando true, anima o conteúdo caractere por caractere ao montar.
+   * Usado pra última mensagem assistant recém-criada pelo agente — sem o
+   * typewriter durante o stream, a mensagem cairia toda de uma vez e
+   * perderia o efeito conversacional. */
+  playTypewriter?: boolean;
 };
+
+const TYPEWRITER_TICK_MS = 18;
+const TYPEWRITER_CHARS_PER_TICK = 3;
+
+function useTypewriter(text: string, enabled: boolean): string {
+  const [displayed, setDisplayed] = useState<string>(enabled ? "" : text);
+  const enabledRef = useRef(enabled);
+  useEffect(() => {
+    if (!enabledRef.current) {
+      setDisplayed(text);
+      return;
+    }
+    let pos = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = () => {
+      pos = Math.min(pos + TYPEWRITER_CHARS_PER_TICK, text.length);
+      setDisplayed(text.slice(0, pos));
+      if (pos < text.length) {
+        timer = setTimeout(tick, TYPEWRITER_TICK_MS);
+      }
+    };
+    tick();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+    // Só re-anima quando o ID/texto realmente muda, não em re-renders.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+  return displayed;
+}
 
 function formatTime(iso: string): string {
   try {
@@ -72,7 +107,11 @@ const ATTACHMENT_CTA = {
   mindmap: "Abrir mapa",
 } as const;
 
-export function LumiMessageBubble({ message, isStreaming }: Props) {
+export function LumiMessageBubble({ message, isStreaming, playTypewriter }: Props) {
+  const displayedContent = useTypewriter(
+    message.content,
+    !!playTypewriter && !isStreaming && message.role === "assistant",
+  );
   const [thumbed, setThumbed] = useState<"up" | "down" | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -173,7 +212,7 @@ export function LumiMessageBubble({ message, isStreaming }: Props) {
               ),
             }}
           >
-            {isStreaming ? `${message.content}▍` : message.content}
+            {isStreaming ? `${message.content}▍` : displayedContent}
           </ReactMarkdown>
         </div>
 
