@@ -35,6 +35,7 @@ import {
   Plus,
   Sparkles,
   SquarePen,
+  Target,
   Upload,
   X,
 } from "lucide-react";
@@ -1240,7 +1241,7 @@ function LumiAssistant({ user }: { user: User }) {
   const handleExamMode = useCallback(() => {
     const subj = context.subjectName ?? "essa matéria";
     setInput(
-      `Modo Prova: tenho prova de ${subj} amanhã. Prepara o kit (resumo + flashcards + quiz) focado nos tópicos críticos, com cronograma pra 3h de estudo. Pode cobrar ~26 coins.`,
+      `Quero montar um plano de estudos pra ${subj}. Me pergunta o que precisar (data da prova, tópicos foco, horas por semana) e cria a trilha completa com resumo, flashcards, quiz, mapa e rotina semanal.`,
     );
   }, [context.subjectName]);
 
@@ -1495,11 +1496,11 @@ function LumiAssistant({ user }: { user: User }) {
                         type="button"
                         onClick={handleExamMode}
                         disabled={sending}
-                        title="Modo Prova"
-                        className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 bg-gradient-to-r from-primary/10 to-fuchsia-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-fuchsia-500/20 disabled:opacity-50"
+                        title="Plano de estudo"
+                        className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-gradient-to-r from-primary/10 to-violet-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-violet-500/20 disabled:opacity-50"
                       >
-                        <Sparkles className="h-3.5 w-3.5 text-fuchsia-500" />
-                        Modo Prova
+                        <Target className="h-3.5 w-3.5 text-primary" />
+                        Plano de estudo
                       </button>
                     </div>
                   </div>
@@ -1610,11 +1611,11 @@ function LumiAssistant({ user }: { user: User }) {
                       type="button"
                       onClick={handleExamMode}
                       disabled={sending}
-                      title="Modo Prova"
-                      className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 bg-gradient-to-r from-primary/10 to-fuchsia-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-fuchsia-500/20 disabled:opacity-50"
+                      title="Plano de estudo"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-gradient-to-r from-primary/10 to-violet-500/10 px-2.5 py-1.5 text-[11px] font-semibold text-foreground transition-colors hover:from-primary/20 hover:to-violet-500/20 disabled:opacity-50"
                     >
-                      <Sparkles className="h-3.5 w-3.5 text-fuchsia-500" />
-                      Modo Prova
+                      <Target className="h-3.5 w-3.5 text-primary" />
+                      Plano de estudo
                     </button>
                   </div>
                 </div>

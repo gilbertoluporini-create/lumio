@@ -697,7 +697,16 @@ function PlanoView({ user }: { user: User }) {
                 onToggle={() => void handleToggle(item)}
                 onDelete={() => void handleDeleteItem(item)}
                 onGenerate={() => setGenItem(item)}
-                onGenerateRotina={() => setRotinaItem(item)}
+                onGenerateRotina={() => {
+                  // Em vez de abrir wizard separado, leva o user pro chat
+                  // Lumi com uma mensagem inicial pedindo a rotina daquela
+                  // matéria/plano. O Lumi conduz via perguntar_opcoes
+                  // (carga horária, tópicos foco) e dispara gerar_rotina_estudo.
+                  const subj = subjectName ?? "essa matéria";
+                  const prompt = `Quero gerar a rotina semanal de estudos pra ${subj} (plano: "${plan.title}"). Me ajuda a montar — pode me perguntar carga horária, foco e tópicos.`;
+                  const url = `/lumi?new=1&prompt=${encodeURIComponent(prompt)}${plan.subjectId ? `&subjectId=${plan.subjectId}` : ""}`;
+                  window.location.href = url;
+                }}
                 onAttachPdf={(file) => void handleAttachPdf(item, file)}
               />
             );

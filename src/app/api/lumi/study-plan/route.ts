@@ -33,7 +33,6 @@ type Body = {
 };
 
 type ItemKind =
-  | "document"
   | "summary"
   | "mindmap"
   | "quiz"
@@ -42,7 +41,6 @@ type ItemKind =
   | "note";
 
 const VALID_KINDS: ItemKind[] = [
-  "document",
   "summary",
   "mindmap",
   "quiz",
@@ -75,8 +73,9 @@ Sua tarefa: montar uma trilha de 6 a 10 itens, ordenada do que faz sentido come�
 REGRAS:
 - APENAS JSON válido. Sem markdown wrappers. Sem comentários.
 - Cada item tem "kind" e "title". "description" é opcional (1 frase, 20–140 chars).
-- Tipos válidos: document, summary, mindmap, quiz, flashcards, routine, note.
-- Ordem típica recomendada: documentos/leitura base → resumo → mapa mental → quiz → flashcards → revisão (note) → rotina (routine).
+- Tipos válidos: summary, mindmap, quiz, flashcards, routine, note.
+- NUNCA gere items kind="document" — o aluno JÁ TEM os PDFs anexados na matéria; criar item "revisar documento" gera UX confusa (mostra botão "anexar PDF" sem necessidade).
+- Ordem típica: resumo → mapa mental → quiz → flashcards → revisão (note) → rotina (routine).
 - Você está propondo TODOs — o aluno gera o asset clicando. Use kind="summary" pra significar "gerar resumo de X", kind="mindmap" pra "fazer mapa de Y", etc.
 - O item de tipo "routine" SEMPRE deve ser o ÚLTIMO, e representa a rotina semanal (PDF) que vai ser gerada à parte.
 - Inclua 1 item kind="note" como "Revisão final 24h antes" se houver dataProva.

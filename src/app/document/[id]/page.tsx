@@ -361,7 +361,10 @@ function DocumentView({
               </Button>
             </>
           )}
-          {(doc.sourceText ?? "").trim().length > 0 &&
+          {/* "Gerar resumo" só pra docs do user (PDF/texto) — não pra
+              routine_pdf (que JÁ É um asset gerado pela Lumio). */}
+          {doc.sourceKind !== "routine_pdf" &&
+            (doc.sourceText ?? "").trim().length > 0 &&
             (summary ? (
               <Button asChild variant="gradient" size="sm">
                 <Link href={`/resumo/doc/${summary.id}`}>
@@ -403,17 +406,21 @@ function DocumentView({
         </div>
       </div>
 
-      {/* Tabs: Conteúdo (default) | Imagens (galeria de imagens extraídas) */}
+      {/* Tabs: Conteúdo (default) | Imagens (galeria de imagens extraídas).
+          Pra routine_pdf, só Conteúdo — não faz sentido extrair imagens de
+          asset gerado pela própria Lumio. */}
       <div
         role="tablist"
         aria-label="Seções do documento"
         className="mb-5 inline-flex flex-wrap items-center gap-1.5"
       >
         {(
-          [
-            { id: "content", label: "Conteúdo", icon: FileText },
-            { id: "images", label: "Imagens", icon: ImageIcon },
-          ] as const
+          doc.sourceKind === "routine_pdf"
+            ? ([{ id: "content", label: "Conteúdo", icon: FileText }] as const)
+            : ([
+                { id: "content", label: "Conteúdo", icon: FileText },
+                { id: "images", label: "Imagens", icon: ImageIcon },
+              ] as const)
         ).map((t) => {
           const isActive = activeTab === t.id;
           const Icon = t.icon;

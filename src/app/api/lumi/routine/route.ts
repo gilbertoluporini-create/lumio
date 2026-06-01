@@ -475,7 +475,7 @@ export async function POST(req: Request) {
       user_id: user.id,
       subject_id: subjectId,
       title,
-      source_kind: "pdf",
+      source_kind: "routine_pdf",
       source_text: searchableText,
       page_count: null,
     })

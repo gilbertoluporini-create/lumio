@@ -68,7 +68,17 @@ export type LectureSummary = {
   images?: LectureSummaryImage[];
 };
 
-export type DocumentSourceKind = "pdf" | "text" | "audio_external";
+/**
+ * "pdf" / "text" / "audio_external" = material do USER (subiu PDF, colou texto).
+ * "routine_pdf" = PDF GERADO pela Lumio (rotina semanal). Não é material pra
+ * estudo — é o asset que a Lumi entregou. Não roda extract-images, não mostra
+ * tab Imagens nem botão "Gerar resumo".
+ */
+export type DocumentSourceKind =
+  | "pdf"
+  | "text"
+  | "audio_external"
+  | "routine_pdf";
 
 export type Document = {
   id: string;
