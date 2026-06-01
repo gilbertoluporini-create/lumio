@@ -177,18 +177,27 @@ export function LumiMessageBubble({ message, isStreaming }: Props) {
           </ReactMarkdown>
         </div>
 
-        {message.tools && message.tools.length > 0 && (
-          <div className="mt-3 space-y-2">
-            {message.tools.map((t, i) => (
-              <LumiToolCard
-                key={i}
-                name={t.name}
-                status={t.status}
-                output={t.output}
-              />
-            ))}
-          </div>
-        )}
+        {(() => {
+          // perguntar_opcoes não renderiza no bubble — ele aparece como sticky
+          // ACIMA do input box (vide pendingQuestion em /lumi/page.tsx).
+          // Sem esse filtro, o card ficaria duplicado.
+          const visibleTools = (message.tools ?? []).filter(
+            (t) => t.name !== "perguntar_opcoes",
+          );
+          if (visibleTools.length === 0) return null;
+          return (
+            <div className="mt-3 space-y-2">
+              {visibleTools.map((t, i) => (
+                <LumiToolCard
+                  key={i}
+                  name={t.name}
+                  status={t.status}
+                  output={t.output}
+                />
+              ))}
+            </div>
+          );
+        })()}
 
         {message.attachment && AttachmentIcon && (() => {
           const att = message.attachment;
