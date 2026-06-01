@@ -7,7 +7,7 @@
  * que envia o `value` como próxima mensagem do user.
  */
 
-import { ChevronRight, HelpCircle } from "lucide-react";
+import { ChevronRight, HelpCircle, X } from "lucide-react";
 
 type Opcao = {
   label: string;
@@ -26,12 +26,17 @@ export type QuestionCardOutput = {
 export function LumiQuestionCard({
   output,
   embedded = false,
+  messageId,
 }: {
   output: QuestionCardOutput;
   /** Quando true, renderiza SEM o wrapper externo (border/bg/shadow/rounded).
    *  Usado quando o card é fundido visualmente com o input bar — o container
    *  externo é provido pelo pai pra formar um bloco visual único. */
   embedded?: boolean;
+  /** ID da mensagem assistant que originou a pergunta. Quando presente,
+   *  habilita o botão X de dismiss (dispara CustomEvent lumi-dismiss-question
+   *  com {messageId}). O /lumi page escuta e tira o card da tela. */
+  messageId?: string;
 }) {
   if (output.error) {
     return (
@@ -51,6 +56,13 @@ export function LumiQuestionCard({
     );
   };
 
+  const handleDismiss = () => {
+    if (typeof window === "undefined" || !messageId) return;
+    window.dispatchEvent(
+      new CustomEvent("lumi-dismiss-question", { detail: { messageId } }),
+    );
+  };
+
   const containerClass = embedded
     ? "p-4"
     : "rounded-2xl border border-border/60 bg-card p-4 shadow-sm";
@@ -61,7 +73,18 @@ export function LumiQuestionCard({
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10">
           <HelpCircle className="h-4 w-4 text-primary" />
         </div>
-        <p className="pt-0.5 text-sm font-medium text-foreground">{pergunta}</p>
+        <p className="flex-1 pt-0.5 text-sm font-medium text-foreground">{pergunta}</p>
+        {messageId && (
+          <button
+            type="button"
+            onClick={handleDismiss}
+            aria-label="Fechar sugestões"
+            title="Fechar sugestões"
+            className="-mr-1 -mt-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
       </div>
       <div className="flex flex-col gap-2">
         {opcoes.map((o, i) => (
