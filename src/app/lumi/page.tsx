@@ -1390,7 +1390,9 @@ function LumiAssistant({ user }: { user: User }) {
             </div>
           </div>
 
-          {/* Bottom input */}
+          {/* Bottom input — altura natural baseada SÓ no input (sem o
+              question). A border-t (linha divisória chat/composer) fica
+              fixa na mesma posição com ou sem question. */}
           <div className="border-t border-border/60 bg-card/80 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] md:p-4">
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
               {attachments.length > 0 && (
@@ -1399,16 +1401,27 @@ function LumiAssistant({ user }: { user: User }) {
                   onRemove={handleRemoveAttachment}
                 />
               )}
-              {/* Composer unificado: question card (quando há perguntar_opcoes
-                  pendente) + textarea/botões ficam DENTRO do MESMO
-                  container — 1 borda só, sem gap, sem 2 sombras. */}
-              <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+              {/* Composer unificado: question card (perguntar_opcoes) fica
+                  OVERLAY absolute crescendo PRA CIMA sobre o chat — não
+                  empurra a border-t externa. Border-manipulation (overlay
+                  com rounded-top + sem border-bottom; input com rounded-
+                  bottom + sem border-top quando há question) faz os dois
+                  parecerem 1 container visual. */}
+              <div className="relative">
                 {pendingQuestion && (
-                  <div className="border-b border-border/60">
-                    <LumiQuestionCard output={pendingQuestion} embedded />
+                  <div className="pointer-events-none absolute bottom-full left-0 right-0">
+                    <div className="pointer-events-auto overflow-hidden rounded-t-2xl border border-b-0 border-border/60 bg-card shadow-sm">
+                      <LumiQuestionCard output={pendingQuestion} embedded />
+                    </div>
                   </div>
                 )}
-                <div className="p-3">
+                <div
+                  className={cn(
+                    "overflow-hidden border border-border/60 bg-card shadow-sm",
+                    pendingQuestion ? "rounded-b-2xl border-t-0" : "rounded-2xl",
+                  )}
+                >
+                  <div className="p-3">
                 <Textarea
                   ref={bottomTextareaRef}
                   value={input}
@@ -1485,6 +1498,7 @@ function LumiAssistant({ user }: { user: User }) {
                   </div>
                 </div>
                 </div>
+              </div>
               </div>
               <p className="text-center text-[10px] text-muted-foreground">
                 Lumi pode cometer erros. Sempre revise as informações.
