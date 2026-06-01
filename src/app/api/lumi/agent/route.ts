@@ -28,6 +28,10 @@ import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { checkChatDailyCap, chatCapResponse } from "@/lib/chat-cap";
 import { logAiUsage } from "@/lib/ai-usage";
 import {
+  getUserProfileAsync,
+  renderProfileForPrompt,
+} from "@/lib/user-profile";
+import {
   LUMI_TOOLS,
   executeTool,
   type ToolContext,
@@ -258,6 +262,20 @@ export async function POST(req: Request) {
     ? `\n\nCONTEXTO ATUAL: o user está focado na matéria "${body.subjectName}"${body.subjectId ? ` (subjectId: ${body.subjectId})` : ""}.`
     : "";
 
+  // Perfil do user coletado no onboarding (curso, dificuldades, estilo,
+  // rotina, próximas provas). Injetado no system prompt pra Lumi adaptar
+  // tom e sugestões sem precisar perguntar de novo.
+  let profileHint = "";
+  try {
+    const profile = await getUserProfileAsync(supabase, user.id);
+    const rendered = renderProfileForPrompt(profile);
+    if (rendered) {
+      profileHint = `\n\nSOBRE O USER (perfil persistente): ${rendered}\n\nUse essas infos pra adaptar suas respostas — não pergunte de novo o que já tá aqui. Você pode confirmar/atualizar gentilmente se algo parecer desatualizado.`;
+    }
+  } catch (err) {
+    console.warn("[lumi-agent] profile load failed", err);
+  }
+
   const history: Anthropic.MessageParam[] = (body.history ?? [])
     .slice(-12)
     .filter(
@@ -343,7 +361,7 @@ export async function POST(req: Request) {
               system: [
                 {
                   type: "text",
-                  text: SYSTEM_PROMPT + contextHint,
+                  text: SYSTEM_PROMPT + contextHint + profileHint,
                   cache_control: { type: "ephemeral" },
                 },
               ],
