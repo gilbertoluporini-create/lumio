@@ -18,11 +18,14 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { searchRelevantChunks } from "./embeddings";
+import { getSubjectGradientFromName } from "./subject-color";
+import { getSubjectIconName } from "./subject-icon";
 
 export type LumiToolName =
   | "listar_materias"
   | "listar_aulas_e_docs"
   | "buscar_no_material"
+  | "criar_materia"
   | "gerar_resumo"
   | "criar_flashcards"
   | "criar_quiz"
@@ -95,6 +98,22 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ["pergunta"],
+    },
+  },
+  {
+    name: "criar_materia",
+    description:
+      "Cria uma matéria nova (subject) pro user. USE quando o user mencionar uma matéria que NÃO existe em listar_materias e quiser estudar nela — em vez de mandar ele criar manualmente, ofereça criar você mesmo. SEMPRE peça confirmação antes (com perguntar_opcoes: 'Quer que eu crie a matéria X?' → opções: 'Sim, cria' / 'Não, deixa eu escolher outra'). Auto-detecta cor + ícone pelo nome. Bloqueia duplicata (case-insensitive) e devolve o existingId nesse caso. Grátis (0 coins).",
+    input_schema: {
+      type: "object",
+      properties: {
+        nome: {
+          type: "string",
+          description:
+            "Nome da matéria (ex: 'Endócrino', 'Pediatria', 'Anatomia'). 2-80 chars.",
+        },
+      },
+      required: ["nome"],
     },
   },
   {
@@ -584,11 +603,112 @@ const handlers: Record<LumiToolName, ToolHandler> = {
     };
   },
 
+  async criar_materia(input, ctx) {
+    const nome = str(input.nome).trim();
+    if (!nome) return { error: "nome obrigatório" };
+    if (nome.length < 2) return { error: "nome curto demais (mín 2 chars)" };
+    if (nome.length > 80) return { error: "nome longo demais (máx 80 chars)" };
+
+    // Bloqueia duplicata case-insensitive — se já existe, devolve o existente
+    // pra Lumi seguir o fluxo usando o subjectId real.
+    const { data: existing } = await ctx.supabaseAdmin
+      .from("subjects")
+      .select("id, name")
+      .eq("user_id", ctx.userId)
+      .ilike("name", nome)
+      .maybeSingle();
+    if (existing) {
+      return {
+        ja_existia: true,
+        subjectId: existing.id,
+        nome: existing.name,
+        instrucao_pro_client:
+          "A matéria já existia. Use esse subjectId nas próximas tools — não diga ao user que 'criou', diga que 'achou'.",
+      };
+    }
+
+    const color = getSubjectGradientFromName(nome);
+    const icon = getSubjectIconName(nome);
+    const { data: row, error } = await ctx.supabaseAdmin
+      .from("subjects")
+      .insert({
+        user_id: ctx.userId,
+        name: nome,
+        color,
+        icon,
+        schedule: [],
+      })
+      .select("id, name")
+      .single();
+    if (error || !row) {
+      return { error: error?.message ?? "falha ao criar matéria" };
+    }
+    return {
+      sucesso: true,
+      subjectId: row.id,
+      nome: row.name,
+      navegacao: { path: `/subject/${row.id}`, motivo: "Matéria criada" },
+      instrucao_pro_client:
+        "Matéria criada — usa esse subjectId nas próximas tools. Pode oferecer abrir /subject/<id> pro user subir material lá.",
+    };
+  },
+
   async abrir_rota(input) {
     const path = str(input.path);
     const motivo = str(input.motivo, "");
     if (!path || !path.startsWith("/")) {
       return { error: "path inválido (deve começar com /)" };
+    }
+    // Whitelist de paths reais — qualquer outra coisa cai em 404. Bloqueia
+    // tentativas de mandar o user pra rotas inexistentes ou pra dinâmicas
+    // sem ID (ex: '/subject' sem id, '/lecture' sem id).
+    const STATIC_PATHS = new Set([
+      "/dashboard",
+      "/lumi",
+      "/lumi/chats",
+      "/planos",
+      "/resumos",
+      "/flashcards",
+      "/quiz",
+      "/documentos",
+      "/documents",
+      "/favoritos",
+      "/gravacoes",
+      "/schedule",
+      "/onboarding",
+      "/help",
+      "/guia-revisao",
+      "/embaixador",
+      "/account/billing",
+      "/account/coins",
+      "/account/embaixador",
+      "/account/profile",
+      "/account/settings",
+    ]);
+    // Rotas dinâmicas válidas — exigem 1 segmento após o prefixo.
+    const DYNAMIC_PREFIXES = [
+      "/subject/",
+      "/lecture/",
+      "/resumo/",
+      "/document/",
+      "/deck/",
+      "/planos/",
+      "/quiz-banco/",
+      "/mapa/",
+    ];
+    // Remove query/hash pra validar só o pathname.
+    const cleanPath = path.split(/[?#]/)[0];
+    const isDynamicValid = DYNAMIC_PREFIXES.some((prefix) => {
+      if (!cleanPath.startsWith(prefix)) return false;
+      const rest = cleanPath.slice(prefix.length);
+      // Precisa ter pelo menos 1 char depois do prefixo (o ID), e não pode
+      // ser um placeholder literal tipo "<id>" ou ":id".
+      return rest.length > 0 && !/[<>:]/.test(rest) && !rest.startsWith("[");
+    });
+    if (!STATIC_PATHS.has(cleanPath) && !isDynamicValid) {
+      return {
+        error: `path '${path}' não é uma rota válida do app. Rotas estáticas: ${[...STATIC_PATHS].join(", ")}. Dinâmicas exigem ID: ${DYNAMIC_PREFIXES.join(", ")}<id>. Se quer mandar o user pra criar/gerenciar matéria, use /dashboard (lá ele cria) — ou melhor, chame a tool criar_materia pra criar você mesmo.`,
+      };
     }
     return {
       navegacao: { path, motivo },
