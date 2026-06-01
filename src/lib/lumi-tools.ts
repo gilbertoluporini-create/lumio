@@ -618,12 +618,16 @@ const handlers: Record<LumiToolName, ToolHandler> = {
     const subjectId = str(input.subjectId);
     if (!subjectId) return { error: "subjectId obrigatório" };
 
+    // Filtra deleted_at IS NULL pra Lumi NÃO ver material que o user excluiu
+    // (soft-delete). Sem isso o agente sugere usar aulas que foram pra
+    // lixeira, confundindo o user.
     const [lec, doc] = await Promise.all([
       ctx.supabaseAdmin
         .from("lectures")
         .select("id, title, transcript, duration_sec, created_at, status, slides")
         .eq("user_id", ctx.userId)
         .eq("subject_id", subjectId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(50),
       ctx.supabaseAdmin
@@ -631,6 +635,7 @@ const handlers: Record<LumiToolName, ToolHandler> = {
         .select("id, title, source_kind, page_count, created_at")
         .eq("user_id", ctx.userId)
         .eq("subject_id", subjectId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(50),
     ]);
@@ -677,14 +682,76 @@ const handlers: Record<LumiToolName, ToolHandler> = {
     const subjectId = str(input.subjectId);
     const limit = Math.min(Math.max(num(input.limit, 5), 1), 10);
 
-    const chunks = await searchRelevantChunks({
+    // Busca semântica pode pegar chunks indexados ANTES do user ter
+    // soft-deletado a fonte (lecture/document/summary). Buscamos com folga
+    // (3x o limit) e filtramos no client.
+    const rawChunks = await searchRelevantChunks({
       userId: ctx.userId,
       query: pergunta,
       subjectId: subjectId || null,
-      limit,
+      limit: limit * 3,
       supabaseAdmin: ctx.supabaseAdmin,
       apiKey: ctx.openaiKey,
     });
+
+    // Filtra chunks órfãos — fontes (lecture/document/summary) que estão
+    // soft-deletadas não devem aparecer no agente.
+    const byKind = new Map<string, string[]>();
+    for (const c of rawChunks) {
+      const arr = byKind.get(c.source_kind) ?? [];
+      arr.push(c.source_id);
+      byKind.set(c.source_kind, arr);
+    }
+    const aliveIds = new Set<string>();
+    const checks: PromiseLike<unknown>[] = [];
+    if (byKind.has("lecture")) {
+      checks.push(
+        ctx.supabaseAdmin
+          .from("lectures")
+          .select("id")
+          .in("id", byKind.get("lecture")!)
+          .is("deleted_at", null)
+          .then(({ data }) => {
+            for (const r of (data ?? []) as { id: string }[])
+              aliveIds.add(`lecture:${r.id}`);
+          }),
+      );
+    }
+    if (byKind.has("document")) {
+      checks.push(
+        ctx.supabaseAdmin
+          .from("documents")
+          .select("id")
+          .in("id", byKind.get("document")!)
+          .is("deleted_at", null)
+          .then(({ data }) => {
+            for (const r of (data ?? []) as { id: string }[])
+              aliveIds.add(`document:${r.id}`);
+          }),
+      );
+    }
+    if (byKind.has("summary")) {
+      checks.push(
+        ctx.supabaseAdmin
+          .from("summaries")
+          .select("id")
+          .in("id", byKind.get("summary")!)
+          .is("deleted_at", null)
+          .then(({ data }) => {
+            for (const r of (data ?? []) as { id: string }[])
+              aliveIds.add(`summary:${r.id}`);
+          }),
+      );
+    }
+    // 'slide' não tem soft-delete próprio; assume vivo se a lecture pai vive.
+    // Por simplicidade, ainda passamos pelo filtro (sem checagem extra).
+    await Promise.all(checks);
+    const chunks = rawChunks
+      .filter((c) => {
+        if (c.source_kind === "slide") return true;
+        return aliveIds.has(`${c.source_kind}:${c.source_id}`);
+      })
+      .slice(0, limit);
 
     if (chunks.length === 0) {
       return {

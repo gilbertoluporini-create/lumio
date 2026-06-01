@@ -57,6 +57,11 @@ import {
   type QuickAction,
 } from "@/components/lumi/lumi-quick-actions";
 import { LumiThinking } from "@/components/lumi/lumi-thinking";
+import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
+import {
+  LumiQuestionCard,
+  type QuestionCardOutput,
+} from "@/components/lumi/lumi-question-card";
 import { LumiAttachmentPicker } from "@/components/lumi/lumi-attachment-picker";
 import { LumiVoiceMode } from "@/components/lumi/lumi-voice-mode";
 import { Textarea } from "@/components/ui/textarea";
@@ -342,6 +347,29 @@ function LumiAssistant({ user }: { user: User }) {
   const streamingToolsKey = streamingTools
     .map((t) => `${t.name}:${t.status}`)
     .join("|");
+
+  // Pergunta clicável pendente — vem da última mensagem assistant e fica
+  // sticky ACIMA do input box (estilo Claude Code AskUserQuestion), deixando
+  // o feed limpo. Considera "pendente" se a próxima mensagem é do user
+  // (ainda não foi respondida) OU se é a última mensagem do chat.
+  const pendingQuestion = useMemo(() => {
+    if (sending) return null; // só mostra quando turn terminou
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.role !== "assistant") continue;
+      // Se há user message DEPOIS deste assistant, já foi respondida.
+      const respondida = messages
+        .slice(i + 1)
+        .some((mm) => mm.role === "user");
+      if (respondida) return null;
+      const tool = m.tools?.find(
+        (t) => t.name === "perguntar_opcoes" && t.status === "done",
+      );
+      if (!tool) return null;
+      return tool.output as QuestionCardOutput;
+    }
+    return null;
+  }, [messages, sending]);
 
   // Auto-scroll inteligente: PARA quando user rola pra cima manualmente,
   // RELIGA quando user clica no botão "ir pra última mensagem" abaixo.
@@ -1316,31 +1344,43 @@ function LumiAssistant({ user }: { user: User }) {
                 </div>
               ))}
 
-              {/* Durante a turn ativa: thinking → texto streaming.
-                  Tool cards NÃO aparecem inline aqui — eles só renderizam na
-                  mensagem final (LumiMessageBubble persistida com tools),
-                  garantindo ordem visual texto-primeiro, cards-depois. */}
-              {sending && streamingReply.length > 0 ? (
-                <div className="flex flex-col gap-3">
-                  <LumiMessageBubble
-                    message={{
-                      id: "streaming",
-                      role: "assistant",
-                      content: streamingReply,
-                      createdAt: new Date().toISOString(),
-                    }}
-                    isStreaming
-                  />
+              {/* Durante a turn ativa: mostra AÇÕES inline (tool cards com
+                  status loading/done) + LumiThinking. Texto streaming NÃO é
+                  exibido pra evitar o efeito de "trocar o texto no fim" —
+                  o modelo gera texto entre tool calls e a versão final pode
+                  diferir da intermediária. Só mostramos texto quando o turn
+                  termina (via LumiMessageBubble da mensagem persistida). */}
+              {sending && (
+                <div className="flex flex-col gap-2">
+                  {streamingTools.length > 0 && (
+                    <div className="flex flex-col gap-2">
+                      {streamingTools.map((t) => (
+                        <LumiToolCard
+                          key={t.id}
+                          name={t.name}
+                          status={t.status}
+                          input={t.input}
+                          output={t.output}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <LumiThinking variant="card" />
                 </div>
-              ) : sending ? (
-                <LumiThinking variant="card" />
-              ) : null}
+              )}
             </div>
           </div>
 
           {/* Bottom input */}
           <div className="border-t border-border/60 bg-card/80 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] md:p-4">
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
+              {/* Pergunta pendente da Lumi (perguntar_opcoes) — ancorada
+                  acima do input, estilo Claude Code AskUserQuestion. Click
+                  numa opção dispara o CustomEvent lumi-pick-option e a
+                  pergunta some quando a próxima user message chega. */}
+              {pendingQuestion && (
+                <LumiQuestionCard output={pendingQuestion} />
+              )}
               {attachments.length > 0 && (
                 <AttachmentChips
                   attachments={attachments}
