@@ -336,7 +336,21 @@ Gere ${count} questões de múltipla escolha no JSON especificado. APENAS JSON.`
           .single();
         assetId = (inserted as { id?: string } | null)?.id ?? null;
       } catch (e) {
+        // Insert falhou DEPOIS do LLM gerar. User pagou mas não tem asset.
+        // Reembolsa coins e retorna 500 — antes engolia o erro e devolvia
+        // assetId=null (user clicava "Ver" e caia em lista vazia).
         console.error("[quiz] asset insert failed", e);
+        try {
+          await creditCoins(userId, COIN_COSTS.quiz, "refund", {
+            reason: "quiz_asset_insert_failure",
+          });
+        } catch (refundErr) {
+          console.error("[quiz] refund after insert error failed", refundErr);
+        }
+        return Response.json(
+          { error: "Falha ao salvar quiz. Coins reembolsados." },
+          { status: 500 },
+        );
       }
     }
 

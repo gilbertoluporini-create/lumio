@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Folder, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Folder, Loader2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,23 +30,71 @@ export type AssetsSectionProps = {
   onMoveFolder?: (kind: AssetKind) => void;
   /** Desabilita botões "Gerar" globalmente (ex.: transcrição vazia). */
   disabled?: boolean;
+  /** Kinds que o user escolheu esconder. Filtrados antes de renderizar. */
+  hiddenKinds?: AssetKind[];
+  /** Disparado quando o user clica em "Esconder este card". */
+  onHide?: (kind: AssetKind) => void;
+  /** Disparado quando o user clica em "Mostrar X cards escondidos". */
+  onShowAll?: () => void;
 };
 
 export function AssetsSection({
   assets,
   onMoveFolder,
   disabled,
+  hiddenKinds,
+  onHide,
+  onShowAll,
 }: AssetsSectionProps) {
+  const hiddenSet = hiddenKinds ?? [];
+  const visible = assets.filter((a) => !hiddenSet.includes(a.kind));
+  const hiddenCount = assets.length - visible.length;
+  const allHidden = assets.length > 0 && visible.length === 0;
+
+  if (allHidden) {
+    return (
+      <div className="flex items-center justify-center rounded-xl border border-dashed border-border/60 bg-card/50 p-6">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => onShowAll?.()}
+          className="gap-2 text-xs"
+        >
+          <Eye className="h-4 w-4" />
+          Mostrar {hiddenCount} {hiddenCount === 1 ? "card escondido" : "cards escondidos"}
+        </Button>
+      </div>
+    );
+  }
+
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {assets.map((a) => (
-        <AssetCard
-          key={a.kind}
-          asset={a}
-          onMoveFolder={onMoveFolder}
-          disabled={disabled}
-        />
-      ))}
+    <div className="space-y-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {visible.map((a) => (
+          <AssetCard
+            key={a.kind}
+            asset={a}
+            onMoveFolder={onMoveFolder}
+            onHide={onHide}
+            disabled={disabled}
+          />
+        ))}
+      </div>
+      {hiddenCount > 0 && (
+        <div className="flex justify-end">
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            onClick={() => onShowAll?.()}
+            className="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            <Eye className="h-3.5 w-3.5" />
+            Mostrar {hiddenCount} {hiddenCount === 1 ? "card escondido" : "cards escondidos"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -54,10 +102,12 @@ export function AssetsSection({
 function AssetCard({
   asset,
   onMoveFolder,
+  onHide,
   disabled,
 }: {
   asset: AssetMeta;
   onMoveFolder?: (kind: AssetKind) => void;
+  onHide?: (kind: AssetKind) => void;
   disabled?: boolean;
 }) {
   const isLoading = asset.status === "loading";
@@ -66,10 +116,21 @@ function AssetCard({
   return (
     <div
       className={cn(
-        "flex items-center gap-3 rounded-xl border border-border/60 bg-card p-4 transition-colors",
+        "group relative flex items-center gap-3 rounded-xl border border-border/60 bg-card p-4 transition-colors",
         isReady && "border-emerald-500/40 bg-emerald-500/5",
       )}
     >
+      {onHide && (
+        <button
+          type="button"
+          onClick={() => onHide(asset.kind)}
+          aria-label={`Esconder ${asset.label}`}
+          title="Esconder este card"
+          className="absolute right-1.5 top-1.5 inline-flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground/60 opacity-0 transition-all hover:bg-secondary hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+        >
+          <EyeOff className="h-3.5 w-3.5" />
+        </button>
+      )}
       <span
         className={cn(
           "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground",
