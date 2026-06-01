@@ -156,6 +156,12 @@ function LumiAssistant({ user }: { user: User }) {
   const searchParams = useSearchParams();
   const chatIdParam = searchParams.get("chatId") ?? searchParams.get("id");
   const isNew = searchParams.get("new") === "1";
+  // Deeplink: /lumi?new=1&prompt=... dispara mensagem inicial automaticamente.
+  // Usado pelo botão 'Gerar rotina' do /planos/[id]/page.tsx (e potencialmente
+  // outros entry points futuros) — em vez de wizard separado, o user chega
+  // no chat com a pergunta pronta e a Lumi conduz a partir dali.
+  const promptParam = searchParams.get("prompt");
+  const autoPromptFiredRef = useRef(false);
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
@@ -520,6 +526,23 @@ function LumiAssistant({ user }: { user: User }) {
     window.addEventListener("lumi-pick-option", handler);
     return () => window.removeEventListener("lumi-pick-option", handler);
   }, [sending, sendMessage]);
+
+  // Deeplink ?prompt=... — auto-envia a mensagem inicial assim que tudo tá
+  // pronto (sendMessage definido + não-sending). Guarda em ref pra disparar
+  // 1x só, mesmo com re-renders. Limpa a query da URL pra evitar replay no
+  // refresh.
+  useEffect(() => {
+    if (!promptParam || autoPromptFiredRef.current || sending) return;
+    autoPromptFiredRef.current = true;
+    void sendMessage(promptParam);
+    // Limpa a query pra não re-disparar em refresh/back-forward.
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("prompt");
+      url.searchParams.delete("new");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [promptParam, sending, sendMessage]);
 
   // Persiste evento no localStorage quando o card agendar_evento monta.
   // O LumiToolCard dispara CustomEvent('lumi-persist-event') na primeira
