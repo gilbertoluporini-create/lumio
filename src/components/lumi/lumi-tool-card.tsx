@@ -239,7 +239,7 @@ export function LumiToolCard({
     );
   }
 
-  // Card de navegação (abrir_rota)
+  // Card de navegação (abrir_rota) — label amigável em vez do path com UUID
   if (status === "done" && navPath) {
     return (
       <Link
@@ -247,7 +247,7 @@ export function LumiToolCard({
         className="inline-flex items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-2 hover:border-primary/40 transition-colors"
       >
         <Icon className={`h-3.5 w-3.5 ${meta.color}`} />
-        <span className="text-xs font-medium">Ir pra {navPath}</span>
+        <span className="text-xs font-medium">{friendlyRouteLabel(navPath)}</span>
       </Link>
     );
   }
@@ -298,6 +298,40 @@ function describeOutput(name: string, output: unknown): string | null {
     if (Number.isFinite(c) && c > 0) return `${c} coins`;
   }
   return null;
+}
+
+/**
+ * Converte path de rota em label legível pro user — abrir_rota não deve
+ * mostrar "Ir pra /planos/ce0711ff-1fb9-40e7-..." com UUID feio.
+ */
+function friendlyRouteLabel(path: string): string {
+  const clean = path.split("?")[0].split("#")[0];
+  const map: Array<{ pattern: RegExp; label: string }> = [
+    { pattern: /^\/planos\/[^/]+/, label: "Abrir plano de estudos" },
+    { pattern: /^\/planos$/, label: "Abrir meus planos" },
+    { pattern: /^\/resumo\/doc\/[^/]+/, label: "Abrir resumo" },
+    { pattern: /^\/resumo\/[^/]+/, label: "Abrir resumo" },
+    { pattern: /^\/resumos$/, label: "Abrir resumos" },
+    { pattern: /^\/lecture\/[^/]+/, label: "Abrir aula" },
+    { pattern: /^\/subject\/[^/]+/, label: "Abrir matéria" },
+    { pattern: /^\/deck\/[^/]+/, label: "Abrir flashcards" },
+    { pattern: /^\/flashcards$/, label: "Abrir flashcards" },
+    { pattern: /^\/quiz-banco\/[^/]+/, label: "Abrir quiz" },
+    { pattern: /^\/quiz$/, label: "Abrir quizzes" },
+    { pattern: /^\/mapa\/[^/]+/, label: "Abrir mapa mental" },
+    { pattern: /^\/document\/[^/]+/, label: "Abrir documento" },
+    { pattern: /^\/documentos$/, label: "Abrir documentos" },
+    { pattern: /^\/schedule$/, label: "Abrir calendário" },
+    { pattern: /^\/gravacoes$/, label: "Abrir gravações" },
+    { pattern: /^\/favoritos$/, label: "Abrir favoritos" },
+    { pattern: /^\/dashboard$/, label: "Abrir dashboard" },
+    { pattern: /^\/lumi\/chats$/, label: "Abrir meus chats" },
+    { pattern: /^\/embaixador$/, label: "Programa embaixador" },
+  ];
+  for (const m of map) {
+    if (m.pattern.test(clean)) return m.label;
+  }
+  return `Abrir ${clean}`;
 }
 
 const EVENT_TYPE_LABEL: Record<string, string> = {

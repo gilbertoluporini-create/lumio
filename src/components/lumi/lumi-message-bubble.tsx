@@ -226,7 +226,14 @@ export function LumiMessageBubble({ message, isStreaming, playTypewriter }: Prop
         </div>
 
         {typewriterDone && (() => {
-          const tools = message.tools ?? [];
+          // Filtra tools com erro do histórico — quando o Lumi tenta de novo
+          // depois de um erro (ex: criar_plano_de_estudos sem subjectId →
+          // listar_materias → criar_plano_de_estudos com subjectId), o card
+          // vermelho fica feio no histórico. O sucesso seguinte já mostra
+          // o resultado correto.
+          const tools = (message.tools ?? []).filter(
+            (t) => t.status !== "error",
+          );
           if (tools.length === 0) return null;
           return (
             <div className="mt-3 space-y-2">

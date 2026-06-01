@@ -1403,15 +1403,14 @@ function LumiAssistant({ user }: { user: User }) {
                   diferir da intermediária. Só mostramos texto quando o turn
                   termina (via LumiMessageBubble da mensagem persistida). */}
               {sending && (() => {
-                // Filtra perguntar_opcoes e solicitar_upload dos cards inline
-                // durante o stream — eles são cards GRANDES e clicáveis que vão
-                // aparecer dentro do bubble final (gated por typewriterDone).
-                // Mostrar inline causa flash: aparece → some quando turn termina
-                // → reaparece dentro do bubble após typewriter. Os outros tools
-                // (listar_*, buscar_*, criar_*) seguem visíveis pra dar feedback
-                // de "Lumi tá fazendo X" — são pequenos e ficam no histórico.
+                // Stream inline: mostra APENAS tools com status "running"
+                // (loading visual de "Lumi tá fazendo X"). Tools done/error
+                // somem instantaneamente do stream — vão aparecer todas juntas
+                // no bubble final unificado (gated por typewriterDone). Sem
+                // flash de aparece → some → reaparece.
                 const inlineTools = streamingTools.filter(
                   (t) =>
+                    t.status === "running" &&
                     t.name !== "perguntar_opcoes" &&
                     t.name !== "solicitar_upload" &&
                     t.name !== "agendar_evento",
