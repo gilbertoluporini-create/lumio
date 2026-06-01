@@ -152,6 +152,12 @@ function LumiAssistant({ user }: { user: User }) {
   const searchParams = useSearchParams();
   const chatIdParam = searchParams.get("chatId") ?? searchParams.get("id");
   const isNew = searchParams.get("new") === "1";
+  // Deeplink: /lumi?new=1&prompt=... dispara mensagem inicial automaticamente.
+  // Usado pelo botão 'Gerar rotina' do /planos/[id]/page.tsx (e potencialmente
+  // outros entry points futuros) — em vez de wizard separado, o user chega
+  // no chat com a pergunta pronta e a Lumi conduz a partir dali.
+  const promptParam = searchParams.get("prompt");
+  const autoPromptFiredRef = useRef(false);
 
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [lectures, setLectures] = useState<Lecture[]>([]);
@@ -457,6 +463,95 @@ function LumiAssistant({ user }: { user: User }) {
       user.id,
     ],
   );
+
+  // Escuta clicks dos LumiQuestionCards (tool perguntar_opcoes). O componente
+  // do card dispara CustomEvent('lumi-pick-option', { detail: { value }}) e a
+  // gente injeta esse value como próxima mensagem do user.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ value?: string }>).detail;
+      const value = detail?.value?.trim();
+      if (!value || sending) return;
+      void sendMessage(value);
+    };
+    window.addEventListener("lumi-pick-option", handler);
+    return () => window.removeEventListener("lumi-pick-option", handler);
+  }, [sending, sendMessage]);
+
+  // Deeplink ?prompt=... — auto-envia a mensagem inicial assim que tudo tá
+  // pronto (sendMessage definido + não-sending). Guarda em ref pra disparar
+  // 1x só, mesmo com re-renders. Limpa a query da URL pra evitar replay no
+  // refresh.
+  useEffect(() => {
+    if (!promptParam || autoPromptFiredRef.current || sending) return;
+    autoPromptFiredRef.current = true;
+    void sendMessage(promptParam);
+    // Limpa a query pra não re-disparar em refresh/back-forward.
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      url.searchParams.delete("prompt");
+      url.searchParams.delete("new");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [promptParam, sending, sendMessage]);
+
+  // Persiste evento no localStorage quando o card agendar_evento monta.
+  // O LumiToolCard dispara CustomEvent('lumi-persist-event') na primeira
+  // render do card; aqui escutamos e gravamos. Idempotente pelo id.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{
+        id?: string;
+        type?: "prova" | "bloco" | "trabalho" | "aula" | "outro";
+        title?: string;
+        subject_id?: string;
+        starts_at?: string;
+        ends_at?: string;
+        description?: string;
+      }>).detail;
+      if (!detail?.id || !detail.type || !detail.title || !detail.starts_at) {
+        return;
+      }
+      void persistEventIdempotentAsync(user.id, {
+        id: detail.id,
+        type: detail.type,
+        title: detail.title,
+        subject_id: detail.subject_id,
+        starts_at: detail.starts_at,
+        ends_at: detail.ends_at,
+        description: detail.description,
+      });
+    };
+    window.addEventListener("lumi-persist-event", handler);
+    return () => window.removeEventListener("lumi-persist-event", handler);
+  }, [user.id]);
+
+  // Dialog de upload invocado pelo card solicitar_upload (CustomEvent
+  // lumi-open-upload). Multi-file, subject travada pelo que o Lumi pediu.
+  // Após upload, manda mensagem automática pro Lumi confirmar que viu os
+  // arquivos.
+  const [uploadDialog, setUploadDialog] = useState<{
+    subjectId: string;
+    subjectName: string;
+  } | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{
+        subjectId?: string;
+        subjectName?: string;
+      }>).detail;
+      if (!detail?.subjectId || !detail.subjectName) return;
+      setUploadDialog({
+        subjectId: detail.subjectId,
+        subjectName: detail.subjectName,
+      });
+    };
+    window.addEventListener("lumi-open-upload", handler);
+    return () => window.removeEventListener("lumi-open-upload", handler);
+  }, []);
 
   const runGenerate = useCallback(
     async (kind: LumiGenerateKind) => {
