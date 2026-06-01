@@ -112,10 +112,15 @@ const ATTACHMENT_CTA = {
 } as const;
 
 export function LumiMessageBubble({ message, isStreaming, playTypewriter }: Props) {
-  const displayedContent = useTypewriter(
-    message.content,
-    !!playTypewriter && !isStreaming && message.role === "assistant",
-  );
+  const typewriterActive =
+    !!playTypewriter && !isStreaming && message.role === "assistant";
+  const displayedContent = useTypewriter(message.content, typewriterActive);
+  // Tools (incluindo question card de perguntar_opcoes) só renderizam DEPOIS
+  // que o typewriter terminou de escrever — assim Lumi "fala" primeiro e
+  // só depois mostra as opções clicáveis. Sem typewriter ativo, mostra na
+  // hora.
+  const typewriterDone =
+    !typewriterActive || displayedContent.length >= message.content.length;
   const [thumbed, setThumbed] = useState<"up" | "down" | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -220,7 +225,7 @@ export function LumiMessageBubble({ message, isStreaming, playTypewriter }: Prop
           </ReactMarkdown>
         </div>
 
-        {(() => {
+        {typewriterDone && (() => {
           const tools = message.tools ?? [];
           if (tools.length === 0) return null;
           return (
