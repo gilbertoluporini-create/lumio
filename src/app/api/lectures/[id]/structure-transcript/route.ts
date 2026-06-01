@@ -17,7 +17,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 // 300s pra aulas longas (1h+): Sonnet 4.5 pode levar 4-6 min revisando
 // transcrições de 20K+ tokens. 120s estava abortando em prod silenciosamente.
-export const maxDuration = 300;
+// 800s = limite Vercel Pro. Subido de 300 em 2026-06-01 após áudio de
+// 1h33min com 4 chunks paralelos bater 504 (lecture cf3ea5eb-ec36).
+// Cada chunk tem timeout interno 150s; com 4 paralelos + margem de fallback
+// LLM (Anthropic → OpenAI) + DB update, 300s não cabia.
+export const maxDuration = 800;
 
 const SYSTEM_PROMPT = `Você é um editor de transcrições de aulas universitárias em português brasileiro.
 
@@ -271,9 +275,10 @@ export async function POST(
             },
           ],
         },
-        // Timeout por chunk: 3min (chunk de ~25min deve responder em 60-120s
-        // confortavelmente). Se travar, falha rápido e libera o slot.
-        { timeoutMs: 180_000 },
+        // Timeout por chunk: 2.5min (chunk de ~25min deve responder em 60-120s
+        // confortavelmente). Se travar, falha rápido e libera o slot pro merge
+        // final caber no maxDuration=800s mesmo com fallback Anthropic→OpenAI.
+        { timeoutMs: 150_000 },
       );
       const textBlock = resp.content.find((b) => b.type === "text");
       const rawText =
