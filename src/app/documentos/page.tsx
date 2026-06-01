@@ -3,29 +3,30 @@
 /**
  * /documentos — Biblioteca de matérias.
  *
- * Estratégia: em vez de listar TODOS os arquivos flat, mostra um grid limpo
- * de matérias com contadores. Clicar numa matéria abre /subject/[id] que já
- * é a tela rica organizada (aulas + PDFs + resumos + assets).
- *
- * Seção "Não atribuídos" no rodapé só aparece se houver PDFs sem subject.
+ * Estratégia: grid de matérias no topo (visão agregada com contadores) +
+ * seção "Todos os arquivos" abaixo com listagem flat de TODOS os assets
+ * (aulas, PDFs, resumos, decks, quizzes, mapas) e botões de ação por linha
+ * (mover entre matérias, abrir, etc.).
  */
 
 import { createElement, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, FileText, FolderPlus, Plus, Search, Upload } from "lucide-react";
+import { ArrowRight, FolderPlus, Plus, Search, Upload } from "lucide-react";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { getSubjectIcon } from "@/lib/subject-icon";
+import { cn } from "@/lib/utils";
 import { AssignSubjectDialog } from "@/components/documents/assign-subject-dialog";
 import { UploadDocumentDialog } from "@/components/documents/upload-document-dialog";
+import { DocumentItemRow } from "@/components/documents/document-item-row";
 import {
   useAllDocuments,
   type DocumentItem,
+  type DocumentKind,
 } from "@/hooks/use-all-documents";
-import { formatRelativeTime } from "@/lib/utils";
 import type { Subject, User } from "@/lib/types";
 
 export default function DocumentosPage() {
@@ -50,6 +51,19 @@ type SubjectStats = {
   total: number;
 };
 
+type KindFilter = DocumentKind | "all" | "unassigned";
+
+const KIND_FILTERS: Array<{ id: KindFilter; label: string }> = [
+  { id: "all", label: "Todos" },
+  { id: "transcription", label: "Aulas" },
+  { id: "pdf-upload", label: "PDFs" },
+  { id: "summary", label: "Resumos" },
+  { id: "flashcards", label: "Decks" },
+  { id: "quiz", label: "Quizzes" },
+  { id: "mindmap", label: "Mapas" },
+  { id: "unassigned", label: "Sem matéria" },
+];
+
 function DocumentosView({ user }: { user: User }) {
   const { documents, subjects, lectures, loading, refresh } = useAllDocuments(
     user.id,
@@ -57,6 +71,7 @@ function DocumentosView({ user }: { user: User }) {
   const [query, setQuery] = useState("");
   const [assignDoc, setAssignDoc] = useState<DocumentItem | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [kindFilter, setKindFilter] = useState<KindFilter>("all");
 
   /** Stats agregados por matéria (lectures + docs por kind). */
   const statsBySubject = useMemo(() => {
@@ -97,17 +112,46 @@ function DocumentosView({ user }: { user: User }) {
     [statsBySubject],
   );
 
-  /** PDFs uploadados que ainda não têm matéria associada. */
-  const unassignedDocs = useMemo(
-    () => documents.filter((d) => !d.subjectId && d.kind === "pdf-upload"),
-    [documents],
-  );
+  /** Listagem flat filtrada por busca + chip de tipo. */
+  const filteredDocuments = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return documents.filter((d) => {
+      if (kindFilter === "unassigned") {
+        if (d.subjectId) return false;
+      } else if (kindFilter !== "all") {
+        if (d.kind !== kindFilter) return false;
+      }
+      if (!q) return true;
+      const inTitle = d.title.toLowerCase().includes(q);
+      const inSubject = (d.subjectName ?? "").toLowerCase().includes(q);
+      return inTitle || inSubject;
+    });
+  }, [documents, query, kindFilter]);
+
+  const kindCounts = useMemo(() => {
+    const counts: Record<KindFilter, number> = {
+      all: documents.length,
+      unassigned: 0,
+      transcription: 0,
+      summary: 0,
+      flashcards: 0,
+      quiz: 0,
+      mindmap: 0,
+      "pdf-upload": 0,
+    };
+    for (const d of documents) {
+      counts[d.kind] += 1;
+      if (!d.subjectId) counts.unassigned += 1;
+    }
+    return counts;
+  }, [documents]);
 
   const filteredSubjects = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return subjects;
     return subjects.filter((s) => s.name.toLowerCase().includes(q));
   }, [subjects, query]);
+
 
   if (loading) {
     return (
@@ -178,12 +222,12 @@ function DocumentosView({ user }: { user: User }) {
       </div>
 
       {/* Search */}
-      {subjects.length > 4 && (
+      {(subjects.length > 4 || documents.length > 10) && (
         <div className="mb-6 relative max-w-md">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Buscar matéria…"
+            placeholder="Buscar matéria ou arquivo…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             className="pl-9"
@@ -213,43 +257,72 @@ function DocumentosView({ user }: { user: User }) {
         </div>
       )}
 
-      {/* Não atribuídos */}
-      {unassignedDocs.length > 0 && (
+      {/* Todos os arquivos — listagem flat com botão de mover por item */}
+      {documents.length > 0 && (
         <div className="mt-12">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold">
-              PDFs sem matéria{" "}
-              <span className="text-muted-foreground font-normal">
-                · {unassignedDocs.length}
-              </span>
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Atribua a uma matéria pra organizar.
-            </p>
-          </div>
-          <div className="space-y-2">
-            {unassignedDocs.map((d) => (
-              <button
-                key={d.id}
-                type="button"
-                onClick={() => setAssignDoc(d)}
-                className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border border-border/60 bg-card hover:border-primary/40 hover:shadow-sm transition-all text-left"
-              >
-                <div className="h-9 w-9 shrink-0 rounded-lg bg-sky-500/10 dark:bg-sky-500/15 flex items-center justify-center">
-                  <FileText className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium truncate">{d.title}</div>
-                  <div className="text-[11px] text-muted-foreground">
-                    PDF · {formatRelativeTime(d.date)}
-                  </div>
-                </div>
-                <span className="text-xs text-primary font-medium shrink-0">
-                  Atribuir →
+          <div className="flex items-end justify-between mb-3 gap-4 flex-wrap">
+            <div>
+              <h2 className="text-lg font-semibold">
+                Todos os arquivos{" "}
+                <span className="text-muted-foreground font-normal">
+                  · {filteredDocuments.length}
                 </span>
-              </button>
-            ))}
+              </h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Clique nos três pontinhos pra mudar de matéria ou abrir.
+              </p>
+            </div>
           </div>
+
+          {/* Chips de filtro por tipo */}
+          <div className="mb-4 flex items-center gap-1.5 flex-wrap">
+            {KIND_FILTERS.map((f) => {
+              const active = kindFilter === f.id;
+              const count = kindCounts[f.id];
+              if (f.id !== "all" && count === 0) return null;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setKindFilter(f.id)}
+                  className={cn(
+                    "h-7 px-2.5 rounded-full text-[12px] font-medium transition-colors border",
+                    active
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-card text-muted-foreground hover:text-foreground hover:bg-secondary/50 border-border/60",
+                  )}
+                >
+                  {f.label}
+                  <span
+                    className={cn(
+                      "ml-1.5 tabular-nums",
+                      active
+                        ? "text-primary-foreground/80"
+                        : "text-muted-foreground/70",
+                    )}
+                  >
+                    {count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {filteredDocuments.length === 0 ? (
+            <div className="text-center text-sm text-muted-foreground py-8 border border-dashed border-border/50 rounded-xl">
+              Nenhum arquivo nesse filtro.
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border/50 bg-card/50 p-1">
+              {filteredDocuments.map((d) => (
+                <DocumentItemRow
+                  key={d.id}
+                  doc={d}
+                  onAssignSubject={(doc) => setAssignDoc(doc)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
