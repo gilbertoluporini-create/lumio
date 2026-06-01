@@ -17,6 +17,7 @@ import {
   Navigation,
   Search,
   Sparkles,
+  Upload,
   X,
 } from "lucide-react";
 import Link from "next/link";
@@ -79,6 +80,11 @@ const TOOL_META: Record<
     Icon: HelpCircle,
     color: "text-primary",
   },
+  solicitar_upload: {
+    label: "Subir arquivos",
+    Icon: Upload,
+    color: "text-emerald-500",
+  },
 };
 
 export function LumiToolCard({
@@ -110,6 +116,43 @@ export function LumiToolCard({
   // Caso especial: pergunta com opções clicáveis
   if (name === "perguntar_opcoes" && status === "done") {
     return <LumiQuestionCard output={(output ?? {}) as QuestionCardOutput} />;
+  }
+
+  // Caso especial: card destacado "Subir arquivos" — abre o modal de upload
+  // direto via navegação pra /subject/<id>?upload=1 (a página detecta o query
+  // e abre o UploadDocumentDialog na chegada).
+  if (name === "solicitar_upload" && status === "done") {
+    const out = (output ?? {}) as {
+      navegacao?: { path?: string; motivo?: string };
+      materia?: string;
+      motivo?: string;
+    };
+    const path = out.navegacao?.path;
+    if (path) {
+      return (
+        <Link
+          href={path}
+          className="block rounded-2xl border-2 border-dashed border-emerald-500/40 bg-gradient-to-br from-emerald-500/10 via-card to-emerald-500/5 p-4 hover:border-emerald-500/60 transition-all"
+        >
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 shrink-0 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+              <Upload className="h-5 w-5 text-emerald-600" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">
+                Subir arquivos {out.materia ? `em ${out.materia}` : ""}
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">
+                {out.motivo ?? "Abre o modal de upload"}
+              </div>
+            </div>
+            <div className="text-xs font-medium text-emerald-600">
+              Abrir →
+            </div>
+          </div>
+        </Link>
+      );
+    }
   }
 
   // Tenta extrair info útil do output pra mostrar

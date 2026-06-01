@@ -45,6 +45,7 @@ export type LumiToolName =
   | "gerar_rotina_estudo"
   | "criar_plano_de_estudos"
   | "abrir_rota"
+  | "solicitar_upload"
   | "perguntar_opcoes";
 
 export type ToolContext = {
@@ -519,9 +520,29 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "solicitar_upload",
+    description:
+      "Cria um card 'Subir arquivos' que ABRE O MODAL DE UPLOAD da matéria ao clicar (não navega só pra página). USE quando o user não tem material da matéria e precisa subir PDF/slides/aula. PREFIRA esta tool sobre abrir_rota quando o objetivo é o user subir arquivo — abrir_rota só leva ele pra página, esta tool abre o modal direto. Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: {
+          type: "string",
+          description: "UUID da matéria onde o arquivo será subido.",
+        },
+        motivo: {
+          type: "string",
+          description:
+            "Texto curto mostrado no card (ex: 'subir o PDF da aula de Endócrino').",
+        },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
     name: "abrir_rota",
     description:
-      "Devolve uma instrução pro frontend navegar pra uma rota interna. Use quando o user pedir explicitamente 'me leva pra X' ou quando faz sentido abrir um asset gerado. Não executa nada server-side.",
+      "Devolve uma instrução pro frontend navegar pra uma rota interna. Use quando o user pedir explicitamente 'me leva pra X' ou quando faz sentido abrir um asset gerado. Não executa nada server-side. Pra solicitar upload de PDF, use solicitar_upload (abre modal direto).",
     input_schema: {
       type: "object",
       properties: {
@@ -1295,6 +1316,37 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       navegacao: { path, motivo },
       instrucao_pro_client:
         "Renderize um card clicável com este path. Não navegue automaticamente.",
+    };
+  },
+
+  async solicitar_upload(input, ctx) {
+    const subjectId = str(input.subjectId).trim();
+    const motivo = str(input.motivo, "").trim();
+    if (!subjectId) return { error: "subjectId obrigatório" };
+    // Confirma ownership da matéria.
+    const { data: subj } = await ctx.supabaseAdmin
+      .from("subjects")
+      .select("id, name")
+      .eq("id", subjectId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    if (!subj) {
+      return { error: "matéria não encontrada ou não pertence ao user" };
+    }
+    return {
+      sucesso: true,
+      tipo: "upload_request",
+      subjectId,
+      materia: subj.name,
+      motivo: motivo || `subir material em ${subj.name}`,
+      // Navegação pra subject + query ?upload=1 dispara o useEffect que
+      // abre o modal de upload na chegada — sem o user precisar clicar.
+      navegacao: {
+        path: `/subject/${subjectId}?upload=1`,
+        motivo: motivo || `subir material em ${subj.name}`,
+      },
+      instrucao_pro_client:
+        "Renderize um card destacado 'Subir arquivos aqui' que ao clicar leva ao modal de upload da matéria.",
     };
   },
 

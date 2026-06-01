@@ -155,6 +155,15 @@ function SubjectView({
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [uploadDocOpen, setUploadDocOpen] = useState(false);
+  // Lumi pode mandar o user pra cá com ?upload=1 pra abrir o modal de
+  // upload direto (em vez de mostrar a página inteira só pra ele clicar).
+  useEffect(() => {
+    if (searchParams.get("upload") === "1") {
+      setUploadDocOpen(true);
+    }
+    // Dependência intencional: queremos reagir a mudanças de query string.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [renamingFolder, setRenamingFolder] = useState<Folder | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   // Mindmap usa dialog próprio (mais simples — só complexidade + foco).
