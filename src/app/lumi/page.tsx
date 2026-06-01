@@ -1369,24 +1369,38 @@ function LumiAssistant({ user }: { user: User }) {
                   o modelo gera texto entre tool calls e a versão final pode
                   diferir da intermediária. Só mostramos texto quando o turn
                   termina (via LumiMessageBubble da mensagem persistida). */}
-              {sending && (
-                <div className="flex flex-col gap-2">
-                  {streamingTools.length > 0 && (
-                    <div className="flex flex-col gap-2">
-                      {streamingTools.map((t) => (
-                        <LumiToolCard
-                          key={t.id}
-                          name={t.name}
-                          status={t.status}
-                          input={t.input}
-                          output={t.output}
-                        />
-                      ))}
-                    </div>
-                  )}
-                  <LumiThinking variant="card" />
-                </div>
-              )}
+              {sending && (() => {
+                // Filtra perguntar_opcoes e solicitar_upload dos cards inline
+                // durante o stream — eles são cards GRANDES e clicáveis que vão
+                // aparecer dentro do bubble final (gated por typewriterDone).
+                // Mostrar inline causa flash: aparece → some quando turn termina
+                // → reaparece dentro do bubble após typewriter. Os outros tools
+                // (listar_*, buscar_*, criar_*) seguem visíveis pra dar feedback
+                // de "Lumi tá fazendo X" — são pequenos e ficam no histórico.
+                const inlineTools = streamingTools.filter(
+                  (t) =>
+                    t.name !== "perguntar_opcoes" &&
+                    t.name !== "solicitar_upload",
+                );
+                return (
+                  <div className="flex flex-col gap-2">
+                    {inlineTools.length > 0 && (
+                      <div className="flex flex-col gap-2">
+                        {inlineTools.map((t) => (
+                          <LumiToolCard
+                            key={t.id}
+                            name={t.name}
+                            status={t.status}
+                            input={t.input}
+                            output={t.output}
+                          />
+                        ))}
+                      </div>
+                    )}
+                    <LumiThinking variant="card" />
+                  </div>
+                );
+              })()}
             </div>
           </div>
 
