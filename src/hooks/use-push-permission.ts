@@ -88,12 +88,14 @@ export function useNotificationPermission(): UsePushPermission {
     }
     setPermission(Notification.permission as PermissionState);
 
-    // Verifica se já existe sub ativa nesse browser (caso o user já tenha
-    // ativado em outra sessão).
+    // Registra o SW proativamente no mount (idempotente — se já estiver
+    // registrado, o browser reusa). Sem isso, `getSubscription` abaixo
+    // sempre retorna null em first-visit, e a checagem de "já está
+    // subscribed" só ocorreria depois do user clicar em Ativar.
     void (async () => {
       try {
-        const reg = await navigator.serviceWorker.getRegistration("/sw.js");
-        if (!reg) return;
+        if (!("serviceWorker" in navigator)) return;
+        const reg = await navigator.serviceWorker.register("/sw.js");
         const sub = await reg.pushManager.getSubscription();
         setSubscribed(!!sub);
       } catch {

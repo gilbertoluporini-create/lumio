@@ -155,11 +155,17 @@ export async function GET(req: NextRequest) {
 
     // 2b) Atividade recente na matéria (resumos + flashcards/quiz/mindmap
     //     da matéria nos últimos 7d). Sem subject_id, considera "sem atividade".
+    //
+    // lecture_assets NÃO tem subject_id direto — vem via lectures.subject_id
+    // OU documents.subject_id. Pra evitar o JOIN custoso (e o vazamento entre
+    // matérias que tava no count antigo), contamos via 2 queries embedded:
+    // uma que junta lectures.subject_id, outra que junta documents.subject_id.
     let recentActivity = 0;
     if (plan.subject_id) {
       const [
         { count: summariesCount },
-        { count: assetsCount },
+        { count: lectureAssetsCount },
+        { count: documentAssetsCount },
       ] = await Promise.all([
         admin
           .from("summaries")
@@ -169,11 +175,21 @@ export async function GET(req: NextRequest) {
           .gte("created_at", since7d),
         admin
           .from("lecture_assets")
-          .select("id", { count: "exact", head: true })
+          .select("id, lectures!inner(subject_id)", { count: "exact", head: true })
           .eq("user_id", plan.user_id)
-          .gte("created_at", since7d),
+          .gte("created_at", since7d)
+          .eq("lectures.subject_id", plan.subject_id),
+        admin
+          .from("lecture_assets")
+          .select("id, documents!inner(subject_id)", { count: "exact", head: true })
+          .eq("user_id", plan.user_id)
+          .gte("created_at", since7d)
+          .eq("documents.subject_id", plan.subject_id),
       ]);
-      recentActivity = (summariesCount ?? 0) + (assetsCount ?? 0);
+      recentActivity =
+        (summariesCount ?? 0) +
+        (lectureAssetsCount ?? 0) +
+        (documentAssetsCount ?? 0);
     }
 
     const subject = plan.subject_id ? subjectMap.get(plan.subject_id) : null;

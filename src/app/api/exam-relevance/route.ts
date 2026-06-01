@@ -88,7 +88,10 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     console.error("[exam-relevance] select failed", error);
-    return NextResponse.json({ relevance: null });
+    return NextResponse.json(
+      { error: error.message },
+      { status: 500 },
+    );
   }
 
   type Row = {

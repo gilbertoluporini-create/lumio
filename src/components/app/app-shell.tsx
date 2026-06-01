@@ -38,6 +38,7 @@ import { JobsTray } from "@/components/jobs/jobs-tray";
 import { PlanPremiumCard } from "@/components/app/plan-premium-card";
 import { PendingGenerationGuard } from "@/components/app/pending-generation-guard";
 import { CreatePasswordPrompt } from "@/components/app/create-password-prompt";
+import { PushPermissionBanner } from "@/components/app/push-permission-banner";
 import { SupportFab } from "@/components/support/support-fab";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -552,7 +553,14 @@ export function AppShell({
           </div>
         </header>
 
-        <main className="flex-1">{children}</main>
+        <main className="flex-1">
+          {/* Banner Web Push — só aparece pra usuário logado em rota do AppShell,
+              após delay e enquanto Notification.permission === 'default'. */}
+          <div className="px-4 md:px-6 pt-3">
+            <PushPermissionBanner />
+          </div>
+          {children}
+        </main>
       </div>
       {/* Detecta geração que ficou pela metade (coins cobrados mas asset
           não salvo) e oferece "Salvar agora" via toast. Roda 1x por sessão. */}

@@ -46,8 +46,12 @@ export const maxDuration = 300;
 
 /** Janela de provas processada: hoje a hoje+7d. */
 const HORIZON_DAYS = 7;
-/** Threshold cosine pra um asset ser considerado "relevante". */
-const RELEVANCE_THRESHOLD = 0.5;
+/** Threshold cosine pra um asset ser considerado "relevante".
+ * Calibrado em 2026-06-01 com dados reais (Isa + outro user, 100 docs total):
+ * queries curtas como "Sistema Endócrino" ficam em 0.43-0.45 contra
+ * embeddings de aulas/PDFs. 0.5 era alto demais → 0 inserts. 0.40 captura
+ * sinais bons sem encher de ruído (testar e ajustar conforme feedback real). */
+const RELEVANCE_THRESHOLD = 0.4;
 /** Top-K assets por plano por source_kind. */
 const TOP_K = 10;
 
@@ -270,37 +274,96 @@ export async function GET(req: Request) {
       }
     }
 
-    // 5. DELETE prévio + INSERT (refresh total — sem incremental hoje).
-    //    Faz num único loop transacional não-formal: se o INSERT falhar,
-    //    o DELETE já rodou → próximo cron repõe. Aceitável: a UI cai pra
-    //    "sem badge" temporariamente, não corrompe nada.
-    const { error: delErr } = await admin
-      .from("exam_lecture_relevance")
-      .delete()
-      .eq("exam_id", plan.id);
-    if (delErr) {
-      console.warn(
-        `[cron/exam-relevance] delete prev failed plan=${plan.id}`,
-        delErr,
-      );
+    // 5. UPSERT + DELETE cleanup (refresh incremental atômico no add).
+    //    Pré-requisito: migration 044 cria unique indexes parciais por kind
+    //    em (exam_id, lecture_id|document_id|summary_id) WHERE col is not null.
+    //    Estratégia:
+    //      a) UPSERT por kind com onConflict no par (exam_id, <kind>_id):
+    //         linhas novas são inseridas, existentes têm relevance_score
+    //         atualizado. ATOMIC por kind — UI nunca fica sem badge nas
+    //         linhas que continuam relevantes.
+    //      b) DELETE cleanup das rows que não vieram no novo cálculo. Só
+    //         aqui ainda há janela curta, mas só pra remoções (aceitável).
+    const rowsByKind: Record<
+      "lecture" | "document" | "summary",
+      RelevanceInsert[]
+    > = { lecture: [], document: [], summary: [] };
+    for (const row of insertRows) {
+      if (row.lecture_id) rowsByKind.lecture.push(row);
+      else if (row.document_id) rowsByKind.document.push(row);
+      else if (row.summary_id) rowsByKind.summary.push(row);
     }
 
-    if (insertRows.length > 0) {
-      const { error: insErr } = await admin
+    let upsertFailed = false;
+    const upsertOps: Array<{
+      kind: "lecture" | "document" | "summary";
+      onConflict: string;
+      rows: RelevanceInsert[];
+    }> = [
+      { kind: "lecture", onConflict: "exam_id,lecture_id", rows: rowsByKind.lecture },
+      { kind: "document", onConflict: "exam_id,document_id", rows: rowsByKind.document },
+      { kind: "summary", onConflict: "exam_id,summary_id", rows: rowsByKind.summary },
+    ];
+
+    for (const op of upsertOps) {
+      if (op.rows.length === 0) continue;
+      const { error: upErr } = await admin
         .from("exam_lecture_relevance")
-        .insert(insertRows);
-      if (insErr) {
+        .upsert(op.rows, { onConflict: op.onConflict });
+      if (upErr) {
         console.warn(
-          `[cron/exam-relevance] insert failed plan=${plan.id}`,
-          insErr,
+          `[cron/exam-relevance] upsert failed plan=${plan.id} kind=${op.kind}`,
+          upErr,
         );
-        perPlanStats.push({
-          plan_id: plan.id,
-          user_id: plan.user_id,
-          inserted: 0,
-          skipped_reason: "insert_failed",
-        });
-        continue;
+        upsertFailed = true;
+      }
+    }
+
+    if (upsertFailed) {
+      perPlanStats.push({
+        plan_id: plan.id,
+        user_id: plan.user_id,
+        inserted: 0,
+        skipped_reason: "upsert_failed",
+      });
+      continue;
+    }
+
+    // Cleanup: deletar rows desse plano que NÃO estão no novo conjunto.
+    // Em vez de NOT IN com tuplas (PostgREST não suporta diretamente), faz
+    // 3 deletes — um por kind — usando filter `not.in.(lista)` no _id.
+    // Se a lista nova de um kind é vazia, deleta todas desse kind no plano.
+    for (const op of upsertOps) {
+      const idCol =
+        op.kind === "lecture"
+          ? "lecture_id"
+          : op.kind === "document"
+            ? "document_id"
+            : "summary_id";
+      const keepIds = op.rows
+        .map((r) =>
+          op.kind === "lecture"
+            ? r.lecture_id
+            : op.kind === "document"
+              ? r.document_id
+              : r.summary_id,
+        )
+        .filter((v): v is string => !!v);
+
+      let delQuery = admin
+        .from("exam_lecture_relevance")
+        .delete()
+        .eq("exam_id", plan.id)
+        .not(idCol, "is", null);
+      if (keepIds.length > 0) {
+        delQuery = delQuery.not(idCol, "in", `(${keepIds.join(",")})`);
+      }
+      const { error: cleanErr } = await delQuery;
+      if (cleanErr) {
+        console.warn(
+          `[cron/exam-relevance] cleanup failed plan=${plan.id} kind=${op.kind}`,
+          cleanErr,
+        );
       }
     }
 
