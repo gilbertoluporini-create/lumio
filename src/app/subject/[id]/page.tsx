@@ -491,14 +491,28 @@ function SubjectView({
   // o wizard cria uma lecture "fake" como container do asset. Essa lecture
   // não tem transcript/slides/messages — não faz sentido mostrar na lista
   // de "Aulas gravadas". Os assets aparecem na seção "Materiais gerados".
+  //
+  // 2026-06-01: aulas com `transcript_chapters` (revisão IA) ou
+  // `transcript_entries` populadas mas `transcript` vazio (raro mas possível
+  // com Whisper retornando entries sem o blob de texto contínuo) também
+  // contam — antes essas aulas sumiam silenciosamente.
   const realLectures = useMemo(
     () =>
       lectures.filter((l) => {
         if (!matchesCurrentFolder(l.folderId)) return false;
         const hasTranscript = (l.transcript ?? "").trim().length > 0;
+        const hasEntries = (l.transcriptEntries?.length ?? 0) > 0;
+        const hasChapters =
+          (l.transcriptChapters?.chapters?.length ?? 0) > 0;
         const hasSlides = (l.slides?.length ?? 0) > 0;
         const hasMessages = (l.messages?.length ?? 0) > 0;
-        return hasTranscript || hasSlides || hasMessages;
+        return (
+          hasTranscript ||
+          hasEntries ||
+          hasChapters ||
+          hasSlides ||
+          hasMessages
+        );
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [lectures, currentFolderId],
@@ -860,6 +874,9 @@ function SubjectView({
                     <AssetCard
                       key={a.id}
                       asset={a}
+                      lectureTitle={
+                        lectures.find((l) => l.id === a.lecture_id)?.title
+                      }
                       favorited={favIds.has(`asset:${a.id}`)}
                       onToggleFav={() => toggleFav(`asset:${a.id}`)}
                       onMove={() => moveAsset(a)}
@@ -878,6 +895,9 @@ function SubjectView({
                     <AssetCard
                       key={a.id}
                       asset={a}
+                      lectureTitle={
+                        lectures.find((l) => l.id === a.lecture_id)?.title
+                      }
                       favorited={favIds.has(`asset:${a.id}`)}
                       onToggleFav={() => toggleFav(`asset:${a.id}`)}
                       onMove={() => moveAsset(a)}
@@ -896,6 +916,9 @@ function SubjectView({
                     <AssetCard
                       key={a.id}
                       asset={a}
+                      lectureTitle={
+                        lectures.find((l) => l.id === a.lecture_id)?.title
+                      }
                       favorited={favIds.has(`asset:${a.id}`)}
                       onToggleFav={() => toggleFav(`asset:${a.id}`)}
                       onMove={() => moveAsset(a)}
@@ -1736,12 +1759,16 @@ function DocumentInfoDialog({
 
 function AssetCard({
   asset,
+  lectureTitle,
   favorited,
   onToggleFav,
   onMove,
   onDelete,
 }: {
   asset: SubjectAsset;
+  /** Título da aula de origem (lecture.title) pra mostrar acima do detail.
+   *  Resolve "qual aula gerou esse quiz?" quando o user tem N quizzes. */
+  lectureTitle?: string;
   favorited: boolean;
   onToggleFav: () => void;
   onMove: () => void;
@@ -1802,8 +1829,13 @@ function AssetCard({
           {meta.label}
         </div>
         <div className="text-sm font-semibold leading-tight line-clamp-2 group-hover:text-primary transition-colors">
-          {meta.detail}
+          {lectureTitle ?? meta.detail}
         </div>
+        {lectureTitle && (
+          <div className="text-xs text-muted-foreground mt-0.5 line-clamp-1">
+            {meta.detail}
+          </div>
+        )}
       </div>
       <MoveButton onMove={onMove} />
       {onDelete && <DeleteAssetButton onDelete={onDelete} />}
