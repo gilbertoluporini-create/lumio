@@ -21,6 +21,10 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
+import {
+  LumiQuestionCard,
+  type QuestionCardOutput,
+} from "@/components/lumi/lumi-question-card";
 import { ZoomableImage } from "@/components/ui/zoomable-image";
 import type { LumiChatMessage } from "@/lib/lumi-chats";
 
@@ -217,23 +221,28 @@ export function LumiMessageBubble({ message, isStreaming, playTypewriter }: Prop
         </div>
 
         {(() => {
-          // perguntar_opcoes não renderiza no bubble — ele aparece como sticky
-          // ACIMA do input box (vide pendingQuestion em /lumi/page.tsx).
-          // Sem esse filtro, o card ficaria duplicado.
-          const visibleTools = (message.tools ?? []).filter(
-            (t) => t.name !== "perguntar_opcoes",
-          );
-          if (visibleTools.length === 0) return null;
+          const tools = message.tools ?? [];
+          if (tools.length === 0) return null;
           return (
             <div className="mt-3 space-y-2">
-              {visibleTools.map((t, i) => (
-                <LumiToolCard
-                  key={i}
-                  name={t.name}
-                  status={t.status}
-                  output={t.output}
-                />
-              ))}
+              {tools.map((t, i) => {
+                if (t.name === "perguntar_opcoes" && t.status === "done") {
+                  return (
+                    <LumiQuestionCard
+                      key={i}
+                      output={t.output as QuestionCardOutput}
+                    />
+                  );
+                }
+                return (
+                  <LumiToolCard
+                    key={i}
+                    name={t.name}
+                    status={t.status}
+                    output={t.output}
+                  />
+                );
+              })}
             </div>
           );
         })()}

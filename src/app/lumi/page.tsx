@@ -58,10 +58,6 @@ import {
 } from "@/components/lumi/lumi-quick-actions";
 import { LumiThinking } from "@/components/lumi/lumi-thinking";
 import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
-import {
-  LumiQuestionCard,
-  type QuestionCardOutput,
-} from "@/components/lumi/lumi-question-card";
 import { LumiAttachmentPicker } from "@/components/lumi/lumi-attachment-picker";
 import { LumiVoiceMode } from "@/components/lumi/lumi-voice-mode";
 import { Textarea } from "@/components/ui/textarea";
@@ -348,38 +344,6 @@ function LumiAssistant({ user }: { user: User }) {
     .map((t) => `${t.name}:${t.status}`)
     .join("|");
 
-  // Set de message IDs cujas perguntas foram dismissed via X — o card some
-  // sem precisar responder. Persistido em ref pra sobreviver re-renders sem
-  // ficar no state global (set in-memory por sessão chega).
-  const [dismissedQuestionIds, setDismissedQuestionIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-
-  // Pergunta clicável pendente — vem da última mensagem assistant e fica
-  // sticky ACIMA do input box (estilo Claude Code AskUserQuestion), deixando
-  // o feed limpo. Considera "pendente" se a próxima mensagem é do user
-  // (ainda não foi respondida) OU se é a última mensagem do chat.
-  const pendingQuestion = useMemo<
-    { output: QuestionCardOutput; messageId: string } | null
-  >(() => {
-    if (sending) return null; // só mostra quando turn terminou
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.role !== "assistant") continue;
-      // Se há user message DEPOIS deste assistant, já foi respondida.
-      const respondida = messages
-        .slice(i + 1)
-        .some((mm) => mm.role === "user");
-      if (respondida) return null;
-      if (dismissedQuestionIds.has(m.id)) return null;
-      const tool = m.tools?.find(
-        (t) => t.name === "perguntar_opcoes" && t.status === "done",
-      );
-      if (!tool) return null;
-      return { output: tool.output as QuestionCardOutput, messageId: m.id };
-    }
-    return null;
-  }, [messages, sending, dismissedQuestionIds]);
 
   // Auto-scroll inteligente: PARA quando user rola pra cima manualmente,
   // RELIGA quando user clica no botão "ir pra última mensagem" abaixo.
@@ -553,24 +517,6 @@ function LumiAssistant({ user }: { user: User }) {
     window.addEventListener("lumi-pick-option", handler);
     return () => window.removeEventListener("lumi-pick-option", handler);
   }, [sending, sendMessage]);
-
-  // Escuta X de fechar do question card — guarda o messageId no set de
-  // dismissed pra esconder o overlay sem precisar responder.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const handler = (ev: Event) => {
-      const id = (ev as CustomEvent<{ messageId?: string }>).detail?.messageId;
-      if (!id) return;
-      setDismissedQuestionIds((prev) => {
-        if (prev.has(id)) return prev;
-        const next = new Set(prev);
-        next.add(id);
-        return next;
-      });
-    };
-    window.addEventListener("lumi-dismiss-question", handler);
-    return () => window.removeEventListener("lumi-dismiss-question", handler);
-  }, []);
 
   const runGenerate = useCallback(
     async (kind: LumiGenerateKind) => {
@@ -1429,31 +1375,9 @@ function LumiAssistant({ user }: { user: User }) {
                   onRemove={handleRemoveAttachment}
                 />
               )}
-              {/* Composer unificado: question card (perguntar_opcoes) fica
-                  OVERLAY absolute crescendo PRA CIMA sobre o chat — não
-                  empurra a border-t externa. Border-manipulation (overlay
-                  com rounded-top + sem border-bottom; input com rounded-
-                  bottom + sem border-top quando há question) faz os dois
-                  parecerem 1 container visual. */}
-              <div className="relative">
-                {pendingQuestion && (
-                  <div className="pointer-events-none absolute bottom-full left-0 right-0">
-                    <div className="pointer-events-auto overflow-hidden rounded-t-2xl border border-b-0 border-border/60 bg-card shadow-sm">
-                      <LumiQuestionCard
-                        output={pendingQuestion.output}
-                        messageId={pendingQuestion.messageId}
-                        embedded
-                      />
-                    </div>
-                  </div>
-                )}
-                <div
-                  className={cn(
-                    "overflow-hidden border border-border/60 bg-card shadow-sm",
-                    pendingQuestion ? "rounded-b-2xl border-t-0" : "rounded-2xl",
-                  )}
-                >
-                  <div className="p-3">
+              {/* Input simples — perguntar_opcoes renderiza inline no
+                  bubble da Lumi (no fluxo do chat), não aqui. */}
+              <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-sm">
                 <Textarea
                   ref={bottomTextareaRef}
                   value={input}
@@ -1529,8 +1453,6 @@ function LumiAssistant({ user }: { user: User }) {
                     </Button>
                   </div>
                 </div>
-                </div>
-              </div>
               </div>
               <p className="text-center text-[10px] text-muted-foreground">
                 Lumi pode cometer erros. Sempre revise as informações.
