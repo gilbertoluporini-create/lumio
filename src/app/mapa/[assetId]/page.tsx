@@ -24,6 +24,7 @@ import {
   Circle,
   Download,
   FileText,
+  FolderInput,
   Layers,
   Loader2,
   Maximize2,
@@ -45,7 +46,12 @@ import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
 import { getLectureAsync, getSubjectAsync } from "@/lib/db";
+import { listSubjectsAsync } from "@/lib/db";
 import { getSummaryByLectureIdAsync } from "@/lib/summaries";
+import {
+  MoveToFolderDialog,
+  type MoveTarget,
+} from "@/components/documents/move-to-folder-dialog";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import type { Lecture, Subject, User } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -106,6 +112,11 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
     flashcardsId: string | null;
     quizId: string | null;
   }>({ summary: false, flashcardsId: null, quizId: null });
+  // Move-to-folder dialog state. Subjects são carregados sob demanda quando
+  // o user clica em "Mover" — não precisa pagar a query antes.
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
 
   const dragRef = useRef<{
     dragging: boolean;
@@ -123,7 +134,7 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
         const supabase = createClient();
         const { data, error } = await supabase
           .from("lecture_assets")
-          .select("id, lecture_id, payload, created_at")
+          .select("id, lecture_id, folder_id, payload, created_at")
           .eq("id", assetId)
           .eq("user_id", user.id)
           .eq("kind", "mindmap")
@@ -138,9 +149,11 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
         const row = data as {
           id: string;
           lecture_id: string;
+          folder_id: string | null;
           payload: MindmapAsset;
           created_at: string;
         };
+        setCurrentFolderId(row.folder_id ?? null);
         if (!row.payload || !row.payload.centralTopic) {
           toast.error("Mapa mental sem conteúdo.");
           router.replace("/dashboard");
@@ -345,6 +358,28 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
         </Button>
         <Button variant="outline" size="sm" onClick={handleExport}>
           <Download className="h-3.5 w-3.5" /> Exportar
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
+            // Carrega matérias só na 1ª vez — economiza request no load da página.
+            if (subjects.length === 0) {
+              const subs = await listSubjectsAsync(user.id);
+              setSubjects(subs);
+            }
+            setMoveTarget({
+              kind: "lecture_asset",
+              id: assetId,
+              title: `Mapa de "${lecture.title}"`,
+              currentSubjectId: lecture.subjectId,
+              currentFolderId,
+              note: "Move só este mapa pra outra pasta da matéria atual. A aula original e os outros assets ficam onde estão.",
+            });
+          }}
+        >
+          <FolderInput className="h-3.5 w-3.5" /> Mover pra pasta
         </Button>
 
         <Button
@@ -586,6 +621,38 @@ function MapaView({ user, assetId }: { user: User; assetId: string }) {
           </div>
         </div>
       </div>
+
+      {/* Mover mapa pra outra pasta da matéria atual */}
+      <MoveToFolderDialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null);
+        }}
+        userId={user.id}
+        subjects={subjects}
+        target={moveTarget}
+        onMoved={async () => {
+          // Refetch da row pra pegar o novo folder_id e refletir no estado
+          // local (próximo "Mover" mostra a pasta certa como "atual").
+          try {
+            const supabase = createClient();
+            const { data } = await supabase
+              .from("lecture_assets")
+              .select("folder_id")
+              .eq("id", assetId)
+              .eq("user_id", user.id)
+              .maybeSingle();
+            if (data) {
+              setCurrentFolderId(
+                (data as { folder_id: string | null }).folder_id ?? null,
+              );
+            }
+          } catch {
+            /* não-crítico — fica desatualizado até o próximo load */
+          }
+          setMoveTarget(null);
+        }}
+      />
     </div>
   );
 }

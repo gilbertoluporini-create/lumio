@@ -26,6 +26,7 @@ import {
   Circle,
   Clock,
   FileText,
+  FolderInput,
   Frown,
   Layers,
   Loader2,
@@ -53,8 +54,12 @@ import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { getLectureAsync, getSubjectAsync } from "@/lib/db";
+import { getLectureAsync, getSubjectAsync, listSubjectsAsync } from "@/lib/db";
 import { getSummaryByLectureIdAsync } from "@/lib/summaries";
+import {
+  MoveToFolderDialog,
+  type MoveTarget,
+} from "@/components/documents/move-to-folder-dialog";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import {
   countDueForDeck,
@@ -131,6 +136,10 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
   const [summarySnippet, setSummarySnippet] = useState<string | undefined>(
     undefined,
   );
+  // Move-to-folder state (subjects são lazy-loaded no clique).
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
 
   // ===== Load deck =====
   useEffect(() => {
@@ -141,7 +150,7 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
         const supabase = createClient();
         const { data, error } = await supabase
           .from("lecture_assets")
-          .select("id, lecture_id, payload, created_at")
+          .select("id, lecture_id, folder_id, payload, created_at")
           .eq("id", assetId)
           .eq("user_id", user.id)
           .eq("kind", "flashcards")
@@ -156,9 +165,11 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
         const row = data as {
           id: string;
           lecture_id: string;
+          folder_id: string | null;
           payload: FlashcardsPayload;
           created_at: string;
         };
+        setCurrentFolderId(row.folder_id ?? null);
         const cards = Array.isArray(row.payload?.cards) ? row.payload.cards : [];
         const imageUrls = Array.isArray(row.payload?.imageUrls)
           ? row.payload.imageUrls.filter(
@@ -482,6 +493,27 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
           variant="outline"
           size="sm"
           onClick={async () => {
+            if (subjects.length === 0) {
+              const subs = await listSubjectsAsync(user.id);
+              setSubjects(subs);
+            }
+            setMoveTarget({
+              kind: "lecture_asset",
+              id: assetId,
+              title: `Flashcards de "${lecture.title}"`,
+              currentSubjectId: lecture.subjectId,
+              currentFolderId,
+              note: "Move só este deck pra outra pasta da matéria atual. A aula original e os outros assets ficam onde estão.",
+            });
+          }}
+        >
+          <FolderInput className="h-3.5 w-3.5" /> Mover pra pasta
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
             const ok = await confirmAction({
               title: `Excluir esse deck de flashcards?`,
               description:
@@ -766,6 +798,36 @@ function DeckView({ user, assetId }: { user: User; assetId: string }) {
           </div>
         </div>
       </div>
+
+      {/* Mover deck pra outra pasta da matéria atual */}
+      <MoveToFolderDialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null);
+        }}
+        userId={user.id}
+        subjects={subjects}
+        target={moveTarget}
+        onMoved={async () => {
+          try {
+            const supabase = createClient();
+            const { data } = await supabase
+              .from("lecture_assets")
+              .select("folder_id")
+              .eq("id", assetId)
+              .eq("user_id", user.id)
+              .maybeSingle();
+            if (data) {
+              setCurrentFolderId(
+                (data as { folder_id: string | null }).folder_id ?? null,
+              );
+            }
+          } catch {
+            /* não-crítico */
+          }
+          setMoveTarget(null);
+        }}
+      />
     </div>
   );
 }

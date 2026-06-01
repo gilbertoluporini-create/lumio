@@ -27,6 +27,7 @@ import {
   Circle,
   Clock,
   FileText,
+  FolderInput,
   Layers,
   Loader2,
   MapIcon,
@@ -48,8 +49,12 @@ import { LumiChatPanel } from "@/components/lumi/lumi-chat-panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { createClient } from "@/lib/supabase/client";
-import { getLectureAsync, getSubjectAsync } from "@/lib/db";
+import { getLectureAsync, getSubjectAsync, listSubjectsAsync } from "@/lib/db";
 import { getSummaryByLectureIdAsync } from "@/lib/summaries";
+import {
+  MoveToFolderDialog,
+  type MoveTarget,
+} from "@/components/documents/move-to-folder-dialog";
 import {
   formatPracticeTime,
   listAttemptsAsync,
@@ -127,6 +132,10 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
   >(null);
   const [completed, setCompleted] = useState(false);
   const questionStartRef = useRef<number>(Date.now());
+  // Move-to-folder state (subjects lazy-loaded no clique).
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
 
   // Recarrega só os siblings (chamado quando user gera flashcards/mindmap novo).
   const reloadSiblings = useCallback(async () => {
@@ -166,7 +175,7 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
         const supabase = createClient();
         const { data, error } = await supabase
           .from("lecture_assets")
-          .select("id, lecture_id, payload, created_at")
+          .select("id, lecture_id, folder_id, payload, created_at")
           .eq("id", assetId)
           .eq("user_id", user.id)
           .eq("kind", "quiz")
@@ -181,9 +190,11 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
         const row = data as {
           id: string;
           lecture_id: string;
+          folder_id: string | null;
           payload: QuizPayload;
           created_at: string;
         };
+        setCurrentFolderId(row.folder_id ?? null);
         const questions = Array.isArray(row.payload?.questions)
           ? row.payload.questions
           : [];
@@ -483,6 +494,27 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
           variant="outline"
           size="sm"
           onClick={async () => {
+            if (subjects.length === 0) {
+              const subs = await listSubjectsAsync(user.id);
+              setSubjects(subs);
+            }
+            setMoveTarget({
+              kind: "lecture_asset",
+              id: assetId,
+              title: `Quiz de "${lecture.title}"`,
+              currentSubjectId: lecture.subjectId,
+              currentFolderId,
+              note: "Move só este quiz pra outra pasta da matéria atual. A aula original e os outros assets ficam onde estão.",
+            });
+          }}
+        >
+          <FolderInput className="h-3.5 w-3.5" /> Mover pra pasta
+        </Button>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={async () => {
             const ok = await confirmAction({
               title: "Excluir esse quiz?",
               description:
@@ -775,6 +807,36 @@ function QuizBancoView({ user, assetId }: { user: User; assetId: string }) {
           toast.success(
             mode === "flashcards" ? "Flashcards prontos!" : "Mapa mental pronto!",
           );
+        }}
+      />
+
+      {/* Mover quiz pra outra pasta da matéria atual */}
+      <MoveToFolderDialog
+        open={!!moveTarget}
+        onOpenChange={(open) => {
+          if (!open) setMoveTarget(null);
+        }}
+        userId={user.id}
+        subjects={subjects}
+        target={moveTarget}
+        onMoved={async () => {
+          try {
+            const supabase = createClient();
+            const { data } = await supabase
+              .from("lecture_assets")
+              .select("folder_id")
+              .eq("id", assetId)
+              .eq("user_id", user.id)
+              .maybeSingle();
+            if (data) {
+              setCurrentFolderId(
+                (data as { folder_id: string | null }).folder_id ?? null,
+              );
+            }
+          } catch {
+            /* não-crítico */
+          }
+          setMoveTarget(null);
         }}
       />
     </div>
