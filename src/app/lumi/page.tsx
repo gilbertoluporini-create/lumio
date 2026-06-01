@@ -1391,19 +1391,7 @@ function LumiAssistant({ user }: { user: User }) {
           </div>
 
           {/* Bottom input */}
-          <div className="relative border-t border-border/60 bg-card/80 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] md:p-4">
-            {/* Pergunta pendente da Lumi (perguntar_opcoes) — overlay GRUDADO
-                no topo do input bar (sem gap), forma um bloco visual único
-                com o input. Sem empurrar o chat (absolute). Click numa
-                opção dispara CustomEvent lumi-pick-option e o card some
-                quando a próxima user message chega. */}
-            {pendingQuestion && (
-              <div className="pointer-events-none absolute bottom-full left-0 right-0 px-3 md:px-4">
-                <div className="pointer-events-auto mx-auto max-w-3xl">
-                  <LumiQuestionCard output={pendingQuestion} />
-                </div>
-              </div>
-            )}
+          <div className="border-t border-border/60 bg-card/80 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] md:p-4">
             <div className="mx-auto flex max-w-3xl flex-col gap-2">
               {attachments.length > 0 && (
                 <AttachmentChips
@@ -1411,7 +1399,16 @@ function LumiAssistant({ user }: { user: User }) {
                   onRemove={handleRemoveAttachment}
                 />
               )}
-              <div className="rounded-2xl border border-border/60 bg-card p-3 shadow-sm">
+              {/* Composer unificado: question card (quando há perguntar_opcoes
+                  pendente) + textarea/botões ficam DENTRO do MESMO
+                  container — 1 borda só, sem gap, sem 2 sombras. */}
+              <div className="overflow-hidden rounded-2xl border border-border/60 bg-card shadow-sm">
+                {pendingQuestion && (
+                  <div className="border-b border-border/60">
+                    <LumiQuestionCard output={pendingQuestion} embedded />
+                  </div>
+                )}
+                <div className="p-3">
                 <Textarea
                   ref={bottomTextareaRef}
                   value={input}
@@ -1486,6 +1483,7 @@ function LumiAssistant({ user }: { user: User }) {
                       )}
                     </Button>
                   </div>
+                </div>
                 </div>
               </div>
               <p className="text-center text-[10px] text-muted-foreground">

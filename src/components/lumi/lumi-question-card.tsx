@@ -23,7 +23,16 @@ export type QuestionCardOutput = {
   error?: string;
 };
 
-export function LumiQuestionCard({ output }: { output: QuestionCardOutput }) {
+export function LumiQuestionCard({
+  output,
+  embedded = false,
+}: {
+  output: QuestionCardOutput;
+  /** Quando true, renderiza SEM o wrapper externo (border/bg/shadow/rounded).
+   *  Usado quando o card é fundido visualmente com o input bar — o container
+   *  externo é provido pelo pai pra formar um bloco visual único. */
+  embedded?: boolean;
+}) {
   if (output.error) {
     return (
       <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
@@ -42,8 +51,12 @@ export function LumiQuestionCard({ output }: { output: QuestionCardOutput }) {
     );
   };
 
+  const containerClass = embedded
+    ? "p-4"
+    : "rounded-2xl border border-border/60 bg-card p-4 shadow-sm";
+
   return (
-    <div className="rounded-2xl border border-border/60 bg-card p-4 shadow-sm">
+    <div className={containerClass}>
       <div className="mb-3 flex items-start gap-2">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10">
           <HelpCircle className="h-4 w-4 text-primary" />
