@@ -46,6 +46,7 @@ export type LumiToolName =
   | "criar_plano_de_estudos"
   | "abrir_rota"
   | "solicitar_upload"
+  | "agendar_evento"
   | "perguntar_opcoes";
 
 export type ToolContext = {
@@ -537,6 +538,46 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ["subjectId"],
+    },
+  },
+  {
+    name: "agendar_evento",
+    description:
+      "Agenda um evento NO CALENDÁRIO do user (prova, bloco de estudo, trabalho, etc). Use SEMPRE que o user mencionar uma data específica de prova/trabalho/evento (ex: 'segunda da semana que vem às 11:20', '15/06 às 14h', 'amanhã 9h'). Primeiro CONFIRME via perguntar_opcoes ('Quer que eu agende essa prova no seu calendário?'), só chame depois do 'sim'. Grátis (0 coins).",
+    input_schema: {
+      type: "object",
+      properties: {
+        tipo: {
+          type: "string",
+          enum: ["prova", "bloco", "trabalho", "aula", "outro"],
+          description:
+            "Tipo do evento. 'prova' pra avaliações; 'bloco' pra sessão de estudo; 'trabalho' pra entregas; 'outro' pra demais.",
+        },
+        titulo: {
+          type: "string",
+          description:
+            "Título curto do evento (ex: 'Prova de Sistema Endócrino', 'Estudar tireoide').",
+        },
+        starts_at: {
+          type: "string",
+          description:
+            "Data/hora ISO 8601 do início (ex: '2026-06-09T11:20:00-03:00'). Você deve calcular a partir do que o user disse — assuma fuso America/Sao_Paulo se não especificado.",
+        },
+        ends_at: {
+          type: "string",
+          description:
+            "Data/hora ISO 8601 do fim (opcional). Pra provas, default = starts_at + 2h. Pra blocos, default = starts_at + 1h.",
+        },
+        subjectId: {
+          type: "string",
+          description: "UUID da matéria relacionada (opcional, mas recomendado).",
+        },
+        descricao: {
+          type: "string",
+          description: "Nota extra opcional (ex: 'cobre tireoide e paratireoide').",
+        },
+      },
+      required: ["tipo", "titulo", "starts_at"],
     },
   },
   {
@@ -1347,6 +1388,75 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       },
       instrucao_pro_client:
         "Renderize um card destacado 'Subir arquivos aqui' que ao clicar leva ao modal de upload da matéria.",
+    };
+  },
+
+  async agendar_evento(input, ctx) {
+    const tipoRaw = str(input.tipo).trim().toLowerCase();
+    const validTypes = ["prova", "bloco", "trabalho", "aula", "outro"] as const;
+    type EventType = (typeof validTypes)[number];
+    const tipo: EventType = (validTypes as readonly string[]).includes(tipoRaw)
+      ? (tipoRaw as EventType)
+      : "outro";
+    const titulo = str(input.titulo).trim();
+    const startsAt = str(input.starts_at).trim();
+    if (!titulo) return { error: "titulo obrigatório" };
+    if (!startsAt) return { error: "starts_at obrigatório (ISO 8601)" };
+
+    // Valida a data
+    const startMs = Date.parse(startsAt);
+    if (Number.isNaN(startMs)) {
+      return { error: `starts_at inválido: "${startsAt}" — use ISO 8601` };
+    }
+
+    let endsAt = str(input.ends_at, "").trim() || undefined;
+    if (endsAt && Number.isNaN(Date.parse(endsAt))) {
+      endsAt = undefined; // ignora ends_at inválido
+    }
+    // Default ends_at: prova=+2h, bloco=+1h, outros=undefined
+    if (!endsAt) {
+      const defaultMin = tipo === "prova" ? 120 : tipo === "bloco" ? 60 : 0;
+      if (defaultMin > 0) {
+        endsAt = new Date(startMs + defaultMin * 60_000).toISOString();
+      }
+    }
+
+    const subjectId = str(input.subjectId, "").trim() || undefined;
+    // Se passou subjectId, confirma ownership
+    let subjectName: string | undefined;
+    if (subjectId) {
+      const { data: subj } = await ctx.supabaseAdmin
+        .from("subjects")
+        .select("id, name")
+        .eq("id", subjectId)
+        .eq("user_id", ctx.userId)
+        .maybeSingle();
+      if (subj) subjectName = subj.name as string;
+    }
+
+    const descricao = str(input.descricao, "").trim() || undefined;
+
+    // Gera UUID server-side pra idempotência no client (localStorage).
+    const eventoId =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `evt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+    return {
+      sucesso: true,
+      tipo: "calendar_event",
+      evento: {
+        id: eventoId,
+        type: tipo,
+        title: titulo,
+        starts_at: new Date(startMs).toISOString(),
+        ends_at: endsAt ?? null,
+        subject_id: subjectId ?? null,
+        subject_name: subjectName ?? null,
+        description: descricao ?? null,
+      },
+      instrucao_pro_client:
+        "Persista esse evento no calendário (localStorage) de forma idempotente pelo id e renderize um card de confirmação.",
     };
   },
 

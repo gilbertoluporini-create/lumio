@@ -8,6 +8,7 @@
 import {
   BookOpen,
   Brain,
+  CalendarClock,
   Check,
   FileText,
   HelpCircle,
@@ -21,6 +22,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { LumiExamModeCard } from "./lumi-exam-mode-card";
 import { LumiQuestionCard, type QuestionCardOutput } from "./lumi-question-card";
 
@@ -85,6 +87,11 @@ const TOOL_META: Record<
     Icon: Upload,
     color: "text-emerald-500",
   },
+  agendar_evento: {
+    label: "Agendando no calendário",
+    Icon: CalendarClock,
+    color: "text-blue-500",
+  },
 };
 
 export function LumiToolCard({
@@ -116,6 +123,32 @@ export function LumiToolCard({
   // Caso especial: pergunta com opções clicáveis
   if (name === "perguntar_opcoes" && status === "done") {
     return <LumiQuestionCard output={(output ?? {}) as QuestionCardOutput} />;
+  }
+
+  // Caso especial: evento agendado — persiste no localStorage do user via
+  // CustomEvent (idempotente pelo id que veio do server) e mostra card
+  // confirmando "Prova de X agendada — segunda 09/jun às 11:20".
+  if (name === "agendar_evento" && status === "done") {
+    return (
+      <LumiCalendarEventCard
+        output={
+          (output ?? {}) as {
+            sucesso?: boolean;
+            evento?: {
+              id: string;
+              type: "prova" | "bloco" | "trabalho" | "aula" | "outro";
+              title: string;
+              starts_at: string;
+              ends_at?: string | null;
+              subject_id?: string | null;
+              subject_name?: string | null;
+              description?: string | null;
+            };
+            error?: string;
+          }
+        }
+      />
+    );
   }
 
   // Caso especial: card destacado "Subir arquivos" — abre o LumiUploadDialog
@@ -265,4 +298,138 @@ function describeOutput(name: string, output: unknown): string | null {
     if (Number.isFinite(c) && c > 0) return `${c} coins`;
   }
   return null;
+}
+
+const EVENT_TYPE_LABEL: Record<string, string> = {
+  prova: "Prova",
+  bloco: "Bloco de estudo",
+  trabalho: "Trabalho",
+  aula: "Aula",
+  outro: "Evento",
+};
+
+const EVENT_TYPE_TONE: Record<string, string> = {
+  prova: "from-red-500/15 to-red-500/5 border-red-500/30 text-red-700 dark:text-red-300",
+  bloco: "from-blue-500/15 to-blue-500/5 border-blue-500/30 text-blue-700 dark:text-blue-300",
+  trabalho: "from-amber-500/15 to-amber-500/5 border-amber-500/30 text-amber-700 dark:text-amber-300",
+  aula: "from-primary/15 to-primary/5 border-primary/30 text-primary",
+  outro: "from-emerald-500/15 to-emerald-500/5 border-emerald-500/30 text-emerald-700 dark:text-emerald-300",
+};
+
+function formatEventWhen(startsAt: string, endsAt?: string | null): string {
+  try {
+    const start = new Date(startsAt);
+    const datePart = start.toLocaleDateString("pt-BR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+    });
+    const timePart = start.toLocaleTimeString("pt-BR", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    let suffix = "";
+    if (endsAt) {
+      const end = new Date(endsAt);
+      const endTime = end.toLocaleTimeString("pt-BR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      suffix = ` até ${endTime}`;
+    }
+    return `${datePart} às ${timePart}${suffix}`;
+  } catch {
+    return startsAt;
+  }
+}
+
+function LumiCalendarEventCard({
+  output,
+}: {
+  output: {
+    sucesso?: boolean;
+    evento?: {
+      id: string;
+      type: "prova" | "bloco" | "trabalho" | "aula" | "outro";
+      title: string;
+      starts_at: string;
+      ends_at?: string | null;
+      subject_id?: string | null;
+      subject_name?: string | null;
+      description?: string | null;
+    };
+    error?: string;
+  };
+}) {
+  const evento = output.evento;
+  const persistedRef = useRef<string | null>(null);
+
+  // Persiste no localStorage do user (idempotente pelo id). Dispara
+  // CustomEvent — /lumi page escuta e chama persistEventIdempotentAsync
+  // com user.id. Re-renderização: useRef garante 1x só por id.
+  useEffect(() => {
+    if (!evento || persistedRef.current === evento.id) return;
+    persistedRef.current = evento.id;
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("lumi-persist-event", {
+        detail: {
+          id: evento.id,
+          type: evento.type,
+          title: evento.title,
+          subject_id: evento.subject_id ?? undefined,
+          starts_at: evento.starts_at,
+          ends_at: evento.ends_at ?? undefined,
+          description: evento.description ?? undefined,
+        },
+      }),
+    );
+  }, [evento]);
+
+  if (output.error || !evento) {
+    return (
+      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+        Não consegui agendar: {output.error ?? "evento sem dados"}
+      </div>
+    );
+  }
+
+  const tone = EVENT_TYPE_TONE[evento.type] ?? EVENT_TYPE_TONE.outro;
+  const label = EVENT_TYPE_LABEL[evento.type] ?? "Evento";
+  const when = formatEventWhen(evento.starts_at, evento.ends_at);
+
+  return (
+    <div
+      className={`rounded-2xl border bg-gradient-to-br p-4 ${tone}`}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-card shadow-sm">
+          <CalendarClock className="h-5 w-5" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[10px] font-mono uppercase tracking-wider opacity-70">
+            {label} agendada no calendário
+          </div>
+          <div className="mt-0.5 text-sm font-semibold text-foreground">
+            {evento.title}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {when}
+            {evento.subject_name ? ` · ${evento.subject_name}` : ""}
+          </div>
+          {evento.description && (
+            <div className="mt-1 text-[11px] text-muted-foreground/80">
+              {evento.description}
+            </div>
+          )}
+        </div>
+        <Link
+          href="/calendario"
+          className="self-center text-xs font-medium hover:underline"
+        >
+          Ver agenda →
+        </Link>
+      </div>
+    </div>
+  );
 }

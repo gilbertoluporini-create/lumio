@@ -116,6 +116,43 @@ export async function addEventsBulkAsync(
   return created;
 }
 
+/**
+ * Persiste um evento usando um ID externo (vindo do server, p.ex. tool
+ * agendar_evento do Lumi). Idempotente: se já existe um evento com esse id
+ * no localStorage, não duplica. Útil pra cards de "evento agendado" no chat
+ * — re-renderização ou abrir histórico não cria duplicatas.
+ */
+export async function persistEventIdempotentAsync(
+  userId: string,
+  event: {
+    id: string;
+    type: CalendarEventType;
+    title: string;
+    subject_id?: string;
+    starts_at: string;
+    ends_at?: string;
+    description?: string;
+  },
+): Promise<CalendarEvent> {
+  const all = read(userId);
+  const existing = all.find((e) => e.id === event.id);
+  if (existing) return existing;
+  const created: CalendarEvent = {
+    id: event.id,
+    user_id: userId,
+    type: event.type,
+    title: event.title.trim(),
+    subject_id: event.subject_id,
+    starts_at: event.starts_at,
+    ends_at: event.ends_at,
+    description: event.description?.trim() || undefined,
+    created_at: new Date().toISOString(),
+  };
+  all.push(created);
+  write(userId, all);
+  return created;
+}
+
 export async function updateEventAsync(
   userId: string,
   eventId: string,

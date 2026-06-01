@@ -60,6 +60,7 @@ import { LumiThinking } from "@/components/lumi/lumi-thinking";
 import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
 import { LumiUploadDialog } from "@/components/lumi/lumi-upload-dialog";
 import { LumiAttachmentPicker } from "@/components/lumi/lumi-attachment-picker";
+import { persistEventIdempotentAsync } from "@/lib/calendar-events";
 import { LumiVoiceMode } from "@/components/lumi/lumi-voice-mode";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -518,6 +519,38 @@ function LumiAssistant({ user }: { user: User }) {
     window.addEventListener("lumi-pick-option", handler);
     return () => window.removeEventListener("lumi-pick-option", handler);
   }, [sending, sendMessage]);
+
+  // Persiste evento no localStorage quando o card agendar_evento monta.
+  // O LumiToolCard dispara CustomEvent('lumi-persist-event') na primeira
+  // render do card; aqui escutamos e gravamos. Idempotente pelo id.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{
+        id?: string;
+        type?: "prova" | "bloco" | "trabalho" | "aula" | "outro";
+        title?: string;
+        subject_id?: string;
+        starts_at?: string;
+        ends_at?: string;
+        description?: string;
+      }>).detail;
+      if (!detail?.id || !detail.type || !detail.title || !detail.starts_at) {
+        return;
+      }
+      void persistEventIdempotentAsync(user.id, {
+        id: detail.id,
+        type: detail.type,
+        title: detail.title,
+        subject_id: detail.subject_id,
+        starts_at: detail.starts_at,
+        ends_at: detail.ends_at,
+        description: detail.description,
+      });
+    };
+    window.addEventListener("lumi-persist-event", handler);
+    return () => window.removeEventListener("lumi-persist-event", handler);
+  }, [user.id]);
 
   // Dialog de upload invocado pelo card solicitar_upload (CustomEvent
   // lumi-open-upload). Multi-file, subject travada pelo que o Lumi pediu.
@@ -1380,7 +1413,8 @@ function LumiAssistant({ user }: { user: User }) {
                 const inlineTools = streamingTools.filter(
                   (t) =>
                     t.name !== "perguntar_opcoes" &&
-                    t.name !== "solicitar_upload",
+                    t.name !== "solicitar_upload" &&
+                    t.name !== "agendar_evento",
                 );
                 return (
                   <div className="flex flex-col gap-2">
