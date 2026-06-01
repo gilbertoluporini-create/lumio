@@ -41,8 +41,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const AGENT_COST = 1; // 1 coin por turn do user (igual chat-summary)
-const MAX_ITERATIONS = 8; // limite de loops antes de force-stop
+const AGENT_COST = 3; // 3 coins por turn — cobre custo real de Haiku 4.5 com cache
+const MAX_ITERATIONS = 4; // limite de loops antes de force-stop — 4 cobre 99% dos casos sem inflar tokens
+const MAX_TOKENS_PER_TURN = 800; // suficiente pra resposta + tool calls; corta verbosidade
+const HISTORY_TURNS = 6; // últimas 6 mensagens (3 user + 3 assistant) — 12 era exagero
 const MODEL = "claude-haiku-4-5"; // pode subir pra sonnet se precisar mais inteligência
 
 type HistoryTurn = { role: "user" | "assistant"; content: string };
@@ -291,7 +293,7 @@ export async function POST(req: Request) {
   }
 
   const history: Anthropic.MessageParam[] = (body.history ?? [])
-    .slice(-12)
+    .slice(-HISTORY_TURNS)
     .filter(
       (h): h is HistoryTurn =>
         !!h &&
@@ -363,6 +365,29 @@ export async function POST(req: Request) {
       let totalOutputTok = 0;
       let iterations = 0;
 
+      // Cache breakpoints (Anthropic prompt caching ephemeral):
+      //   - System SYSTEM_PROMPT estável (cached, ~5K tokens)
+      //   - Tools array completo (cached via cache_control no último, ~10K tokens)
+      //   - contextHint/profileHint variam por user/sessão → NÃO cacheia
+      // Resultado: ~15K tokens fixos viram 10% do preço em re-uso (5min TTL),
+      // só os ~500 tokens de profile/context + histórico/output rodam full price.
+      const cachedTools: Anthropic.Tool[] = LUMI_TOOLS.map((t, i) =>
+        i === LUMI_TOOLS.length - 1
+          ? ({ ...t, cache_control: { type: "ephemeral" } } as Anthropic.Tool)
+          : t,
+      );
+      const systemBlocks: Anthropic.TextBlockParam[] = [
+        {
+          type: "text",
+          text: SYSTEM_PROMPT,
+          cache_control: { type: "ephemeral" },
+        },
+      ];
+      const dynamicSystem = (contextHint + profileHint).trim();
+      if (dynamicSystem) {
+        systemBlocks.push({ type: "text", text: dynamicSystem });
+      }
+
       try {
         // Loop agentic
         while (iterations < MAX_ITERATIONS) {
@@ -371,16 +396,10 @@ export async function POST(req: Request) {
           const resp = await createMessage(
             {
               model: MODEL,
-              max_tokens: 1500,
-              system: [
-                {
-                  type: "text",
-                  text: SYSTEM_PROMPT + contextHint + profileHint,
-                  cache_control: { type: "ephemeral" },
-                },
-              ],
+              max_tokens: MAX_TOKENS_PER_TURN,
+              system: systemBlocks,
               messages: history,
-              tools: LUMI_TOOLS,
+              tools: cachedTools,
             },
             { anthropicKey: apiKey },
           );
