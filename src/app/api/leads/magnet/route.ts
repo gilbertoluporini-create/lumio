@@ -76,14 +76,35 @@ export async function POST(req: NextRequest) {
   // 2. credita coins agora (se user existe) ou marca intenção (se ainda não)
   let coinsCredited = false;
   let coinsIntent = false;
+  let coinsAlreadyGranted = false;
   if (existingUserId) {
     try {
-      await creditCoins(existingUserId, BONUS_COINS, "welcome_bonus", {
-        kind: "lead_magnet_bonus",
-        source: SOURCE,
-        magnet: "guia_revisao",
-      });
-      coinsCredited = true;
+      // Idempotência: endpoint é público e qualquer um pode chamar com email de
+      // user existente. Sem este check, o mesmo user poderia re-disparar
+      // /api/leads/magnet com o próprio email infinitas vezes e ganhar 50 coins
+      // por chamada (coin farming). Consultamos coin_transactions — fonte de
+      // verdade dos movimentos — em vez de leads.metadata, porque o lead pode
+      // ter sido criado ANTES do user existir (fluxo bonus_pending) e nesse
+      // caso `redeemLeadMagnetBonusIfPending` é quem credita no signup.
+      const { data: existingBonus } = await admin
+        .from("coin_transactions")
+        .select("id")
+        .eq("user_id", existingUserId)
+        .eq("reason", "welcome_bonus")
+        .eq("metadata->>kind", "lead_magnet_bonus")
+        .limit(1)
+        .maybeSingle();
+
+      if (existingBonus) {
+        coinsAlreadyGranted = true;
+      } else {
+        await creditCoins(existingUserId, BONUS_COINS, "welcome_bonus", {
+          kind: "lead_magnet_bonus",
+          source: SOURCE,
+          magnet: "guia_revisao",
+        });
+        coinsCredited = true;
+      }
     } catch (err) {
       console.error("[leads/magnet] credit coins failed", err);
     }
@@ -92,11 +113,13 @@ export async function POST(req: NextRequest) {
   }
 
   // 3. upsert lead
+  // Se já tinha sido creditado antes (coinsAlreadyGranted), mantemos
+  // bonus_credited=true pra refletir a realidade no row do lead.
   const leadMetadata: Record<string, unknown> = {
     kind: LEAD_KIND,
     magnet: "guia_revisao",
     bonus_coins: BONUS_COINS,
-    bonus_credited: coinsCredited,
+    bonus_credited: coinsCredited || coinsAlreadyGranted,
     bonus_pending: coinsIntent,
     lgpd_consent: parsed.data.lgpd === true,
     ip,
@@ -159,5 +182,6 @@ export async function POST(req: NextRequest) {
     bonusCoins: BONUS_COINS,
     bonusCredited: coinsCredited,
     bonusPending: coinsIntent,
+    bonusAlreadyGranted: coinsAlreadyGranted,
   });
 }

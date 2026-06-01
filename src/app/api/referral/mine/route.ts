@@ -5,6 +5,33 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
+ * Valida formato de chave PIX (CPF, CNPJ, e-mail, telefone +55 ou chave aleatória UUID v4).
+ * Não checa duplicidade nem dígito verificador — só formato sintático.
+ */
+function isValidPixKey(key: string): boolean {
+  const cleaned = key.trim();
+  if (!cleaned) return false;
+
+  // CPF: 11 dígitos (aceita com ou sem pontuação)
+  if (/^\d{11}$/.test(cleaned.replace(/[.\-]/g, ""))) return true;
+  // CNPJ: 14 dígitos (aceita com ou sem pontuação)
+  if (/^\d{14}$/.test(cleaned.replace(/[.\-/]/g, ""))) return true;
+  // E-mail
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleaned)) return true;
+  // Telefone +55 + 10/11 dígitos (aceita com ou sem formatação)
+  if (/^\+?55\d{10,11}$/.test(cleaned.replace(/[\s()\-]/g, ""))) return true;
+  // Chave aleatória (UUID v4 formatado)
+  if (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      cleaned,
+    )
+  )
+    return true;
+
+  return false;
+}
+
+/**
  * GET /api/referral/mine
  *
  * Retorna o código de embaixador do usuário logado, criando on-demand se
@@ -134,7 +161,42 @@ export async function PATCH(req: Request) {
     );
   }
 
+  if (!isValidPixKey(pix)) {
+    return NextResponse.json(
+      {
+        error:
+          "PIX key inválido. Use CPF, CNPJ, e-mail, telefone (+55) ou chave aleatória UUID.",
+      },
+      { status: 400 },
+    );
+  }
+
   const admin = createAdminClient();
+
+  // Checa duplicidade: ninguém pode reivindicar chave PIX que outro embaixador já cadastrou.
+  const { data: dupe, error: dupeErr } = await admin
+    .from("referral_codes")
+    .select("user_id")
+    .eq("pix_key", pix)
+    .neq("user_id", user.id)
+    .limit(1)
+    .maybeSingle();
+
+  if (dupeErr) {
+    console.error("[referral/mine PATCH] duplicate check failed", dupeErr);
+    return NextResponse.json(
+      { error: "Não foi possível validar a chave PIX." },
+      { status: 500 },
+    );
+  }
+
+  if (dupe) {
+    return NextResponse.json(
+      { error: "Esta chave PIX já está em uso por outro embaixador." },
+      { status: 409 },
+    );
+  }
+
   const { error } = await admin
     .from("referral_codes")
     .update({ pix_key: pix })
@@ -147,6 +209,12 @@ export async function PATCH(req: Request) {
       { status: 500 },
     );
   }
+
+  // Audit log (não loga o valor da chave em si — só o evento)
+  console.warn("[referral/mine] PIX updated", {
+    userId: user.id,
+    hasKey: !!pix,
+  });
 
   return NextResponse.json({ ok: true, pix_key: pix });
 }

@@ -11,6 +11,7 @@
 import { createMessage } from "@/lib/llm-fallback";
 import { escapeForPrompt, logAndSanitize } from "@/lib/api-security";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
+import { createClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +48,22 @@ export async function POST(req: Request) {
   const ip = getClientIp(req);
   const ipLimit = limitOrThrow(`transcript-insights:ip:${ip}`, 30, 60_000);
   if (ipLimit) return ipLimit;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return Response.json({ error: "Faça login." }, { status: 401 });
+  }
+
+  // Rate limit por user (mais restritivo que o IP)
+  const userLimit = limitOrThrow(
+    `transcript-insights:user:${user.id}`,
+    30,
+    60_000,
+  );
+  if (userLimit) return userLimit;
 
   let body: Body;
   try {
