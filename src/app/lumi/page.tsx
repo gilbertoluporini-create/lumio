@@ -1392,12 +1392,13 @@ function LumiAssistant({ user }: { user: User }) {
 
           {/* Bottom input */}
           <div className="relative border-t border-border/60 bg-card/80 p-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] md:p-4">
-            {/* Pergunta pendente da Lumi (perguntar_opcoes) — overlay FLUTUA
-                acima do input bar sem empurrar nada (position absolute).
-                Click numa opção dispara CustomEvent lumi-pick-option e o
-                card some quando a próxima user message chega. */}
+            {/* Pergunta pendente da Lumi (perguntar_opcoes) — overlay GRUDADO
+                no topo do input bar (sem gap), forma um bloco visual único
+                com o input. Sem empurrar o chat (absolute). Click numa
+                opção dispara CustomEvent lumi-pick-option e o card some
+                quando a próxima user message chega. */}
             {pendingQuestion && (
-              <div className="pointer-events-none absolute bottom-full left-0 right-0 px-3 pb-3 md:px-4 md:pb-4">
+              <div className="pointer-events-none absolute bottom-full left-0 right-0 px-3 md:px-4">
                 <div className="pointer-events-auto mx-auto max-w-3xl">
                   <LumiQuestionCard output={pendingQuestion} />
                 </div>
