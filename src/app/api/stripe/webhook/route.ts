@@ -307,6 +307,250 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
 }
 
 /**
+ * Refund da Stripe (parcial ou total). Reverte a comissão proporcional do
+ * embaixador no mês corrente. SEM essa reversão, Lumio paga PIX cheio mesmo
+ * tendo devolvido o dinheiro pro user (prejuízo direto).
+ *
+ * Stripe envia este evento tanto pra refunds via dashboard quanto pra refunds
+ * automáticos (ex: subscription cancel + prorate). É idempotente por event.id
+ * via stripe_events (dedupe na entrada do webhook).
+ */
+async function handleChargeRefunded(charge: Stripe.Charge) {
+  // Stripe SDK 22+ removeu `invoice` do tipo Stripe.Charge (acessível só via
+  // expand). API ainda devolve o campo — castamos pro shape esperado pra
+  // não quebrar build com TS strict.
+  const chargeWithInvoice = charge as Stripe.Charge & {
+    invoice?: string | { id: string } | null;
+  };
+  if (!chargeWithInvoice.invoice) return; // refund avulso (não-subscription) — não há comissão
+  const invoiceId =
+    typeof chargeWithInvoice.invoice === "string"
+      ? chargeWithInvoice.invoice
+      : chargeWithInvoice.invoice.id;
+  if (!invoiceId) return;
+
+  // amount_refunded é cumulativo em centavos (Stripe). Em refunds parciais
+  // sucessivos, cada evento traz o NOVO total. Pra evitar reverter duas vezes,
+  // precisamos calcular só o delta — mas como o dedupe externo (stripe_events)
+  // já bloqueia o mesmo event.id, basta processar o refund mais recente desse
+  // evento usando o último refund da lista.
+  const lastRefund = charge.refunds?.data?.[0];
+  const refundedCentsThisEvent = lastRefund?.amount ?? charge.amount_refunded;
+  if (!refundedCentsThisEvent || refundedCentsThisEvent <= 0) return;
+
+  await reverseAmbassadorCommissionForRefund({
+    stripeInvoiceId: invoiceId,
+    refundedAmountBrl: refundedCentsThisEvent / 100,
+    reason: `refund:${lastRefund?.id ?? charge.id}`,
+  });
+}
+
+/**
+ * Disputa aberta (chargeback). Tratamos como refund probable — reverte a
+ * comissão imediatamente. Se o dispute for ganho depois, a comissão fica
+ * negativa temporariamente; admin pode re-acumular manualmente.
+ *
+ * Alternativa mais conservadora: esperar charge.dispute.closed com status=won
+ * antes de reverter. Mas como o dinheiro JÁ saiu da conta no momento do
+ * dispute (Stripe segura o valor), a reversão imediata é financeiramente correta.
+ */
+async function handleChargeDisputeCreated(dispute: Stripe.Dispute) {
+  const chargeId = typeof dispute.charge === "string" ? dispute.charge : dispute.charge?.id;
+  if (!chargeId) return;
+
+  // Recupera o charge pra achar a invoice. Disputes não carregam invoice direto.
+  const stripe = getStripe();
+  let charge: Stripe.Charge;
+  try {
+    charge = await stripe.charges.retrieve(chargeId);
+  } catch (err) {
+    console.error("[webhook] dispute: charge retrieve failed", err);
+    return;
+  }
+
+  // Mesmo workaround SDK 22+ do handleChargeRefunded.
+  const chargeWithInvoice = charge as Stripe.Charge & {
+    invoice?: string | { id: string } | null;
+  };
+  if (!chargeWithInvoice.invoice) return;
+  const invoiceId =
+    typeof chargeWithInvoice.invoice === "string"
+      ? chargeWithInvoice.invoice
+      : chargeWithInvoice.invoice.id;
+  if (!invoiceId) return;
+
+  await reverseAmbassadorCommissionForRefund({
+    stripeInvoiceId: invoiceId,
+    refundedAmountBrl: dispute.amount / 100,
+    reason: `dispute:${dispute.id}`,
+  });
+}
+
+/**
+ * invoice.payment_failed após uma invoice já ter sido marcada paid (raro —
+ * ocorre em retries da Stripe quando o pagamento original cai depois). Se a
+ * comissão foi acumulada via invoice.paid e depois falhou, reverte.
+ */
+async function handleInvoicePaymentFailed(invoice: Stripe.Invoice) {
+  // Só nos importa se a invoice está marcada como já cobrada com sucesso E
+  // depois reverteu — caso contrário, accrueAmbassadorCommission nem rodou.
+  if (invoice.status !== "uncollectible" && invoice.status !== "void") {
+    // Falha "normal" (1ª tentativa) — comissão nem foi acumulada
+    return;
+  }
+
+  const invoiceId = invoice.id;
+  if (!invoiceId) return;
+  const amountPaidBrl = (invoice.amount_paid ?? 0) / 100;
+  if (amountPaidBrl <= 0) return;
+
+  await reverseAmbassadorCommissionForRefund({
+    stripeInvoiceId: invoiceId,
+    refundedAmountBrl: amountPaidBrl,
+    reason: `payment_failed:${invoiceId}`,
+  });
+}
+
+/**
+ * Reverte comissão de embaixador no payout do mês corrente.
+ *
+ * IMPORTANTE: o schema `ambassador_payouts` agrega por MÊS, não por invoice
+ * (uma row por (referral_code_id, period_start=1º do mês)). Como não há
+ * tracking per-invoice, decrementamos do payout do mês em que o refund
+ * acontece — não do mês original da venda.
+ *
+ * Trade-off: se o refund cruza meses (venda em maio, refund em junho), o
+ * payout de junho pode ficar negativo. Floor em zero pra não quebrar PIX
+ * positivo. O delta perdido vai pra `notes` pra auditoria do admin.
+ *
+ * Idempotência: dedupe via stripe_events.id (entrada do webhook). Eventos
+ * distintos (partial refund 1, partial refund 2) são processados normalmente.
+ */
+async function reverseAmbassadorCommissionForRefund({
+  stripeInvoiceId,
+  refundedAmountBrl,
+  reason,
+}: {
+  stripeInvoiceId: string;
+  refundedAmountBrl: number;
+  reason: string;
+}) {
+  if (refundedAmountBrl <= 0) return;
+
+  const admin = createAdminClient();
+
+  // 1) Acha o user_id via invoice → subscription → metadata.user_id
+  const stripe = getStripe();
+  let invoice: Stripe.Invoice;
+  try {
+    invoice = await stripe.invoices.retrieve(stripeInvoiceId);
+  } catch (err) {
+    console.error("[webhook] reverseCommission: invoice retrieve failed", err);
+    return;
+  }
+
+  const subMeta = (
+    invoice as unknown as { subscription_details?: { metadata?: { user_id?: string } } }
+  ).subscription_details?.metadata;
+  const referredUserId = subMeta?.user_id ?? invoice.metadata?.user_id;
+  if (!referredUserId) {
+    console.warn("[webhook] reverseCommission: no user_id on invoice", stripeInvoiceId);
+    return;
+  }
+
+  // 2) Acha redemption desse referido
+  const { data: redemption } = await admin
+    .from("referral_redemptions")
+    .select("id, referral_code_id, referrer_user_id")
+    .eq("referred_user_id", referredUserId)
+    .maybeSingle();
+
+  if (!redemption) return; // user não veio de embaixador — nada a reverter
+
+  const r = redemption as {
+    id: string;
+    referral_code_id: string;
+    referrer_user_id: string;
+  };
+
+  // 3) Lê commission_rate
+  const { data: code } = await admin
+    .from("referral_codes")
+    .select("commission_rate")
+    .eq("id", r.referral_code_id)
+    .maybeSingle();
+
+  const commissionRate =
+    (code as { commission_rate?: number } | null)?.commission_rate ?? 0.25;
+  const reversalBrl = Math.round(refundedAmountBrl * commissionRate * 100) / 100;
+
+  // 4) Período do mês corrente (mesmo cálculo de accrueAmbassadorCommission)
+  const now = new Date();
+  const periodStart = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
+  );
+  const periodStartStr = periodStart.toISOString().slice(0, 10);
+
+  // 5) Lê payout do mês corrente
+  const { data: existing } = await admin
+    .from("ambassador_payouts")
+    .select("id, gross_revenue_brl, commission_brl, notes, status")
+    .eq("referral_code_id", r.referral_code_id)
+    .eq("period_start", periodStartStr)
+    .maybeSingle();
+
+  if (!existing) {
+    // Refund sem payout no mês — cross-month refund. Loga pro admin reconciliar.
+    console.warn(
+      "[webhook] reverseCommission: no payout this month",
+      { invoice: stripeInvoiceId, ambassador: r.referrer_user_id, reason },
+    );
+    return;
+  }
+
+  const ex = existing as {
+    id: string;
+    gross_revenue_brl: number;
+    commission_brl: number;
+    notes: string | null;
+    status: string;
+  };
+
+  // 6) Se payout já foi pago (PIX já saiu), NÃO mexe no valor — só anota.
+  // Lumio absorve o prejuízo desse refund. Admin decide se cobra do embaixador.
+  if (ex.status === "paid") {
+    const note = `[${new Date().toISOString()}] REFUND APÓS PAYOUT PAGO (${reason}): R$ ${refundedAmountBrl.toFixed(2)} refundado, comissão R$ ${reversalBrl.toFixed(2)} já foi paga ao embaixador. Reconciliar manualmente.`;
+    await admin
+      .from("ambassador_payouts")
+      .update({
+        notes: ex.notes ? `${ex.notes}\n${note}` : note,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", ex.id);
+    return;
+  }
+
+  // 7) Decrementa, com floor em 0 (nunca negativo)
+  const newGross = Math.max(0, Number(ex.gross_revenue_brl) - refundedAmountBrl);
+  const newCommission = Math.max(0, Number(ex.commission_brl) - reversalBrl);
+
+  // Se o refund excede o acumulado do mês, registra o excedente nas notes
+  const grossExcess = Math.max(0, refundedAmountBrl - Number(ex.gross_revenue_brl));
+  const commissionExcess = Math.max(0, reversalBrl - Number(ex.commission_brl));
+  const note = `[${new Date().toISOString()}] REVERSAL (${reason}): -R$ ${refundedAmountBrl.toFixed(2)} bruto / -R$ ${reversalBrl.toFixed(2)} comissão${grossExcess > 0 ? ` (excedente R$ ${grossExcess.toFixed(2)} bruto / R$ ${commissionExcess.toFixed(2)} comissão — venda de mês anterior)` : ""}`;
+
+  await admin
+    .from("ambassador_payouts")
+    .update({
+      gross_revenue_brl: newGross,
+      commission_brl: newCommission,
+      notes: ex.notes ? `${ex.notes}\n${note}` : note,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", ex.id);
+}
+
+/**
  * Credita os coins do plano no momento que a subscription renova ou ativa.
  * Faz SET ABSOLUTO (não acumulativo) — reseta saldo pro pacote do plano.
  */
