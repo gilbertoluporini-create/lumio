@@ -26,6 +26,8 @@ export type LumiToolName =
   | "listar_aulas_e_docs"
   | "buscar_no_material"
   | "criar_materia"
+  | "listar_pastas"
+  | "criar_pasta"
   | "gerar_resumo"
   | "criar_flashcards"
   | "criar_quiz"
@@ -114,6 +116,47 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
         },
       },
       required: ["nome"],
+    },
+  },
+  {
+    name: "listar_pastas",
+    description:
+      "Lista as pastas (folders) dentro de uma matéria — sub-áreas que organizam aulas e documentos (ex: dentro de 'Sistema Endócrino' pode ter pastas 'Tireoide', 'Imaginologia', 'Hormônios Sexuais'). USE antes de criar uma pasta nova pra evitar duplicar, ou pra mostrar ao user as sub-áreas existentes. Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: {
+          type: "string",
+          description:
+            "UUID da matéria. Use o subjectId do CONTEXTO ATUAL se houver, senão chame listar_materias primeiro.",
+        },
+      },
+      required: ["subjectId"],
+    },
+  },
+  {
+    name: "criar_pasta",
+    description:
+      "Cria uma pasta (subpasta) dentro de uma matéria. USE quando o user mencionar uma sub-área/tópico que faz sentido virar pasta (ex: 'imaginologia' dentro de Sistema Endócrino, 'pediatria' dentro de Clínica Médica). SEMPRE confirme antes via perguntar_opcoes: 'Quer que eu crie a pasta X dentro de Y?' → ['Sim, cria a pasta', 'Não, deixa raiz mesmo']. Pode ser aninhada via parentFolderId. Grátis.",
+    input_schema: {
+      type: "object",
+      properties: {
+        subjectId: {
+          type: "string",
+          description: "UUID da matéria onde a pasta será criada.",
+        },
+        nome: {
+          type: "string",
+          description:
+            "Nome da pasta (ex: 'Imaginologia', 'Tireoide'). 2-80 chars.",
+        },
+        parentFolderId: {
+          type: "string",
+          description:
+            "Opcional. UUID de uma pasta pai pra criar aninhada. Omita pra criar na raiz da matéria.",
+        },
+      },
+      required: ["subjectId", "nome"],
     },
   },
   {
@@ -650,6 +693,121 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       navegacao: { path: `/subject/${row.id}`, motivo: "Matéria criada" },
       instrucao_pro_client:
         "Matéria criada — usa esse subjectId nas próximas tools. Pode oferecer abrir /subject/<id> pro user subir material lá.",
+    };
+  },
+
+  async listar_pastas(input, ctx) {
+    const subjectId = str(input.subjectId).trim();
+    if (!subjectId) return { error: "subjectId obrigatório" };
+    // Confirma ownership da matéria antes de listar.
+    const { data: subj } = await ctx.supabaseAdmin
+      .from("subjects")
+      .select("id, name")
+      .eq("id", subjectId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    if (!subj) {
+      return { error: "matéria não encontrada ou não pertence ao user" };
+    }
+    const { data, error } = await ctx.supabaseAdmin
+      .from("folders")
+      .select("id, name, parent_folder_id, position")
+      .eq("user_id", ctx.userId)
+      .eq("subject_id", subjectId)
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (error) return { error: error.message };
+    const pastas = (data ?? []).map((f) => ({
+      id: f.id,
+      nome: f.name,
+      parentFolderId: f.parent_folder_id ?? null,
+    }));
+    return {
+      sucesso: true,
+      materia: subj.name,
+      pastas,
+      total: pastas.length,
+    };
+  },
+
+  async criar_pasta(input, ctx) {
+    const subjectId = str(input.subjectId).trim();
+    if (!subjectId) return { error: "subjectId obrigatório" };
+    const nome = str(input.nome).trim();
+    if (!nome) return { error: "nome obrigatório" };
+    if (nome.length < 2) return { error: "nome curto demais (mín 2 chars)" };
+    if (nome.length > 80) return { error: "nome longo demais (máx 80 chars)" };
+    const parentFolderId = str(input.parentFolderId).trim() || null;
+
+    // Confirma ownership da matéria.
+    const { data: subj } = await ctx.supabaseAdmin
+      .from("subjects")
+      .select("id, name")
+      .eq("id", subjectId)
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    if (!subj) {
+      return { error: "matéria não encontrada ou não pertence ao user" };
+    }
+
+    // Se parentFolderId, valida que existe na mesma matéria do user.
+    if (parentFolderId) {
+      const { data: parent } = await ctx.supabaseAdmin
+        .from("folders")
+        .select("id")
+        .eq("id", parentFolderId)
+        .eq("user_id", ctx.userId)
+        .eq("subject_id", subjectId)
+        .maybeSingle();
+      if (!parent) {
+        return {
+          error: "parentFolderId inválido (não existe ou matéria diferente)",
+        };
+      }
+    }
+
+    // Bloqueia duplicata no mesmo nível (mesma matéria + mesmo parent).
+    const dupQ = ctx.supabaseAdmin
+      .from("folders")
+      .select("id, name")
+      .eq("user_id", ctx.userId)
+      .eq("subject_id", subjectId)
+      .ilike("name", nome);
+    const { data: dup } = await (parentFolderId
+      ? dupQ.eq("parent_folder_id", parentFolderId)
+      : dupQ.is("parent_folder_id", null)
+    ).maybeSingle();
+    if (dup) {
+      return {
+        ja_existia: true,
+        folderId: dup.id,
+        nome: dup.name,
+        instrucao_pro_client:
+          "Pasta já existia nesse nível. Use esse folderId — diga ao user que 'achou', não que 'criou'.",
+      };
+    }
+
+    const { data: row, error } = await ctx.supabaseAdmin
+      .from("folders")
+      .insert({
+        user_id: ctx.userId,
+        subject_id: subjectId,
+        parent_folder_id: parentFolderId,
+        name: nome,
+      })
+      .select("id, name")
+      .single();
+    if (error || !row) {
+      return { error: error?.message ?? "falha ao criar pasta" };
+    }
+    return {
+      sucesso: true,
+      folderId: row.id,
+      nome: row.name,
+      materia: subj.name,
+      navegacao: { path: `/subject/${subjectId}`, motivo: "Pasta criada" },
+      instrucao_pro_client:
+        "Pasta criada. Aulas/PDFs subidos depois podem ser vinculados a essa pasta via folderId. Ofereça abrir /subject/<id> pra user organizar o material.",
     };
   },
 
