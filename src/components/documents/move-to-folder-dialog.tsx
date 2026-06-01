@@ -22,16 +22,21 @@ import type { Folder, Subject } from "@/lib/types";
 
 /**
  * Alvo de movimentação. Cada tipo atualiza a tabela certa:
- *  - summary  → summaries.subject_id + folder_id (resumo move sozinho)
- *  - document → documents.subject_id + folder_id (PDF move sozinho)
- *  - lecture  → lectures.subject_id + folder_id (move a aula + tudo que herda:
- *               transcrição, slides, flashcards/quiz/mapa gerados)
- * Assets gerados (flashcards/quiz/mapa) não têm subject_id próprio — herdam
- * da aula. Por isso passamos lectureId e movemos a aula inteira.
+ *  - summary       → summaries.subject_id + folder_id (resumo move sozinho)
+ *  - document      → documents.subject_id + folder_id (PDF move sozinho)
+ *  - lecture       → lectures.subject_id + folder_id (move a aula + tudo que
+ *                    herda: transcrição, slides, flashcards/quiz/mapa gerados)
+ *  - lecture_asset → lecture_assets.folder_id (move SÓ o asset — flashcards,
+ *                    quiz ou mapa — pra uma pasta dentro da matéria atual da
+ *                    aula. Subject fica travado, não dá pra trocar de matéria
+ *                    porque o asset herda subject da lecture).
  */
 export type MoveTarget = {
-  kind: "summary" | "document" | "lecture";
-  /** id do resumo, do documento, ou da AULA (quando kind=lecture). */
+  kind: "summary" | "document" | "lecture" | "lecture_asset";
+  /**
+   * id do resumo, do documento, da AULA (kind=lecture) ou do lecture_asset
+   * (kind=lecture_asset, ex.: deck/quiz/mapa).
+   */
   id: string;
   title: string;
   currentSubjectId?: string | null;
@@ -151,6 +156,20 @@ export function MoveToFolderDialog({
         await updateSummaryAsync(userId, target.id, patch);
       } else if (target.kind === "document") {
         await updateDocumentAsync(userId, target.id, patch);
+      } else if (target.kind === "lecture_asset") {
+        // Assets herdam subject da lecture — só folder_id muda. Endpoint
+        // dedicado valida ownership server-side (RLS + checagem user_id).
+        const res = await fetch(`/api/assets/${target.id}/move-folder`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ folderId: patch.folderId }),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: string;
+          };
+          throw new Error(body.error ?? `HTTP ${res.status}`);
+        }
       } else {
         // Lecture.folderId é string | undefined, não null. Converte aqui.
         await updateLectureAsync(userId, target.id, {
@@ -158,7 +177,10 @@ export function MoveToFolderDialog({
           folderId: patch.folderId ?? undefined,
         });
       }
-      toast.success("Movido.");
+      const folderName = patch.folderId
+        ? (folders.find((f) => f.id === patch.folderId)?.name ?? "pasta")
+        : "raiz da matéria";
+      toast.success(`Movido para ${folderName}.`);
       onMoved?.();
       onOpenChange(false);
     } catch (err) {
@@ -197,8 +219,8 @@ export function MoveToFolderDialog({
           </p>
         )}
 
-        {/* Etapa 1: matéria */}
-        <div>
+        {/* Etapa 1: matéria (escondida pra lecture_asset — herda da aula) */}
+        <div className={cn(target?.kind === "lecture_asset" && "hidden")}>
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-2">
             Matéria
           </p>

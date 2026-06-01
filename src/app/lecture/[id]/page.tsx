@@ -83,6 +83,10 @@ import { StatsCard } from "@/components/lecture/bottom-cards/stats-card";
 import { useTranscriptSync } from "@/components/lecture/use-transcript-sync";
 import { TranscribingOverlay } from "@/components/lecture/transcribing-overlay";
 import { CollapsibleSection } from "@/components/lecture/collapsible-section";
+import {
+  AssetsSection,
+  type AssetMeta,
+} from "@/components/lecture/assets-section";
 
 const SUGGESTED_PROMPTS = [
   "Faz um resumo da aula",
@@ -164,6 +168,12 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [search, setSearch] = useState("");
   const [activeFilter, setActiveFilter] = useState<MarkerFilter>("all");
   const [actionLoading, setActionLoading] = useState<NextActionId | null>(null);
+
+  // Hub de assets: flags de presença em `lecture_assets` (summary vive em outra
+   // tabela e já é coberto pelo state `summary` acima).
+  const [flashcardsReady, setFlashcardsReady] = useState(false);
+  const [quizReady, setQuizReady] = useState(false);
+  const [mindmapReady, setMindmapReady] = useState(false);
 
   const [attachOpen, setAttachOpen] = useState(false);
   const timerRef = useRef<number | null>(null);
@@ -337,6 +347,32 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id, lectureId, router]);
+
+  // Carrega quais assets já existem em `lecture_assets` (flashcards/quiz/mindmap)
+  // pra montar o Hub de Assets. Summary vive em `summaries` e é tratado à parte.
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const supabase = (await import("@/lib/supabase/client")).createClient();
+        const { data, error } = await supabase
+          .from("lecture_assets")
+          .select("id, kind")
+          .eq("lecture_id", lectureId)
+          .eq("user_id", user.id);
+        if (!active || error || !data) return;
+        const kinds = new Set(data.map((r: { kind: string }) => r.kind));
+        setFlashcardsReady(kinds.has("flashcards"));
+        setQuizReady(kinds.has("quiz"));
+        setMindmapReady(kinds.has("mindmap"));
+      } catch {
+        /* Hub é nice-to-have; falha silenciosa. */
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [user.id, lectureId]);
 
   // ===== Persist factory (gets lecture from closure when called) =====
   persistFnRef.current = (entries, insights) => {
@@ -1092,6 +1128,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         toast.error(`Erro ao gerar ${label}: ${msg}`, { id: t });
         return;
       }
+      // Atualiza flag do Hub otimisticamente.
+      if (kind === "flashcards") setFlashcardsReady(true);
+      else if (kind === "quiz") setQuizReady(true);
+      else if (kind === "mindmap") setMindmapReady(true);
       toast.success(`${label.charAt(0).toUpperCase() + label.slice(1)} gerado.`, {
         id: t,
         action: {
@@ -1407,6 +1447,88 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 />
               </div>
             </div>
+
+            <CollapsibleSection
+              id={`assets-${lectureId}`}
+              title="Material gerado"
+              subtitle="Resumo, flashcards, quiz e mapa mental dessa aula"
+              icon={<Sparkles className="h-4 w-4" />}
+              defaultOpen={true}
+              badge={
+                (() => {
+                  const total =
+                    (summary ? 1 : 0) +
+                    (flashcardsReady ? 1 : 0) +
+                    (quizReady ? 1 : 0) +
+                    (mindmapReady ? 1 : 0);
+                  return (
+                    <span className="text-[10px] font-mono text-muted-foreground">
+                      {total}/4 prontos
+                    </span>
+                  );
+                })()
+              }
+            >
+              <AssetsSection
+                disabled={sync.entries.length === 0}
+                assets={[
+                  {
+                    kind: "summary",
+                    label: "Resumo educativo",
+                    icon: <FileText className="h-5 w-5" />,
+                    status: generatingEducational
+                      ? "loading"
+                      : summary
+                        ? "ready"
+                        : "missing",
+                    href: summary ? `/resumo/${lectureId}` : undefined,
+                    onGenerate: () => generateEducationalSummary(),
+                  },
+                  {
+                    kind: "flashcards",
+                    label: "Flashcards",
+                    icon: <Layers className="h-5 w-5" />,
+                    status:
+                      actionLoading === "flashcards"
+                        ? "loading"
+                        : flashcardsReady
+                          ? "ready"
+                          : "missing",
+                    href: flashcardsReady ? "/flashcards" : undefined,
+                    onGenerate: () => generateAssetFromLecture("flashcards"),
+                  },
+                  {
+                    kind: "quiz",
+                    label: "Quiz",
+                    icon: <HelpCircle className="h-5 w-5" />,
+                    status:
+                      actionLoading === "quiz"
+                        ? "loading"
+                        : quizReady
+                          ? "ready"
+                          : "missing",
+                    href: quizReady ? "/quiz" : undefined,
+                    onGenerate: () => generateAssetFromLecture("quiz"),
+                  },
+                  {
+                    kind: "mindmap",
+                    label: "Mapa mental",
+                    icon: <Brain className="h-5 w-5" />,
+                    status:
+                      actionLoading === "mindmap"
+                        ? "loading"
+                        : mindmapReady
+                          ? "ready"
+                          : "missing",
+                    href: mindmapReady ? "/documentos" : undefined,
+                    onGenerate: () => generateAssetFromLecture("mindmap"),
+                  },
+                ] as AssetMeta[]}
+                // TODO: outro agent conecta com <MoveToFolderDialog> existente
+                // em src/components/documents/move-to-folder-dialog.tsx.
+                // onMoveFolder={(kind) => setMoveTarget(...)}
+              />
+            </CollapsibleSection>
 
             <CollapsibleSection
               id={`insights-${lectureId}`}

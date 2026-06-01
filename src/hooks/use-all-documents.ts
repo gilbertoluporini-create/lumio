@@ -31,6 +31,9 @@ export type DocumentItem = {
   title: string;
   subjectId: string | null;
   subjectName: string | null;
+  /** Pasta atual do asset (null = raiz da matéria). Necessário pra mover
+   *  entre pastas e filtrar a listagem por pasta. */
+  folderId: string | null;
   origin: DocumentOrigin;
   date: string;
   href: string;
@@ -38,12 +41,19 @@ export type DocumentItem = {
   lectureId: string;
   /** ID do documento original (PDF) quando aplicável */
   documentId?: string;
+  /** ID do row em lecture_assets quando o item é um asset gerado
+   *  (flashcards/quiz/mindmap). Permite UPDATE direto pra mover entre
+   *  pastas ou renomear. */
+  assetId?: string;
   meta?: string;
 };
 
 type AssetRow = {
   id: string;
-  lecture_id: string;
+  lecture_id: string | null;
+  document_id: string | null;
+  folder_id: string | null;
+  title: string | null;
   user_id: string;
   kind: "summary" | "flashcards" | "quiz" | "mindmap";
   payload: Record<string, unknown> | null;
@@ -108,9 +118,10 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
             const { data, error: assetErr } = await supabase
               .from("lecture_assets")
               .select(
-                "id, lecture_id, user_id, kind, payload, coins_spent, created_at, updated_at",
+                "id, lecture_id, document_id, folder_id, title, user_id, kind, payload, coins_spent, created_at, updated_at",
               )
               .eq("user_id", userId)
+              .is("deleted_at", null)
               .order("created_at", { ascending: false });
             if (assetErr) {
               console.warn("[useAllDocuments] assets fetch error", assetErr);
@@ -168,6 +179,7 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
         title: d.title,
         subjectId: subject?.id ?? null,
         subjectName: subject?.name ?? null,
+        folderId: d.folderId ?? null,
         origin: "upload",
         date: d.updatedAt ?? d.createdAt,
         href: `/document/${d.id}`,
@@ -191,6 +203,7 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
           title: `Resumo — ${baseTitle}`,
           subjectId: subject?.id ?? null,
           subjectName: subject?.name ?? null,
+          folderId: null,
           origin: "lumio",
           date: sm.updatedAt ?? sm.createdAt,
           href: `/resumo/${sm.source.lectureId}`,
@@ -205,6 +218,7 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
           title: `Resumo — ${baseTitle}`,
           subjectId: subject?.id ?? null,
           subjectName: subject?.name ?? null,
+          folderId: null,
           origin: "lumio",
           date: sm.updatedAt ?? sm.createdAt,
           href: `/resumo/doc/${sm.id}`,
@@ -227,6 +241,7 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
           title: l.title || "Aula sem título",
           subjectId,
           subjectName,
+          folderId: null,
           origin: "lumio",
           date: l.updatedAt ?? l.createdAt,
           href: `/lecture/${l.id}?tab=transcript`,
@@ -244,6 +259,7 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
           title: l.slidesFileName || `Slides — ${l.title}`,
           subjectId,
           subjectName,
+          folderId: null,
           origin: "upload",
           date: l.slidesAddedAt ?? l.updatedAt ?? l.createdAt,
           href: `/lecture/${l.id}?tab=slides`,
@@ -254,15 +270,33 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
     }
 
     for (const a of assets) {
-      const parent = lectureById.get(a.lecture_id);
-      const subject = parent?.subjectId ? subjectById.get(parent.subjectId) : null;
+      // Resolve source: lecture preferida, document como fallback (031).
+      const parentLecture = a.lecture_id
+        ? lectureById.get(a.lecture_id)
+        : undefined;
+      const parentDoc = a.document_id
+        ? docById.get(a.document_id)
+        : undefined;
+      const parentSubjectId =
+        parentLecture?.subjectId ?? parentDoc?.subjectId ?? null;
+      const subject = parentSubjectId
+        ? subjectById.get(parentSubjectId)
+        : null;
       const subjectId = subject?.id ?? null;
       const subjectName = subject?.name ?? null;
-      const baseTitle = parent?.title ?? "Documento";
+      const baseTitle =
+        parentLecture?.title ?? parentDoc?.title ?? "Documento";
       const payload = (a.payload ?? {}) as Record<string, unknown>;
+      // Title customizado pelo user (migration 041) tem prioridade sobre
+      // o título derivado.
+      const customTitle = a.title?.trim() || null;
 
       let title = baseTitle;
-      let href = `/lecture/${a.lecture_id}`;
+      let href = a.lecture_id
+        ? `/lecture/${a.lecture_id}`
+        : a.document_id
+          ? `/document/${a.document_id}`
+          : "#";
       let kind: DocumentKind = "summary";
       let meta: string | undefined;
 
@@ -276,7 +310,7 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
         )
           ? ((payload as { cards: unknown[] }).cards as unknown[])
           : [];
-        title = `Deck — ${baseTitle}`;
+        title = customTitle ?? `Deck — ${baseTitle}`;
         href = `/deck/${a.id}`;
         meta = `${cards.length} card${cards.length === 1 ? "" : "s"}`;
       } else if (a.kind === "quiz") {
@@ -286,12 +320,12 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
         )
           ? ((payload as { questions: unknown[] }).questions as unknown[])
           : [];
-        title = `Quiz — ${baseTitle}`;
+        title = customTitle ?? `Quiz — ${baseTitle}`;
         href = `/quiz-banco/${a.id}`;
         meta = `${questions.length} questão${questions.length === 1 ? "" : "ões"}`;
       } else if (a.kind === "mindmap") {
         kind = "mindmap";
-        title = `Mapa — ${baseTitle}`;
+        title = customTitle ?? `Mapa — ${baseTitle}`;
         href = `/mapa/${a.id}`;
       }
 
@@ -301,10 +335,13 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
         title,
         subjectId,
         subjectName,
+        folderId: a.folder_id ?? null,
         origin: "lumio",
         date: a.updated_at ?? a.created_at,
         href,
-        lectureId: a.lecture_id,
+        lectureId: a.lecture_id ?? "",
+        documentId: a.document_id ?? undefined,
+        assetId: a.id,
         meta,
       });
     }
