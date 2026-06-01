@@ -5,19 +5,21 @@ import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export type CollapsibleSectionProps = {
-  id: string;
+  /**
+   * Chave única para persistência em localStorage.
+   * Quando ausente, o componente apenas mantém estado local (sem persistir).
+   */
+  id?: string;
   title: string;
   icon?: React.ReactNode;
   subtitle?: string;
   defaultOpen?: boolean;
-  /** Persiste o estado aberto/fechado em localStorage com essa chave + id. */
-  persist?: boolean;
   badge?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 };
 
-const STORAGE_PREFIX = "lumio.lecture.section.";
+const STORAGE_PREFIX = "lumio.collapsible.";
 
 export function CollapsibleSection({
   id,
@@ -25,27 +27,24 @@ export function CollapsibleSection({
   icon,
   subtitle,
   defaultOpen = false,
-  persist = true,
   badge,
   children,
   className,
 }: CollapsibleSectionProps) {
-  const storageKey = persist ? STORAGE_PREFIX + id : null;
   const [open, setOpen] = useState(defaultOpen);
 
-  // Hidrata estado do localStorage no client.
+  // Hidrata estado do localStorage no client (SSR-safe).
   useEffect(() => {
-    if (!storageKey || typeof window === "undefined") return;
-    const saved = window.localStorage.getItem(storageKey);
-    if (saved === "1") setOpen(true);
-    else if (saved === "0") setOpen(false);
-  }, [storageKey]);
+    if (!id || typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(`${STORAGE_PREFIX}${id}`);
+    if (saved !== null) setOpen(saved === "1");
+  }, [id]);
 
   function toggle() {
     setOpen((prev) => {
       const next = !prev;
-      if (storageKey && typeof window !== "undefined") {
-        window.localStorage.setItem(storageKey, next ? "1" : "0");
+      if (id && typeof window !== "undefined") {
+        window.localStorage.setItem(`${STORAGE_PREFIX}${id}`, next ? "1" : "0");
       }
       return next;
     });

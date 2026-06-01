@@ -86,6 +86,7 @@ import { CollapsibleSection } from "@/components/lecture/collapsible-section";
 import {
   AssetsSection,
   type AssetMeta,
+  type AssetKind,
 } from "@/components/lecture/assets-section";
 
 const SUGGESTED_PROMPTS = [
@@ -147,6 +148,65 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [structuringTranscript, setStructuringTranscript] = useState(false);
   const [syncingSlides, setSyncingSlides] = useState(false);
   const [generatingEducational, setGeneratingEducational] = useState(false);
+
+  // Cards do hub "Material gerado" que o user escondeu nessa aula.
+  // SSR-safe: inicia [] e hidrata em useEffect (localStorage key por lecture).
+  const [hiddenAssetKinds, setHiddenAssetKinds] = useState<AssetKind[]>([]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(
+        `lumio.lecture-hub.hidden.${lectureId}`,
+      );
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const valid = parsed.filter(
+          (k): k is AssetKind =>
+            k === "summary" ||
+            k === "flashcards" ||
+            k === "quiz" ||
+            k === "mindmap",
+        );
+        setHiddenAssetKinds(valid);
+      }
+    } catch {
+      // localStorage corrompido — ignora e segue com [].
+    }
+  }, [lectureId]);
+
+  const persistHiddenAssetKinds = useCallback(
+    (next: AssetKind[]) => {
+      if (typeof window === "undefined") return;
+      try {
+        window.localStorage.setItem(
+          `lumio.lecture-hub.hidden.${lectureId}`,
+          JSON.stringify(next),
+        );
+      } catch {
+        // quota cheia / safari privado — ignora.
+      }
+    },
+    [lectureId],
+  );
+
+  const handleHideAsset = useCallback(
+    (kind: AssetKind) => {
+      setHiddenAssetKinds((prev) => {
+        if (prev.includes(kind)) return prev;
+        const next = [...prev, kind];
+        persistHiddenAssetKinds(next);
+        return next;
+      });
+    },
+    [persistHiddenAssetKinds],
+  );
+
+  const handleShowAllAssets = useCallback(() => {
+    setHiddenAssetKinds([]);
+    persistHiddenAssetKinds([]);
+  }, [persistHiddenAssetKinds]);
 
   // `?tab=summary` mantém a view "live" do header MAS pede pro LiveTranscriptColumn
   // abrir já na aba Resumo embutida (em vez da SummaryPane antiga de cards).
@@ -1096,7 +1156,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         : kind === "quiz"
           ? "quiz"
           : "mapa mental";
-    const targetRoute =
+    // targetRoute default (listagem) — sobrescrito abaixo com /asset/[id]
+    // específico quando o endpoint retornar `assetId` (default em /quiz e /flashcards).
+    let targetRoute: string =
       kind === "flashcards"
         ? "/flashcards"
         : kind === "quiz"
@@ -1132,6 +1194,12 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       if (kind === "flashcards") setFlashcardsReady(true);
       else if (kind === "quiz") setQuizReady(true);
       else if (kind === "mindmap") setMindmapReady(true);
+      // Se endpoint retornou assetId, leva direto pro viewer (em vez da lista).
+      if (data?.assetId && typeof data.assetId === "string") {
+        if (kind === "quiz") targetRoute = `/quiz-banco/${data.assetId}`;
+        else if (kind === "flashcards") targetRoute = `/deck/${data.assetId}`;
+        else if (kind === "mindmap") targetRoute = `/mapa/${data.assetId}`;
+      }
       toast.success(`${label.charAt(0).toUpperCase() + label.slice(1)} gerado.`, {
         id: t,
         action: {
@@ -1524,6 +1592,9 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                     onGenerate: () => generateAssetFromLecture("mindmap"),
                   },
                 ] as AssetMeta[]}
+                hiddenKinds={hiddenAssetKinds}
+                onHide={handleHideAsset}
+                onShowAll={handleShowAllAssets}
                 // TODO: outro agent conecta com <MoveToFolderDialog> existente
                 // em src/components/documents/move-to-folder-dialog.tsx.
                 // onMoveFolder={(kind) => setMoveTarget(...)}
