@@ -6,7 +6,129 @@ import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { assertLectureOwnership } from "@/lib/lecture-auth";
 import { logAiUsage } from "@/lib/ai-usage";
+import { generateEmbedding } from "@/lib/embeddings";
 import type { TranscriptEntry, TranscriptChapters } from "@/lib/types";
+
+// === Atlas (modo imagem real) ===
+// Distância cosseno máxima aceita pra considerar uma figura do PDF do user
+// um "match" semântico da seção. 0.22 ≈ similarity > 0.78. Threshold é
+// também o default da RPC `search_pdf_extracted_images` (migration 035).
+const ATLAS_MAX_DISTANCE = 0.22;
+const ATLAS_MIN_SIMILARITY = 1 - ATLAS_MAX_DISTANCE; // 0.78
+/** Máx imagens REAIS por resumo inteiro (defensivo contra atlas dominante) */
+const ATLAS_MAX_REAL_IMAGES = 5;
+/** Tamanho do corpo da seção H2 usado pra embed semântico (chars). */
+const ATLAS_SECTION_BODY_CHARS = 500;
+/** Quantas imagens (no máx) o summary-images fallback gera quando NÃO estamos
+ *  em modo Atlas. Em modo Atlas, o count é dimensionado dinamicamente pra
+ *  cobrir só as seções entre as N primeiras que NÃO receberam imagem real. */
+const FALLBACK_IMAGE_SLOT_COUNT = 3;
+
+/**
+ * Escapa caracteres especiais do markdown DENTRO do alt text/caption pra
+ * prevenir injection (`]` fechando o alt, `(` abrindo URL falsa, etc).
+ * Caption no DB vem do PDF do user — não confiamos no conteúdo.
+ * Trunca em 200 chars pq alt text grandão polui o markdown sem ganho.
+ */
+function escapeMarkdownImage(s: string): string {
+  return s.replace(/[\\[\]()`*_~]/g, "\\$&").slice(0, 200);
+}
+
+type AtlasMatchRow = {
+  id: string;
+  document_id: string;
+  page_number: number;
+  image_url: string;
+  caption_text: string | null;
+  classification: string | null;
+  similarity: number;
+};
+
+type AtlasSection = {
+  index: number; // sectionIndex (0-based no array de H2 do markdown)
+  title: string;
+  body: string;
+  startLine: number;
+  endLine: number; // linha exclusiva (próximo H2 ou EOF)
+};
+
+/**
+ * Extrai TODAS as seções H2 do markdown com o range de linhas que ocupam.
+ * `body` é os primeiros ATLAS_SECTION_BODY_CHARS chars do corpo (sem header)
+ * — material pra embed semântico contra `pdf_extracted_images.embedding`.
+ */
+function extractAtlasSections(markdown: string): AtlasSection[] {
+  const lines = markdown.split("\n");
+  const h2Idx: number[] = [];
+  lines.forEach((line, i) => {
+    if (line.startsWith("## ")) h2Idx.push(i);
+  });
+  const out: AtlasSection[] = [];
+  for (let i = 0; i < h2Idx.length; i++) {
+    const start = h2Idx[i];
+    const end = i + 1 < h2Idx.length ? h2Idx[i + 1] : lines.length;
+    const title = lines[start].replace(/^##\s+/, "").trim();
+    const body = lines
+      .slice(start + 1, end)
+      .join("\n")
+      .trim()
+      .slice(0, ATLAS_SECTION_BODY_CHARS);
+    out.push({ index: i, title, body, startLine: start, endLine: end });
+  }
+  return out;
+}
+
+/**
+ * Insere o bloco markdown da imagem (real ou IA) no FIM da seção indicada,
+ * imediatamente ANTES do próximo H2 (ou EOF se for a última seção).
+ *
+ * Padrão alvo:
+ *   ... fim do texto da seção ...
+ *                                   <- linha em branco
+ *   ![caption](url)
+ *   *Atlas: p.X*
+ *                                   <- linha em branco
+ *   ## Próxima seção
+ *
+ * Mesma estratégia de `injectImagesIntoMarkdown` em summary-images:
+ * inserção descendente (sort por insertAt DESC) pra não invalidar offsets
+ * das próximas inserções.
+ *
+ * Detalhe: se a linha imediatamente antes da posição de inserção já é
+ * blank (markdown padrão tem blank antes de heading), NÃO adicionamos
+ * outra — evita "double blank" visualmente ruim. Mesma lógica pra blank
+ * APÓS o bloco se a próxima linha já é blank.
+ */
+function injectAtlasBlocksIntoMarkdown(
+  markdown: string,
+  blocks: Array<{ sectionIndex: number; markdownBlock: string }>,
+): string {
+  if (blocks.length === 0) return markdown;
+  const lines = markdown.split("\n");
+  const h2Lines: number[] = [];
+  lines.forEach((line, i) => {
+    if (line.startsWith("## ")) h2Lines.push(i);
+  });
+  const plans = blocks
+    .filter(
+      (b) => b.sectionIndex >= 0 && b.sectionIndex < h2Lines.length,
+    )
+    .map((b) => {
+      const nextH2 = h2Lines[b.sectionIndex + 1];
+      const insertAt = nextH2 !== undefined ? nextH2 : lines.length;
+      return { insertAt, block: b.markdownBlock };
+    })
+    .sort((a, b) => b.insertAt - a.insertAt);
+  for (const p of plans) {
+    const blockLines = p.block.split("\n");
+    const prevLine = p.insertAt > 0 ? lines[p.insertAt - 1] : "";
+    const nextLine = p.insertAt < lines.length ? lines[p.insertAt] : "";
+    const leadingBlank = prevLine.trim() === "" ? [] : [""];
+    const trailingBlank = nextLine.trim() === "" ? [] : [""];
+    lines.splice(p.insertAt, 0, ...leadingBlank, ...blockLines, ...trailingBlank);
+  }
+  return lines.join("\n");
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -73,6 +195,112 @@ function buildTranscriptForPrompt(
   return entries.map((e) => e.text).join(" ");
 }
 
+/**
+ * Atlas matching: pra cada seção H2 do markdown, embeda o texto e busca a
+ * figura REAL mais próxima em `pdf_extracted_images` (RPC search_pdf_extracted_images).
+ * Retorna lista de matches (1 por seção, ou nenhum se distance >= ATLAS_MAX_DISTANCE).
+ *
+ * Idempotente: se OPENAI_API_KEY ausente ou nenhuma seção H2, retorna vazio
+ * sem cobrar nada (cobrança já aconteceu antes).
+ *
+ * `documentIds` é o conjunto de PDFs da MATÉRIA da lecture. Se vazio, RPC
+ * retorna nada (e fallback IA pega TODAS as seções).
+ */
+async function runAtlasMatching(opts: {
+  userId: string;
+  markdown: string;
+  documentIds: string[];
+  admin: ReturnType<typeof createAdminClient>;
+}): Promise<{
+  matches: Array<{ section: AtlasSection; row: AtlasMatchRow }>;
+  sectionsWithoutMatch: AtlasSection[];
+  embeddingTokensUsed: number;
+  sectionsProcessed: number;
+}> {
+  const sections = extractAtlasSections(opts.markdown);
+  const apiKey = process.env.OPENAI_API_KEY ?? "";
+  if (sections.length === 0 || !apiKey) {
+    return {
+      matches: [],
+      sectionsWithoutMatch: sections,
+      embeddingTokensUsed: 0,
+      sectionsProcessed: 0,
+    };
+  }
+
+  let embeddingTokensUsed = 0;
+  const matches: Array<{ section: AtlasSection; row: AtlasMatchRow }> = [];
+  const sectionsWithoutMatch: AtlasSection[] = [];
+  // Reservamos slots — máx ATLAS_MAX_REAL_IMAGES por resumo inteiro.
+  let realSlotsLeft = ATLAS_MAX_REAL_IMAGES;
+  const usedImageIds = new Set<string>();
+
+  for (const section of sections) {
+    if (realSlotsLeft <= 0 || opts.documentIds.length === 0) {
+      sectionsWithoutMatch.push(section);
+      continue;
+    }
+    const probe = `${section.title}\n\n${section.body}`.trim();
+    if (probe.length < 20) {
+      sectionsWithoutMatch.push(section);
+      continue;
+    }
+
+    let embedding: number[];
+    try {
+      const e = await generateEmbedding(probe, apiKey);
+      embedding = e.embedding;
+      embeddingTokensUsed += e.totalTokens;
+    } catch (err) {
+      console.warn("[summary][atlas] embedding failed for section", {
+        title: section.title,
+        err: (err as Error).message,
+      });
+      sectionsWithoutMatch.push(section);
+      continue;
+    }
+
+    try {
+      const { data, error } = await opts.admin.rpc(
+        "search_pdf_extracted_images",
+        {
+          query_embedding: embedding,
+          user_id_input: opts.userId,
+          document_ids_input: opts.documentIds,
+          classification_input: null,
+          match_threshold: ATLAS_MIN_SIMILARITY,
+          match_count: 3,
+        },
+      );
+      if (error) {
+        console.warn("[summary][atlas] rpc error", error);
+        sectionsWithoutMatch.push(section);
+        continue;
+      }
+      const rows = (Array.isArray(data) ? data : []) as AtlasMatchRow[];
+      // Top match (RPC já ordena por <=> ASC) que ainda não foi usado.
+      const pick = rows.find((r) => !usedImageIds.has(r.id));
+      if (!pick) {
+        sectionsWithoutMatch.push(section);
+        continue;
+      }
+      matches.push({ section, row: pick });
+      usedImageIds.add(pick.id);
+      realSlotsLeft -= 1;
+    } catch (err) {
+      console.warn("[summary][atlas] rpc threw", err);
+      sectionsWithoutMatch.push(section);
+    }
+  }
+
+  return {
+    matches,
+    sectionsWithoutMatch,
+    embeddingTokensUsed,
+    sectionsProcessed: sections.length,
+  };
+}
+
 export async function POST(
   req: NextRequest,
   ctx: { params: Promise<{ id: string }> },
@@ -86,15 +314,27 @@ export async function POST(
   const ipLimit = limitOrThrow(`edu-sum:ip:${ip}`, 5, 60_000);
   if (ipLimit) return ipLimit;
 
-  // Body: { crossPdfs?: boolean } — quando true, carrega PDFs da MESMA
-  // matéria como contexto complementar e cobra +15 coins (40 total).
+  // Body:
+  // - `crossPdfs?: boolean` — carrega PDFs da MESMA matéria como contexto
+  //   complementar (cobra +15 coins, 40 total).
+  // - `useAtlas?: boolean` — modo Atlas: depois de gerar o markdown, tenta
+  //   injetar IMAGENS REAIS extraídas dos PDFs do user (cruza embedding por
+  //   seção). Atlas é "tudo": implica crossPdfs=true e cobra 50 coins fixos
+  //   (mesmo se nenhum match real for encontrado — o pipeline rodou).
   let crossPdfs = false;
+  let useAtlas = false;
   try {
-    const body = (await req.json()) as { crossPdfs?: boolean };
+    const body = (await req.json()) as {
+      crossPdfs?: boolean;
+      useAtlas?: boolean;
+    };
     crossPdfs = body?.crossPdfs === true;
+    useAtlas = body?.useAtlas === true;
   } catch {
     /* body vazio é OK — vira modo padrão (sem cruzar) */
   }
+  // Atlas estende: sempre inclui o cross de PDFs (Atlas == "modo tudo").
+  if (useAtlas) crossPdfs = true;
 
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
@@ -185,6 +425,20 @@ export async function POST(
           .slice(0, 6000)
       : "";
 
+  // Atlas requer subject_id obrigatório — o escopo de matching é "PDFs da
+  // mesma matéria da aula". Aula órfã + Atlas = nada pra cruzar e cobrança
+  // injusta (pacote inclui pipeline mas não tem o que rodar). Bloqueamos
+  // ANTES de chargeCoins pra evitar refund desnecessário e dar mensagem clara.
+  if (useAtlas && !lectureRow.subject_id) {
+    return NextResponse.json(
+      {
+        error:
+          "Esta aula precisa estar atribuída a uma matéria pra usar o Atlas. Mova ela primeiro.",
+      },
+      { status: 400 },
+    );
+  }
+
   let subjectName = "Geral";
   if (lectureRow.subject_id) {
     const { data: subj } = await admin
@@ -224,17 +478,27 @@ export async function POST(
     pdfsForPrompt = parts.join("\n\n");
   }
 
-  // Cobrança: 25 (padrão) ou 40 (com PDFs cruzados, +15). Só cobra extra
-  // se realmente carregou PDFs — se subject_id ou docs vazios, cobra base.
+  // Cobrança:
+  //   - Atlas: 50 coins FIXOS (cobra mesmo sem matching real porque o pipeline
+  //     de embedding+busca rodou; aviso vai no response.atlas.warning).
+  //   - Cross (sem atlas): 40 coins, mas só se realmente carregou PDFs.
+  //   - Default: 25 coins.
   const willCross = crossPdfs && pdfsForPrompt.length > 0;
-  const cost = willCross
-    ? COIN_COSTS.summary_educational_cross
-    : COIN_COSTS.summary_educational;
-  const chargeKind = willCross
-    ? "summary_educational_cross"
-    : "summary_educational";
+  let cost: number;
+  let chargeKind: "summary_atlas" | "summary_educational_cross" | "summary_educational";
+  if (useAtlas) {
+    cost = COIN_COSTS.summary_atlas;
+    chargeKind = "summary_atlas";
+  } else if (willCross) {
+    cost = COIN_COSTS.summary_educational_cross;
+    chargeKind = "summary_educational_cross";
+  } else {
+    cost = COIN_COSTS.summary_educational;
+    chargeKind = "summary_educational";
+  }
   const charged = await chargeCoins(userId, cost, chargeKind, {
     lectureId,
+    ...(useAtlas ? { useAtlas: true } : {}),
   });
   if (!charged.ok) {
     return NextResponse.json(
@@ -307,10 +571,10 @@ export async function POST(
     });
 
     const textBlock = resp.content.find((b) => b.type === "text");
-    const markdown =
+    const baseMarkdown =
       textBlock && textBlock.type === "text" ? textBlock.text.trim() : "";
 
-    if (!markdown || markdown.length < 100) {
+    if (!baseMarkdown || baseMarkdown.length < 100) {
       await creditCoins(userId, cost, "refund", {
         lectureId,
         kind: "educational_summary_short_output",
@@ -321,9 +585,118 @@ export async function POST(
       );
     }
 
-    const payload = {
+    // === MODO ATLAS: injeta imagens REAIS dos PDFs do user antes de persistir ===
+    // Quando `useAtlas=true`, rodamos embedding por seção H2 e buscamos a
+    // figura mais próxima em `pdf_extracted_images` (RPC 035). Se acha,
+    // injeta o `![](url)` no FIM da seção. Pra seções sem match real, o
+    // fallback IA roda depois via /api/ai/summary-images (count reduzido).
+    let markdown = baseMarkdown;
+    let atlasRealImagesUsed = 0;
+    let atlasFallbackImagesUsed = 0;
+    let atlasSectionsProcessed = 0;
+    let atlasEmbeddingTokens = 0;
+    let atlasWarning: string | null = null;
+    let atlasFallbackCount = FALLBACK_IMAGE_SLOT_COUNT; // default mantém comportamento (3 imagens IA)
+
+    if (useAtlas) {
+      // Lista de PDFs da MESMA matéria da lecture (escopo do matching).
+      let atlasDocumentIds: string[] = [];
+      if (lectureRow.subject_id) {
+        const { data: docRows } = await admin
+          .from("documents")
+          .select("id")
+          .eq("user_id", userId)
+          .eq("subject_id", lectureRow.subject_id);
+        const rows = (docRows ?? []) as Array<{ id: string }>;
+        atlasDocumentIds = rows.map((r) => r.id);
+      }
+
+      if (atlasDocumentIds.length === 0) {
+        // Defesa em profundidade: sem subject_id ou sem PDFs da matéria,
+        // matching não tem o que comparar. Atlas vira "só fallback IA" mas
+        // cobrança já foi feita (pacote inclui o pipeline).
+        atlasWarning =
+          "Nenhum PDF da matéria pra cruzar — Atlas usou só IA. Suba PDFs e gere de novo.";
+      }
+
+      const atlasRun = await runAtlasMatching({
+        userId,
+        markdown: baseMarkdown,
+        documentIds: atlasDocumentIds,
+        admin,
+      });
+      atlasSectionsProcessed = atlasRun.sectionsProcessed;
+      atlasEmbeddingTokens = atlasRun.embeddingTokensUsed;
+      atlasRealImagesUsed = atlasRun.matches.length;
+
+      // Injeta as imagens REAIS no markdown ANTES de persistir — assim a
+      // /resumo já carrega com as figuras certas mesmo se summary-images
+      // falhar/demorar.
+      if (atlasRun.matches.length > 0) {
+        const blocks = atlasRun.matches.map(({ section, row }) => {
+          // Caption vem do PDF do user — escapamos chars que poderiam fechar
+          // o alt text e injetar markdown/HTML.
+          const alt = escapeMarkdownImage(
+            row.caption_text ?? section.title ?? "Imagem do atlas",
+          );
+          // URL via proxy /api/atlas/img/[id]: regenera signed URL fresca
+          // on-demand, evitando link morto quando o TTL persistido expira.
+          const lines = [
+            `![${alt}](/api/atlas/img/${row.id})`,
+            `*Atlas: p.${row.page_number} do PDF*`,
+          ];
+          return { sectionIndex: section.index, markdownBlock: lines.join("\n") };
+        });
+        markdown = injectAtlasBlocksIntoMarkdown(baseMarkdown, blocks);
+      }
+
+      // Fallback IA: o summary-images endpoint cobre as PRIMEIRAS N seções H2.
+      // Pra evitar duplicar figuras nas seções que já têm imagem real, capamos
+      // o count em quantas das N primeiras seções estão SEM match.
+      const firstNSectionIdxs = new Set(
+        Array.from({ length: FALLBACK_IMAGE_SLOT_COUNT }, (_, i) => i),
+      );
+      const realInFirstN = atlasRun.matches.filter((m) =>
+        firstNSectionIdxs.has(m.section.index),
+      ).length;
+      atlasFallbackCount = Math.max(0, FALLBACK_IMAGE_SLOT_COUNT - realInFirstN);
+
+      if (atlasRealImagesUsed === 0 && !atlasWarning) {
+        atlasWarning =
+          "Atlas não encontrou imagens correspondentes nos seus PDFs — usando IA.";
+      }
+
+      console.log("[summary][atlas]", {
+        userId,
+        lectureId,
+        documentsScoped: atlasDocumentIds.length,
+        sectionsProcessed: atlasSectionsProcessed,
+        realImagesUsed: atlasRealImagesUsed,
+        embeddingTokensUsed: atlasEmbeddingTokens,
+        fallbackCountPlanned: atlasFallbackCount,
+      });
+    }
+
+    const payload: {
+      markdown: string;
+      generatedAt: string;
+      atlas?: {
+        enabled: true;
+        realImagesUsed: number;
+        sectionsProcessed: number;
+      };
+    } = {
       markdown,
       generatedAt: new Date().toISOString(),
+      ...(useAtlas
+        ? {
+            atlas: {
+              enabled: true as const,
+              realImagesUsed: atlasRealImagesUsed,
+              sectionsProcessed: atlasSectionsProcessed,
+            },
+          }
+        : {}),
     };
 
     const { error: upErr } = await admin
@@ -378,59 +751,93 @@ export async function POST(
     // Se aula tem slides com imageDataUrl, manda como referenceImages pra
     // entrar no caminho /v1/images/edits — gera imagens com mesmo estilo
     // das imagens do wizard (resumo via PDF).
-    type SlideRow = {
-      pageNumber?: number;
-      title?: string;
-      text?: string;
-      imageDataUrl?: string;
-    };
-    const slidesArr = (lectureRow.slides ?? []) as SlideRow[];
-    const referenceImages = slidesArr
-      .filter((s) => typeof s.imageDataUrl === "string" && s.imageDataUrl)
-      .slice(0, 2)
-      .map((s) => ({
-        filename: `slide-${s.pageNumber ?? "?"}.jpg`,
-        dataUrl: s.imageDataUrl as string,
-      }));
-
-    // Timeout 150s pra summary-images — cabe dentro do maxDuration 300s
-    // mesmo com Sonnet tendo levado 60-120s no resumo. Se falhar/timeout,
-    // resumo retorna sem imagens (user pode clicar "Gerar ilustrações"
-    // na /resumo depois).
+    //
+    // IMPORTANTE: a partir daqui o resumo JÁ FOI PERSISTIDO. Qualquer erro
+    // a partir deste ponto NÃO deve refundar coins — o user já tem o resumo
+    // salvo e visível. Por isso o bloco abaixo é envolvido em try/catch
+    // ISOLADO que só loga + popula `imagesError`. O outer catch (que refunda)
+    // permanece pra erros ANTES da persistência.
+    //
+    // Em modo Atlas, `atlasFallbackCount` é dimensionado pra cobrir só as
+    // seções (entre as 3 primeiras) que NÃO receberam imagem real. Se já
+    // preenchemos todas com Atlas, pulamos a chamada pra economizar tempo+$.
+    const fallbackImagesRequested = useAtlas
+      ? atlasFallbackCount
+      : FALLBACK_IMAGE_SLOT_COUNT;
     let imagesGenerated = false;
     let imagesError: string | null = null;
     try {
-      const ctrl = new AbortController();
-      const timeoutId = setTimeout(() => ctrl.abort(), 150_000);
-      const imgResp = await fetch(
-        new URL("/api/ai/summary-images", req.url).toString(),
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            cookie: req.headers.get("cookie") ?? "",
-          },
-          body: JSON.stringify({
-            lectureId,
-            count: 3,
-            ...(referenceImages.length > 0 ? { referenceImages } : {}),
-          }),
-          signal: ctrl.signal,
-        },
-      );
-      clearTimeout(timeoutId);
-      if (imgResp.ok) {
-        const imgJson = (await imgResp.json().catch(() => ({}))) as {
-          images?: Array<unknown>;
-        };
-        imagesGenerated =
-          Array.isArray(imgJson.images) && imgJson.images.length > 0;
+      type SlideRow = {
+        pageNumber?: number;
+        title?: string;
+        text?: string;
+        imageDataUrl?: string;
+      };
+      const slidesArr = (lectureRow.slides ?? []) as SlideRow[];
+      const referenceImages = slidesArr
+        .filter((s) => typeof s.imageDataUrl === "string" && s.imageDataUrl)
+        .slice(0, 2)
+        .map((s) => ({
+          filename: `slide-${s.pageNumber ?? "?"}.jpg`,
+          dataUrl: s.imageDataUrl as string,
+        }));
+
+      // Timeout 150s pra summary-images — cabe dentro do maxDuration 300s
+      // mesmo com Sonnet tendo levado 60-120s no resumo. Se falhar/timeout,
+      // resumo retorna sem imagens (user pode clicar "Gerar ilustrações"
+      // na /resumo depois).
+      if (fallbackImagesRequested > 0) {
+        try {
+          const ctrl = new AbortController();
+          const timeoutId = setTimeout(() => ctrl.abort(), 150_000);
+          const imgResp = await fetch(
+            new URL("/api/ai/summary-images", req.url).toString(),
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                cookie: req.headers.get("cookie") ?? "",
+              },
+              body: JSON.stringify({
+                lectureId,
+                count: fallbackImagesRequested,
+                ...(referenceImages.length > 0 ? { referenceImages } : {}),
+              }),
+              signal: ctrl.signal,
+            },
+          );
+          clearTimeout(timeoutId);
+          if (imgResp.ok) {
+            const imgJson = (await imgResp.json().catch(() => ({}))) as {
+              images?: Array<unknown>;
+            };
+            const generated = Array.isArray(imgJson.images)
+              ? imgJson.images.length
+              : 0;
+            imagesGenerated = generated > 0;
+            if (useAtlas) atlasFallbackImagesUsed = generated;
+          } else {
+            imagesError = `HTTP ${imgResp.status}`;
+          }
+        } catch (e) {
+          imagesError = (e as Error).message || "unknown";
+          console.warn(
+            "[educational-summary] images await failed",
+            imagesError,
+          );
+        }
       } else {
-        imagesError = `HTTP ${imgResp.status}`;
+        // useAtlas + todas as N primeiras seções já têm imagem real
+        imagesGenerated = atlasRealImagesUsed > 0;
       }
-    } catch (e) {
-      imagesError = (e as Error).message || "unknown";
-      console.warn("[educational-summary] images await failed", imagesError);
+    } catch (postPersistErr) {
+      // Defesa em profundidade: nada na construção de referenceImages
+      // ou ao redor deve trigger refund — resumo já está salvo.
+      imagesError = (postPersistErr as Error).message || "post-persist-error";
+      console.warn(
+        "[educational-summary] post-persist block threw (não refunda)",
+        imagesError,
+      );
     }
 
     void logAiUsage({
@@ -442,10 +849,33 @@ export async function POST(
       coinsCharged: cost,
     }).catch(() => {});
 
+    // Telemetria separada do embedding usado no atlas matching (varia com
+    // nº de seções H2; ~50-300 tokens por seção em pt-BR).
+    if (useAtlas && atlasEmbeddingTokens > 0) {
+      void logAiUsage({
+        userId,
+        endpoint: "/api/lectures/[id]/educational-summary#atlas",
+        model: "text-embedding-3-small",
+        inputTokens: atlasEmbeddingTokens,
+        outputTokens: 0,
+        coinsCharged: 0, // já incluído nos 50c do summary_atlas
+      }).catch(() => {});
+    }
+
     return NextResponse.json({
       summaryEducational: payload,
       imagesGenerated,
       ...(imagesError ? { imagesError } : {}),
+      ...(useAtlas
+        ? {
+            atlas: {
+              realImagesUsed: atlasRealImagesUsed,
+              fallbackImagesUsed: atlasFallbackImagesUsed,
+              sectionsProcessed: atlasSectionsProcessed,
+              ...(atlasWarning ? { warning: atlasWarning } : {}),
+            },
+          }
+        : {}),
     });
   } catch (err) {
     await creditCoins(userId, cost, "refund", {

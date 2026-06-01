@@ -688,7 +688,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   }
 
   // ===== Resumo educativo (markdown estilo aba Resumos) =====
-  async function generateEducationalSummary(crossPdfs: boolean = false) {
+  async function generateEducationalSummary(
+    crossPdfs: boolean = false,
+    useAtlas: boolean = false,
+  ) {
     if (generatingEducational) return;
     if (!lecture) return;
     if (sync.entries.length === 0) {
@@ -697,9 +700,11 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     }
     setGeneratingEducational(true);
     const t = toast.loading(
-      crossPdfs
-        ? "Gerando resumo educativo + PDFs cruzados + ilustrações (pode levar 2-3 min)..."
-        : "Gerando resumo educativo + ilustrações (pode levar 2-3 min)...",
+      useAtlas
+        ? "Gerando resumo + Atlas (imagens reais dos seus PDFs)..."
+        : crossPdfs
+          ? "Gerando resumo educativo + PDFs cruzados + ilustrações (pode levar 2-3 min)..."
+          : "Gerando resumo educativo + ilustrações (pode levar 2-3 min)...",
     );
     try {
       const res = await fetch(
@@ -707,7 +712,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ crossPdfs }),
+          body: JSON.stringify({ crossPdfs, useAtlas }),
         },
       );
       const data = await res.json();

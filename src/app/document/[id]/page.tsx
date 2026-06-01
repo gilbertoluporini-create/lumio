@@ -14,6 +14,7 @@ import {
   ArrowLeft,
   FileText,
   FolderInput,
+  ImageIcon,
   Loader2,
   Sparkles,
   Trash2,
@@ -32,6 +33,7 @@ import {
   MoveToFolderDialog,
   type MoveTarget,
 } from "@/components/documents/move-to-folder-dialog";
+import { PdfImagesGallery } from "@/components/documents/pdf-images-gallery";
 import {
   deleteDocumentAsync,
   getDocumentAsync,
@@ -39,7 +41,11 @@ import {
 import { listSummariesAsync } from "@/lib/summaries";
 import { listSubjectsAsync } from "@/lib/db";
 import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
+import { createClient } from "@/lib/supabase/client";
+import { cn } from "@/lib/utils";
 import type { Document, Subject, Summary, User } from "@/lib/types";
+
+type DocTab = "content" | "images";
 
 export default function DocumentPage({
   params,
@@ -74,6 +80,9 @@ function DocumentView({
   const [extracting, setExtracting] = useState(false);
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<DocTab>("content");
+  const [imagesCount, setImagesCount] = useState<number | null>(null);
+  const [imagesTriggered, setImagesTriggered] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -99,6 +108,80 @@ function DocumentView({
       active = false;
     };
   }, [user.id, documentId]);
+
+  // Conta imagens extraídas pra exibir badge e decidir auto-trigger.
+  // Usa head:true + count:'exact' pra evitar baixar payload.
+  useEffect(() => {
+    let active = true;
+    const supabase = createClient();
+    (async () => {
+      const { count, error } = await supabase
+        .from("pdf_extracted_images")
+        .select("id", { count: "exact", head: true })
+        .eq("document_id", documentId)
+        .eq("user_id", user.id);
+      if (!active) return;
+      if (error) {
+        // Silencia: a galeria mostra erro detalhado quando aberta.
+        setImagesCount(0);
+        return;
+      }
+      setImagesCount(count ?? 0);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [user.id, documentId]);
+
+  // Quando a aba "Imagens" é aberta e ainda não há imagens, dispara o
+  // endpoint de extração em background (fire-and-forget). O endpoint pode
+  // não existir ainda — Wave 2 paralela. Em qualquer falha, silenciar.
+  useEffect(() => {
+    if (activeTab !== "images") return;
+    if (imagesTriggered) return;
+    if (imagesCount === null) return; // aguardando count inicial
+    if (imagesCount > 0) return; // já tem imagens
+    if (!doc?.sourceUrl) return; // sem PDF anexado, nada pra extrair
+    setImagesTriggered(true);
+    void fetch(`/api/documents/${documentId}/extract-images`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+    }).catch(() => {
+      // silencioso: a galeria já mostra "Nenhuma imagem ainda"
+    });
+  }, [activeTab, imagesTriggered, imagesCount, doc?.sourceUrl, documentId]);
+
+  // Polling leve: enquanto a aba Imagens estiver ativa e sem imagens,
+  // refaz o count a cada 30s, até 10 tentativas (5 min). Para assim que
+  // aparecer 1+ imagem.
+  useEffect(() => {
+    if (activeTab !== "images") return;
+    if (imagesCount === null) return;
+    if (imagesCount > 0) return;
+    const supabase = createClient();
+    let attempts = 0;
+    const maxAttempts = 10;
+    const interval = window.setInterval(async () => {
+      attempts += 1;
+      const { count } = await supabase
+        .from("pdf_extracted_images")
+        .select("id", { count: "exact", head: true })
+        .eq("document_id", documentId)
+        .eq("user_id", user.id);
+      const next = count ?? 0;
+      if (next > 0) {
+        setImagesCount(next);
+        window.clearInterval(interval);
+        return;
+      }
+      if (attempts >= maxAttempts) {
+        window.clearInterval(interval);
+      }
+    }, 30_000);
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [activeTab, imagesCount, documentId, user.id]);
 
   async function handleAttachPdf(files: FileList | null) {
     if (!files || files.length === 0 || !doc) return;
@@ -315,7 +398,85 @@ function DocumentView({
         </div>
       </div>
 
-      {/* Visualizador do PDF (quando disponível) */}
+      {/* Tabs: Conteúdo (default) | Imagens (galeria de imagens extraídas) */}
+      <div
+        role="tablist"
+        aria-label="Seções do documento"
+        className="mb-5 inline-flex flex-wrap items-center gap-1.5"
+      >
+        {(
+          [
+            { id: "content", label: "Conteúdo", icon: FileText },
+            { id: "images", label: "Imagens", icon: ImageIcon },
+          ] as const
+        ).map((t) => {
+          const isActive = activeTab === t.id;
+          const Icon = t.icon;
+          const showCount = t.id === "images" && imagesCount !== null && imagesCount > 0;
+          return (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              aria-controls={`doc-panel-${t.id}`}
+              id={`doc-tab-${t.id}`}
+              onClick={() => setActiveTab(t.id)}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary"
+                  : "text-muted-foreground hover:bg-secondary/60",
+              )}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {t.label}
+              {showCount && (
+                <span
+                  className={cn(
+                    "inline-flex items-center justify-center rounded-full px-1.5 text-[10px] font-mono tabular-nums",
+                    isActive
+                      ? "bg-primary/15 text-primary"
+                      : "bg-secondary/60 text-muted-foreground",
+                  )}
+                >
+                  {imagesCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Painel "Imagens" — galeria de imagens extraídas do PDF (Wave 2 Atlas) */}
+      {activeTab === "images" && (
+        <section
+          role="tabpanel"
+          id="doc-panel-images"
+          aria-labelledby="doc-tab-images"
+        >
+          {!doc.sourceUrl && (
+            <div className="mb-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+              Anexe o PDF acima pra que a gente consiga extrair as imagens.
+            </div>
+          )}
+          {doc.sourceUrl && imagesCount === 0 && imagesTriggered && (
+            <div className="mb-3 rounded-lg border border-sky-500/30 bg-sky-500/5 px-3 py-2 text-xs text-sky-700 dark:text-sky-300 inline-flex items-center gap-2">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Processando imagens em background — isso pode levar alguns minutos.
+            </div>
+          )}
+          <PdfImagesGallery documentId={documentId} userId={user.id} />
+        </section>
+      )}
+
+      {/* Painel "Conteúdo" — visualizador do PDF / texto extraído */}
+      {activeTab === "content" && (
+      <section
+        role="tabpanel"
+        id="doc-panel-content"
+        aria-labelledby="doc-tab-content"
+      >
       {doc.sourceUrl ? (
         <div className="rounded-xl border border-border/70 bg-card overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2 border-b border-border/40 bg-card/60">
@@ -373,6 +534,8 @@ function DocumentView({
             </div>
           )}
         </div>
+      )}
+      </section>
       )}
 
       <ContentWizard

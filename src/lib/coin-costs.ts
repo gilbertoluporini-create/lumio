@@ -16,6 +16,7 @@ export const COIN_COSTS = {
   summary: 14,              // produto: resumo estruturado (por tópicos) — fixo
   summary_educational: 25,  // resumo educativo + 3 imagens chatgpt-image-latest high
   summary_educational_cross: 40, // educativo + PDFs da matéria cruzados (+15 coins extras)
+  summary_atlas: 50,        // educativo cruzado + imagens REAIS extraídas dos PDFs do user (+10 coins)
   transcript_structure: 15, // revisão + capítulos por IA (Sonnet 4.5) — por chunk de ~25min
   flashcards: 8,            // alinhado com coins-pricing.ts
   quiz: 8,                  // alinhado com coins-pricing.ts

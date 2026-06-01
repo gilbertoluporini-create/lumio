@@ -228,6 +228,18 @@ export function UploadDocumentDialog({
         );
       }
 
+      // Atlas (Wave 2): dispara extração de imagens em background.
+      // Fire-and-forget: a UI não espera. Se falhar, o user pode reprocessar
+      // depois via botão "Extrair imagens" no card do doc (futuro B2).
+      fetch(`/api/documents/${doc.id}/extract-images`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+        keepalive: true,
+      }).catch((err) => {
+        console.warn("[upload-doc] atlas extract trigger failed", err);
+      });
+
       onUploaded?.();
       onOpenChange(false);
       toast.success("Documento adicionado.");
@@ -240,8 +252,8 @@ export function UploadDocumentDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg">
-        <DialogHeader>
+      <DialogContent className="max-w-lg max-h-[90vh] flex flex-col gap-0 p-0">
+        <DialogHeader className="px-6 pt-6 pb-3 shrink-0">
           <DialogTitle className="flex items-center gap-2">
             <Upload className="h-4 w-4 text-primary" />
             Subir documento
@@ -250,6 +262,8 @@ export function UploadDocumentDialog({
             PDFs vão pra biblioteca. Atribua matéria/pasta — ou deixe livre.
           </DialogDescription>
         </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto px-6 py-2 space-y-4 min-h-0">
 
         {/* Arquivo */}
         <div className="space-y-1.5">
@@ -387,7 +401,9 @@ export function UploadDocumentDialog({
           </div>
         )}
 
-        <DialogFooter>
+        </div>
+
+        <DialogFooter className="px-6 pb-6 pt-3 shrink-0 border-t border-border/40">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Cancelar
           </Button>

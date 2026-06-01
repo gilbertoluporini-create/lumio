@@ -275,7 +275,7 @@ export function LiveTranscriptColumn({
   summaryEducational?: { markdown: string; generatedAt: string };
   summaryImages?: import("@/lib/types").LectureSummaryImage[];
   generatingEducational?: boolean;
-  onGenerateEducational?: (crossPdfs: boolean) => void;
+  onGenerateEducational?: (crossPdfs: boolean, useAtlas: boolean) => void;
   onSearchChange: (v: string) => void;
   onFilterChange: (m: MarkerFilter) => void;
   onPlay?: (offsetSec: number) => void;
@@ -877,7 +877,7 @@ function SummaryInlineView({
   educationalImages?: import("@/lib/types").LectureSummaryImage[];
   generatingEducational: boolean;
   educationalStartedAtMs?: number | null;
-  onGenerateEducational?: (crossPdfs: boolean) => void;
+  onGenerateEducational?: (crossPdfs: boolean, useAtlas: boolean) => void;
   hasEntries: boolean;
   // Mantido por retrocompat — handler local de fullscreen real prevalece.
   onOpenFull?: () => void;
@@ -1035,13 +1035,16 @@ function EducationalSummaryPane({
   generating: boolean;
   startedAtMs?: number | null;
   hasEntries: boolean;
-  onGenerate?: (crossPdfs: boolean) => void;
+  onGenerate?: (crossPdfs: boolean, useAtlas: boolean) => void;
 }) {
   const [crossPdfs, setCrossPdfs] = useState(false);
+  const [useAtlas, setUseAtlas] = useState(false);
   const baseCost = COIN_COSTS.summary_educational;
   const crossCost = COIN_COSTS.summary_educational_cross;
-  const finalCost = crossPdfs ? crossCost : baseCost;
+  const atlasCost = COIN_COSTS.summary_atlas;
+  const finalCost = useAtlas ? atlasCost : crossPdfs ? crossCost : baseCost;
   const crossDelta = crossCost - baseCost;
+  const atlasDelta = atlasCost - baseCost;
   if (!markdown) {
     return (
       <div className="rounded-xl border border-dashed border-violet-500/40 bg-violet-500/5 p-5">
@@ -1066,7 +1069,7 @@ function EducationalSummaryPane({
             ) : (
               <div className="mt-3 space-y-2">
                 <Button
-                  onClick={() => onGenerate?.(crossPdfs)}
+                  onClick={() => onGenerate?.(crossPdfs, useAtlas)}
                   disabled={!hasEntries || !onGenerate}
                   variant="gradient"
                   size="sm"
@@ -1079,8 +1082,9 @@ function EducationalSummaryPane({
                   <input
                     type="checkbox"
                     checked={crossPdfs}
+                    disabled={useAtlas}
                     onChange={(e) => setCrossPdfs(e.target.checked)}
-                    className="mt-0.5 h-3.5 w-3.5 rounded border-violet-500/40 text-violet-600 focus:ring-violet-500"
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-violet-500/40 text-violet-600 focus:ring-violet-500 disabled:opacity-40"
                   />
                   <span className="leading-snug">
                     Cruzar com meus PDFs da matéria{" "}
@@ -1090,6 +1094,29 @@ function EducationalSummaryPane({
                     <span className="block text-[10px] text-muted-foreground/70">
                       Lumi usa seus PDFs como material de apoio pra dar mais
                       profundidade ao resumo.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-[11px] text-muted-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={useAtlas}
+                    onChange={(e) => {
+                      setUseAtlas(e.target.checked);
+                      if (e.target.checked) setCrossPdfs(true);
+                    }}
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-amber-500/40 text-amber-600 focus:ring-amber-500"
+                  />
+                  <span className="leading-snug">
+                    Usar imagens dos meus atlas{" "}
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">
+                      (+{atlasDelta}c)
+                    </span>
+                    <span className="block text-[10px] text-muted-foreground/70">
+                      Lumi cruza com seus PDFs E injeta imagens REAIS (Netter,
+                      Sobotta, exames) que casarem com o conteúdo da aula.
+                      Anatomia certa em vez de IA. Funciona melhor com PDFs já
+                      processados em <strong>/documentos</strong>.
                     </span>
                   </span>
                 </label>
@@ -1109,7 +1136,7 @@ function EducationalSummaryPane({
         </span>
         {onGenerate && (
           <button
-            onClick={() => onGenerate(false)}
+            onClick={() => onGenerate(false, false)}
             disabled={generating}
             className="text-[10px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
           >
