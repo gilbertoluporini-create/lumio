@@ -118,39 +118,47 @@ export function LumiToolCard({
     return <LumiQuestionCard output={(output ?? {}) as QuestionCardOutput} />;
   }
 
-  // Caso especial: card destacado "Subir arquivos" — abre o modal de upload
-  // direto via navegação pra /subject/<id>?upload=1 (a página detecta o query
-  // e abre o UploadDocumentDialog na chegada).
+  // Caso especial: card destacado "Subir arquivos" — abre o LumiUploadDialog
+  // DENTRO do chat (multi-file) via CustomEvent. /lumi page escuta e abre o
+  // dialog; após upload, manda mensagem automática pro Lumi confirmar.
   if (name === "solicitar_upload" && status === "done") {
     const out = (output ?? {}) as {
-      navegacao?: { path?: string; motivo?: string };
+      subjectId?: string;
       materia?: string;
       motivo?: string;
     };
-    const path = out.navegacao?.path;
-    if (path) {
+    const subjectId = out.subjectId;
+    const materia = out.materia;
+    if (subjectId && materia) {
+      const handleOpen = () => {
+        if (typeof window === "undefined") return;
+        window.dispatchEvent(
+          new CustomEvent("lumi-open-upload", {
+            detail: { subjectId, subjectName: materia },
+          }),
+        );
+      };
       return (
-        <Link
-          href={path}
-          className="block rounded-2xl border-2 border-dashed border-emerald-500/40 bg-gradient-to-br from-emerald-500/10 via-card to-emerald-500/5 p-4 hover:border-emerald-500/60 transition-all"
+        <button
+          type="button"
+          onClick={handleOpen}
+          className="block w-full rounded-2xl border-2 border-dashed border-emerald-500/40 bg-gradient-to-br from-emerald-500/10 via-card to-emerald-500/5 p-4 text-left transition-all hover:border-emerald-500/60"
         >
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 shrink-0 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10">
               <Upload className="h-5 w-5 text-emerald-600" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold">
-                Subir arquivos {out.materia ? `em ${out.materia}` : ""}
+                Subir arquivos em {materia}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-0.5">
-                {out.motivo ?? "Abre o modal de upload"}
+              <div className="mt-0.5 text-[11px] text-muted-foreground">
+                {out.motivo ?? "Abre o modal de upload aqui mesmo"}
               </div>
             </div>
-            <div className="text-xs font-medium text-emerald-600">
-              Abrir →
-            </div>
+            <div className="text-xs font-medium text-emerald-600">Abrir →</div>
           </div>
-        </Link>
+        </button>
       );
     }
   }

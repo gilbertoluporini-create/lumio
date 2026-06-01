@@ -58,6 +58,7 @@ import {
 } from "@/components/lumi/lumi-quick-actions";
 import { LumiThinking } from "@/components/lumi/lumi-thinking";
 import { LumiToolCard } from "@/components/lumi/lumi-tool-card";
+import { LumiUploadDialog } from "@/components/lumi/lumi-upload-dialog";
 import { LumiAttachmentPicker } from "@/components/lumi/lumi-attachment-picker";
 import { LumiVoiceMode } from "@/components/lumi/lumi-voice-mode";
 import { Textarea } from "@/components/ui/textarea";
@@ -517,6 +518,31 @@ function LumiAssistant({ user }: { user: User }) {
     window.addEventListener("lumi-pick-option", handler);
     return () => window.removeEventListener("lumi-pick-option", handler);
   }, [sending, sendMessage]);
+
+  // Dialog de upload invocado pelo card solicitar_upload (CustomEvent
+  // lumi-open-upload). Multi-file, subject travada pelo que o Lumi pediu.
+  // Após upload, manda mensagem automática pro Lumi confirmar que viu os
+  // arquivos.
+  const [uploadDialog, setUploadDialog] = useState<{
+    subjectId: string;
+    subjectName: string;
+  } | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const handler = (ev: Event) => {
+      const detail = (ev as CustomEvent<{
+        subjectId?: string;
+        subjectName?: string;
+      }>).detail;
+      if (!detail?.subjectId || !detail.subjectName) return;
+      setUploadDialog({
+        subjectId: detail.subjectId,
+        subjectName: detail.subjectName,
+      });
+    };
+    window.addEventListener("lumi-open-upload", handler);
+    return () => window.removeEventListener("lumi-open-upload", handler);
+  }, []);
 
   const runGenerate = useCallback(
     async (kind: LumiGenerateKind) => {
@@ -1684,6 +1710,28 @@ function LumiAssistant({ user }: { user: User }) {
         onClose={() => setAttachmentPickerOpen(false)}
         onPick={handleAddAttachment}
       />
+
+      {uploadDialog && (
+        <LumiUploadDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setUploadDialog(null);
+          }}
+          userId={user.id}
+          subjectId={uploadDialog.subjectId}
+          subjectName={uploadDialog.subjectName}
+          onUploaded={({ count, titles }) => {
+            const titlesStr = titles.slice(0, 5).join(", ");
+            const more = titles.length > 5 ? ` e mais ${titles.length - 5}` : "";
+            const msg =
+              count === 1
+                ? `Acabei de subir "${titles[0]}" em ${uploadDialog.subjectName}. Pode usar pra estudar.`
+                : `Acabei de subir ${count} arquivos em ${uploadDialog.subjectName}: ${titlesStr}${more}. Pode usar pra estudar.`;
+            setUploadDialog(null);
+            void sendMessage(msg);
+          }}
+        />
+      )}
     </div>
   );
 }
