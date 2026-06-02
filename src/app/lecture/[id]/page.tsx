@@ -434,6 +434,41 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     };
   }, [user.id, lectureId]);
 
+  // 2026-06-02: revisão automática pós-transcribe.
+  // Quando a lecture tem entries mas ainda não tem transcriptChapters,
+  // o pipeline /api/lectures/[id]/structure-transcript está rodando em
+  // background (disparado pelo /transcribe via x-internal-key). Polling a
+  // cada 5s refeta a lecture pra puxar os chapters assim que aterrissam no DB.
+  // Para quando: chapters chegam, lecture some, ou unmount.
+  useEffect(() => {
+    if (!lecture) return;
+    const hasEntries = sync.entries.length > 0;
+    const hasChapters = (lecture.transcriptChapters?.chapters?.length ?? 0) > 0;
+    if (!hasEntries || hasChapters) return;
+    let alive = true;
+    const lectureId = lecture.id;
+    const timer = window.setInterval(async () => {
+      if (!alive) return;
+      try {
+        const fresh = await getLectureAsync(user.id, lectureId);
+        if (!alive || !fresh) return;
+        if ((fresh.transcriptChapters?.chapters?.length ?? 0) > 0) {
+          setLecture((prev) =>
+            prev ? { ...prev, transcriptChapters: fresh.transcriptChapters } : prev,
+          );
+          window.clearInterval(timer);
+        }
+      } catch {
+        /* tenta de novo no próximo tick */
+      }
+    }, 5000);
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lecture?.id, lecture?.transcriptChapters?.chapters?.length, sync.entries.length, user.id]);
+
   // ===== Persist factory (gets lecture from closure when called) =====
   persistFnRef.current = (entries, insights) => {
     if (!lecture) return;

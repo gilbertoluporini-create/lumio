@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { createMessage } from "@/lib/llm-fallback";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { logAndSanitize, escapeForPrompt } from "@/lib/api-security";
@@ -156,25 +157,55 @@ export async function POST(
     );
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Faça login." }, { status: 401 });
+  // 2026-06-02: dual-auth — UI manda session cookie (cobra coins), pipeline
+  // automático pós-transcribe manda x-internal-key (skip de cobrança). Mesmo
+  // pattern do /api/lectures/[id]/educational-summary (linhas ~445-459).
+  const internalKey = req.headers.get("x-internal-key") ?? "";
+  const cronSecret = process.env.CRON_SECRET ?? "";
+  let isInternalDispatch = false;
+  if (internalKey && cronSecret && internalKey.length === cronSecret.length) {
+    const a = Buffer.from(internalKey);
+    const b = Buffer.from(cronSecret);
+    if (timingSafeEqual(a, b)) isInternalDispatch = true;
   }
-  const userId = user.id;
+
+  const admin = createAdminClient();
+  let userId: string;
+  if (isInternalDispatch) {
+    // Sem session: resolve o dono via lecture row. Se foi deletada, 404 puro.
+    const { data: lecRow, error: lecErr } = await admin
+      .from("lectures")
+      .select("user_id")
+      .eq("id", lectureId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (lecErr || !lecRow) {
+      return NextResponse.json(
+        { error: "Lecture not found" },
+        { status: 404 },
+      );
+    }
+    userId = (lecRow as { user_id: string }).user_id;
+  } else {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Faça login." }, { status: 401 });
+    }
+    userId = user.id;
+
+    const owns = await assertLectureOwnership(userId, lectureId);
+    if (!owns) {
+      return NextResponse.json({ error: "Aula não encontrada." }, { status: 404 });
+    }
+  }
 
   const userLimit = limitOrThrow(`structure-tr:user:${userId}`, 8, 60_000);
   if (userLimit) return userLimit;
 
-  const owns = await assertLectureOwnership(userId, lectureId);
-  if (!owns) {
-    return NextResponse.json({ error: "Aula não encontrada." }, { status: 404 });
-  }
-
   // Carrega lecture pra ler entries + título + subject
-  const admin = createAdminClient();
   const { data: lectureRow, error: lecErr } = await admin
     .from("lectures")
     .select("title, subject_id, transcript_entries, transcript_chapters")
@@ -215,22 +246,26 @@ export async function POST(
     );
   }
 
-  const perChunkCost = COIN_COSTS.transcript_structure; // 15
+  // Dispatch interno (pós-transcribe automático) é GRÁTIS pro user — não cobra
+  // nem reembolsa. UI manual continua cobrando o custo por chunk.
+  const perChunkCost = isInternalDispatch ? 0 : COIN_COSTS.transcript_structure; // 15
   const totalCost = perChunkCost * chunks.length;
-  const charged = await chargeCoins(userId, totalCost, "transcript_structure", {
-    lectureId,
-    chunks: chunks.length,
-  });
-  if (!charged.ok) {
-    return NextResponse.json(
-      {
-        error: "Coins insuficientes.",
-        balance: charged.balance,
-        required: totalCost,
-        chunks: chunks.length,
-      },
-      { status: 402 },
-    );
+  if (totalCost > 0) {
+    const charged = await chargeCoins(userId, totalCost, "transcript_structure", {
+      lectureId,
+      chunks: chunks.length,
+    });
+    if (!charged.ok) {
+      return NextResponse.json(
+        {
+          error: "Coins insuficientes.",
+          balance: charged.balance,
+          required: totalCost,
+          chunks: chunks.length,
+        },
+        { status: 402 },
+      );
+    }
   }
 
   const baseSystem = SYSTEM_PROMPT.replace(
@@ -311,8 +346,9 @@ export async function POST(
     const failedCount = results.filter((r) => !r.chapters).length;
     const successCount = results.length - failedCount;
 
-    // Reembolsa coins dos chunks que falharam.
-    if (failedCount > 0) {
+    // Reembolsa coins dos chunks que falharam. Skip pra dispatch interno
+    // (perChunkCost=0, nada a reembolsar).
+    if (perChunkCost > 0 && failedCount > 0) {
       await creditCoins(userId, perChunkCost * failedCount, "refund", {
         lectureId,
         kind: "transcript_structure_chunk_failed",
@@ -380,11 +416,14 @@ export async function POST(
       coinsRefunded: perChunkCost * failedCount,
     });
   } catch (err) {
-    // Erro inesperado fora do per-chunk handler — reembolso total.
-    await creditCoins(userId, totalCost, "refund", {
-      lectureId,
-      kind: "transcript_structure_error",
-    });
+    // Erro inesperado fora do per-chunk handler — reembolso total. Skip pro
+    // dispatch interno (não cobrou nada).
+    if (totalCost > 0) {
+      await creditCoins(userId, totalCost, "refund", {
+        lectureId,
+        kind: "transcript_structure_error",
+      });
+    }
     return NextResponse.json(
       logAndSanitize("api/lectures/structure-transcript", err),
       { status: 500 },

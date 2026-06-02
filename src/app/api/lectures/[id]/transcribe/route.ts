@@ -159,6 +159,39 @@ export async function POST(
 
     if (updErr) throw new Error(updErr.message);
 
+    // 2026-06-02: revisão de transcrição agora é AUTOMÁTICA pós-completion.
+    // Mágica invisível pro user (antes era opção paga). Dispara em background
+    // pra não bloquear a resposta do transcribe.
+    const cronSecret = process.env.CRON_SECRET ?? "";
+    if (cronSecret) {
+      const baseUrl =
+        process.env.VERCEL_URL ?
+          `https://${process.env.VERCEL_URL}` :
+          "http://localhost:3000";
+      // fetch sem await — fire-and-forget intencional. Erros logados, não
+      // impedem o transcribe de responder 200 pro client.
+      void fetch(`${baseUrl}/api/lectures/${id}/structure-transcript`, {
+        method: "POST",
+        headers: {
+          "x-internal-key": cronSecret,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({}),
+      })
+        .then(async (r) => {
+          if (!r.ok) {
+            const errBody = await r.text().catch(() => "");
+            console.error(
+              `[transcribe] auto structure-transcript fail status=${r.status}`,
+              errBody.slice(0, 200),
+            );
+          }
+        })
+        .catch((err) => {
+          console.error("[transcribe] auto structure-transcript exception", err);
+        });
+    }
+
     return NextResponse.json({
       ok: true,
       durationSec: result.durationSec,
