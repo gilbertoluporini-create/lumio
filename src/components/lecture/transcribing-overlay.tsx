@@ -146,7 +146,7 @@ export function TranscribingOverlay({
         <p className="mt-2 text-sm text-muted-foreground">
           {isFailed
             ? state.error ?? "Não conseguimos transcrever esse áudio."
-            : "Pode levar alguns minutos pra áudios longos. Pode fechar essa aba — a transcrição continua rodando no servidor."}
+            : "Pode levar alguns minutos pra áudios longos. Pode fechar essa aba — a transcrição continua rodando no servidor. Logo depois, a IA revisa os capítulos automaticamente."}
         </p>
 
         {!isFailed && (

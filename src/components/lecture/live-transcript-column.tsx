@@ -621,7 +621,11 @@ export function LiveTranscriptColumn({
                     </div>
                   )}
               </div>
-            ) : onStructureRequest ? (
+            ) : entries.length > 0 ? (
+              // 2026-06-02: revisão por IA agora é AUTOMÁTICA pós-transcribe
+              // (fire-and-forget). Banner informa que está rodando em background.
+              // FakeProgress só aparece se o user clicou "Regerar" manualmente
+              // (structuring=true) ou enquanto a revisão automática não chegou.
               <div className="rounded-lg border border-dashed border-violet-500/40 bg-violet-500/5 p-3">
                 <div className="flex items-start gap-2.5">
                   <div className="h-7 w-7 shrink-0 rounded-md bg-violet-500/15 flex items-center justify-center">
@@ -629,47 +633,25 @@ export function LiveTranscriptColumn({
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold">
-                      {topics.length > 0
-                        ? "Texto cru com typos? Refine com IA."
-                        : "Quer capítulos com títulos reais?"}
+                      Revisando capítulos com IA...
                     </p>
                     <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">
-                      {topics.length > 0
-                        ? "Os capítulos abaixo vêm da detecção automática durante a gravação. A IA corrige typos, ajusta pontuação e reescreve em parágrafos coerentes."
-                        : "A IA revisa typos, ajusta pontuação e separa em capítulos por tópico — não por janela de tempo."}
+                      A IA está corrigindo typos, ajustando pontuação e
+                      separando a transcrição em capítulos por tópico. Isso
+                      acontece automaticamente — pode fechar a aba.
                     </p>
-                    {structuring ? (
-                      <FakeProgress
-                        // Chunks paralelos: tempo total ≈ tempo de 1 chunk
-                        // (chunk de ~25min costuma levar 60-150s no Sonnet 4.5).
-                        estimateSec={150}
-                        label={
-                          aiChunkCount > 1
-                            ? `Revisando ${aiChunkCount} partes em paralelo`
-                            : "Revisando com IA"
-                        }
-                        hint="Pode fechar a aba — continua rodando no servidor."
-                        startedAtMs={structuringStartedAt ?? Date.now()}
-                      />
-                    ) : (
-                      <div className="mt-2 flex items-center gap-2 flex-wrap">
-                        <Button
-                          onClick={onStructureRequest}
-                          disabled={entries.length === 0}
-                          size="sm"
-                          className="h-7 gap-1.5 text-[11px]"
-                        >
-                          <Wand2 className="h-3 w-3" />
-                          Revisar com IA ({aiCoinCost} coins)
-                        </Button>
-                        {aiChunkCount > 1 && (
-                          <span className="text-[10px] text-muted-foreground">
-                            Aula longa: {aiChunkCount} partes processadas em
-                            paralelo
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    <FakeProgress
+                      // Chunks paralelos: tempo total ≈ tempo de 1 chunk
+                      // (chunk de ~25min costuma levar 60-150s no Sonnet 4.5).
+                      estimateSec={150}
+                      label={
+                        aiChunkCount > 1
+                          ? `Revisando ${aiChunkCount} partes em paralelo`
+                          : "Revisando com IA"
+                      }
+                      hint="Pode fechar a aba — continua rodando no servidor."
+                      startedAtMs={structuringStartedAt ?? Date.now()}
+                    />
                   </div>
                 </div>
               </div>
