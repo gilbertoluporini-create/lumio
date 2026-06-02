@@ -699,11 +699,13 @@ function PlanoView({ user }: { user: User }) {
                 onGenerate={() => setGenItem(item)}
                 onGenerateRotina={() => {
                   // Em vez de abrir wizard separado, leva o user pro chat
-                  // Lumi com uma mensagem inicial pedindo a rotina daquela
-                  // matéria/plano. O Lumi conduz via perguntar_opcoes
-                  // (carga horária, tópicos foco) e dispara gerar_rotina_estudo.
+                  // Lumi com uma mensagem inicial pedindo a rotina baseada
+                  // NOS ITEMS desse plano. O Lumi conduz via perguntar_opcoes
+                  // (carga horária) e dispara gerar_rotina_estudo passando
+                  // planId — o endpoint /api/lumi/routine usa os items da
+                  // trilha como base do PDF.
                   const subj = subjectName ?? "essa matéria";
-                  const prompt = `Quero gerar a rotina semanal de estudos pra ${subj} (plano: "${plan.title}"). Me ajuda a montar — pode me perguntar carga horária, foco e tópicos.`;
+                  const prompt = `Quero gerar a rotina semanal de estudos PRO PLANO "${plan.title}" (matéria: ${subj}, planId: ${planId}). Use os items da trilha como base — me pergunta só quantas horas/semana eu tenho e dispara a rotina com planId=${planId}.`;
                   const url = `/lumi?new=1&prompt=${encodeURIComponent(prompt)}${plan.subjectId ? `&subjectId=${plan.subjectId}` : ""}`;
                   window.location.href = url;
                 }}

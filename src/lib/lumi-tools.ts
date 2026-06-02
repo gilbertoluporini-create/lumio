@@ -481,6 +481,11 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
           type: "string",
           description: "Opcional: título do PDF. Default: 'Rotina — {matéria}'.",
         },
+        planId: {
+          type: "string",
+          description:
+            "Opcional: UUID do plano de estudos existente em /planos. Quando passado, a rotina SERÁ ESTRUTURADA EM TORNO dos items da trilha (resumo, mapa, quiz, flashcards, notas) — distribui os blocos de estudo na semana de forma que cada item do plano caiba na rotina, na ordem definida. Use quando o user veio do /planos clicar 'Gerar rotina' (deeplink) OU quando você acabou de criar um plano e ele pediu a rotina em seguida.",
+        },
       },
       required: ["subjectId"],
     },
@@ -1568,12 +1573,15 @@ const handlers: Record<LumiToolName, ToolHandler> = {
   async gerar_rotina_estudo(input, ctx) {
     const subjectId = str(input.subjectId);
     if (!subjectId) return { error: "subjectId obrigatório" };
+    const planId = str(input.planId).trim() || undefined;
     const conteudo = str(input.conteudo).trim();
     const nomesAulas = arr(input.nomesAulas);
-    if (!conteudo && nomesAulas.length === 0) {
+    // Quando há planId, os items do plano fornecem o conteúdo — conteudo/
+    // nomesAulas viram opcionais. Sem planId, exigimos um dos dois.
+    if (!planId && !conteudo && nomesAulas.length === 0) {
       return {
         error:
-          "Forneça `conteudo` (tópicos da prova) OU `nomesAulas` (lista de aulas). Sem isso não dá pra montar plano.",
+          "Forneça `conteudo` (tópicos da prova), `nomesAulas` OU `planId` (rotina baseada num plano existente).",
       };
     }
     const dataProva = str(input.dataProva) || undefined;
@@ -1589,6 +1597,7 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       },
       body: JSON.stringify({
         subjectId,
+        planId,
         conteudo: conteudo || undefined,
         nomesAulas: nomesAulas.length > 0 ? nomesAulas : undefined,
         dataProva,

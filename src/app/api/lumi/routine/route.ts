@@ -51,6 +51,12 @@ type Body = {
   horasSemanais?: number;
   /** Título do PDF (default: "Rotina — {matéria}"). */
   titulo?: string;
+  /**
+   * Opcional: ID do plano de estudos existente. Quando passado, carregamos os
+   * items da trilha (resumo, mapa, quiz, flashcards, notas) e estruturamos a
+   * rotina pra cobrir cada item na ordem definida.
+   */
+  planId?: string;
 };
 
 type SubjectRow = {
@@ -84,6 +90,7 @@ Recebe:
 - Carga semanal alvo (horas)
 - Mapa dos horários LIVRES por dia (já tirando as aulas agendadas)
 - Opcional: data da prova
+- Opcional: TRILHA DO PLANO DE ESTUDOS — lista ORDENADA de items (resumo, mapa, quiz, flashcards, notas) que o aluno vai cobrir até a prova
 
 Sua tarefa: distribuir blocos de estudo APENAS DENTRO dos horários livres, focando nos tópicos.
 
@@ -97,6 +104,14 @@ REGRAS DURAS:
 - Se a carga semanal não couber nos blocos livres, encolhe (não invente blocos fora).
 - Em português brasileiro, claro e direto. NÃO invente conteúdo que não veio no input.
 - Inclua sempre um "summary": 1–2 frases dizendo qual é a estratégia da semana.
+
+QUANDO HOUVER "TRILHA DO PLANO DE ESTUDOS" no input:
+- A rotina TEM QUE seguir a ORDEM da trilha. Cada item vira um ou mais blocos.
+- Use o título do item como "topic" do bloco (resumido pra caber em 3-8 palavras).
+- Use a description do item como "note" do bloco.
+- Tamanho típico: Resumo=2 blocos (estudo + revisão), Mapa=1 bloco, Quiz=1-2 blocos, Flashcards=múltiplos blocos curtos espaçados (spaced repetition), Nota/revisão=1 bloco final.
+- Items marcados [já concluído] viram revisões curtas (1 bloco de 30-45min de reforço) na semana — não revisita o conteúdo do zero.
+- NÃO ignore o conteudo/nomesAulas adicional — eles complementam a trilha (use como contexto pra detalhar o "topic" dos blocos relacionados a esses tópicos).
 
 FORMATO:
 {
@@ -248,9 +263,13 @@ export async function POST(req: Request) {
   const nomesAulas = Array.isArray(body.nomesAulas)
     ? body.nomesAulas.filter((x) => typeof x === "string").slice(0, 30)
     : [];
-  if (!conteudo && nomesAulas.length === 0) {
+  const planId = (body.planId ?? "").trim() || null;
+  if (!conteudo && nomesAulas.length === 0 && !planId) {
     return Response.json(
-      { error: "Preciso de conteúdo ou nomes das aulas pra montar o plano." },
+      {
+        error:
+          "Preciso de conteúdo, nomes das aulas OU um planId pra montar a rotina.",
+      },
       { status: 400 },
     );
   }
@@ -298,6 +317,40 @@ export async function POST(req: Request) {
     );
   }
 
+  // Carrega items do plano quando vier planId — vira contexto pra rotina
+  // distribuir os blocos de estudo na sequência dos items da trilha.
+  type PlanItemRow = {
+    id: string;
+    kind: string;
+    title: string;
+    description: string | null;
+    position: number;
+    status: string;
+  };
+  let planItems: PlanItemRow[] = [];
+  let planTitle: string | null = null;
+  if (planId) {
+    const { data: planRow } = await admin
+      .from("study_plans")
+      .select("id, user_id, title, exam_date")
+      .eq("id", planId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (!planRow) {
+      return Response.json(
+        { error: "Plano não encontrado ou não pertence ao user." },
+        { status: 404 },
+      );
+    }
+    planTitle = (planRow as { title?: string }).title ?? null;
+    const { data: itemsRaw } = await admin
+      .from("study_plan_items")
+      .select("id, kind, title, description, position, status")
+      .eq("plan_id", planId)
+      .order("position", { ascending: true });
+    planItems = (itemsRaw ?? []) as PlanItemRow[];
+  }
+
   const charge = await chargeCoins(user.id, COIN_COSTS.routine, "routine", {
     scope: "lumi-routine",
     subject_id: subjectId,
@@ -326,6 +379,31 @@ export async function POST(req: Request) {
   const conteudoBlock = conteudo
     ? `=== CONTEÚDO/TÓPICOS DA PROVA ===\n${escapeForPrompt(conteudo)}`
     : "";
+  // Quando vem de um plano: lista os items pendentes na ordem da trilha pra
+  // a LLM cobrir cada um na rotina. Items já 'done' são informativos (não
+  // precisa re-agendar). Items kind=routine são omitidos (são o asset que a
+  // gente tá gerando agora).
+  const kindLabel: Record<string, string> = {
+    summary: "Resumo",
+    mindmap: "Mapa mental",
+    quiz: "Quiz",
+    flashcards: "Flashcards",
+    note: "Nota/revisão",
+  };
+  const relevantItems = planItems.filter((it) => it.kind !== "routine");
+  const planBlock =
+    planId && relevantItems.length > 0
+      ? `=== TRILHA DO PLANO DE ESTUDOS ${planTitle ? `("${escapeForPrompt(planTitle)}")` : ""} ===\nA rotina DEVE estruturar a semana pra cobrir os items da trilha abaixo, NA ORDEM. Cada item vira um ou mais blocos de estudo (resumo=1-2 blocos pra ler/revisar; mapa=1 bloco; quiz/flashcards=blocos de revisão ativa; nota=1 bloco de revisão final). Use o título do item como "topic" do bloco e a description como "note" quando houver.\n${relevantItems
+          .map((it, i) => {
+            const label = kindLabel[it.kind] ?? it.kind;
+            const status = it.status === "done" ? " [já concluído]" : "";
+            const desc = it.description
+              ? ` — ${escapeForPrompt(it.description)}`
+              : "";
+            return `${i + 1}. [${label}${status}] ${escapeForPrompt(it.title)}${desc}`;
+          })
+          .join("\n")}`
+      : "";
   const cargaLine =
     horasSemanais !== null
       ? `Carga semanal alvo: ${horasSemanais} horas.`
@@ -342,6 +420,7 @@ export async function POST(req: Request) {
     "=== HORÁRIOS LIVRES POR DIA DA SEMANA (07:00-23:00, já tiradas as aulas) ===",
     freeLines,
     "",
+    planBlock,
     conteudoBlock,
     aulasBlock,
     "",
