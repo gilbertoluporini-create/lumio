@@ -106,6 +106,9 @@ type GenerateResponse = {
   imageUrls?: string[];
   coinsCharged: number;
   balanceAfter: number;
+  /** Quando o generate salvou o asset server-side (anti close-tab). */
+  route?: string;
+  persisted?: boolean;
 };
 
 type Flashcard = {
@@ -930,6 +933,29 @@ export function ContentWizard({
       toast.dismiss("wizard-generation");
     };
 
+    // Persistência SERVER-SIDE (anti perda-de-coin no close-tab) — só pra
+    // flashcards/quiz/mapa COM fonte existente (aula ou documento já salvo).
+    // Nesses modos o generate já devolve content+imageUrls completos, então
+    // salvar no server não regride nada. Summary fica client-side (precisa do
+    // pipeline de summary-images com referenceImages). PDF recém-subido (sem
+    // id) também fica client-side.
+    const persistPre = (() => {
+      if (mode === "summary") return undefined;
+      const lec = selectedLectures[0];
+      const existingDoc = selectedDocuments[0];
+      if (!lec && !existingDoc) return undefined;
+      const sid =
+        initialSubjectId ??
+        lec?.subjectId ??
+        existingDoc?.subjectId ??
+        subjects[0]?.id;
+      if (!sid) return undefined;
+      return {
+        subjectId: sid,
+        ...(lec ? { lectureId: lec.id } : { documentId: existingDoc!.id }),
+      };
+    })();
+
     try {
       const resp = await fetch("/api/ai/generate", {
         method: "POST",
@@ -938,6 +964,7 @@ export function ContentWizard({
           mode,
           sources: { transcripts, pdfTexts },
           options,
+          ...(persistPre ? { persist: persistPre } : {}),
         }),
       });
       const json = (await resp.json()) as GenerateResponse & {
@@ -948,6 +975,18 @@ export function ContentWizard({
       if (!resp.ok) {
         cancelProgress();
         toast.error(json.error ?? "Falha na geração.");
+        return;
+      }
+
+      // Asset já salvo server-side → navega direto, pula o save client-side
+      // (sem risco de duplicar e sem depender da aba ficar aberta).
+      if (json.persisted && json.route) {
+        Analytics.assetGenerated(mode, withImages);
+        finishProgress("Pronto!");
+        toast.success("Pronto!");
+        fireConfetti();
+        onCreated?.({ lectureId: selectedLectures[0]?.id, mode });
+        router.push(json.route);
         return;
       }
 

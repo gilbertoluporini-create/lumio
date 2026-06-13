@@ -22,7 +22,7 @@ import { chargeCoins, creditCoins, getBalance } from "@/lib/coins";
 import { computeCost, type AIMode } from "@/lib/coins-pricing";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import { isFeatureEnabled, featureDisabledResponse } from "@/lib/feature-flags";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createAdminClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { logAiUsage } from "@/lib/ai-usage";
 
@@ -60,6 +60,19 @@ type Body = {
   sources?: Sources;
   options?: Options;
   attachments?: AttachmentPayload[];
+  /**
+   * Persistência SERVER-SIDE opcional (anti perda-de-coin no close-tab). Se
+   * presente com subjectId + (lectureId OU documentId), o asset é salvo aqui
+   * mesmo (atômico com a cobrança) e a rota volta em `route` — fechar a aba
+   * durante a geração não perde mais o coin. Sem isso, comportamento antigo
+   * (retorna content pro client salvar).
+   */
+  persist?: {
+    subjectId?: string;
+    title?: string;
+    lectureId?: string;
+    documentId?: string;
+  };
 };
 
 const MAX_ATTACHMENTS = 5;
@@ -642,6 +655,158 @@ function tryParseJson<T = unknown>(text: string): T | null {
   return null;
 }
 
+/** Extrai bullets sob "## Pontos-chave" (mesmo algoritmo do wizard/Lumi). */
+function extractHighlightsLocal(markdown: string, max: number): string[] {
+  const out: string[] = [];
+  let inH = false;
+  for (const line of markdown.split("\n")) {
+    if (/^##\s+pontos[- ]chave/i.test(line.trim())) {
+      inH = true;
+      continue;
+    }
+    if (inH) {
+      if (/^##\s/.test(line)) break;
+      const m = line.match(/^\s*-\s+(.+)/);
+      if (m) {
+        out.push(m[1].replace(/\[\[([^\]]+)\]\]/g, "$1").slice(0, 120));
+        if (out.length >= max) break;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Persistência SERVER-SIDE do asset (anti perda-de-coin no close-tab durante a
+ * geração). Espelha generation-save.ts mas com admin client. Usa o lectureId
+ * fornecido quando há (corrige o bug de stub órfão do recovery client-side).
+ */
+async function persistGeneratedAsset(opts: {
+  userId: string;
+  mode: AIMode;
+  content: unknown;
+  imageUrls: string[];
+  cost: number;
+  persist: NonNullable<Body["persist"]>;
+}): Promise<{ route: string } | { error: string }> {
+  const { userId, mode, content, imageUrls, cost, persist } = opts;
+  const subjectId = persist.subjectId;
+  const lectureId = persist.lectureId;
+  const documentId = persist.documentId;
+  if (!subjectId) return { error: "subjectId ausente" };
+  if (!lectureId && !documentId) return { error: "sem fonte" };
+  const admin = createAdminClient();
+  const title = (persist.title || "Material gerado").slice(0, 200);
+
+  if (mode === "summary") {
+    const md =
+      typeof content === "object" && content
+        ? ((content as { markdown?: string }).markdown ?? "")
+        : "";
+    const summaryContent = {
+      generatedAt: new Date().toISOString(),
+      generalSummary: md,
+      highlights: extractHighlightsLocal(md, 6),
+      sections: [],
+    };
+    if (lectureId) {
+      const { data, error } = await admin
+        .from("summaries")
+        .upsert(
+          {
+            user_id: userId,
+            subject_id: subjectId,
+            lecture_id: lectureId,
+            document_id: null,
+            title,
+            content: summaryContent,
+          },
+          { onConflict: "lecture_id" },
+        )
+        .select("id")
+        .single();
+      if (error || !data?.id) return { error: "falha salvando resumo" };
+      return { route: `/resumo/${lectureId}` };
+    }
+    const { data, error } = await admin
+      .from("summaries")
+      .insert({
+        user_id: userId,
+        subject_id: subjectId,
+        lecture_id: null,
+        document_id: documentId,
+        title,
+        content: summaryContent,
+      })
+      .select("id")
+      .single();
+    if (error || !data?.id) return { error: "falha salvando resumo" };
+    return { route: `/resumo/doc/${data.id}` };
+  }
+
+  // flashcards / quiz / mindmap → lecture_asset (usa lectureId se houver,
+  // senão cria wrapper — igual ao generation-save, mas sem orfanar).
+  let targetLectureId = lectureId ?? null;
+  if (!targetLectureId) {
+    const { data: lec, error: lecErr } = await admin
+      .from("lectures")
+      .insert({
+        user_id: userId,
+        subject_id: subjectId,
+        title,
+        transcript: "",
+        duration_sec: 0,
+        status: "draft",
+        messages: [],
+      })
+      .select("id")
+      .single();
+    if (lecErr || !lec?.id) return { error: "falha criando lecture" };
+    targetLectureId = lec.id;
+  }
+  const c = (content ?? {}) as Record<string, unknown>;
+  let payload: Record<string, unknown> = { generatedAt: new Date().toISOString() };
+  if (mode === "flashcards") {
+    payload = {
+      ...payload,
+      cards: Array.isArray(c.cards) ? c.cards : [],
+      ...(imageUrls.length ? { imageUrls } : {}),
+    };
+  } else if (mode === "quiz") {
+    payload = {
+      ...payload,
+      questions: Array.isArray(c.questions) ? c.questions : [],
+      ...(imageUrls.length ? { imageUrls } : {}),
+    };
+  } else {
+    payload = {
+      ...payload,
+      centralTopic: (c.centralTopic as string) ?? title,
+      branches: Array.isArray(c.branches) ? c.branches : [],
+      ...(imageUrls.length ? { heroImageUrl: imageUrls[0] } : {}),
+    };
+  }
+  const { data: asset, error: aErr } = await admin
+    .from("lecture_assets")
+    .insert({
+      lecture_id: targetLectureId,
+      user_id: userId,
+      kind: mode,
+      payload,
+      coins_spent: cost,
+    })
+    .select("id")
+    .single();
+  if (aErr || !asset?.id) return { error: "falha salvando asset" };
+  const route =
+    mode === "flashcards"
+      ? `/deck/${asset.id}`
+      : mode === "quiz"
+        ? `/quiz-banco/${asset.id}`
+        : `/mapa/${asset.id}`;
+  return { route };
+}
+
 /* ------------------------------------------------------------------ */
 /*  POST                                                                */
 /* ------------------------------------------------------------------ */
@@ -990,12 +1155,36 @@ export async function POST(req: Request) {
       coinsCharged: cost,
     });
 
+    // Persistência SERVER-SIDE opcional: se o caller passou `persist` com fonte,
+    // salva aqui mesmo — fechar a aba durante a geração não perde o coin (o
+    // asset já está no banco). Se o save falhar, reembolsa e retorna erro.
+    let persistedRoute: string | undefined;
+    if (body.persist && (body.persist.lectureId || body.persist.documentId)) {
+      const saved = await persistGeneratedAsset({
+        userId,
+        mode,
+        content,
+        imageUrls,
+        cost,
+        persist: body.persist,
+      });
+      if ("error" in saved) {
+        await refundOnFailure("persist_failed");
+        return Response.json(
+          { error: `Falha ao salvar o material. Coins devolvidos.` },
+          { status: 500 },
+        );
+      }
+      persistedRoute = saved.route;
+    }
+
     return Response.json({
       mode,
       content,
       imageUrls,
       coinsCharged: cost,
       balanceAfter: charge.balanceAfter,
+      ...(persistedRoute ? { route: persistedRoute, persisted: true } : {}),
     });
   } catch (err) {
     await refundOnFailure("api_failure");
