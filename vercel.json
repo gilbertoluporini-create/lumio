@@ -12,6 +12,10 @@
     {
       "path": "/api/cron/renew-signed-urls",
       "schedule": "0 */12 * * *"
+    },
+    {
+      "path": "/api/cron/retry-transcription",
+      "schedule": "*/15 * * * *"
     }
   ]
 }

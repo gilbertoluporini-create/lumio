@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { logAndSanitize } from "@/lib/api-security";
 import { transcribeAudioBuffer } from "@/lib/transcribe-audio";
@@ -49,12 +50,15 @@ export async function POST(
     );
   }
 
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Faça login." }, { status: 401 });
+  // Auth: sessão do user OU dispatch INTERNO do cron de retry (x-internal-key
+  // == CRON_SECRET, timing-safe). O cron re-dispara transcrições travadas.
+  const internalKey = req.headers.get("x-internal-key") ?? "";
+  const cronSecret = process.env.CRON_SECRET ?? "";
+  let isInternal = false;
+  if (internalKey && cronSecret && internalKey.length === cronSecret.length) {
+    if (timingSafeEqual(Buffer.from(internalKey), Buffer.from(cronSecret))) {
+      isInternal = true;
+    }
   }
 
   const admin = createAdminClient();
@@ -77,27 +81,43 @@ export async function POST(
     transcription_status: string;
     source: string;
   };
-  if (lec.user_id !== user.id) {
-    return NextResponse.json({ error: "Sem acesso." }, { status: 403 });
+
+  // Resolve o dono: interno usa o user_id da própria aula; externo exige sessão.
+  let effectiveUserId: string;
+  if (isInternal) {
+    effectiveUserId = lec.user_id;
+  } else {
+    const supabase = await createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: "Faça login." }, { status: 401 });
+    }
+    if (lec.user_id !== user.id) {
+      return NextResponse.json({ error: "Sem acesso." }, { status: 403 });
+    }
+    effectiveUserId = user.id;
   }
 
-  // Storage path tem que ser do próprio user (sandbox por user_id)
-  if (!body.storagePath.startsWith(`${user.id}/`)) {
+  // Storage path tem que ser do próprio dono (sandbox por user_id)
+  if (!body.storagePath.startsWith(`${effectiveUserId}/`)) {
     return NextResponse.json(
       { error: "storagePath fora do escopo do usuário." },
       { status: 403 },
     );
   }
 
-  // Reentrância: se já está transcrevendo, recusa.
-  if (lec.transcription_status === "transcribing") {
+  // Reentrância: bloqueia só pra chamada de user. O cron interno re-dispara
+  // justamente as que ficaram presas em 'transcribing'.
+  if (!isInternal && lec.transcription_status === "transcribing") {
     return NextResponse.json(
       { error: "Transcrição já em andamento." },
       { status: 409 },
     );
   }
 
-  // Marca como transcribing
+  // Marca como transcribing + PERSISTE storage_path (pra retry) + timestamp.
   await admin
     .from("lectures")
     .update({
@@ -106,6 +126,8 @@ export async function POST(
       transcription_error: null,
       source: "upload",
       status: "live",
+      storage_path: body.storagePath,
+      transcription_started_at: new Date().toISOString(),
     })
     .eq("id", id);
 
