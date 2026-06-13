@@ -626,6 +626,7 @@ export async function POST(
     if (!baseMarkdown || baseMarkdown.length < 100) {
       await creditCoins(userId, cost, "refund", {
         lectureId,
+        original_tx: charged.transactionId,
         kind: "educational_summary_short_output",
       });
       return NextResponse.json(
@@ -929,6 +930,7 @@ export async function POST(
   } catch (err) {
     await creditCoins(userId, cost, "refund", {
       lectureId,
+      original_tx: charged.transactionId,
       kind: "educational_summary_error",
     });
     return NextResponse.json(

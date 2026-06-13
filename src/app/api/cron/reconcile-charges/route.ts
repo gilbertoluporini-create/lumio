@@ -87,14 +87,21 @@ export async function GET(req: NextRequest) {
   let refunded = 0;
   let confirmed = 0;
   let skipped = 0;
+  let alreadyRefunded = 0;
 
   for (const tx of txs) {
     const lectureId = tx.metadata?.lectureId ?? tx.metadata?.lecture_id ?? null;
     const markReconciled = async () => {
-      await admin
+      const { error: mrErr } = await admin
         .from("coin_transactions")
         .update({ reconciled_at: new Date().toISOString() })
         .eq("id", tx.id);
+      if (mrErr) {
+        // Carimbo falhou: o próximo run reprocessa este débito, MAS a checagem
+        // alreadyRefunded() abaixo impede double-refund (enxerga o refund já
+        // emitido por este run). Só logamos pra visibilidade.
+        console.error("[reconcile-charges] markReconciled falhou", tx.id, mrErr);
+      }
     };
 
     if (!lectureId) {
@@ -134,6 +141,45 @@ export async function GET(req: NextRequest) {
       continue;
     }
 
+    // GUARD double-refund (correlação EXATA 1:1 por débito): NÃO reembolsa se
+    // já existe um refund carimbado com original_tx = este débito. Cobre:
+    //  (a) refund in-handler do educational-summary nas falhas normais (output
+    //      curto / erro de API) — agora grava original_tx = id deste débito.
+    //  (b) refund de um run ANTERIOR deste cron cujo markReconciled falhou —
+    //      também grava original_tx = id deste débito.
+    // educational-summary é o ÚNICO charger dos EDU_REASONS, então amarrar pelo
+    // tx do débito é determinístico: zero double-refund e zero false-skip
+    // (diferente de correlacionar por aula, que confunde 2 cobranças próximas
+    // da mesma aula). Sem isso, todo erro do pipeline mais caro viraria
+    // double-refund de 40-65 coins quando o cron roda 30min–48h depois.
+    //
+    // CAVEAT de transição (≤48h pós-deploy): refunds in-handler emitidos pela
+    // versão ANTIGA do educational-summary não têm `original_tx`, então o guard
+    // não os reconhece. NÃO é regressão (este cron é novo; antes não havia
+    // proteção alguma), mas pra fechar a janela: no deploy, carimbar
+    // reconciled_at nos débitos EDU criados antes do deploy (ver runbook).
+    const { data: priorRefund, error: guardErr } = await admin
+      .from("coin_transactions")
+      .select("id")
+      .eq("reason", "refund")
+      .eq("metadata->>original_tx", tx.id)
+      .limit(1);
+    if (guardErr) {
+      // Este guard é a ÚNICA proteção contra double-refund (refunds não têm
+      // unique constraint no banco). Se a query falhar transitoriamente, NÃO
+      // reembolsa e NÃO reconcilia → reprocessa no próximo run. Conservador:
+      // erra pro lado de não vazar dinheiro.
+      console.error("[reconcile-charges] guard query falhou", tx.id, guardErr);
+      skipped++;
+      continue;
+    }
+    if (priorRefund && priorRefund.length > 0) {
+      // Já reembolsado pra ESTE débito → só reconcilia, não duplica.
+      await markReconciled();
+      alreadyRefunded++;
+      continue;
+    }
+
     // Aula viva SEM resumo educativo apesar do débito → perdido no crash.
     // Devolve os coins (amount é negativo, refund = -amount).
     try {
@@ -156,5 +202,6 @@ export async function GET(req: NextRequest) {
     refunded,
     confirmed,
     skipped,
+    alreadyRefunded,
   });
 }
