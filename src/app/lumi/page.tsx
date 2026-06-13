@@ -112,12 +112,13 @@ type SuggestionChip = {
   Icon: typeof FileText;
 };
 
+// Custos alinhados ao rebalance 2026-06 (coins.ts é a fonte de verdade).
 const SUGGESTION_CHIPS: SuggestionChip[] = [
-  { id: "summary", label: "Resumo", hint: "Resumir aula", cost: 8, Icon: FileText },
-  { id: "flashcards", label: "Flashcards", hint: "Criar deck", cost: 12, Icon: Layers },
+  { id: "summary", label: "Resumo", hint: "Resumir aula", cost: 12, Icon: FileText },
+  { id: "flashcards", label: "Flashcards", hint: "Criar deck", cost: 10, Icon: Layers },
   { id: "quiz", label: "Quiz", hint: "Gerar questões", cost: 10, Icon: HelpCircle },
-  { id: "mindmap" as QuickAction["id"], label: "Mapa mental", hint: "Visualizar tópicos", cost: 6, Icon: Network },
-  { id: "explain", label: "Explicar", hint: "Tire dúvida", cost: 4, Icon: Lightbulb },
+  { id: "mindmap" as QuickAction["id"], label: "Mapa mental", hint: "Visualizar tópicos", cost: 12, Icon: Network },
+  { id: "explain", label: "Explicar", hint: "Tire dúvida", cost: 3, Icon: Lightbulb },
 ];
 
 const EMBASSADOR_KEY = "lumio.lumi.embassador-dismissed";

@@ -7,6 +7,7 @@ import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { assertLectureOwnership } from "@/lib/lecture-auth";
 import { logAiUsage } from "@/lib/ai-usage";
+import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import { splitIntoChunks, type TranscriptChunk } from "@/lib/transcript-chunking";
 import type {
   TranscriptEntry,
@@ -67,6 +68,31 @@ FORMATO DE SAÍDA — APENAS JSON VÁLIDO (sem markdown wrappers, sem comentári
 CONTEXTO DA AULA:
 - Matéria: ${"{{SUBJECT}}"}
 - Título: "${"{{TITLE}}"}"`;
+
+/**
+ * Roda `fn` sobre `items` com no máximo `limit` execuções simultâneas,
+ * processando em ondas (pool). Os resultados são devolvidos NA MESMA ORDEM
+ * dos itens de entrada (independente de qual onda/slot terminou primeiro),
+ * o que é crítico aqui: o índice de cada chunk importa pro merge final.
+ */
+async function runWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  async function worker() {
+    while (true) {
+      const i = cursor++;
+      if (i >= items.length) return;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
 
 function slugify(s: string): string {
   return s
@@ -250,6 +276,13 @@ export async function POST(
   // nem reembolsa. UI manual continua cobrando o custo por chunk.
   const perChunkCost = isInternalDispatch ? 0 : COIN_COSTS.transcript_structure; // 15
   const totalCost = perChunkCost * chunks.length;
+  // Defesa de margem: cap diário de gasto USD (anti-abuse) antes de cobrar.
+  // Pula pra dispatch interno (pós-transcribe automático é grátis e não conta
+  // como abuse do user).
+  if (!isInternalDispatch) {
+    const cap = await checkDailyCostCap(userId);
+    if (!cap.ok) return dailyCapResponse(cap);
+  }
   if (totalCost > 0) {
     const charged = await chargeCoins(userId, totalCost, "transcript_structure", {
       lectureId,
@@ -341,7 +374,12 @@ export async function POST(
   }
 
   try {
-    const results = await Promise.all(chunks.map((c) => processChunk(c)));
+    // Pool de concorrência: no máx 4 chunks Sonnet simultâneos, em ondas.
+    // Promise.all(chunks.map(...)) disparava TODOS de uma vez — aula 2h+ =
+    // 5+ chamadas paralelas, pico de latência/rate-limit que estourava o
+    // maxDuration=800 e perdia capítulos. runWithConcurrency preserva a
+    // ORDEM dos resultados (o índice do chunk importa pro merge final).
+    const results = await runWithConcurrency(chunks, 4, (c) => processChunk(c));
 
     const failedCount = results.filter((r) => !r.chapters).length;
     const successCount = results.length - failedCount;

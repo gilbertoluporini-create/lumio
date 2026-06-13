@@ -86,11 +86,11 @@ const PAID_PLANS: PaidPlan[] = [
     id: "power",
     name: "Power",
     description: "Aulas todos os dias + revisão pesada.",
-    coinsTagline: "1500 coins/mês",
+    coinsTagline: "1000 coins/mês",
     cta: "Assinar Power",
     features: [
       "Aulas ilimitadas, sem teto",
-      "1500 coins pra produzir muitos assets",
+      "1000 coins pra produzir muitos assets",
       "Acesso antecipado a novidades",
       "Suporte prioritário",
     ],

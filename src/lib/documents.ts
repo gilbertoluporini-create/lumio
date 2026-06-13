@@ -46,6 +46,7 @@ export async function listDocumentsAsync(
     let q = supabase
       .from("documents")
       .select(DOCUMENT_COLS)
+      .eq("user_id", userId)
       .order("created_at", { ascending: false });
     if (subjectId) q = q.eq("subject_id", subjectId);
     const { data, error } = await q;
@@ -68,6 +69,7 @@ export async function getDocumentAsync(
       .from("documents")
       .select(DOCUMENT_COLS)
       .eq("id", id)
+      .eq("user_id", userId)
       .maybeSingle();
     return data ? rowToDocument(data as DocumentRow) : null;
   } catch (err) {

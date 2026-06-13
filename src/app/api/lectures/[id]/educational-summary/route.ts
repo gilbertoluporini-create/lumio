@@ -6,6 +6,7 @@ import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { assertLectureOwnership } from "@/lib/lecture-auth";
 import { logAiUsage } from "@/lib/ai-usage";
+import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import { generateEmbedding } from "@/lib/embeddings";
 import type { TranscriptEntry, TranscriptChapters } from "@/lib/types";
 
@@ -332,13 +333,20 @@ export async function POST(
   //   (mesmo se nenhum match real for encontrado — o pipeline rodou).
   let crossPdfs = false;
   let useAtlas = false;
+  // `force`/`regenerate`: regerar EXPLICITAMENTE um resumo que já existe.
+  // Sem esse flag, uma 2ª chamada pra mesma lecture é tratada como
+  // idempotente (duplo-clique/retry NÃO cobra de novo). Ver guard abaixo.
+  let forceRegenerate = false;
   try {
     const body = (await req.json()) as {
       crossPdfs?: boolean;
       useAtlas?: boolean;
+      force?: boolean;
+      regenerate?: boolean;
     };
     crossPdfs = body?.crossPdfs === true;
     useAtlas = body?.useAtlas === true;
+    forceRegenerate = body?.force === true || body?.regenerate === true;
   } catch {
     /* body vazio é OK — vira modo padrão (sem cruzar) */
   }
@@ -376,7 +384,7 @@ export async function POST(
   const { data: lectureRow, error: lecErr } = await admin
     .from("lectures")
     .select(
-      "title, subject_id, transcript_entries, transcript_chapters, slides, messages",
+      "title, subject_id, transcript_entries, transcript_chapters, slides, messages, summary_educational",
     )
     .eq("id", lectureId)
     .maybeSingle();
@@ -487,11 +495,43 @@ export async function POST(
     pdfsForPrompt = parts.join("\n\n");
   }
 
+  // Idempotência: se já existe um resumo educativo salvo pra ESTA lecture
+  // (lectures.summary_educational com markdown não-vazio) e o request NÃO
+  // pediu regeneração explícita (force/regenerate), devolvemos o resumo
+  // existente SEM cobrar de novo. Protege contra duplo-clique/retry cobrando
+  // 2x (40-65 coins). Conservador: só bloqueia quando há certeza de que o
+  // payload persistido é válido (markdown com conteúdo); qualquer dúvida =
+  // segue o fluxo normal (melhor cobrar do que travar).
+  const existingSummary =
+    lectureRow.summary_educational &&
+    typeof lectureRow.summary_educational === "object"
+      ? (lectureRow.summary_educational as {
+          markdown?: unknown;
+          generatedAt?: unknown;
+          atlas?: unknown;
+        })
+      : null;
+  const existingMarkdown =
+    existingSummary && typeof existingSummary.markdown === "string"
+      ? existingSummary.markdown
+      : "";
+  if (!forceRegenerate && existingMarkdown.trim().length >= 100) {
+    return NextResponse.json({
+      summaryEducational: existingSummary,
+      imagesGenerated: false,
+      idempotent: true,
+    });
+  }
+
   // Cobrança:
   //   - Atlas: 50 coins FIXOS (cobra mesmo sem matching real porque o pipeline
   //     de embedding+busca rodou; aviso vai no response.atlas.warning).
   //   - Cross (sem atlas): 40 coins, mas só se realmente carregou PDFs.
   //   - Default: 25 coins.
+  // Defesa de margem: cap diário de gasto USD (anti-abuse) antes de cobrar.
+  const cap = await checkDailyCostCap(userId);
+  if (!cap.ok) return dailyCapResponse(cap);
+
   const willCross = crossPdfs && pdfsForPrompt.length > 0;
   let cost: number;
   let chargeKind: "summary_atlas" | "summary_educational_cross" | "summary_educational";

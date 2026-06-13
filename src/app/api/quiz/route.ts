@@ -5,6 +5,7 @@ import { COIN_COSTS, chargeCoins, creditCoins } from "@/lib/coins";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { assertLectureOwnership } from "@/lib/lecture-auth";
+import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -221,6 +222,10 @@ export async function POST(req: Request) {
         transcript = raw.slice(0, 12_000);
       }
     }
+
+    // Defesa de margem: cap diário de gasto USD (anti-abuse) antes de cobrar.
+    const cap = await checkDailyCostCap(user.id);
+    if (!cap.ok) return dailyCapResponse(cap);
 
     const charge = await chargeCoins(
       user.id,

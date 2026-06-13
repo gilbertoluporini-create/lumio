@@ -7,14 +7,16 @@
  * Mantemos consts hardcoded — facilita auditoria e mudanças rápidas.
  */
 
+// REBALANCE 2026-06 (híbrido) — alinhado com src/lib/coins.ts (fonte de
+// verdade). summaryWithImages = summary_educational (40). mindmap inclui imagem.
 export const COIN_COSTS = {
-  summary: 10,
-  summaryWithImages: 30, // +20 pra imagens (3-4 ilustrações)
-  flashcards: 8,
-  flashcardsWithImages: 25, // +17
-  quiz: 8,
-  quizWithImages: 25, // +17
-  mindmap: 20, // mapa mental inclui 1 imagem ilustrativa do tópico central (gpt-image-1)
+  summary: 12,
+  summaryWithImages: 40, // = summary_educational (educativo + 3 imagens)
+  flashcards: 10,
+  flashcardsWithImages: 27, // flashcards + imagens (variante)
+  quiz: 10,
+  quizWithImages: 27, // quiz + imagens (variante)
+  mindmap: 12, // mapa mental inclui 1 imagem ilustrativa (gpt-image-1)
   chatMessage: 1,
   /**
    * Resposta por voz (ElevenLabs Multilingual v2).

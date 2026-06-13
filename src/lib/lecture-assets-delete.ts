@@ -12,9 +12,11 @@ export async function deleteLectureAssetAsync(
   assetId: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const supabase = createClient();
+  // Soft-delete (consistente com summaries, migration 017) — preserva o
+  // "recuperar/regerar" do Lumi e da lixeira.
   const { error } = await supabase
     .from("lecture_assets")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", assetId)
     .eq("user_id", userId);
   if (error) return { ok: false, error: error.message };

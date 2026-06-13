@@ -305,6 +305,7 @@ export async function POST(req: Request) {
       let totalInputTok = 0;
       let totalOutputTok = 0;
       let iterations = 0;
+      let anyToolRan = false; // turn produtivo se rodou tool OU gerou texto
 
       // Cache breakpoints (Anthropic prompt caching ephemeral):
       //   - System SYSTEM_PROMPT estável (cached, ~5K tokens)
@@ -384,6 +385,7 @@ export async function POST(req: Request) {
           }
 
           // Executa as tools em paralelo
+          anyToolRan = true;
           const toolResults = await Promise.all(
             toolUseBlocks.map(async (tu) => {
               send({ tool_start: { id: tu.id, name: tu.name, input: tu.input } });
@@ -405,6 +407,21 @@ export async function POST(req: Request) {
           }
         }
 
+        // Turn improdutivo: terminou sem texto E sem ter rodado nenhuma tool
+        // (ex: estourou MAX_ITERATIONS ou resposta vazia). O user pagou
+        // AGENT_COST e recebe "(Sem resposta)" → devolve os coins.
+        let coinsChargedFinal = AGENT_COST;
+        if (!finalText.trim() && !anyToolRan) {
+          try {
+            await creditCoins(user.id, AGENT_COST, "refund", {
+              reason: "agent_turn_unproductive",
+            });
+            coinsChargedFinal = 0;
+          } catch {
+            /* ignore — refund best-effort */
+          }
+        }
+
         // Log usage
         try {
           await logAiUsage({
@@ -413,7 +430,7 @@ export async function POST(req: Request) {
             model: MODEL,
             inputTokens: totalInputTok,
             outputTokens: totalOutputTok,
-            coinsCharged: AGENT_COST,
+            coinsCharged: coinsChargedFinal,
           });
         } catch {
           /* ignore */
@@ -422,7 +439,7 @@ export async function POST(req: Request) {
         send({
           done: true,
           reply: finalText,
-          coinsCharged: AGENT_COST,
+          coinsCharged: coinsChargedFinal,
           iterations,
         });
         controller.close();

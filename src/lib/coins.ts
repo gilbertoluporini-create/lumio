@@ -19,22 +19,29 @@ import { createAdminClient } from "./supabase/server";
  * permitia ao mesmo asset ser cobrado em valores diferentes dependendo do
  * endpoint chamado. Próxima sprint: unificar num único arquivo.
  */
+/**
+ * REBALANCE 2026-06 (modelo híbrido): valores ajustados pra margem positiva
+ * em TODOS os tiers, inclusive Power (R$0,119/coin após grant 1500→1000).
+ * Esta é a FONTE DE VERDADE dos custos por asset. coin-costs.ts e
+ * coins-pricing.ts espelham EXATAMENTE estes valores (mesmo asset = mesmo
+ * preço em qualquer endpoint). Custo de API estimado em R$ (USD×5,5).
+ */
 export const COIN_COSTS = {
   chat_message: 0,          // grátis — incluído no plano
   extract_slides: 0,        // grátis — incluído no plano
   transcript_refine: 0,     // grátis — incluído no plano
   extract_schedule: 0,      // grátis no onboarding
-  summary: 10,              // produto: resumo estruturado (por tópicos)
-  summary_educational: 25,  // resumo educativo + 3 imagens chatgpt-image-latest high (refator 2026-05-31)
-  summary_educational_cross: 40, // educativo + PDFs da matéria cruzados (+15 coins)
-  summary_atlas: 50,        // educativo cruzado + imagens REAIS extraídas dos PDFs do user (+10 coins)
-  transcript_structure: 15, // revisão + capítulos por IA (Sonnet 4.5) — por chunk de ~25min. Aula 1h ≈ 30c, 1h30 ≈ 45c, 2h ≈ 60c. Custo API real: ~$0.15/chunk.
-  flashcards: 8,            // alinhado com coins-pricing.ts
-  quiz: 8,                  // alinhado com coins-pricing.ts
-  mindmap: 6,               // alinhado com coins-pricing.ts
-  routine: 12,              // rotina de estudo semanal em PDF (Lumio brand)
-  study_plan: 8,            // trilha de plano de estudos desenhada pela Lumi
-  slide_sync: 3,            // correlaciona slides do PDF anexado com capítulos (Haiku)
+  summary: 12,              // resumo estruturado (Sonnet ~R$0,94) — margem ~3x Pro
+  summary_educational: 40,  // educativo + 3 imagens (~R$3,69) — margem +29% no Power
+  summary_educational_cross: 55, // educativo + PDFs da matéria cruzados
+  summary_atlas: 65,        // educativo cruzado + imagens REAIS dos PDFs do user
+  transcript_structure: 15, // revisão + capítulos por IA (Sonnet) — por chunk ~25min
+  flashcards: 10,           // Sonnet ~R$0,94
+  quiz: 10,                 // Sonnet ~R$0,94
+  mindmap: 12,              // Sonnet + 1 imagem (~R$1,16)
+  routine: 12,              // rotina semanal em PDF (Lumio brand)
+  study_plan: 10,           // trilha desenhada pela Lumi
+  slide_sync: 3,            // correlaciona slides do PDF com capítulos (Haiku ~R$0,03)
 } as const;
 
 export type CoinReason =
@@ -92,54 +99,45 @@ export async function chargeCoins(
 
   const admin = createAdminClient();
 
-  // 1. Lê saldo atual
-  const { data: profile, error: readErr } = await admin
-    .from("profiles")
-    .select("coin_balance")
-    .eq("id", userId)
-    .maybeSingle();
-  if (readErr || !profile) {
-    return { ok: false, balance: 0, required: amount, reason: "user_not_found" };
-  }
-  const balance = (profile as { coin_balance: number }).coin_balance ?? 0;
+  // Débito ATÔMICO via RPC (migration 049): UPDATE ... WHERE coin_balance >=
+  // amount RETURNING. Trava a row → impossível 2 requests concorrentes
+  // debitarem abaixo do saldo (o bug antigo permitia geração de graça).
+  const { data, error } = await admin.rpc("debit_coins", {
+    p_user_id: userId,
+    p_amount: amount,
+    p_reason: reason,
+    p_metadata: metadata ?? null,
+  });
 
-  if (balance < amount) {
+  if (error) {
+    console.error("[coins] debit_coins RPC failed", error.message);
+    const balance = await getBalance(userId);
     return { ok: false, balance, required: amount, reason: "insufficient_funds" };
   }
 
-  const newBalance = balance - amount;
+  // RPC retorna 1 row { ok, balance_after, tx_id, current_balance }
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | {
+        ok: boolean;
+        balance_after: number | null;
+        tx_id: string | null;
+        current_balance: number;
+      }
+    | undefined;
 
-  // 2. Atualiza saldo (condicional pro caso de race)
-  const { error: updErr } = await admin
-    .from("profiles")
-    .update({ coin_balance: newBalance })
-    .eq("id", userId)
-    .eq("coin_balance", balance); // só atualiza se ainda for o saldo lido
-  if (updErr) {
-    // Race: tenta uma vez mais
-    return chargeCoins(userId, amount, reason, metadata);
-  }
-
-  // 3. Loga transação
-  const { data: tx, error: txErr } = await admin
-    .from("coin_transactions")
-    .insert({
-      user_id: userId,
-      amount: -amount,
-      reason,
-      balance_after: newBalance,
-      metadata: metadata ?? null,
-    })
-    .select("id")
-    .single();
-  if (txErr) {
-    console.error("[coins] charge logged but transaction insert failed", txErr);
+  if (!row || !row.ok) {
+    return {
+      ok: false,
+      balance: row?.current_balance ?? 0,
+      required: amount,
+      reason: "insufficient_funds",
+    };
   }
 
   return {
     ok: true,
-    balanceAfter: newBalance,
-    transactionId: (tx as { id: string } | null)?.id ?? "unknown",
+    balanceAfter: row.balance_after ?? 0,
+    transactionId: row.tx_id ?? "unknown",
   };
 }
 
@@ -155,45 +153,27 @@ export async function creditCoins(
   }
 
   const admin = createAdminClient();
-  const { data: profile, error: readErr } = await admin
-    .from("profiles")
-    .select("coin_balance")
-    .eq("id", userId)
-    .maybeSingle();
-  if (readErr || !profile) {
-    throw new Error("Usuário não encontrado.");
-  }
-  const balance = (profile as { coin_balance: number }).coin_balance ?? 0;
-  const newBalance = balance + amount;
 
-  const { error: updErr } = await admin
-    .from("profiles")
-    .update({ coin_balance: newBalance })
-    .eq("id", userId)
-    .eq("coin_balance", balance);
-  if (updErr) {
-    // Race: tenta uma vez mais
-    return creditCoins(userId, amount, reason, metadata);
+  // Crédito ATÔMICO via RPC (migration 049). Sem read-then-write race nem
+  // recursão infinita. Refund/bônus nunca "somem" por contenção.
+  const { data, error } = await admin.rpc("credit_coins", {
+    p_user_id: userId,
+    p_amount: amount,
+    p_reason: reason,
+    p_metadata: metadata ?? null,
+  });
+  if (error) {
+    console.error("[coins] credit_coins RPC failed", error.message);
+    throw new Error("Falha ao creditar coins.");
   }
 
-  const { data: tx, error: txErr } = await admin
-    .from("coin_transactions")
-    .insert({
-      user_id: userId,
-      amount,
-      reason,
-      balance_after: newBalance,
-      metadata: metadata ?? null,
-    })
-    .select("id")
-    .single();
-  if (txErr) {
-    console.error("[coins] credit logged but transaction insert failed", txErr);
-  }
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | { balance_after: number; tx_id: string | null }
+    | undefined;
 
   return {
-    balanceAfter: newBalance,
-    transactionId: (tx as { id: string } | null)?.id ?? "unknown",
+    balanceAfter: row?.balance_after ?? 0,
+    transactionId: row?.tx_id ?? "unknown",
   };
 }
 
@@ -207,29 +187,17 @@ export async function setBalanceForRenewal(
   metadata: Record<string, unknown>,
 ): Promise<void> {
   const admin = createAdminClient();
-  const { data: profile } = await admin
-    .from("profiles")
-    .select("coin_balance")
-    .eq("id", userId)
-    .maybeSingle();
-  const prev = (profile as { coin_balance: number } | null)?.coin_balance ?? 0;
-  const delta = newBalance - prev;
-
-  await admin
-    .from("profiles")
-    .update({
-      coin_balance: newBalance,
-      coins_reset_at: new Date().toISOString(),
-    })
-    .eq("id", userId);
-
-  await admin.from("coin_transactions").insert({
-    user_id: userId,
-    amount: delta,
-    reason: "subscription_renew",
-    balance_after: newBalance,
-    metadata,
+  // Set absoluto ATÔMICO via RPC (migration 049): lê prev com FOR UPDATE e
+  // grava na mesma transação, isolado de débitos concorrentes.
+  const { error } = await admin.rpc("set_coins_for_renewal", {
+    p_user_id: userId,
+    p_new_balance: newBalance,
+    p_metadata: metadata,
   });
+  if (error) {
+    console.error("[coins] set_coins_for_renewal RPC failed", error.message);
+    throw new Error("Falha ao resetar coins na renovação.");
+  }
 }
 
 export type CoinTransaction = {

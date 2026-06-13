@@ -43,9 +43,11 @@ export async function deleteDocumentItemAsync(
       case "quiz":
       case "mindmap": {
         const supabase = createClient();
+        // Soft-delete (consistente com summaries, migration 017) — preserva o
+        // "recuperar/regerar" do Lumi e da lixeira em vez de apagar de vez.
         const { error } = await supabase
           .from("lecture_assets")
-          .delete()
+          .update({ deleted_at: new Date().toISOString() })
           .eq("id", item.id)
           .eq("user_id", userId);
         if (error) return { ok: false, error: error.message };

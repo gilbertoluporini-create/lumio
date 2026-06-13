@@ -280,7 +280,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "gerar_resumo",
     description:
-      "Gera um resumo em Markdown a partir de aulas/documentos. Cria registro no banco e devolve um link clicável. Custa coins do user (10 sem imagens, 30 com).",
+      "Gera um resumo em Markdown a partir de aulas/documentos. Cria registro no banco e devolve um link clicável. Custa coins do user (12 sem imagens, 40 com).",
     input_schema: {
       type: "object",
       properties: {
@@ -310,7 +310,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
         },
         comImagens: {
           type: "boolean",
-          description: "Incluir 3-4 imagens geradas (gpt-image-1). +20 coins. Default false.",
+          description: "Incluir 3-4 imagens geradas (gpt-image-1). +28 coins. Default false.",
         },
       },
       required: ["subjectId"],
@@ -319,7 +319,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "criar_flashcards",
     description:
-      "Cria deck de flashcards a partir de aulas/documentos. 5-30 cards. Custa 8 coins (25 com imagens).",
+      "Cria deck de flashcards a partir de aulas/documentos. 5-30 cards. Custa 10 coins.",
     input_schema: {
       type: "object",
       properties: {
@@ -346,7 +346,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "criar_quiz",
     description:
-      "Cria quiz de múltipla escolha. 5-20 questões. Custa 8 coins (25 com imagens).",
+      "Cria quiz de múltipla escolha. 5-20 questões. Custa 10 coins.",
     input_schema: {
       type: "object",
       properties: {
@@ -366,7 +366,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   },
   {
     name: "criar_mapa_mental",
-    description: "Cria mapa mental (mindmap). Custa 6 coins.",
+    description: "Cria mapa mental (mindmap). Custa 12 coins.",
     input_schema: {
       type: "object",
       properties: {
@@ -417,7 +417,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "iniciar_modo_prova",
     description:
-      "MODO PROVA — gera EM PARALELO resumo (10) + flashcards (8) + quiz (8) focados na prova + monta cronograma. Custo total ~26 coins. NUNCA dispare só porque o user disse 'tenho prova' — isso é pedido VAGO. Primeiro OFEREÇA explicitamente no chat ('quer rodar o Modo Prova? Gera resumo + flashcards + quiz da matéria, custa 26 coins') e só chame depois do 'sim' claro. Se o user disser que quer só 1 asset (só resumo OU só quiz OU só flashcards), NÃO use esta tool — use a tool individual correspondente. Em 1 chamada faz: (1) lista material, (2) busca tópicos via RAG, (3) gera os 3 assets, (4) monta cronograma.",
+      "MODO PROVA — gera EM PARALELO resumo (12) + flashcards (10) + quiz (10) focados na prova + monta cronograma. Custo total ~32 coins. NUNCA dispare só porque o user disse 'tenho prova' — isso é pedido VAGO. Primeiro OFEREÇA explicitamente no chat ('quer rodar o Modo Prova? Gera resumo + flashcards + quiz da matéria, custa 32 coins') e só chame depois do 'sim' claro. Se o user disser que quer só 1 asset (só resumo OU só quiz OU só flashcards), NÃO use esta tool — use a tool individual correspondente. Em 1 chamada faz: (1) lista material, (2) busca tópicos via RAG, (3) gera os 3 assets, (4) monta cronograma.",
     input_schema: {
       type: "object",
       properties: {
@@ -493,7 +493,7 @@ export const LUMI_TOOLS: Anthropic.Tool[] = [
   {
     name: "criar_plano_de_estudos",
     description:
-      "Cria um PLANO DE ESTUDOS completo na aba /planos: uma trilha de 6 a 10 itens ordenados (documentos, resumos, mapas, quiz, flashcards, rotina, notas) que guia o aluno passo a passo até a prova. Você DESENHA a trilha (LLM decide a ordem ideal) e o sistema persiste no banco. O aluno vê o plano em /planos/<id> e marca itens como concluídos. Custo: 8 coins. Use quando o user pedir 'monta um plano de estudos / roteiro / trilha pra essa matéria' OU quando ele estiver com pouco tempo até uma prova e precisar de uma estrutura completa (não só rotina de horários). Diferença pro gerar_rotina_estudo: rotina é PDF de cronograma semanal; plano é trilha de assets/tarefas na aba dedicada. SEMPRE confirme custo (8 coins) e tópicos antes de chamar — esta tool não pergunta nada depois de disparada.",
+      "Cria um PLANO DE ESTUDOS completo na aba /planos: uma trilha de 6 a 10 itens ordenados (documentos, resumos, mapas, quiz, flashcards, rotina, notas) que guia o aluno passo a passo até a prova. Você DESENHA a trilha (LLM decide a ordem ideal) e o sistema persiste no banco. O aluno vê o plano em /planos/<id> e marca itens como concluídos. Custo: 10 coins. Use quando o user pedir 'monta um plano de estudos / roteiro / trilha pra essa matéria' OU quando ele estiver com pouco tempo até uma prova e precisar de uma estrutura completa (não só rotina de horários). Diferença pro gerar_rotina_estudo: rotina é PDF de cronograma semanal; plano é trilha de assets/tarefas na aba dedicada. SEMPRE confirme custo (10 coins) e tópicos antes de chamar — esta tool não pergunta nada depois de disparada.",
     input_schema: {
       type: "object",
       properties: {
@@ -1653,6 +1653,7 @@ const handlers: Record<LumiToolName, ToolHandler> = {
         .select("id, title, transcript, slides, duration_sec")
         .eq("user_id", ctx.userId)
         .eq("subject_id", subjectId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(20),
       ctx.supabaseAdmin
@@ -1660,6 +1661,7 @@ const handlers: Record<LumiToolName, ToolHandler> = {
         .select("id, title, source_text, page_count")
         .eq("user_id", ctx.userId)
         .eq("subject_id", subjectId)
+        .is("deleted_at", null)
         .order("created_at", { ascending: false })
         .limit(20),
       ctx.supabaseAdmin
@@ -1733,6 +1735,7 @@ const handlers: Record<LumiToolName, ToolHandler> = {
                 .select("id, title, source_text, page_count, subject_id")
                 .eq("user_id", ctx.userId)
                 .in("id", foundDocIds)
+                .is("deleted_at", null)
             : Promise.resolve({ data: [] as DocRowS[] }),
           foundLecIds.length
             ? ctx.supabaseAdmin
@@ -1740,6 +1743,7 @@ const handlers: Record<LumiToolName, ToolHandler> = {
                 .select("id, title, transcript, slides, duration_sec, subject_id")
                 .eq("user_id", ctx.userId)
                 .in("id", foundLecIds)
+                .is("deleted_at", null)
             : Promise.resolve({ data: [] as LecRowS[] }),
         ]);
         const foundDocs = ((d2.data ?? []) as DocRowS[]).filter(
@@ -2096,6 +2100,33 @@ async function callGenerateEndpoint(
   let assetUrl: string | undefined;
   let assetId: string | undefined;
 
+  // /api/ai/generate JÁ cobrou (json.coinsCharged) mas NÃO persistiu — a
+  // persistência é aqui. Se qualquer insert falhar, o user pagou e não tem
+  // asset: devolvemos os coins (RPC atômico) e retornamos erro em vez de
+  // mentir sucesso:true com url:undefined.
+  const refundAndFail = async (motivo: string) => {
+    const charged = json.coinsCharged ?? 0;
+    let saldo = json.balanceAfter;
+    if (charged > 0) {
+      const { data: ref } = await ctx.supabaseAdmin.rpc("credit_coins", {
+        p_user_id: ctx.userId,
+        p_amount: charged,
+        p_reason: "refund",
+        p_metadata: { source: "lumi_tool_persist_failed", mode },
+      });
+      const row = (Array.isArray(ref) ? ref[0] : ref) as
+        | { balance_after?: number }
+        | undefined;
+      if (row?.balance_after != null) saldo = row.balance_after;
+    }
+    return {
+      error: `${motivo} Os ${charged} coins foram devolvidos.`,
+      tipo: mode,
+      coins_devolvidos: charged,
+      saldo_apos: saldo,
+    };
+  };
+
   if (mode === "summary") {
     const md =
       typeof json.content === "object" && json.content
@@ -2109,7 +2140,7 @@ async function callGenerateEndpoint(
     };
     if (lectureIds.length > 0) {
       // Upsert summary lecture-linked
-      const { data } = await ctx.supabaseAdmin
+      const { data, error } = await ctx.supabaseAdmin
         .from("summaries")
         .upsert(
           {
@@ -2124,10 +2155,13 @@ async function callGenerateEndpoint(
         )
         .select("id")
         .single();
-      assetId = data?.id;
-      assetUrl = data?.id ? `/resumo/${lectureIds[0]}` : undefined;
+      if (error || !data?.id) {
+        return refundAndFail("Não consegui salvar o resumo da aula.");
+      }
+      assetId = data.id;
+      assetUrl = `/resumo/${lectureIds[0]}`;
     } else if (documentIds.length > 0) {
-      const { data } = await ctx.supabaseAdmin
+      const { data, error } = await ctx.supabaseAdmin
         .from("summaries")
         .insert({
           user_id: ctx.userId,
@@ -2139,12 +2173,17 @@ async function callGenerateEndpoint(
         })
         .select("id")
         .single();
-      assetId = data?.id;
-      assetUrl = data?.id ? `/resumo/doc/${data.id}` : undefined;
+      if (error || !data?.id) {
+        return refundAndFail("Não consegui salvar o resumo do documento.");
+      }
+      assetId = data.id;
+      assetUrl = `/resumo/doc/${data.id}`;
+    } else {
+      return refundAndFail("Nenhuma fonte (aula/documento) pra salvar o resumo.");
     }
   } else {
     // Pra flashcards/quiz/mindmap: cria lecture wrapper + lecture_asset
-    const { data: lec } = await ctx.supabaseAdmin
+    const { data: lec, error: lecErr } = await ctx.supabaseAdmin
       .from("lectures")
       .insert({
         user_id: ctx.userId,
@@ -2157,50 +2196,53 @@ async function callGenerateEndpoint(
       })
       .select("id")
       .single();
-    if (lec) {
-      let payload: Record<string, unknown> = {};
-      if (mode === "flashcards") {
-        payload = {
-          generatedAt: new Date().toISOString(),
-          cards: (json.content as { cards?: unknown[] }).cards ?? [],
-        };
-      } else if (mode === "quiz") {
-        payload = {
-          generatedAt: new Date().toISOString(),
-          questions: (json.content as { questions?: unknown[] }).questions ?? [],
-        };
-      } else {
-        const c = json.content as { centralTopic?: string; branches?: unknown[] };
-        payload = {
-          generatedAt: new Date().toISOString(),
-          centralTopic: c.centralTopic ?? titleGuess,
-          branches: c.branches ?? [],
-        };
-      }
-      // IMPORTANTE: as rotas /deck/[id], /quiz-banco/[id] e /mapa/[id] buscam
-      // lecture_assets POR id do asset — não da aula. Capturamos o id da linha
-      // inserida; usar lec.id aqui fazia o card abrir em "não encontrado".
-      const { data: assetRow } = await ctx.supabaseAdmin
-        .from("lecture_assets")
-        .insert({
-          lecture_id: lec.id,
-          user_id: ctx.userId,
-          kind: mode,
-          payload,
-          coins_spent: json.coinsCharged ?? 0,
-        })
-        .select("id")
-        .single();
-      const newAssetId = assetRow?.id as string | undefined;
-      assetId = newAssetId;
-      assetUrl = newAssetId
-        ? mode === "flashcards"
-          ? `/deck/${newAssetId}`
-          : mode === "quiz"
-            ? `/quiz-banco/${newAssetId}`
-            : `/mapa/${newAssetId}`
-        : undefined;
+    if (lecErr || !lec?.id) {
+      return refundAndFail("Não consegui criar o registro da aula pro asset.");
     }
+    let payload: Record<string, unknown> = {};
+    if (mode === "flashcards") {
+      payload = {
+        generatedAt: new Date().toISOString(),
+        cards: (json.content as { cards?: unknown[] }).cards ?? [],
+      };
+    } else if (mode === "quiz") {
+      payload = {
+        generatedAt: new Date().toISOString(),
+        questions: (json.content as { questions?: unknown[] }).questions ?? [],
+      };
+    } else {
+      const c = json.content as { centralTopic?: string; branches?: unknown[] };
+      payload = {
+        generatedAt: new Date().toISOString(),
+        centralTopic: c.centralTopic ?? titleGuess,
+        branches: c.branches ?? [],
+      };
+    }
+    // IMPORTANTE: as rotas /deck/[id], /quiz-banco/[id] e /mapa/[id] buscam
+    // lecture_assets POR id do asset — não da aula. Capturamos o id da linha
+    // inserida; usar lec.id aqui fazia o card abrir em "não encontrado".
+    const { data: assetRow, error: assetErr } = await ctx.supabaseAdmin
+      .from("lecture_assets")
+      .insert({
+        lecture_id: lec.id,
+        user_id: ctx.userId,
+        kind: mode,
+        payload,
+        coins_spent: json.coinsCharged ?? 0,
+      })
+      .select("id")
+      .single();
+    if (assetErr || !assetRow?.id) {
+      return refundAndFail(`Não consegui salvar o ${mode}.`);
+    }
+    const newAssetId = assetRow.id as string;
+    assetId = newAssetId;
+    assetUrl =
+      mode === "flashcards"
+        ? `/deck/${newAssetId}`
+        : mode === "quiz"
+          ? `/quiz-banco/${newAssetId}`
+          : `/mapa/${newAssetId}`;
   }
 
   return {

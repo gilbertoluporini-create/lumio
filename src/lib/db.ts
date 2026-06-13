@@ -483,11 +483,27 @@ export async function deleteLectureAsync(
     return;
   }
   const supabase = createClient();
+  const ts = new Date().toISOString();
   const { error } = await supabase
     .from("lectures")
-    .update({ deleted_at: new Date().toISOString() })
+    .update({ deleted_at: ts })
     .eq("id", id);
   if (error) throw error;
+
+  // Cascata: soft-delete dos filhos (resumos + assets) com o MESMO timestamp,
+  // pra não deixar órfãos visíveis em /documentos e /favoritos (link morto).
+  // Só carimba os que ainda estão vivos — assim o restore por timestamp não
+  // ressuscita um filho que o user já tinha deletado individualmente.
+  await supabase
+    .from("lecture_assets")
+    .update({ deleted_at: ts })
+    .eq("lecture_id", id)
+    .is("deleted_at", null);
+  await supabase
+    .from("summaries")
+    .update({ deleted_at: ts })
+    .eq("lecture_id", id)
+    .is("deleted_at", null);
 }
 
 /** Restaura aula soft-deletada (deleted_at = NULL). */
@@ -497,6 +513,16 @@ export async function restoreLectureAsync(
 ): Promise<Lecture | null> {
   if (!isSupabaseConfigured()) return null;
   const supabase = createClient();
+
+  // Lê o timestamp de delete ANTES de restaurar, pra recuperar só os filhos
+  // que foram cascateados nesse mesmo delete (mesmo deleted_at).
+  const { data: cur } = await supabase
+    .from("lectures")
+    .select("deleted_at")
+    .eq("id", id)
+    .maybeSingle();
+  const ts = (cur as { deleted_at: string | null } | null)?.deleted_at ?? null;
+
   const { data, error } = await supabase
     .from("lectures")
     .update({ deleted_at: null })
@@ -504,6 +530,20 @@ export async function restoreLectureAsync(
     .select(LECTURE_COLS)
     .single();
   if (error) throw error;
+
+  if (ts) {
+    await supabase
+      .from("lecture_assets")
+      .update({ deleted_at: null })
+      .eq("lecture_id", id)
+      .eq("deleted_at", ts);
+    await supabase
+      .from("summaries")
+      .update({ deleted_at: null })
+      .eq("lecture_id", id)
+      .eq("deleted_at", ts);
+  }
+
   return data ? rowToLecture(data as LectureRow) : null;
 }
 

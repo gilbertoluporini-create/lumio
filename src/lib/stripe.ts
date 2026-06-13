@@ -40,10 +40,12 @@ export const PLAN_PRICES_BRL = {
   power: { monthly: 119, annual: 1190 },
 } as const;
 
+// REBALANCE 2026-06 (híbrido): Power 1500→1000 pra coin valer R$0,119
+// (era R$0,079, vendia premium abaixo do custo). Margem positiva em todo tier.
 export const PLAN_COINS_PER_MONTH = {
   starter: 200,
   pro: 500,
-  power: 1500,
+  power: 1000,
   annual: 500,
 } as const;
 

@@ -5,25 +5,24 @@
  *
  * Valores alinhados com `coins-pricing.ts` (fonte de verdade do wizard).
  */
+// REBALANCE 2026-06 (híbrido) — ESPELHA src/lib/coins.ts (fonte de verdade).
+// Mantém os MESMOS valores pra o mesmo asset custar igual em qualquer endpoint.
 export const COIN_COSTS = {
   chat_message: 0,          // grátis — incluído no plano
   extract_slides: 0,        // grátis — incluído no plano
   transcript_refine: 0,     // grátis — incluído no plano
   extract_schedule: 0,      // grátis no onboarding
-  // summary/summary_educational disparam summary-images. Pós-refator
-  // 2026-05-31 usam chatgpt-image-latest quality:high (~$0.167/img × 3
-  // ≈ $0.50/geração). Preços abaixo cobrem Sonnet + 3 imagens + margem.
-  summary: 14,              // produto: resumo estruturado (por tópicos) — fixo
-  summary_educational: 25,  // resumo educativo + 3 imagens chatgpt-image-latest high
-  summary_educational_cross: 40, // educativo + PDFs da matéria cruzados (+15 coins extras)
-  summary_atlas: 50,        // educativo cruzado + imagens REAIS extraídas dos PDFs do user (+10 coins)
-  transcript_structure: 15, // revisão + capítulos por IA (Sonnet 4.5) — por chunk de ~25min
-  flashcards: 8,            // alinhado com coins-pricing.ts
-  quiz: 8,                  // alinhado com coins-pricing.ts
-  mindmap: 6,               // alinhado com coins-pricing.ts
-  routine: 12,              // rotina de estudo semanal em PDF (Lumio brand)
-  study_plan: 8,            // trilha de plano de estudos desenhada pela Lumi
-  slide_sync: 3,            // correlaciona slides do PDF anexado com capítulos (Haiku)
+  summary: 12,              // resumo estruturado (Sonnet)
+  summary_educational: 40,  // educativo + 3 imagens
+  summary_educational_cross: 55, // educativo + PDFs da matéria cruzados
+  summary_atlas: 65,        // educativo cruzado + imagens REAIS dos PDFs do user
+  transcript_structure: 15, // revisão + capítulos por IA (Sonnet) — por chunk ~25min
+  flashcards: 10,           // Sonnet
+  quiz: 10,                 // Sonnet
+  mindmap: 12,              // Sonnet + 1 imagem
+  routine: 12,              // rotina semanal em PDF
+  study_plan: 10,           // trilha desenhada pela Lumi
+  slide_sync: 3,            // slides ↔ capítulos (Haiku)
 } as const;
 
 /**

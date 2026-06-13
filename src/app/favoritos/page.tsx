@@ -303,6 +303,9 @@ function Favoritos({ user }: { user: User }) {
       } else if (entry.kind === "summary") {
         const doc = docByLectureKind.get(`summary:${entry.id}`);
         const lecture = lectureById.get(entry.id);
+        // Fonte deletada (aula/resumo sumiu) → não renderiza favorito fantasma
+        // com link morto. Alinha com as branches document/lecture (que dão continue).
+        if (!doc && !lecture) continue;
         const subject = lecture?.subjectId
           ? subjectById.get(lecture.subjectId)
           : null;

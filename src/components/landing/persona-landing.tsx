@@ -42,7 +42,7 @@ const ALL_PERSONAS: { slug: PersonaSlug; label: string }[] = [
 const PRICING = [
   { name: "Starter", price: "R$ 39", tag: "200 coins/mês", note: "Aulas regulares" },
   { name: "Pro", price: "R$ 69", tag: "500 coins/mês", note: "Estuda todo dia", highlight: true },
-  { name: "Power", price: "R$ 119", tag: "1500 coins/mês", note: "Revisão pesada" },
+  { name: "Power", price: "R$ 119", tag: "1000 coins/mês", note: "Revisão pesada" },
 ];
 
 export function PersonaLanding(props: PersonaLandingProps) {

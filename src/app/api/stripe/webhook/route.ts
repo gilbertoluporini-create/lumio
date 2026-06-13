@@ -264,14 +264,43 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
     // Welcome já tratou via checkout.session.completed
     return;
   }
-  const userId = (
+  const admin = createAdminClient();
+
+  // IDs do Stripe pra fallback de resolução do user.
+  const subIdRaw =
+    (invoice as unknown as { subscription?: string | { id?: string } }).subscription;
+  const stripeSubId =
+    typeof subIdRaw === "string" ? subIdRaw : subIdRaw?.id ?? null;
+  const customerRaw = (invoice as unknown as { customer?: string | { id?: string } })
+    .customer;
+  const stripeCustomerId =
+    typeof customerRaw === "string" ? customerRaw : customerRaw?.id ?? null;
+
+  let userId = (
     (invoice as unknown as { subscription_details?: { metadata?: { user_id?: string } } })
       .subscription_details?.metadata ??
     invoice.metadata ??
     {}
   )?.user_id;
+
+  // Fallback: assinaturas criadas FORA do checkout (portal, dashboard Stripe,
+  // migração) não carregam metadata.user_id → sem isso o assinante pagava e
+  // NÃO recebia os coins do mês. Resolve pelo subscription/customer salvos.
+  if (!userId && (stripeSubId || stripeCustomerId)) {
+    let q = admin.from("subscriptions").select("user_id").limit(1);
+    q = stripeSubId
+      ? q.eq("stripe_subscription_id", stripeSubId)
+      : q.eq("stripe_customer_id", stripeCustomerId as string);
+    const { data: subRow } = await q.maybeSingle();
+    userId = (subRow as { user_id?: string } | null)?.user_id ?? undefined;
+    if (!userId) {
+      console.error(
+        "[webhook] invoice.paid sem user_id resolvível",
+        { stripeSubId, stripeCustomerId },
+      );
+    }
+  }
   if (!userId) return;
-  const admin = createAdminClient();
   const { data: profile } = await admin
     .from("profiles")
     .select("email, name")
@@ -296,11 +325,8 @@ async function handleInvoicePaid(invoice: Stripe.Invoice) {
   });
 
   // Renovação: credita coins do plano (não duplicar com checkout — esse já filtra subscription_create)
-  const subId =
-    (invoice as unknown as { subscription?: string | { id?: string } }).subscription;
-  const stripeSubId = typeof subId === "string" ? subId : subId?.id ?? "renew";
   try {
-    await creditPlanCoins(userId, plan, stripeSubId);
+    await creditPlanCoins(userId, plan, stripeSubId ?? "renew");
   } catch (err) {
     console.error("[webhook] creditPlanCoins on renew failed", err);
   }

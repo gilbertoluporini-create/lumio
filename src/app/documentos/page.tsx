@@ -65,7 +65,7 @@ const KIND_FILTERS: Array<{ id: KindFilter; label: string }> = [
 ];
 
 function DocumentosView({ user }: { user: User }) {
-  const { documents, subjects, lectures, loading, refresh } = useAllDocuments(
+  const { documents, subjects, loading, refresh } = useAllDocuments(
     user.id,
   );
   const [query, setQuery] = useState("");
@@ -87,24 +87,23 @@ function DocumentosView({ user }: { user: User }) {
         total: 0,
       };
     }
-    for (const l of lectures) {
-      if (!map[l.subjectId]) continue;
-      map[l.subjectId].lectures += 1;
-      map[l.subjectId].total += 1;
-    }
+    // Conta direto da lista `documents` já filtrada — assim o card reflete
+    // exatamente o que aparece na listagem (aula só conta se virou item de
+    // documento, i.e. tem transcrição). Antes contávamos lectures cruas, o
+    // que inflava "N aulas" vs. o que a tela mostrava.
     for (const d of documents) {
       if (!d.subjectId || !map[d.subjectId]) continue;
       const s = map[d.subjectId];
-      if (d.kind === "pdf-upload") s.pdfs += 1;
+      if (d.kind === "transcription") s.lectures += 1;
+      else if (d.kind === "pdf-upload") s.pdfs += 1;
       else if (d.kind === "summary") s.summaries += 1;
       else if (d.kind === "flashcards") s.flashcards += 1;
       else if (d.kind === "quiz") s.quizzes += 1;
       else if (d.kind === "mindmap") s.mindmaps += 1;
-      // transcription já é contada via lectures, evita dupla contagem
-      if (d.kind !== "transcription") s.total += 1;
+      s.total += 1;
     }
     return map;
-  }, [subjects, lectures, documents]);
+  }, [subjects, documents]);
 
   const totalAssetCount = useMemo(
     () =>
