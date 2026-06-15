@@ -9,7 +9,6 @@ import {
   Check,
   ChevronRight,
   FileUp,
-  GraduationCap,
   Loader2,
   Plus,
   Sparkles,
@@ -24,7 +23,8 @@ import { LumiCharacter } from "@/components/brand/lumi";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ColorPicker } from "@/components/app/emoji-color-picker";
 import { getCurrentUserAsync, markOnboardedAsync } from "@/lib/auth";
-import { bulkCreateSubjectsAsync } from "@/lib/db";
+import { bulkCreateSubjectsAsync, listSubjectsAsync } from "@/lib/db";
+import { OnboardingLumiStep } from "@/components/onboarding/onboarding-lumi-step";
 import { Analytics } from "@/lib/analytics";
 import { SUBJECT_PALETTE, type ScheduleSlot } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -45,19 +45,14 @@ type Step =
   | "routine"
   | "subjects"
   | "exams"
+  | "lumi"
   | "done";
 
-const STEP_ORDER: Step[] = [
-  "intro",
-  "course",
-  "goal",
-  "difficulties",
-  "style",
-  "routine",
-  "subjects",
-  "exams",
-  "done",
-];
+// Onboarding enxuto e focado em conversão: boas-vindas → 1 pergunta (curso) →
+// AHA MOMENT (agente Lumi resolve o pedido real do user ao vivo) → done.
+// Os steps de perfil (goal/difficulties/style/routine/subjects/exams) ficam
+// definidos no código mas FORA do fluxo — o Lumi coleta isso no chat depois.
+const STEP_ORDER: Step[] = ["intro", "course", "lumi", "done"];
 
 function defaultColorForIndex(idx: number): string {
   return SUBJECT_PALETTE[idx % SUBJECT_PALETTE.length].color;
@@ -152,6 +147,7 @@ export default function OnboardingPage() {
 
   const [step, setStep] = useState<Step>("intro");
   const [userName, setUserName] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Perfil sendo construído
@@ -178,6 +174,7 @@ export default function OnboardingPage() {
         return;
       }
       setUserName(user.name.split(" ")[0]);
+      setUserId(user.id);
       Analytics.onboardingStarted();
     });
   }, [router]);
@@ -387,18 +384,26 @@ export default function OnboardingPage() {
         router.replace("/login");
         return;
       }
-      const subjectsToCreate =
-        subjects.length > 0
-          ? subjects
-          : [
-              {
-                name: "Geral",
-                emoji: "",
-                color: defaultColorForIndex(0),
-                schedule: [],
-              },
-            ];
-      await bulkCreateSubjectsAsync(user.id, subjectsToCreate);
+      // O agente Lumi pode ter criado matérias durante o aha moment. Só caímos
+      // no fallback "Geral" se o user não montou nada manualmente E o Lumi
+      // também não criou nenhuma matéria — pra não duplicar nem deixar vazio.
+      let subjectsToCreate = subjects;
+      if (subjectsToCreate.length === 0) {
+        const existing = await listSubjectsAsync(user.id).catch(() => []);
+        if (existing.length === 0) {
+          subjectsToCreate = [
+            {
+              name: "Geral",
+              emoji: "",
+              color: defaultColorForIndex(0),
+              schedule: [],
+            },
+          ];
+        }
+      }
+      if (subjectsToCreate.length > 0) {
+        await bulkCreateSubjectsAsync(user.id, subjectsToCreate);
+      }
       await persistProfile();
       await markOnboardedAsync();
       Analytics.onboardingCompleted(subjects.length, subjects.length === 0);
@@ -835,6 +840,10 @@ export default function OnboardingPage() {
             </div>
           )}
 
+          {step === "lumi" && userId && (
+            <OnboardingLumiStep userId={userId} onProceed={goNext} />
+          )}
+
           {step === "done" && (
             <div className="flex flex-col items-center gap-4">
               <div className="rounded-2xl border border-primary/30 bg-primary/5 p-5 w-full text-sm">
@@ -863,7 +872,7 @@ export default function OnboardingPage() {
         </div>
 
         {/* Navegação inferior */}
-        {step !== "intro" && step !== "done" && (
+        {step !== "intro" && step !== "done" && step !== "lumi" && (
           <div className="mt-8 flex items-center justify-between gap-3">
             <Button variant="ghost" size="sm" onClick={goBack}>
               <ArrowLeft className="h-4 w-4" /> Voltar
@@ -1028,9 +1037,11 @@ function renderLumiMessage(step: Step, name: string | null): string {
   const greet = name ? `, ${name}` : "";
   switch (step) {
     case "intro":
-      return `Oi${greet}! 👋 Eu sou a Lumi, sua tutora pessoal aqui no Lumio. Vou te fazer umas perguntas rápidas pra te conhecer e te ajudar melhor. Tudo é opcional — pode pular o que não quiser responder.`;
+      return `Oi${greet}! 👋 Eu sou a Lumi. Em 30 segundos eu já te mostro o que sei fazer — sem questionário chato. Bora?`;
     case "course":
-      return "Tá fazendo qual curso? Em que período ou semestre você tá?";
+      return "Rapidinho: tá fazendo qual curso? (só pra eu já chegar te entendendo)";
+    case "lumi":
+      return "Agora a parte boa: me joga teu perrengue de verdade. Eu resolvo aqui na hora. 👇";
     case "goal":
       return "Qual seu objetivo principal agora? Isso me ajuda a focar nas coisas certas.";
     case "difficulties":
