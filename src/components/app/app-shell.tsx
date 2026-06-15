@@ -67,6 +67,10 @@ type SidebarNavItem = {
   badgeTone?: "violet" | "sky";
 };
 
+// Agrupa os links da sidebar em seções com título, pra dar hierarquia clara
+// em vez de uma lista plana de ~12 itens. `title` opcional (1º grupo é sem).
+type SidebarSection = { title?: string; items: SidebarNavItem[] };
+
 function SidebarLink({
   item,
   pathname,
@@ -291,31 +295,47 @@ export function AppShell({
     );
   }
 
-  const navItems: SidebarNavItem[] = [
-    { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
-    { href: "/lumi", label: "Assistente Lumi", Icon: Sparkles },
+  const navGroups: SidebarSection[] = [
     {
-      href: "/lumi/chats",
-      label: "Meus chats",
-      Icon: MessageSquare,
-      badgeCount: lumiChatCount,
-      badgeTone: "violet",
+      items: [
+        { href: "/dashboard", label: "Dashboard", Icon: LayoutDashboard },
+        { href: "/lumi", label: "Assistente Lumi", Icon: Sparkles },
+        {
+          href: "/lumi/chats",
+          label: "Meus chats",
+          Icon: MessageSquare,
+          badgeCount: lumiChatCount,
+          badgeTone: "violet",
+        },
+      ],
     },
-    { href: "/schedule", label: "Calendário", Icon: Calendar },
-    { href: "/resumos", label: "Resumos", Icon: FileText },
     {
-      href: "/planos",
-      label: "Plano de Estudos",
-      Icon: Target,
-      badgeCount: planInflight,
-      badgeTone: "sky",
+      title: "Estudar",
+      items: [
+        { href: "/gravacoes", label: "Gravações", Icon: Mic },
+        { href: "/schedule", label: "Calendário", Icon: Calendar },
+        {
+          href: "/planos",
+          label: "Plano de Estudos",
+          Icon: Target,
+          badgeCount: planInflight,
+          badgeTone: "sky",
+        },
+      ],
     },
-    { href: "/flashcards", label: "Flashcards", Icon: Layers },
-    { href: "/quiz", label: "Quiz", Icon: Sparkles },
-    { href: "/gravacoes", label: "Gravações", Icon: Mic },
-    { href: "/favoritos", label: "Favoritos", Icon: Star },
-    { href: "/documentos", label: "Meus documentos", Icon: FolderOpen },
-    { href: "/account/coins", label: "Lumi Coins", isCoin: true },
+    {
+      title: "Meu conteúdo",
+      items: [
+        { href: "/documentos", label: "Minhas matérias", Icon: FolderOpen },
+        { href: "/resumos", label: "Resumos", Icon: FileText },
+        { href: "/flashcards", label: "Flashcards", Icon: Layers },
+        { href: "/quiz", label: "Quiz", Icon: Sparkles },
+        { href: "/favoritos", label: "Favoritos", Icon: Star },
+      ],
+    },
+    {
+      items: [{ href: "/account/coins", label: "Lumi Coins", isCoin: true }],
+    },
   ];
 
   const secondaryNavItems: SidebarNavItem[] = [
@@ -397,14 +417,26 @@ export function AppShell({
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-4 flex flex-col gap-1 overflow-y-auto">
-          {navItems.map((item) => (
-            <SidebarLink
-              key={item.href}
-              item={item}
-              pathname={pathname}
-              collapsed={collapsed}
-              coinBalance={coinBalance}
-            />
+          {navGroups.map((group, gi) => (
+            <div key={group.title ?? `grp-${gi}`} className="flex flex-col gap-1">
+              {group.title &&
+                (collapsed ? (
+                  gi > 0 && <div className="my-2 mx-2 border-t border-border/40" />
+                ) : (
+                  <p className="px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+                    {group.title}
+                  </p>
+                ))}
+              {group.items.map((item) => (
+                <SidebarLink
+                  key={item.href}
+                  item={item}
+                  pathname={pathname}
+                  collapsed={collapsed}
+                  coinBalance={coinBalance}
+                />
+              ))}
+            </div>
           ))}
 
           <div className="my-3 border-t border-border/40" />
