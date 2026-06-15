@@ -30,6 +30,7 @@ import { LiveDemo } from "@/components/landing/live-demo";
 import { Highlighter, PencilUnderline } from "@/components/landing/highlighter";
 import { Magnetic } from "@/components/landing/magnetic";
 import { PricingSection } from "@/components/landing/pricing-section";
+import { CheckoutInterceptor } from "@/components/landing/checkout-interceptor";
 import { Testimonials } from "@/components/landing/testimonials";
 import { HowItWorks } from "@/components/landing/how-it-works";
 import { Personas } from "@/components/landing/personas";
@@ -408,7 +409,9 @@ export default function LandingPage() {
       </Reveal>
 
       {/* PRICING */}
-      <PricingSection />
+      <CheckoutInterceptor>
+        <PricingSection />
+      </CheckoutInterceptor>
 
       {/* FAQ */}
       <FaqSection />
