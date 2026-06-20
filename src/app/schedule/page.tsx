@@ -1,4 +1,5 @@
 "use client";
+import { LumiPic } from "@/components/brand/lumi";
 
 import { createElement, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -632,8 +633,7 @@ function ScheduleView({ user }: { user: User }) {
       {/* Header */}
       <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="flex items-center gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <LumiPic
             src="/illustrations/lumi-calendar.png"
             alt="Lumi com calendário"
             className="hidden h-16 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-20"
@@ -857,8 +857,7 @@ function ScheduleView({ user }: { user: User }) {
 
             {agendaGroups.length === 0 ? (
               <div className="text-xs text-muted-foreground py-6 text-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <LumiPic
                   src="/illustrations/lumi-sleeping.png"
                   alt="Lumi descansando"
                   className="mx-auto mb-2 h-16 w-16 object-contain opacity-90 drop-shadow-sm"
@@ -1684,8 +1683,7 @@ function SidebarEventItem({
 function PlaceholderView({ title, hint }: { title: string; hint: string }) {
   return (
     <div className="rounded-xl border border-dashed border-border/60 bg-card/40 p-10 text-center">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
+      <LumiPic
         src="/illustrations/lumi-sleeping.png"
         alt="Lumi descansando"
         className="mx-auto mb-3 h-24 w-24 object-contain drop-shadow-sm"

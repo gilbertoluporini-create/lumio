@@ -1,5 +1,79 @@
-import Image from "next/image";
+import Image, { type ImageProps } from "next/image";
+import type { ImgHTMLAttributes } from "react";
 import { cn } from "@/lib/utils";
+
+// Poses do Lumi que têm versão dedicada pro modo NOTURNO (lumi-<pose>-dark.png,
+// Lumi em tons escuros/roxos). As demais usam a versão clara no escuro também.
+const DARK_POSES = new Set<string>([
+  "default", "waving", "thinking", "studying", "celebrating", "sleeping",
+  "recording", "confused", "coins", "reading-pdf", "generating", "dashboard",
+  "calendar", "notebook", "trophy", "book-open", "headset", "check", "ideia",
+  "study", "teclado", "desk", "laptop", "books", "gear",
+]);
+
+function lumiDarkSrc(src: string): string | null {
+  const m = src.match(/\/illustrations\/lumi-([a-z-]+)\.png$/);
+  if (m && DARK_POSES.has(m[1])) return src.replace(/\.png$/, "-dark.png");
+  return null;
+}
+
+/**
+ * Substituto direto do <Image> pras ilustrações do Lumi. No modo noturno troca
+ * sozinho pra versão -dark (quando existe), via Tailwind dark: — sem JS, sem
+ * flash. Sem versão dark, comporta-se exatamente como <Image>.
+ */
+export function LumiImg({ src, className, ...rest }: ImageProps) {
+  const darkSrc = typeof src === "string" ? lumiDarkSrc(src) : null;
+  if (!darkSrc || typeof src !== "string") {
+    return <Image src={src} className={className} {...rest} />;
+  }
+  return (
+    <>
+      <Image src={src} className={cn(className, "dark:hidden")} {...rest} />
+      <Image
+        src={darkSrc}
+        className={cn(className, "hidden dark:block")}
+        {...rest}
+      />
+    </>
+  );
+}
+
+/**
+ * Versão pra <img> HTML nativo (usado onde o tamanho vem de CSS, não de
+ * width/height). Mesmo comportamento do LumiImg: troca pra -dark no modo
+ * noturno quando existe. Drop-in dos <img src="/illustrations/lumi-*"> do app.
+ */
+export function LumiPic({
+  src,
+  className,
+  alt = "",
+  ...rest
+}: ImgHTMLAttributes<HTMLImageElement> & { src: string }) {
+  const darkSrc = lumiDarkSrc(src);
+  if (!darkSrc) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt={alt} className={className} {...rest} />;
+  }
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={alt}
+        className={cn(className, "dark:hidden")}
+        {...rest}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={darkSrc}
+        alt={alt}
+        className={cn(className, "hidden dark:block")}
+        {...rest}
+      />
+    </>
+  );
+}
 
 export type LumiMood =
   | "default"
@@ -28,22 +102,6 @@ const MOODS: Record<LumiMood, { src: string; alt: string }> = {
   generating: { src: "/illustrations/lumi-generating.png", alt: "Lumi gerando resumo" },
 };
 
-// Moods que têm uma versão dedicada pro modo NOTURNO (Lumi em tons escuros/roxos,
-// rosto brilhando — combina com o fundo escuro). As que NÃO estão aqui usam a
-// versão transparente normal, que já aparece bem no escuro. Arquivo: <pose>-dark.png.
-const DARK_MOODS = new Set<LumiMood>([
-  "default",
-  "waving",
-  "sleeping",
-  "celebrating",
-  "coins",
-  "generating",
-  "studying",
-  "thinking",
-  "confused",
-  "reading-pdf",
-]);
-
 const SIZES = {
   xs: 32,
   sm: 48,
@@ -70,9 +128,6 @@ export function LumiCharacter({
 }) {
   const dim = SIZES[size];
   const { src, alt } = MOODS[mood];
-  const darkSrc = DARK_MOODS.has(mood)
-    ? src.replace(/\.png$/, "-dark.png")
-    : null;
   return (
     <div
       className={cn(
@@ -83,32 +138,16 @@ export function LumiCharacter({
       style={{ width: dim, height: dim }}
       aria-hidden="true"
     >
-      <Image
+      <LumiImg
         src={src}
         alt={alt}
         width={dim}
         height={dim}
         priority={priority}
         unoptimized
-        className={cn(
-          "object-contain drop-shadow-lg",
-          // No modo noturno some, dando lugar à versão dark (quando existe).
-          darkSrc && "dark:hidden",
-        )}
+        className="object-contain drop-shadow-lg"
         draggable={false}
       />
-      {darkSrc && (
-        <Image
-          src={darkSrc}
-          alt={alt}
-          width={dim}
-          height={dim}
-          priority={priority}
-          unoptimized
-          className="hidden object-contain drop-shadow-lg dark:block"
-          draggable={false}
-        />
-      )}
     </div>
   );
 }

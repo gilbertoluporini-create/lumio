@@ -16,7 +16,7 @@ import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { LumiCharacter } from "@/components/brand/lumi";
+import { LumiCharacter, LumiPic } from "@/components/brand/lumi";
 import { getSubjectIcon } from "@/lib/subject-icon";
 import { cn } from "@/lib/utils";
 import { AssignSubjectDialog } from "@/components/documents/assign-subject-dialog";
@@ -192,8 +192,7 @@ function DocumentosView({ user }: { user: User }) {
       {/* Header */}
       <div className="mb-6 flex items-end justify-between gap-4 flex-wrap">
         <div className="flex min-w-0 items-center gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <LumiPic
             src="/illustrations/lumi-notebook.png"
             alt="Lumi"
             className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"

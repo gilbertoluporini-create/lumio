@@ -59,7 +59,7 @@ import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { confirmAction } from "@/components/ui/confirm-dialog";
 import { ContentWizard } from "@/components/ai/content-wizard";
-import { LumiCharacter } from "@/components/brand/lumi";
+import { LumiCharacter, LumiPic } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -642,8 +642,7 @@ function FlashcardsHubView({ user }: { user: User }) {
           {/* Header */}
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-7">
             <div className="flex min-w-0 items-center gap-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <LumiPic
                 src="/illustrations/lumi-book-open.png"
                 alt="Lumi"
                 className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"
@@ -713,8 +712,7 @@ function FlashcardsHubView({ user }: { user: User }) {
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-7">
           <div className="flex min-w-0 items-center gap-4">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <LumiPic
               src="/illustrations/lumi-book-open.png"
               alt="Lumi"
               className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"

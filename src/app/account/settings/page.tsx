@@ -1,4 +1,5 @@
 "use client";
+import { LumiPic } from "@/components/brand/lumi";
 
 import { useEffect, useState } from "react";
 import {
@@ -103,8 +104,7 @@ function SettingsView({ user }: { user: User }) {
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
       <div className="mb-6 flex items-center gap-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <LumiPic
           src="/illustrations/lumi-gear.png"
           alt="Lumi com engrenagem"
           className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"

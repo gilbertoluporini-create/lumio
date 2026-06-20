@@ -1,4 +1,4 @@
-import Image from "next/image";
+import { LumiImg } from "@/components/brand/lumi";
 import { cn } from "@/lib/utils";
 
 /**
@@ -15,7 +15,7 @@ export function LumioMark({ className }: { className?: string }) {
       )}
       aria-hidden="true"
     >
-      <Image
+      <LumiImg
         src="/illustrations/lumi-default.png"
         alt=""
         width={64}

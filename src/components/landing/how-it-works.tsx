@@ -1,6 +1,6 @@
 "use client";
+import { LumiImg } from "@/components/brand/lumi";
 
-import Image from "next/image";
 import { motion } from "framer-motion";
 import { Reveal, Stagger, StaggerItem } from "./motion";
 import { Highlighter } from "./highlighter";
@@ -101,7 +101,7 @@ export function HowItWorks() {
               </div>
 
               <div className="relative h-32 -mx-2 mb-3 flex items-center justify-center">
-                <Image
+                <LumiImg
                   src={step.illustration}
                   alt={step.alt}
                   width={120}

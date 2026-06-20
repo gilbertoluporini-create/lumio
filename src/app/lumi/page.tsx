@@ -1,4 +1,5 @@
 "use client";
+import { LumiPic } from "@/components/brand/lumi";
 
 import {
   useCallback,
@@ -1564,8 +1565,7 @@ function LumiAssistant({ user }: { user: User }) {
           <div className="mx-auto flex w-full max-w-3xl flex-col items-center gap-6">
             {/* Heading row */}
             <div className="flex items-center gap-4">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <LumiPic
                 src="/illustrations/lumi-desk.png"
                 alt="Lumi"
                 className="h-24 w-24 shrink-0 object-contain drop-shadow-sm md:h-28 md:w-28"

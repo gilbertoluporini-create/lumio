@@ -1,4 +1,5 @@
 "use client";
+import { LumiPic } from "@/components/brand/lumi";
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -198,8 +199,7 @@ export function LumiMessageBubble({ message, isStreaming, playTypewriter }: Prop
   return (
     <div className="flex items-start gap-3">
       <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-primary/5">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <LumiPic
           src="/illustrations/lumi-default.png"
           alt="Lumi"
           className="h-10 w-10 object-contain"

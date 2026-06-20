@@ -1,4 +1,5 @@
 "use client";
+import { LumiPic } from "@/components/brand/lumi";
 
 import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
@@ -56,8 +57,7 @@ export function LumiThinking({
     return (
       <div className={`flex items-center gap-3 text-sm text-muted-foreground ${className}`}>
         <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl bg-primary/5">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <LumiPic
             src="/illustrations/lumi-thinking.png"
             alt="Lumi pensando"
             className="h-10 w-10 animate-pulse object-contain"

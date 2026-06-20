@@ -24,7 +24,7 @@ import {
 import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
-import { LumiCharacter } from "@/components/brand/lumi";
+import { LumiCharacter, LumiPic } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { confirmAction } from "@/components/ui/confirm-dialog";
@@ -248,8 +248,7 @@ function GravacoesView({ user }: { user: User }) {
     <div className="mx-auto max-w-7xl px-5 py-8">
       {/* Header */}
       <div className="mb-8 flex items-start gap-4">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
+        <LumiPic
           src="/illustrations/lumi-headset.png"
           alt="Lumi"
           className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"

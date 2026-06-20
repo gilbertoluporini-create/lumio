@@ -1,4 +1,5 @@
 "use client";
+import { LumiPic } from "@/components/brand/lumi";
 
 import {
   useCallback,
@@ -678,8 +679,7 @@ export function LumiVoiceMode({
               voiceState === "listening" && "animate-pulse",
             )}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <LumiPic
               src="/illustrations/lumi-thinking.png"
               alt="Lumi"
               className="h-44 w-44 object-contain"

@@ -1,4 +1,5 @@
 "use client";
+import { LumiPic } from "@/components/brand/lumi";
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
@@ -300,8 +301,7 @@ function LumiChatsHub({ user }: { user: User }) {
       {/* Header compacto */}
       <div className="flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div className="flex min-w-0 items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <LumiPic
             src="/illustrations/lumi-default.png"
             alt="Lumi"
             className="hidden h-12 w-12 shrink-0 object-contain drop-shadow-sm sm:block"
@@ -456,8 +456,7 @@ function LumiChatsHub({ user }: { user: User }) {
           <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
             {visible.length === 0 && (
               <div className="rounded-2xl border border-dashed border-border/60 bg-card p-10 text-center">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <LumiPic
                   src="/illustrations/lumi-waving.png"
                   alt="Lumi acenando"
                   className="mx-auto h-28 w-28 object-contain drop-shadow-sm"
@@ -513,8 +512,7 @@ function LumiChatsHub({ user }: { user: User }) {
             />
           ) : (
             <div className="rounded-2xl border border-dashed border-border/60 bg-card p-10 text-center">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <LumiPic
                 src="/illustrations/lumi-thinking.png"
                 alt="Lumi pensando"
                 className="mx-auto h-24 w-24 object-contain drop-shadow-sm"

@@ -56,7 +56,7 @@ import { toast } from "sonner";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { ContentWizard } from "@/components/ai/content-wizard";
-import { LumiCharacter } from "@/components/brand/lumi";
+import { LumiCharacter, LumiPic } from "@/components/brand/lumi";
 import { Button } from "@/components/ui/button";
 import { confirmAction } from "@/components/ui/confirm-dialog";
 import { Badge } from "@/components/ui/badge";
@@ -760,8 +760,7 @@ function Dashboard({ user }: { user: User }) {
       {/* Header */}
       <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <LumiPic
             src="/illustrations/lumi-dashboard.png"
             alt="Lumi com gráficos"
             className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"

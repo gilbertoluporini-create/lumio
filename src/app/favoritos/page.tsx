@@ -44,7 +44,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { LumiCharacter } from "@/components/brand/lumi";
+import { LumiCharacter, LumiPic } from "@/components/brand/lumi";
 import {
   useAllDocuments,
   type DocumentItem,
@@ -514,8 +514,7 @@ function Favoritos({ user }: { user: User }) {
     <div className="mx-auto max-w-7xl px-5 py-8">
       <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-center gap-4">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <LumiPic
             src="/illustrations/lumi-trophy.png"
             alt="Lumi"
             className="hidden h-20 w-auto shrink-0 object-contain drop-shadow-sm sm:block md:h-24"

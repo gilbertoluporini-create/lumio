@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import Image from "next/image";
+import { LumiImg } from "@/components/brand/lumi";
 import { LinksCards } from "@/components/links/links-cards";
 import { resolveChannel } from "@/components/links/utm";
 
@@ -74,7 +74,7 @@ export default async function LinksPage({
       <section className="relative mx-auto flex w-full max-w-[480px] flex-col items-center px-5 pt-10 pb-12 sm:pt-14">
         {/* Mascote */}
         <div className="relative h-[160px] w-[160px] select-none animate-lumi-float">
-          <Image
+          <LumiImg
             src="/illustrations/lumi-waving.png"
             alt="Lumi, mascote do Lumio, acenando"
             width={320}

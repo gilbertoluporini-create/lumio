@@ -20,7 +20,7 @@ import {
 } from "lucide-react";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
-import { LumiCharacter } from "@/components/brand/lumi";
+import { LumiCharacter, LumiPic } from "@/components/brand/lumi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SupportDialog } from "@/components/support/support-dialog";
@@ -341,8 +341,7 @@ function HelpView({ user }: { user: User }) {
             >
               <div className="relative flex h-40 items-center justify-center bg-gradient-to-br from-primary/10 via-fuchsia-500/5 to-transparent rounded-t-2xl">
                 <div className="relative w-32 md:w-36 [mask-image:linear-gradient(180deg,black_60%,transparent_100%)]">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <LumiPic
                     src={guide.image}
                     alt={guide.alt}
                     className="w-full h-auto object-contain drop-shadow-xl"
@@ -434,8 +433,7 @@ function HelpView({ user }: { user: User }) {
             onClick={() => scrollTo(faqRef)}
             className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-6 text-left lift-card hover:border-primary/40"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <LumiPic
               src="/illustrations/lumi-teclado.png"
               alt="Lumi digitando"
               className="h-16 w-16 object-contain drop-shadow-sm"
@@ -460,8 +458,7 @@ function HelpView({ user }: { user: User }) {
             }}
             className="group flex h-full flex-col items-start rounded-2xl border border-border/60 bg-card p-6 text-left lift-card hover:border-primary/40"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
+            <LumiPic
               src="/illustrations/lumi-headset.png"
               alt="Lumi com headset"
               className="h-16 w-16 object-contain drop-shadow-sm"
