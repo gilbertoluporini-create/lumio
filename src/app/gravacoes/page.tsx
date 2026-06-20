@@ -164,15 +164,20 @@ function GravacoesView({ user }: { user: User }) {
       .then(([s, l, d]) => {
         if (!active) return;
         setSubjects(s);
+        // subjects já vem do semestre ativo (listSubjectsAsync). Mostra só as
+        // aulas das matérias desse semestre (ou sem matéria) — aulas de outros
+        // semestres não vazam pra cá.
+        const semSubjectIds = new Set(s.map((subj) => subj.id));
         // Só gravações REAIS aparecem aqui. Ao gerar flashcards/quiz/mapa pelo
         // Lumi, criamos uma aula-wrapper vazia (sem áudio/transcrição) só pra
         // hospedar o asset — ela não é uma gravação e não deve poluir esta aba.
         setLectures(
           l.filter(
             (lec) =>
-              !!lec.audioUrl ||
-              (lec.transcript?.trim().length ?? 0) > 0 ||
-              lec.durationSec > 0,
+              (!lec.subjectId || semSubjectIds.has(lec.subjectId)) &&
+              (!!lec.audioUrl ||
+                (lec.transcript?.trim().length ?? 0) > 0 ||
+                lec.durationSec > 0),
           ),
         );
         setDeletedLectures(d);

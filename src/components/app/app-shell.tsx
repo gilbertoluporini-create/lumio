@@ -32,6 +32,7 @@ import { cn } from "@/lib/utils";
 import { isAdminEmail } from "@/lib/admin-emails";
 import { LumioMark } from "@/components/brand/logo";
 import { LumiIcon } from "@/components/brand/lumi-icon";
+import { SemesterSwitcher } from "@/components/app/semester-switcher";
 import { CommandPalette } from "@/components/app/command-palette";
 import { NotificationsButton } from "@/components/app/notifications-button";
 import { JobsTray } from "@/components/jobs/jobs-tray";
@@ -414,6 +415,9 @@ export function AppShell({
             />
           </button>
         </div>
+
+        {/* Seletor de semestre */}
+        <SemesterSwitcher user={user} collapsed={collapsed} />
 
         {/* Nav */}
         <nav className="flex-1 px-2 py-4 flex flex-col gap-1 overflow-y-auto">

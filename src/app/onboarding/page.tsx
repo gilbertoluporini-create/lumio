@@ -407,7 +407,14 @@ export default function OnboardingPage() {
       await persistProfile();
       await markOnboardedAsync();
       Analytics.onboardingCompleted(subjects.length, subjects.length === 0);
-      toast.success("Pronto! Bem-vindo ao Lumio.");
+      const isNovoSemestre =
+        typeof window !== "undefined" &&
+        new URLSearchParams(window.location.search).get("novoSemestre") === "1";
+      toast.success(
+        isNovoSemestre
+          ? "Pronto! Semestre novo configurado."
+          : "Pronto! Bem-vindo ao Lumio.",
+      );
       setTimeout(() => router.push("/dashboard"), 400);
     } catch (err) {
       toast.error(`Erro: ${(err as Error).message}`);

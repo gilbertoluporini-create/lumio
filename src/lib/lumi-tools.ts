@@ -902,14 +902,27 @@ const handlers: Record<LumiToolName, ToolHandler> = {
     if (nome.length < 2) return { error: "nome curto demais (mín 2 chars)" };
     if (nome.length > 80) return { error: "nome longo demais (máx 80 chars)" };
 
-    // Bloqueia duplicata case-insensitive — se já existe, devolve o existente
-    // pra Lumi seguir o fluxo usando o subjectId real.
-    const { data: existing } = await ctx.supabaseAdmin
+    // Semestre ativo do user — toda matéria nova cai no semestre atual.
+    const { data: prof } = await ctx.supabaseAdmin
+      .from("user_profiles")
+      .select("active_semester_id")
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    const activeSemesterId =
+      (prof?.active_semester_id as string | null) ?? null;
+
+    // Bloqueia duplicata case-insensitive DENTRO DO SEMESTRE ATIVO — se já
+    // existe, devolve o existente pra Lumi seguir usando o subjectId real.
+    // (Escopado ao semestre: a mesma matéria pode reaparecer num semestre novo.)
+    let existingQuery = ctx.supabaseAdmin
       .from("subjects")
       .select("id, name")
       .eq("user_id", ctx.userId)
-      .ilike("name", nome)
-      .maybeSingle();
+      .ilike("name", nome);
+    if (activeSemesterId) {
+      existingQuery = existingQuery.eq("semester_id", activeSemesterId);
+    }
+    const { data: existing } = await existingQuery.maybeSingle();
     if (existing) {
       return {
         ja_existia: true,
@@ -930,6 +943,7 @@ const handlers: Record<LumiToolName, ToolHandler> = {
         color,
         icon,
         schedule: [],
+        semester_id: activeSemesterId,
       })
       .select("id, name")
       .single();

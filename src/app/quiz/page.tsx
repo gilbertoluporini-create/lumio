@@ -508,6 +508,9 @@ function QuizView({ user }: { user: User }) {
   const filteredQuizzes = useMemo(() => {
     return quizzes.filter((q) => {
       const lec = lectureById.get(q.lecture_id);
+      // subjectById só tem matérias do semestre ativo: quiz de matéria de outro
+      // semestre fica fora. Quiz sem matéria (órfão) continua aparecendo.
+      if (lec?.subjectId && !subjectById.has(lec.subjectId)) return false;
       if (activeSubjectId && lec?.subjectId !== activeSubjectId) return false;
 
       const qCount = q.payload?.questions?.length ?? 0;
@@ -540,6 +543,7 @@ function QuizView({ user }: { user: User }) {
     statusFilter,
     periodFilter,
     lectureById,
+    subjectById,
     statsByAsset,
   ]);
 

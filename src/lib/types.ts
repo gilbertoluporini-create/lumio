@@ -23,6 +23,16 @@ export type Subject = {
   color: string;
   icon?: string;
   schedule?: ScheduleSlot[];
+  /** Semestre ao qual a matéria pertence (undefined em DBs pré-migração 053). */
+  semesterId?: string;
+  createdAt: string;
+};
+
+/** Período acadêmico que agrupa matérias (e por elas, aulas/assets). */
+export type Semester = {
+  id: string;
+  userId: string;
+  name: string;
   createdAt: string;
 };
 

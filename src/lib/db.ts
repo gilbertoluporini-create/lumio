@@ -20,6 +20,7 @@ import type {
   ChatMessage,
   Lecture,
   ScheduleSlot,
+  Semester,
   Slide,
   Subject,
   TranscriptEntry,
@@ -40,6 +41,7 @@ type SubjectRow = {
   color: string;
   icon: string | null;
   schedule: ScheduleSlot[] | null;
+  semester_id: string | null;
   created_at: string;
 };
 
@@ -52,26 +54,127 @@ function rowToSubject(r: SubjectRow): Subject {
     icon: r.icon ?? undefined,
     emoji: "",
     schedule: Array.isArray(r.schedule) ? r.schedule : [],
+    semesterId: r.semester_id ?? undefined,
     createdAt: r.created_at,
   };
 }
 
-const SUBJECT_COLS = "id, user_id, name, color, icon, schedule, created_at";
+const SUBJECT_COLS =
+  "id, user_id, name, color, icon, schedule, semester_id, created_at";
 
+/** Semestre ativo do user (null em DBs pré-053 ou user sem semestre). */
+export async function getActiveSemesterIdAsync(
+  userId: string,
+): Promise<string | null> {
+  if (!isSupabaseConfigured()) return null;
+  try {
+    const supabase = createClient();
+    const { data } = await supabase
+      .from("user_profiles")
+      .select("active_semester_id")
+      .eq("user_id", userId)
+      .maybeSingle();
+    return (data?.active_semester_id as string | null) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Lista as matérias do SEMESTRE ATIVO. Se o user não tem semestre ativo
+ * (DB pré-053), cai pro comportamento antigo de listar todas — assim a
+ * migração não esconde matéria de ninguém antes do backfill rodar.
+ */
 export async function listSubjectsAsync(userId: string): Promise<Subject[]> {
   if (!isSupabaseConfigured()) return localListSubjects(userId);
   try {
     const supabase = createClient();
-    const { data, error } = await supabase
+    const activeSemesterId = await getActiveSemesterIdAsync(userId);
+    let query = supabase
       .from("subjects")
       .select(SUBJECT_COLS)
       .order("created_at", { ascending: true });
+    if (activeSemesterId) query = query.eq("semester_id", activeSemesterId);
+    const { data, error } = await query;
     if (error) throw error;
     return (data as SubjectRow[]).map(rowToSubject);
   } catch (err) {
     console.error("[db] listSubjects fallback", err);
     return localListSubjects(userId);
   }
+}
+
+/** Lista todos os semestres do user, mais antigo → mais novo. */
+export async function listSemestersAsync(userId: string): Promise<Semester[]> {
+  if (!isSupabaseConfigured()) return [];
+  try {
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("semesters")
+      .select("id, user_id, name, created_at")
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    return (
+      data as Array<{
+        id: string;
+        user_id: string;
+        name: string;
+        created_at: string;
+      }>
+    ).map((r) => ({
+      id: r.id,
+      userId: r.user_id,
+      name: r.name,
+      createdAt: r.created_at,
+    }));
+  } catch (err) {
+    console.error("[db] listSemesters", err);
+    return [];
+  }
+}
+
+/** Define o semestre ativo do user (upsert no profile). */
+export async function setActiveSemesterAsync(
+  userId: string,
+  semesterId: string,
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = createClient();
+  const { error } = await supabase.from("user_profiles").upsert(
+    {
+      user_id: userId,
+      active_semester_id: semesterId,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id" },
+  );
+  if (error) throw error;
+}
+
+/** Cria um semestre e (por padrão) já o torna o ativo. */
+export async function createSemesterAsync(
+  userId: string,
+  name: string,
+  opts?: { activate?: boolean },
+): Promise<Semester> {
+  if (!isSupabaseConfigured()) {
+    throw new Error("Supabase não configurado — semestres exigem banco.");
+  }
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from("semesters")
+    .insert({ user_id: userId, name })
+    .select("id, user_id, name, created_at")
+    .single();
+  if (error || !data) throw error ?? new Error("Falha ao criar semestre.");
+  const sem: Semester = {
+    id: data.id as string,
+    userId: data.user_id as string,
+    name: data.name as string,
+    createdAt: data.created_at as string,
+  };
+  if (opts?.activate !== false) await setActiveSemesterAsync(userId, sem.id);
+  return sem;
 }
 
 export async function createSubjectAsync(
@@ -94,6 +197,7 @@ export async function createSubjectAsync(
     });
   }
   const supabase = createClient();
+  const activeSemesterId = await getActiveSemesterIdAsync(userId);
   const { data: row, error } = await supabase
     .from("subjects")
     .insert({
@@ -102,6 +206,7 @@ export async function createSubjectAsync(
       color: data.color,
       icon: data.icon ?? null,
       schedule: data.schedule ?? [],
+      semester_id: activeSemesterId,
     })
     .select(SUBJECT_COLS)
     .single();
@@ -144,10 +249,16 @@ export async function bulkCreateSubjectsAsync(
     );
   }
   const supabase = createClient();
-  // Idempotente: pula matérias cujo nome já existe (RLS escopa ao user, igual
-  // listSubjectsAsync). Sem isso, rodar o onboarding 2x duplicava TODAS as
-  // matérias (incidente de 2026-05-27).
-  const { data: existing } = await supabase.from("subjects").select("name");
+  const activeSemesterId = await getActiveSemesterIdAsync(userId);
+  // Idempotente: pula matérias cujo nome já existe NO SEMESTRE ATIVO. O dedup
+  // é escopado ao semestre senão criar "Cálculo I" num semestre novo seria
+  // barrado por já ter existido em outro. Sem dedup nenhum, rodar o onboarding
+  // 2x duplicava TODAS as matérias (incidente de 2026-05-27).
+  let existingQuery = supabase.from("subjects").select("name");
+  if (activeSemesterId) {
+    existingQuery = existingQuery.eq("semester_id", activeSemesterId);
+  }
+  const { data: existing } = await existingQuery;
   const taken = new Set(
     ((existing ?? []) as { name: string }[]).map((r) =>
       r.name.trim().toLowerCase(),
@@ -163,6 +274,7 @@ export async function bulkCreateSubjectsAsync(
         name: i.name,
         color: i.color,
         schedule: i.schedule ?? [],
+        semester_id: activeSemesterId,
       })),
     )
     .select(SUBJECT_COLS);

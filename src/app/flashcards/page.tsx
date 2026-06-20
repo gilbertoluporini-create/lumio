@@ -348,6 +348,9 @@ function FlashcardsHubView({ user }: { user: User }) {
         const lecture = lectureMap.get(row.lecture_id);
         if (!lecture) return null;
         const subject = subjectMap.get(lecture.subjectId);
+        // subjectMap só tem matérias do semestre ativo: deck de matéria de
+        // outro semestre fica fora. Deck sem matéria (órfão) continua aparecendo.
+        if (lecture.subjectId && !subject) return null;
         const cards = Array.isArray(row.payload?.cards)
           ? row.payload.cards
           : [];

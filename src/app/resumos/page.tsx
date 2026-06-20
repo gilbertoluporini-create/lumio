@@ -435,6 +435,9 @@ function ResumosView({ user }: { user: User }) {
 
   const filteredItems = useMemo(() => {
     return sortedItems.filter((item) => {
+      // subjectById só tem matérias do semestre ativo: resumo de matéria de
+      // outro semestre fica fora. Resumo sem matéria (órfão) continua aparecendo.
+      if (item.subjectId && !subjectById[item.subjectId]) return false;
       if (filterSubject !== "all" && item.subjectId !== filterSubject)
         return false;
       // filterStatus: hoje só "completed" existe — todo item já tem summary.
