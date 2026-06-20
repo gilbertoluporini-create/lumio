@@ -315,12 +315,12 @@ function PaidPlanCard({
           {plan.highlight ? (
             <Magnetic strength={0.18}>
               <Button asChild variant="gradient" size="lg" className="w-full mb-6">
-                <Link href={href}>{plan.cta}</Link>
+                <Link href={href} prefetch={false}>{plan.cta}</Link>
               </Button>
             </Magnetic>
           ) : (
             <Button asChild variant="outline" size="lg" className="w-full mb-6">
-              <Link href={href}>{plan.cta}</Link>
+              <Link href={href} prefetch={false}>{plan.cta}</Link>
             </Button>
           )}
 

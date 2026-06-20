@@ -204,7 +204,7 @@ function DocumentosView({ user }: { user: User }) {
               {totalAssetCount} item{totalAssetCount === 1 ? "" : "s"}
             </div>
             <h1 className="text-3xl md:text-4xl heading-display">
-              Meus documentos
+              Minhas matérias
             </h1>
           </div>
         </div>

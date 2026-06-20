@@ -291,8 +291,8 @@ function DocumentView({
           Documento não encontrado.
         </h1>
         <Button asChild variant="gradient" className="mt-4">
-          <Link href="/documents">
-            <ArrowLeft className="h-4 w-4" /> Voltar pra Documentos
+          <Link href="/documentos">
+            <ArrowLeft className="h-4 w-4" /> Voltar pra Minhas matérias
           </Link>
         </Button>
       </div>

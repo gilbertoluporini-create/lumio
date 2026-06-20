@@ -27,7 +27,9 @@ const csp = [
   // Supabase Storage entra no frame-src pq /document/[id] usa <iframe> pra
   // mostrar o PDF do bucket (rotina, anexos, etc). Sem isso o Chrome bloqueia
   // com "Este conteúdo está bloqueado".
-  "frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://*.supabase.co",
+  // www.facebook.com no frame-src: o Meta Pixel injeta um <iframe> oculto pra
+  // sincronizar cookies de terceiros (fbp/fbc) — sem isso o pixel loga erro de CSP.
+  "frame-src https://js.stripe.com https://hooks.stripe.com https://checkout.stripe.com https://*.supabase.co https://www.facebook.com",
   "worker-src 'self' blob:",
   "object-src 'none'",
   "base-uri 'self'",

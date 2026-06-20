@@ -2046,12 +2046,12 @@ function ModelPill() {
           type="button"
           className="hidden md:inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
         >
-          Claude Sonnet 4.5 · Flash
+          Claude Haiku 4.5 · Flash
           <ChevronDown className="h-3 w-3 opacity-60" />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuItem disabled>Claude Sonnet 4.5 · Flash</DropdownMenuItem>
+        <DropdownMenuItem disabled>Claude Haiku 4.5 · Flash</DropdownMenuItem>
         <DropdownMenuItem disabled>Claude Opus 4.7 · Pro</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

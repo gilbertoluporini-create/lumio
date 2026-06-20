@@ -173,7 +173,7 @@ export function CommandPalette({ user }: { user: User }) {
       {
         id: "action:documentos",
         group: "Ações",
-        label: "Ir pra Meus documentos",
+        label: "Ir pra Minhas matérias",
         href: "/documentos",
         lucide: FolderOpen,
         keywords: [
