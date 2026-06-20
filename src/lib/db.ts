@@ -151,6 +151,30 @@ export async function setActiveSemesterAsync(
   if (error) throw error;
 }
 
+/**
+ * Garante que o user tenha um semestre ativo. Cria "Semestre atual" se não
+ * houver nenhum (user novo, que não passou pelo backfill da 053). Chamado no
+ * onboarding pra que toda matéria criada já caia num semestre desde o início.
+ */
+export async function ensureActiveSemesterAsync(
+  userId: string,
+): Promise<string | null> {
+  if (!isSupabaseConfigured()) return null;
+  const existing = await getActiveSemesterIdAsync(userId);
+  if (existing) return existing;
+  // Tem semestre mas sem ativo (raro): ativa o mais recente em vez de duplicar.
+  const list = await listSemestersAsync(userId);
+  if (list.length > 0) {
+    const last = list[list.length - 1].id;
+    await setActiveSemesterAsync(userId, last);
+    return last;
+  }
+  const sem = await createSemesterAsync(userId, "Semestre atual", {
+    activate: true,
+  });
+  return sem.id;
+}
+
 /** Cria um semestre e (por padrão) já o torna o ativo. */
 export async function createSemesterAsync(
   userId: string,

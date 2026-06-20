@@ -908,8 +908,27 @@ const handlers: Record<LumiToolName, ToolHandler> = {
       .select("active_semester_id")
       .eq("user_id", ctx.userId)
       .maybeSingle();
-    const activeSemesterId =
+    let activeSemesterId =
       (prof?.active_semester_id as string | null) ?? null;
+    // User novo sem semestre (não passou pelo backfill da 053): cria e ativa
+    // "Semestre atual" aqui, pra matéria criada no onboarding via Lumi já cair
+    // num semestre e o seletor da sidebar aparecer.
+    if (!activeSemesterId) {
+      const { data: newSem } = await ctx.supabaseAdmin
+        .from("semesters")
+        .insert({ user_id: ctx.userId, name: "Semestre atual" })
+        .select("id")
+        .single();
+      if (newSem?.id) {
+        activeSemesterId = newSem.id as string;
+        await ctx.supabaseAdmin
+          .from("user_profiles")
+          .upsert(
+            { user_id: ctx.userId, active_semester_id: activeSemesterId },
+            { onConflict: "user_id" },
+          );
+      }
+    }
 
     // Bloqueia duplicata case-insensitive DENTRO DO SEMESTRE ATIVO — se já
     // existe, devolve o existente pra Lumi seguir usando o subjectId real.

@@ -23,7 +23,11 @@ import { LumiCharacter } from "@/components/brand/lumi";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ColorPicker } from "@/components/app/emoji-color-picker";
 import { getCurrentUserAsync, markOnboardedAsync } from "@/lib/auth";
-import { bulkCreateSubjectsAsync, listSubjectsAsync } from "@/lib/db";
+import {
+  bulkCreateSubjectsAsync,
+  ensureActiveSemesterAsync,
+  listSubjectsAsync,
+} from "@/lib/db";
 import { OnboardingLumiStep } from "@/components/onboarding/onboarding-lumi-step";
 import { Analytics } from "@/lib/analytics";
 import { SUBJECT_PALETTE, type ScheduleSlot } from "@/lib/types";
@@ -384,6 +388,10 @@ export default function OnboardingPage() {
         router.replace("/login");
         return;
       }
+      // Garante o semestre ativo antes de criar matérias: user novo (que não
+      // passou pelo backfill da 053) ganha o "Semestre atual" aqui, pra tudo
+      // que ele criar já cair num semestre e o seletor aparecer.
+      await ensureActiveSemesterAsync(user.id);
       // O agente Lumi pode ter criado matérias durante o aha moment. Só caímos
       // no fallback "Geral" se o user não montou nada manualmente E o Lumi
       // também não criou nenhuma matéria — pra não duplicar nem deixar vazio.
