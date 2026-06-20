@@ -27,14 +27,17 @@ export function LumiImg({ src, className, ...rest }: ImageProps) {
   if (!darkSrc || typeof src !== "string") {
     return <Image src={src} className={className} {...rest} />;
   }
+  // O wrapper com display:contents controla SÓ o tema, sem mexer no layout nem
+  // nas classes responsivas (ex: "hidden sm:block") da própria imagem — senão
+  // um sm:block forçaria as duas versões a aparecerem juntas no modo claro.
   return (
     <>
-      <Image src={src} className={cn(className, "dark:hidden")} {...rest} />
-      <Image
-        src={darkSrc}
-        className={cn(className, "hidden dark:block")}
-        {...rest}
-      />
+      <span className="contents dark:hidden">
+        <Image src={src} className={className} {...rest} />
+      </span>
+      <span className="hidden dark:contents">
+        <Image src={darkSrc} className={className} {...rest} />
+      </span>
     </>
   );
 }
@@ -55,22 +58,18 @@ export function LumiPic({
     // eslint-disable-next-line @next/next/no-img-element
     return <img src={src} alt={alt} className={className} {...rest} />;
   }
+  // Wrapper display:contents controla só o tema; a img mantém suas classes
+  // responsivas intactas (ver nota no LumiImg).
   return (
     <>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        alt={alt}
-        className={cn(className, "dark:hidden")}
-        {...rest}
-      />
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={darkSrc}
-        alt={alt}
-        className={cn(className, "hidden dark:block")}
-        {...rest}
-      />
+      <span className="contents dark:hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} className={className} {...rest} />
+      </span>
+      <span className="hidden dark:contents">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={darkSrc} alt={alt} className={className} {...rest} />
+      </span>
     </>
   );
 }
