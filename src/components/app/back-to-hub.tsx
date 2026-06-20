@@ -9,7 +9,7 @@
  *   /lecture/[id]          → /gravacoes
  *   /deck/[id]             → /flashcards
  *   /quiz-banco/[id]       → /quiz
- *   /mapa/[id]             → /planos (mapa mental vive dentro do plano)
+ *   /mapa/[id]             → /documentos (mapa mental vive na matéria)
  *   /document/[id]         → /documentos
  *   /subject/[id]          → /documentos
  *   /planos/[id]           → /planos
@@ -36,7 +36,7 @@ const HUB_MAP: HubMap[] = [
   { test: (p) => p.startsWith("/lecture/"), to: "/gravacoes", label: "Gravações" },
   { test: (p) => p.startsWith("/deck/"), to: "/flashcards", label: "Flashcards" },
   { test: (p) => p.startsWith("/quiz-banco/"), to: "/quiz", label: "Quiz" },
-  { test: (p) => p.startsWith("/mapa/"), to: "/planos", label: "Plano de Estudos" },
+  { test: (p) => p.startsWith("/mapa/"), to: "/documentos", label: "Minhas matérias" },
   { test: (p) => p.startsWith("/planos/"), to: "/planos", label: "Plano de Estudos" },
   { test: (p) => p.startsWith("/document/"), to: "/documentos", label: "Minhas matérias" },
   { test: (p) => p.startsWith("/subject/"), to: "/documentos", label: "Minhas matérias" },

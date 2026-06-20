@@ -91,7 +91,8 @@ import { cn, formatDuration, formatRelativeTime } from "@/lib/utils";
 
 type SubjectAsset = {
   id: string;
-  lecture_id: string;
+  lecture_id: string | null;
+  document_id: string | null;
   folder_id: string | null;
   kind: "flashcards" | "quiz" | "mindmap";
   payload: {
@@ -246,20 +247,34 @@ function SubjectView({
   };
 
   const moveAsset = (a: SubjectAsset) => {
-    const lec = lectures.find((l) => l.id === a.lecture_id);
-    setMoveTarget({
-      kind: "lecture",
-      id: a.lecture_id,
-      title:
-        a.kind === "flashcards"
-          ? "Flashcards"
-          : a.kind === "quiz"
-            ? "Quiz"
-            : "Mapa mental",
-      currentSubjectId: subjectId,
-      currentFolderId: lec?.folderId ?? a.folder_id ?? null,
-      note: "Isso move a aula inteira deste material (transcrição, resumo e outros materiais gerados) pra nova pasta.",
-    });
+    const assetLabel =
+      a.kind === "flashcards"
+        ? "Flashcards"
+        : a.kind === "quiz"
+          ? "Quiz"
+          : "Mapa mental";
+    if (a.lecture_id) {
+      // Asset gerado de uma AULA: mover move a aula inteira (transcrição +
+      // resumo + materiais juntos) pra nova pasta.
+      const lec = lectures.find((l) => l.id === a.lecture_id);
+      setMoveTarget({
+        kind: "lecture",
+        id: a.lecture_id,
+        title: assetLabel,
+        currentSubjectId: subjectId,
+        currentFolderId: lec?.folderId ?? a.folder_id ?? null,
+        note: "Isso move a aula inteira deste material (transcrição, resumo e outros materiais gerados) pra nova pasta.",
+      });
+    } else {
+      // Asset gerado de um PDF (sem aula): move só o asset.
+      setMoveTarget({
+        kind: "lecture_asset",
+        id: a.id,
+        title: assetLabel,
+        currentSubjectId: subjectId,
+        currentFolderId: a.folder_id ?? null,
+      });
+    }
   };
 
   async function refresh() {
@@ -278,26 +293,24 @@ function SubjectView({
     setAllSubjects(all);
     setFolders(fld);
 
-    // Busca todos os assets (flashcards/quiz/mindmap) das aulas dessa matéria
-    // pra que apareçam na pasta — antes o user gerava um quiz e ele "sumia"
-    // (estava no DB mas a pasta da matéria não listava).
+    // Busca todos os assets (flashcards/quiz/mindmap) DA MATÉRIA — por subject_id
+    // direto (054). Antes filtrava só por lecture_id das aulas, então assets
+    // gerados de PDF (document_id, sem lecture) "sumiam" da matéria mesmo
+    // existindo no banco. Agora pega aula E documento de uma vez.
     try {
-      const lectureIds = l.map((x) => x.id);
-      if (lectureIds.length > 0) {
-        const { createClient } = await import("@/lib/supabase/client");
-        const supabase = createClient();
-        const { data: rows, error } = await supabase
-          .from("lecture_assets")
-          .select("id, lecture_id, folder_id, kind, payload, created_at, updated_at")
-          .eq("user_id", user.id)
-          .in("lecture_id", lectureIds)
-          .is("deleted_at", null)
-          .order("updated_at", { ascending: false });
-        if (!error && rows) {
-          setAssets(rows as SubjectAsset[]);
-        }
-      } else {
-        setAssets([]);
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
+      const { data: rows, error } = await supabase
+        .from("lecture_assets")
+        .select(
+          "id, lecture_id, document_id, folder_id, kind, payload, created_at, updated_at",
+        )
+        .eq("user_id", user.id)
+        .eq("subject_id", subjectId)
+        .is("deleted_at", null)
+        .order("updated_at", { ascending: false });
+      if (!error && rows) {
+        setAssets(rows as SubjectAsset[]);
       }
     } catch (err) {
       console.warn("[subject] assets fetch failed", err);

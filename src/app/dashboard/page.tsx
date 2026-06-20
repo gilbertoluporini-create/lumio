@@ -517,9 +517,16 @@ function Dashboard({ user }: { user: User }) {
         (x.slides?.length ?? 0) > 0 ||
         x.status === "live",
     );
+    // Escopa aulas/resumos ao semestre ativo (subjects `s` já vem filtrado),
+    // pra os KPIs e a atividade baterem com /gravacoes e /resumos. Antes o
+    // dashboard somava todos os semestres → "Resumos gerados: 8" mas /resumos
+    // mostrava 3. Órfão (sem matéria) é mantido, igual nas outras telas.
+    const semSubjectIds = new Set(s.map((x) => x.id));
+    const inActiveSemester = (sid?: string | null) =>
+      !sid || semSubjectIds.has(sid);
     setSubjects(s);
-    setLectures(nonEmpty);
-    setSummaries(sm);
+    setLectures(nonEmpty.filter((x) => inActiveSemester(x.subjectId)));
+    setSummaries(sm.filter((x) => inActiveSemester(x.subjectId)));
 
     // Atividade no app: transações de coin (cada gasto = uma interação).
     try {

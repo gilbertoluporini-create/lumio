@@ -52,6 +52,7 @@ type AssetRow = {
   id: string;
   lecture_id: string | null;
   document_id: string | null;
+  subject_id: string | null;
   folder_id: string | null;
   title: string | null;
   user_id: string;
@@ -118,7 +119,7 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
             const { data, error: assetErr } = await supabase
               .from("lecture_assets")
               .select(
-                "id, lecture_id, document_id, folder_id, title, user_id, kind, payload, coins_spent, created_at, updated_at",
+                "id, lecture_id, document_id, subject_id, folder_id, title, user_id, kind, payload, coins_spent, created_at, updated_at",
               )
               .eq("user_id", userId)
               .is("deleted_at", null)
@@ -168,10 +169,20 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
       docsTable.map((d) => [d.id, d]),
     );
 
+    // `subjects` já vem filtrado pelo semestre ativo (listSubjectsAsync). Logo,
+    // um item cuja matéria NÃO está nesse mapa pertence a outro semestre e deve
+    // sumir da listagem — igual /resumos /flashcards /quiz fazem. Item sem
+    // matéria (órfão genuíno) é mantido (aparece como "Sem matéria"), pra não
+    // engolir conteúdo legado sem vínculo. Antes este hook não filtrava nada,
+    // então /documentos e /favoritos vazavam assets de todos os semestres.
+    const inActiveSemester = (sid: string | null | undefined): boolean =>
+      !sid || subjectById.has(sid);
+
     const docs: DocumentItem[] = [];
 
     // PDFs uploadados standalone (tabela documents)
     for (const d of docsTable) {
+      if (!inActiveSemester(d.subjectId)) continue;
       const subject = d.subjectId ? subjectById.get(d.subjectId) : null;
       docs.push({
         id: `document:${d.id}`,
@@ -193,6 +204,7 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
 
     // Resumos da nova tabela summaries (lectures E documents)
     for (const sm of summariesTable) {
+      if (!inActiveSemester(sm.subjectId)) continue;
       const subject = sm.subjectId ? subjectById.get(sm.subjectId) : null;
       if (sm.source.kind === "lecture") {
         const sourceLec = lectureById.get(sm.source.lectureId);
@@ -229,6 +241,7 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
     }
 
     for (const l of lectures) {
+      if (!inActiveSemester(l.subjectId)) continue;
       const subject = l.subjectId ? subjectById.get(l.subjectId) : null;
       const subjectId = subject?.id ?? null;
       const subjectName = subject?.name ?? null;
@@ -277,11 +290,12 @@ export function useAllDocuments(userId: string): UseAllDocumentsState {
       const parentDoc = a.document_id
         ? docById.get(a.document_id)
         : undefined;
-      const parentSubjectId =
-        parentLecture?.subjectId ?? parentDoc?.subjectId ?? null;
-      const subject = parentSubjectId
-        ? subjectById.get(parentSubjectId)
-        : null;
+      // Matéria vem do subject_id persistido no asset (054); cai pro pai só se
+      // for um row antigo ainda sem backfill.
+      const rawSubjectId =
+        a.subject_id ?? parentLecture?.subjectId ?? parentDoc?.subjectId ?? null;
+      if (!inActiveSemester(rawSubjectId)) continue;
+      const subject = rawSubjectId ? subjectById.get(rawSubjectId) : null;
       const subjectId = subject?.id ?? null;
       const subjectName = subject?.name ?? null;
       const baseTitle =
