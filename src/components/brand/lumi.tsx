@@ -28,6 +28,22 @@ const MOODS: Record<LumiMood, { src: string; alt: string }> = {
   generating: { src: "/illustrations/lumi-generating.png", alt: "Lumi gerando resumo" },
 };
 
+// Moods que têm uma versão dedicada pro modo NOTURNO (Lumi em tons escuros/roxos,
+// rosto brilhando — combina com o fundo escuro). As que NÃO estão aqui usam a
+// versão transparente normal, que já aparece bem no escuro. Arquivo: <pose>-dark.png.
+const DARK_MOODS = new Set<LumiMood>([
+  "default",
+  "waving",
+  "sleeping",
+  "celebrating",
+  "coins",
+  "generating",
+  "studying",
+  "thinking",
+  "confused",
+  "reading-pdf",
+]);
+
 const SIZES = {
   xs: 32,
   sm: 48,
@@ -54,6 +70,9 @@ export function LumiCharacter({
 }) {
   const dim = SIZES[size];
   const { src, alt } = MOODS[mood];
+  const darkSrc = DARK_MOODS.has(mood)
+    ? src.replace(/\.png$/, "-dark.png")
+    : null;
   return (
     <div
       className={cn(
@@ -71,9 +90,25 @@ export function LumiCharacter({
         height={dim}
         priority={priority}
         unoptimized
-        className="object-contain drop-shadow-lg"
+        className={cn(
+          "object-contain drop-shadow-lg",
+          // No modo noturno some, dando lugar à versão dark (quando existe).
+          darkSrc && "dark:hidden",
+        )}
         draggable={false}
       />
+      {darkSrc && (
+        <Image
+          src={darkSrc}
+          alt={alt}
+          width={dim}
+          height={dim}
+          priority={priority}
+          unoptimized
+          className="hidden object-contain drop-shadow-lg dark:block"
+          draggable={false}
+        />
+      )}
     </div>
   );
 }
