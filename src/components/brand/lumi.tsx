@@ -13,7 +13,7 @@ const DARK_POSES = new Set<string>([
 
 function lumiDarkSrc(src: string): string | null {
   const m = src.match(/\/illustrations\/lumi-([a-z-]+)\.png$/);
-  if (m && DARK_POSES.has(m[1])) return src.replace(/\.png$/, "-dark.png");
+  if (m && DARK_POSES.has(m[1])) return src.replace(/\.png$/, "-dark.webp");
   return null;
 }
 
