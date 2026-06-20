@@ -1,12 +1,14 @@
 "use client";
 
 /**
- * /documentos — Biblioteca de matérias.
+ * /documentos — Índice de matérias.
  *
- * Estratégia: grid de matérias no topo (visão agregada com contadores) +
- * seção "Todos os arquivos" abaixo com listagem flat de TODOS os assets
- * (aulas, PDFs, resumos, decks, quizzes, mapas) e botões de ação por linha
- * (mover entre matérias, abrir, etc.).
+ * Cada matéria é a "casa" do seu conteúdo, que vive em /subject/[id]. Aqui é só
+ * o índice: grid de matérias com contadores. Abaixo, SÓ quando há itens sem
+ * matéria (órfãos legados), aparece a seção "Sem matéria" pra o usuário
+ * atribuí-los — senão a tela fica limpa, só o índice. Antes havia uma lista
+ * "Todos os arquivos" achatada paralela à tela da matéria (hub duplo), removida
+ * pra ter um modelo mental único: entro na matéria, vejo tudo dela.
  */
 
 import { createElement, useMemo, useState } from "react";
@@ -18,14 +20,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { LumiCharacter, LumiPic } from "@/components/brand/lumi";
 import { getSubjectIcon } from "@/lib/subject-icon";
-import { cn } from "@/lib/utils";
 import { AssignSubjectDialog } from "@/components/documents/assign-subject-dialog";
 import { UploadDocumentDialog } from "@/components/documents/upload-document-dialog";
 import { DocumentItemRow } from "@/components/documents/document-item-row";
 import {
   useAllDocuments,
   type DocumentItem,
-  type DocumentKind,
 } from "@/hooks/use-all-documents";
 import type { Subject, User } from "@/lib/types";
 
@@ -51,19 +51,6 @@ type SubjectStats = {
   total: number;
 };
 
-type KindFilter = DocumentKind | "all" | "unassigned";
-
-const KIND_FILTERS: Array<{ id: KindFilter; label: string }> = [
-  { id: "all", label: "Todos" },
-  { id: "transcription", label: "Aulas" },
-  { id: "pdf-upload", label: "PDFs" },
-  { id: "summary", label: "Resumos" },
-  { id: "flashcards", label: "Decks" },
-  { id: "quiz", label: "Quizzes" },
-  { id: "mindmap", label: "Mapas" },
-  { id: "unassigned", label: "Sem matéria" },
-];
-
 function DocumentosView({ user }: { user: User }) {
   const { documents, subjects, loading, refresh } = useAllDocuments(
     user.id,
@@ -71,7 +58,6 @@ function DocumentosView({ user }: { user: User }) {
   const [query, setQuery] = useState("");
   const [assignDoc, setAssignDoc] = useState<DocumentItem | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [kindFilter, setKindFilter] = useState<KindFilter>("all");
 
   /** Stats agregados por matéria (lectures + docs por kind). */
   const statsBySubject = useMemo(() => {
@@ -111,39 +97,16 @@ function DocumentosView({ user }: { user: User }) {
     [statsBySubject],
   );
 
-  /** Listagem flat filtrada por busca + chip de tipo. */
-  const filteredDocuments = useMemo(() => {
+  /** Itens sem matéria (órfãos legados), filtrados pela busca. São os únicos
+   *  que precisam aparecer aqui — o resto vive dentro da matéria. */
+  const unassignedDocuments = useMemo(() => {
     const q = query.trim().toLowerCase();
     return documents.filter((d) => {
-      if (kindFilter === "unassigned") {
-        if (d.subjectId) return false;
-      } else if (kindFilter !== "all") {
-        if (d.kind !== kindFilter) return false;
-      }
+      if (d.subjectId) return false;
       if (!q) return true;
-      const inTitle = d.title.toLowerCase().includes(q);
-      const inSubject = (d.subjectName ?? "").toLowerCase().includes(q);
-      return inTitle || inSubject;
+      return d.title.toLowerCase().includes(q);
     });
-  }, [documents, query, kindFilter]);
-
-  const kindCounts = useMemo(() => {
-    const counts: Record<KindFilter, number> = {
-      all: documents.length,
-      unassigned: 0,
-      transcription: 0,
-      summary: 0,
-      flashcards: 0,
-      quiz: 0,
-      mindmap: 0,
-      "pdf-upload": 0,
-    };
-    for (const d of documents) {
-      counts[d.kind] += 1;
-      if (!d.subjectId) counts.unassigned += 1;
-    }
-    return counts;
-  }, [documents]);
+  }, [documents, query]);
 
   const filteredSubjects = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -255,72 +218,32 @@ function DocumentosView({ user }: { user: User }) {
         </div>
       )}
 
-      {/* Todos os arquivos — listagem flat com botão de mover por item */}
-      {documents.length > 0 && (
+      {/* Sem matéria — só aparece se houver órfãos pra organizar. O conteúdo
+          já associado vive dentro de cada matéria (/subject/[id]). */}
+      {unassignedDocuments.length > 0 && (
         <div className="mt-12">
-          <div className="flex items-end justify-between mb-3 gap-4 flex-wrap">
-            <div>
-              <h2 className="text-lg font-semibold">
-                Todos os arquivos{" "}
-                <span className="text-muted-foreground font-normal">
-                  · {filteredDocuments.length}
-                </span>
-              </h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Clique nos três pontinhos pra mudar de matéria ou abrir.
-              </p>
-            </div>
+          <div className="mb-3">
+            <h2 className="text-lg font-semibold">
+              Sem matéria{" "}
+              <span className="text-muted-foreground font-normal">
+                · {unassignedDocuments.length}
+              </span>
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Itens que ainda não estão numa matéria. Clique nos três pontinhos
+              pra atribuir.
+            </p>
           </div>
 
-          {/* Chips de filtro por tipo */}
-          <div className="mb-4 flex items-center gap-1.5 flex-wrap">
-            {KIND_FILTERS.map((f) => {
-              const active = kindFilter === f.id;
-              const count = kindCounts[f.id];
-              if (f.id !== "all" && count === 0) return null;
-              return (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => setKindFilter(f.id)}
-                  className={cn(
-                    "h-7 px-2.5 rounded-full text-[12px] font-medium transition-colors border",
-                    active
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-card text-muted-foreground hover:text-foreground hover:bg-secondary/50 border-border/60",
-                  )}
-                >
-                  {f.label}
-                  <span
-                    className={cn(
-                      "ml-1.5 tabular-nums",
-                      active
-                        ? "text-primary-foreground/80"
-                        : "text-muted-foreground/70",
-                    )}
-                  >
-                    {count}
-                  </span>
-                </button>
-              );
-            })}
+          <div className="rounded-xl border border-border/50 bg-card/50 p-1">
+            {unassignedDocuments.map((d) => (
+              <DocumentItemRow
+                key={d.id}
+                doc={d}
+                onAssignSubject={(doc) => setAssignDoc(doc)}
+              />
+            ))}
           </div>
-
-          {filteredDocuments.length === 0 ? (
-            <div className="text-center text-sm text-muted-foreground py-8 border border-dashed border-border/50 rounded-xl">
-              Nenhum arquivo nesse filtro.
-            </div>
-          ) : (
-            <div className="rounded-xl border border-border/50 bg-card/50 p-1">
-              {filteredDocuments.map((d) => (
-                <DocumentItemRow
-                  key={d.id}
-                  doc={d}
-                  onAssignSubject={(doc) => setAssignDoc(doc)}
-                />
-              ))}
-            </div>
-          )}
         </div>
       )}
 

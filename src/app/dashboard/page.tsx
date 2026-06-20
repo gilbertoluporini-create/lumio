@@ -1200,9 +1200,11 @@ function Dashboard({ user }: { user: User }) {
         mode="summary"
         userId={user.id}
         onCreated={({ lectureId, summaryId, documentId }) => {
-          // Origem com aula gravada → tela da aula (mostra summary tab)
+          // Origem com aula gravada → resumo na aba da aula (mesmo caminho
+          // canônico que /resumos, /subject, etc. usam — antes ia pra
+          // /lecture direto e caía na aba transcrição em vez do resumo).
           if (lectureId) {
-            router.push(`/lecture/${lectureId}`);
+            router.push(`/resumo/${lectureId}`);
             return;
           }
           // PDF sem aula → tela do resumo direto
