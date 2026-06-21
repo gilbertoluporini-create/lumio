@@ -251,6 +251,7 @@ export function LiveTranscriptColumn({
   onJumpToSlide,
   onAddMarker,
   initialViewMode,
+  transcribing,
 }: {
   entries: TranscriptEntry[];
   interim: string;
@@ -282,6 +283,8 @@ export function LiveTranscriptColumn({
   onJumpToSlide?: (idx: number) => void;
   onAddMarker?: () => void;
   initialViewMode?: ViewMode;
+  /** Whisper fallback rodando (transcrição do áudio gravado após o stop). */
+  transcribing?: boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   // Aula sem áudio/entries = nasceu de PDF/dashboard, não tem transcrição.
@@ -535,16 +538,26 @@ export function LiveTranscriptColumn({
           />
         ) : filtered.length === 0 && !interim ? (
           <div className="h-full flex flex-col items-center justify-center text-center py-16 px-6">
-            <div className="h-12 w-12 rounded-2xl bg-violet-500/10 flex items-center justify-center mb-3">
+            <div
+              className={`h-12 w-12 rounded-2xl bg-violet-500/10 flex items-center justify-center mb-3 ${
+                transcribing ? "animate-pulse" : ""
+              }`}
+            >
               <Sparkles className="h-5 w-5 text-violet-500" />
             </div>
             <p className="text-sm font-semibold">
-              {isLive ? "Ouvindo..." : "Pronto pra começar"}
+              {transcribing
+                ? "Transcrevendo o áudio gravado..."
+                : isLive
+                  ? "Ouvindo..."
+                  : "Pronto pra começar"}
             </p>
             <p className="mt-1.5 text-xs text-muted-foreground max-w-xs">
-              {isLive
-                ? "As frases aparecem aqui assim que reconhecermos as primeiras palavras."
-                : 'Clique em "Iniciar gravação" no topo pra começar a transcrever.'}
+              {transcribing
+                ? "Isso leva alguns segundos. O texto e o resumo aparecem automaticamente quando terminar."
+                : isLive
+                  ? "As frases aparecem aqui assim que reconhecermos as primeiras palavras."
+                  : 'Clique em "Iniciar gravação" no topo pra começar a transcrever.'}
             </p>
           </div>
         ) : viewMode === "chapters" ? (
