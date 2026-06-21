@@ -842,7 +842,9 @@ function statusOf(state: CardState | undefined): CardStatus {
   if (!state) return "new";
   if (state.reps >= 3 && state.ease >= 2.2) return "mastered";
   const due = new Date(state.next_review).getTime() <= Date.now();
-  return due ? "due" : "mastered";
+  // Card em aprendizado e ainda não vencido NÃO é "dominado" (era marcado como
+  // mastered por engano, virando bolinha verde e fazendo o user pular ele).
+  return due ? "due" : "new";
 }
 
 function CardsList({

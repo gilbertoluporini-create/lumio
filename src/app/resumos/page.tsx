@@ -833,8 +833,12 @@ function ResumosView({ user }: { user: User }) {
         target={moveTarget}
         onMoved={() => {
           setMoveTarget(null);
-          // Refresh: re-busca pra refletir a nova matéria
-          void listSummariesAsync(user.id).then(setSummaries);
+          // Refresh: re-busca resumos E matérias pra refletir a nova matéria
+          // (sem atualizar subjects, o filtro por matéria ficava desatualizado).
+          void Promise.all([
+            listSummariesAsync(user.id).then(setSummaries),
+            listSubjectsAsync(user.id).then(setSubjects),
+          ]);
         }}
       />
     </div>
