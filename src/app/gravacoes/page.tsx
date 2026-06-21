@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -154,41 +154,55 @@ function GravacoesView({ user }: { user: User }) {
   const [newLectureOpen, setNewLectureOpen] = useState(false);
   const [newLectureMode, setNewLectureMode] = useState<"live" | "upload">("live");
 
-  useEffect(() => {
-    let active = true;
-    Promise.all([
+  const reload = useCallback(async () => {
+    const [s, l, d] = await Promise.all([
       listSubjectsAsync(user.id),
       listLecturesAsync(user.id),
       listDeletedLecturesAsync(user.id),
-    ])
-      .then(([s, l, d]) => {
-        if (!active) return;
-        setSubjects(s);
-        // subjects já vem do semestre ativo (listSubjectsAsync). Mostra só as
-        // aulas das matérias desse semestre (ou sem matéria) — aulas de outros
-        // semestres não vazam pra cá.
-        const semSubjectIds = new Set(s.map((subj) => subj.id));
-        // Só gravações REAIS aparecem aqui. Ao gerar flashcards/quiz/mapa pelo
-        // Lumi, criamos uma aula-wrapper vazia (sem áudio/transcrição) só pra
-        // hospedar o asset — ela não é uma gravação e não deve poluir esta aba.
-        setLectures(
-          l.filter(
-            (lec) =>
-              (!lec.subjectId || semSubjectIds.has(lec.subjectId)) &&
-              (!!lec.audioUrl ||
-                (lec.transcript?.trim().length ?? 0) > 0 ||
-                lec.durationSec > 0),
-          ),
-        );
-        setDeletedLectures(d);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
-      });
+    ]);
+    setSubjects(s);
+    // subjects já vem do semestre ativo (listSubjectsAsync). Mostra só as
+    // aulas das matérias desse semestre (ou sem matéria) — aulas de outros
+    // semestres não vazam pra cá.
+    const semSubjectIds = new Set(s.map((subj) => subj.id));
+    // Só gravações REAIS aparecem aqui. Ao gerar flashcards/quiz/mapa pelo
+    // Lumi, criamos uma aula-wrapper vazia (sem áudio/transcrição) só pra
+    // hospedar o asset — ela não é uma gravação e não deve poluir esta aba.
+    setLectures(
+      l.filter(
+        (lec) =>
+          (!lec.subjectId || semSubjectIds.has(lec.subjectId)) &&
+          (!!lec.audioUrl ||
+            (lec.transcript?.trim().length ?? 0) > 0 ||
+            lec.durationSec > 0),
+      ),
+    );
+    setDeletedLectures(d);
+  }, [user.id]);
+
+  useEffect(() => {
+    let active = true;
+    reload().finally(() => {
+      if (active) setLoading(false);
+    });
     return () => {
       active = false;
     };
-  }, [user.id]);
+  }, [reload]);
+
+  // Recarrega ao voltar pra esta aba/janela — ex.: criou uma aula nova (que
+  // navega pra /lecture/[id]) e voltou; a lista reflete na hora, sem F5.
+  useEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState !== "hidden") void reload();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onFocus);
+    };
+  }, [reload]);
 
   const subjectById = useMemo(() => {
     const map: Record<string, Subject> = {};
