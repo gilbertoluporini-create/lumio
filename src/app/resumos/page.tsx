@@ -27,6 +27,7 @@ import {
   Folder,
   Filter,
   FolderInput,
+  Pencil,
   FlaskConical,
   Gavel,
   Globe,
@@ -73,6 +74,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   listLecturesAsync,
   listSubjectsAsync,
   updateLectureAsync,
@@ -81,6 +90,7 @@ import {
   deleteSummaryAsync,
   listStudyPlanForSummariesAsync,
   listSummariesAsync,
+  updateSummaryAsync,
 } from "@/lib/summaries";
 import { listDocumentsAsync } from "@/lib/documents";
 import {
@@ -265,6 +275,9 @@ function ResumosView({ user }: { user: User }) {
   const [newSummaryOpen, setNewSummaryOpen] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [moveTarget, setMoveTarget] = useState<MoveTarget | null>(null);
+  const [renameTarget, setRenameTarget] = useState<ResumoItem | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -354,6 +367,38 @@ function ResumosView({ user }: { user: User }) {
       currentSubjectId: item.subjectId ?? null,
     });
   }, []);
+
+  const handleRenameSummary = useCallback((item: ResumoItem) => {
+    setRenameName(item.title);
+    setRenameTarget(item);
+  }, []);
+
+  const saveRename = useCallback(async () => {
+    const target = renameTarget;
+    if (!target) return;
+    const name = renameName.trim();
+    if (name.length < 1) {
+      toast.error("Dá um nome pro resumo.");
+      return;
+    }
+    if (name === target.title) {
+      setRenameTarget(null);
+      return;
+    }
+    setRenaming(true);
+    try {
+      await updateSummaryAsync(user.id, target.summary.id, { title: name });
+      setSummaries((prev) =>
+        prev.map((s) => (s.id === target.summary.id ? { ...s, title: name } : s)),
+      );
+      toast.success("Resumo renomeado.");
+      setRenameTarget(null);
+    } catch (err) {
+      toast.error(`Erro ao renomear: ${(err as Error).message}`);
+    } finally {
+      setRenaming(false);
+    }
+  }, [renameTarget, renameName, user.id]);
 
   const subjectById = useMemo(() => {
     const map: Record<string, Subject> = {};
@@ -773,6 +818,7 @@ function ResumosView({ user }: { user: User }) {
                     onToggleFavorite={toggleFavorite}
                     onDeleteSummary={handleDeleteSummary}
                     onMoveSummary={handleMoveSummary}
+                    onRenameSummary={handleRenameSummary}
                   />
                 ))}
               </div>
@@ -841,6 +887,48 @@ function ResumosView({ user }: { user: User }) {
           ]);
         }}
       />
+
+      {/* Renomear resumo */}
+      <Dialog
+        open={!!renameTarget}
+        onOpenChange={(o) => {
+          if (!o) setRenameTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Renomear resumo</DialogTitle>
+            <DialogDescription>
+              Muda só o título do resumo. A fonte original (aula/documento)
+              continua intacta.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Input
+              autoFocus
+              placeholder="Título do resumo"
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveRename();
+              }}
+              maxLength={120}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRenameTarget(null)}
+              disabled={renaming}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={saveRename} disabled={renaming}>
+              {renaming ? "Salvando…" : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1055,6 +1143,7 @@ function SummaryTableRow({
   onToggleFavorite,
   onDeleteSummary,
   onMoveSummary,
+  onRenameSummary,
 }: {
   item: ResumoItem;
   subject: Subject | undefined;
@@ -1063,6 +1152,7 @@ function SummaryTableRow({
   onToggleFavorite: (id: string) => void;
   onDeleteSummary: (item: ResumoItem) => void;
   onMoveSummary: (item: ResumoItem) => void;
+  onRenameSummary: (item: ResumoItem) => void;
 }) {
   const router = useRouter();
   const status: SummaryStatus = "completed";
@@ -1241,6 +1331,17 @@ function SummaryTableRow({
             >
               <Download className="h-3.5 w-3.5" />
               Exportar PDF
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onRenameSummary(item);
+              }}
+              className="gap-2"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Renomear
             </DropdownMenuItem>
             <DropdownMenuItem
               onClick={(e) => {
