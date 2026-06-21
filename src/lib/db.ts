@@ -465,7 +465,22 @@ export async function listLecturesAsync(
       .select(LECTURE_COLS)
       .is("deleted_at", null)
       .order("created_at", { ascending: false });
-    if (subjectId) q = q.eq("subject_id", subjectId);
+    if (subjectId) {
+      q = q.eq("subject_id", subjectId);
+    } else {
+      // Sem matéria específica: escopa ao SEMESTRE ATIVO, mesma convenção do
+      // use-all-documents — aulas de matérias de outro semestre somem; aulas
+      // órfãs (sem matéria) continuam aparecendo. Sem semestre ativo
+      // (DB pré-053), não filtra (comportamento legado).
+      const activeSemesterId = await getActiveSemesterIdAsync(userId);
+      if (activeSemesterId) {
+        const subs = await listSubjectsAsync(userId); // já filtra pelo ativo
+        const ids = subs.map((s) => s.id).filter(Boolean);
+        q = ids.length
+          ? q.or(`subject_id.in.(${ids.join(",")}),subject_id.is.null`)
+          : q.is("subject_id", null);
+      }
+    }
     const { data, error } = await q;
     if (error) throw error;
     return (data as LectureRow[]).map(rowToLecture);
