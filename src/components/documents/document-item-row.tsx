@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { MoreHorizontal, Trash2 } from "lucide-react";
+import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,6 +22,7 @@ export function DocumentItemRow({
   doc,
   onAssignSubject,
   onDelete,
+  onRename,
   className,
   showSubject = true,
   compact = false,
@@ -31,12 +32,20 @@ export function DocumentItemRow({
   /** Quando provido, mostra "Excluir" no dropdown. Pai resolve a deleção
    *  via deleteDocumentItemAsync (cobre todos os kinds). */
   onDelete?: (doc: DocumentItem) => void;
+  /** Quando provido, mostra "Renomear" — só pra documentos (PDF) e resumos.
+   *  Pai resolve via updateDocumentAsync / updateSummaryAsync pelo id/kind. */
+  onRename?: (doc: DocumentItem) => void;
   className?: string;
   showSubject?: boolean;
   compact?: boolean;
 }) {
   const originLabel = doc.origin === "upload" ? "Upload" : "Gerado pelo Lumio";
   const kindLabel = getDocumentKindLabel(doc.kind);
+  // Renomeável: resumo, ou PDF standalone (id "document:") — NÃO slides de aula
+  // ("lecture-slides:") nem aulas/assets gerados.
+  const canRename =
+    doc.kind === "summary" ||
+    (doc.kind === "pdf-upload" && doc.id.startsWith("document:"));
 
   return (
     <div
@@ -96,6 +105,17 @@ export function DocumentItemRow({
           <DropdownMenuItem asChild>
             <Link href={`/lecture/${doc.lectureId}`}>Abrir aula de origem</Link>
           </DropdownMenuItem>
+          {onRename && canRename && (
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                onRename(doc);
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Renomear
+            </DropdownMenuItem>
+          )}
           {onDelete && doc.kind !== "transcription" && (
             <>
               <DropdownMenuSeparator />
