@@ -62,6 +62,15 @@ export class AudioRecorder {
     return this.mimeType;
   }
 
+  /**
+   * Stream de áudio em uso (ou null). Permite que o transcritor por segmentos
+   * (live) anexe um segundo MediaRecorder no MESMO stream — evita um segundo
+   * getUserMedia (menos contenção de microfone, especialmente no Safari).
+   */
+  getStream(): MediaStream | null {
+    return this.stream;
+  }
+
   async start(): Promise<void> {
     if (this.state !== "idle") return;
     if (!isAudioRecorderSupported()) {
