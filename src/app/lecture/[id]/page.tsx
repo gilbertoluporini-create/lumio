@@ -108,6 +108,14 @@ function isProbablySafari(): boolean {
   return /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
 }
 
+// Mínimo de palavras pra valer um resumo de IA. Evita gerar resumo (lento e
+// inútil) em aula de teste/silêncio — o Whisper "alucina" frases curtas em
+// áudio mudo (ex.: "Obrigado."), que passariam num check só de "não-vazio".
+const MIN_SUMMARY_WORDS = 15;
+function countWords(s: string): number {
+  return s.trim().split(/\s+/).filter(Boolean).length;
+}
+
 export default function LecturePage({
   params,
 }: {
@@ -600,7 +608,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       // Se vamos cair no fallback Whisper, o resumo/toast são tratados lá (após
       // a transcrição ficar pronta) — evita um "Aula salva" enganoso com texto vazio.
       if (!willFallbackTranscribe) {
-        const hasContent = transcript.length > 50;
+        const hasContent = countWords(transcript) >= MIN_SUMMARY_WORDS;
         const hasSlides = !!slidesRef.current && slidesRef.current.length > 0;
         if (hasContent && (hasSlides || messagesRef.current.length > 0)) {
           toast.success("Aula salva. Gerando resumo automaticamente...");
@@ -741,7 +749,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         // Agora que há conteúdo, gera o resumo automaticamente (mesma regra do stop).
         const txt = (fresh.transcript ?? "").trim();
         const hasSlides = !!slidesRef.current && slidesRef.current.length > 0;
-        if (txt.length > 50 && (hasSlides || messagesRef.current.length > 0)) {
+        if (
+          countWords(txt) >= MIN_SUMMARY_WORDS &&
+          (hasSlides || messagesRef.current.length > 0)
+        ) {
           setTimeout(() => generateSummary({ silent: true }), 250);
         }
       } else {
@@ -1103,6 +1114,14 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     if (!transcript) {
       if (!opts?.silent) {
         toast.error("Transcrição vazia. Grave a aula ou cole o texto antes.");
+      }
+      return;
+    }
+    if (countWords(transcript) < MIN_SUMMARY_WORDS) {
+      if (!opts?.silent) {
+        toast.error(
+          "Conteúdo insuficiente pra gerar um resumo. Grave uma aula com mais conteúdo.",
+        );
       }
       return;
     }
