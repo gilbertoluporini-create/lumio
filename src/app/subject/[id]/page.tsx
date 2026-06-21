@@ -1443,7 +1443,7 @@ function LectureFolder({
   onDelete: () => void;
   onMove?: () => void;
 }) {
-  const hasTranscript = lecture.transcript.trim().length > 0;
+  const hasTranscript = (lecture.transcript ?? "").trim().length > 0;
   const hasSlides = (lecture.slides?.length ?? 0) > 0;
   const msgCount = lecture.messages.length;
 

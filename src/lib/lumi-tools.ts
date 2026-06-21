@@ -667,11 +667,23 @@ function arr(v: unknown): string[] {
 
 const handlers: Record<LumiToolName, ToolHandler> = {
   async listar_materias(_input, ctx) {
-    const { data, error } = await ctx.supabaseAdmin
+    // Escopa ao semestre ATIVO (igual ao client listSubjectsAsync) pra o Lumi
+    // não enxergar matérias de outros semestres. Sem semestre ativo (DB
+    // pré-053), lista tudo — comportamento legado.
+    const { data: prof } = await ctx.supabaseAdmin
+      .from("user_profiles")
+      .select("active_semester_id")
+      .eq("user_id", ctx.userId)
+      .maybeSingle();
+    const activeSemesterId =
+      (prof?.active_semester_id as string | null) ?? null;
+    let q = ctx.supabaseAdmin
       .from("subjects")
-      .select("id, name, color")
+      .select("id, name, color, semester_id")
       .eq("user_id", ctx.userId)
       .order("created_at", { ascending: true });
+    if (activeSemesterId) q = q.eq("semester_id", activeSemesterId);
+    const { data, error } = await q;
     if (error) throw error;
     return {
       materias: (data ?? []).map((s) => ({
