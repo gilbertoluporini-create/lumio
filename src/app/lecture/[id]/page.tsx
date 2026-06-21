@@ -62,6 +62,7 @@ import {
   AudioRecorder,
   isAudioRecorderSupported,
 } from "@/lib/audio-recorder";
+import { LiveSegmentTranscriber } from "@/lib/live-segment-transcriber";
 import { uploadLectureAudio } from "@/lib/audio-storage";
 import { AudioPlayer } from "@/components/audio/audio-player";
 
@@ -285,6 +286,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [transcribing, setTranscribing] = useState(false);
   // Mostra o aviso de Safari (transcrição aparece ao parar) só uma vez.
   const safariNoticeShownRef = useRef(false);
+  // Transcrição quase-ao-vivo via Whisper (navegadores sem Web Speech, ex.: Safari).
+  const liveSegmentRef = useRef<LiveSegmentTranscriber | null>(null);
+  // Algum segmento ao vivo já produziu texto? Decide se o fallback do stop roda.
+  const liveSegmentProducedTextRef = useRef(false);
   const [audioUrl, setAudioUrl] = useState<string | undefined>(undefined);
   const audioPlayerRef = useRef<{ seek: (s: number) => void } | null>(null);
   useEffect(() => {
@@ -294,6 +299,8 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     return () => {
       audioRecorderRef.current?.abort();
       audioRecorderRef.current = null;
+      liveSegmentRef.current?.stop();
+      liveSegmentRef.current = null;
     };
   }, []);
 
@@ -552,7 +559,14 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       // o ref de forma síncrona. Se a transcrição ao vivo veio vazia (ex.: Safari)
       // e há áudio, o finalize dispara o fallback Whisper.
       const hadAudio = !!audioRecorderRef.current;
-      const willFallbackTranscribe = transcript.length < 50 && hadAudio;
+      // Para a transcrição quase-ao-vivo (o último bloco ainda é enviado async).
+      const usedLiveSegments = liveSegmentProducedTextRef.current;
+      liveSegmentRef.current?.stop();
+      liveSegmentRef.current = null;
+      // Só cai no fallback (Whisper do áudio INTEIRO) se nada veio ao vivo —
+      // evita transcrever duas vezes quando os blocos ao vivo já cobriram a aula.
+      const willFallbackTranscribe =
+        transcript.length < 50 && hadAudio && !usedLiveSegments;
       persist({
         transcript,
         transcriptEntries: entries,
@@ -623,13 +637,35 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         toast.warning("Sem permissão pra gravar áudio. Transcrição segue normal.");
       }
     }
-    // No Safari a transcrição ao vivo não funciona (disputa de microfone); o
-    // texto aparece quando o usuário parar (fallback Whisper). Avisa uma vez.
-    if (!safariNoticeShownRef.current && isProbablySafari()) {
-      safariNoticeShownRef.current = true;
-      toast.info("No Safari a transcrição aparece quando você parar a gravação.");
-    }
     speech.start();
+
+    // Transcrição quase-ao-vivo (Whisper em blocos de ~15s) pra navegadores sem
+    // Web Speech confiável (Safari/Firefox). No Chrome/Edge o Web Speech já dá
+    // tempo-real de graça — então NÃO roda Whisper (sem custo extra). Reusa o
+    // stream do gravador (um só getUserMedia). É best-effort: se falhar, o
+    // fallback do stop (Whisper do áudio inteiro) ainda cobre.
+    const useSegmentedLive =
+      !isSpeechRecognitionSupported() || isProbablySafari();
+    const liveStream = audioRecorderRef.current?.getStream() ?? null;
+    if (useSegmentedLive && liveStream && lecture?.id) {
+      liveSegmentProducedTextRef.current = false;
+      const transcriber = new LiveSegmentTranscriber({
+        lectureId: lecture.id,
+        stream: liveStream,
+        onText: (t) => {
+          liveSegmentProducedTextRef.current = true;
+          sync.addFinal(t);
+          setInterim("");
+        },
+        onError: (e) => console.warn("[live-segment]", e),
+      });
+      liveSegmentRef.current = transcriber;
+      transcriber.start();
+      if (!safariNoticeShownRef.current) {
+        safariNoticeShownRef.current = true;
+        toast.info("A transcrição aparece em blocos a cada ~15s neste navegador.");
+      }
+    }
     persist({ status: "live" });
   }
 
