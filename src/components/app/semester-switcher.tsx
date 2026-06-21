@@ -7,7 +7,9 @@ import {
   ChevronsUpDown,
   GraduationCap,
   Loader2,
+  Pencil,
   Plus,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -31,8 +33,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   createSemesterAsync,
+  deleteSemesterAsync,
   getActiveSemesterIdAsync,
   listSemestersAsync,
+  renameSemesterAsync,
   setActiveSemesterAsync,
 } from "@/lib/db";
 import type { Semester, User } from "@/lib/types";
@@ -58,6 +62,11 @@ export function SemesterSwitcher({
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [switching, setSwitching] = useState(false);
+  const [editTarget, setEditTarget] = useState<Semester | null>(null);
+  const [editName, setEditName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Semester | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -97,6 +106,64 @@ export function SemesterSwitcher({
     }
   }
 
+  async function handleRename() {
+    const target = editTarget;
+    if (!target) return;
+    const name = editName.trim();
+    if (name.length < 2) {
+      toast.error("Dá um nome pro semestre (ex: 2026.2).");
+      return;
+    }
+    if (name === target.name) {
+      setEditTarget(null);
+      return;
+    }
+    setSaving(true);
+    try {
+      await renameSemesterAsync(user.id, target.id, name);
+      setSemesters((prev) =>
+        prev.map((s) => (s.id === target.id ? { ...s, name } : s)),
+      );
+      toast.success("Semestre renomeado.");
+      setEditTarget(null);
+    } catch {
+      toast.error("Não consegui renomear o semestre.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    const target = deleteTarget;
+    if (!target) return;
+    if (semesters.length <= 1) {
+      toast.error("Você precisa de pelo menos um semestre.");
+      setDeleteTarget(null);
+      return;
+    }
+    setDeleting(true);
+    try {
+      await deleteSemesterAsync(user.id, target.id);
+      const remaining = semesters.filter((s) => s.id !== target.id);
+      setSemesters(remaining);
+      setDeleteTarget(null);
+      // Se apagou o ativo, ativa o mais recente restante e recarrega o app
+      // (dashboard/matérias/grade refazem o fetch já no semestre certo).
+      if (target.id === activeId) {
+        const next = remaining[remaining.length - 1];
+        if (next) {
+          await setActiveSemesterAsync(user.id, next.id);
+          window.location.reload();
+          return;
+        }
+      }
+      toast.success("Semestre apagado.");
+    } catch {
+      toast.error("Não consegui apagar o semestre.");
+      setDeleting(false);
+    }
+  }
+
   async function handleCreate() {
     const name = newName.trim();
     if (name.length < 2) {
@@ -122,7 +189,7 @@ export function SemesterSwitcher({
         <DropdownMenuItem
           key={s.id}
           onClick={() => handleSwitch(s.id)}
-          className="gap-2"
+          className="group/sem gap-2"
         >
           <Check
             className={cn(
@@ -130,7 +197,41 @@ export function SemesterSwitcher({
               s.id === activeId ? "opacity-100" : "opacity-0",
             )}
           />
-          <span className="truncate">{s.name}</span>
+          <span className="flex-1 truncate">{s.name}</span>
+          <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover/sem:opacity-100 focus-within:opacity-100">
+            <button
+              type="button"
+              aria-label={`Renomear ${s.name}`}
+              className="rounded p-1 text-muted-foreground hover:bg-secondary hover:text-foreground"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                setEditName(s.name);
+                setEditTarget(s);
+              }}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              aria-label={`Apagar ${s.name}`}
+              disabled={semesters.length <= 1}
+              title={
+                semesters.length <= 1
+                  ? "Você precisa de pelo menos um semestre"
+                  : undefined
+              }
+              className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                if (semesters.length <= 1) return;
+                setDeleteTarget(s);
+              }}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </span>
         </DropdownMenuItem>
       ))}
       <DropdownMenuSeparator />
@@ -218,6 +319,95 @@ export function SemesterSwitcher({
                 </>
               ) : (
                 "Criar e configurar"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Renomear semestre */}
+      <Dialog
+        open={!!editTarget}
+        onOpenChange={(o) => {
+          if (!o) setEditTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Renomear semestre</DialogTitle>
+            <DialogDescription>
+              Muda só o nome — suas matérias, aulas e arquivos continuam onde
+              estão.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Input
+              autoFocus
+              placeholder="Ex: 2026.2 ou 5º período"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleRename();
+              }}
+              maxLength={40}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setEditTarget(null)}
+              disabled={saving}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={handleRename} disabled={saving}>
+              {saving ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Salvando…
+                </>
+              ) : (
+                "Salvar"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Apagar semestre — destrutivo */}
+      <Dialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => {
+          if (!o) setDeleteTarget(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Apagar “{deleteTarget?.name}”?</DialogTitle>
+            <DialogDescription>
+              Isso apaga <strong>tudo desse semestre</strong> — matérias, aulas,
+              transcrições, resumos, flashcards, quizzes e mapas. Essa ação{" "}
+              <strong>não dá pra desfazer</strong>.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteTarget(null)}
+              disabled={deleting}
+            >
+              Cancelar
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" /> Apagando…
+                </>
+              ) : (
+                "Apagar semestre"
               )}
             </Button>
           </DialogFooter>

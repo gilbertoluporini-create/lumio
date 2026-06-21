@@ -201,6 +201,45 @@ export async function createSemesterAsync(
   return sem;
 }
 
+/** Renomeia um semestre. RLS garante que só o dono altera. */
+export async function renameSemesterAsync(
+  userId: string,
+  semesterId: string,
+  name: string,
+): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("semesters")
+    .update({ name })
+    .eq("id", semesterId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
+/**
+ * Apaga um semestre. DESTRUTIVO: `subjects.semester_id` é `on delete cascade`,
+ * então todas as matérias do período — e por cascata aulas/resumos/assets —
+ * são apagadas junto. O caller DEVE confirmar com o user antes. Não impede
+ * apagar o ativo: `user_profiles.active_semester_id` é `on delete set null`,
+ * e o caller troca o ativo depois.
+ */
+export async function deleteSemesterAsync(
+  userId: string,
+  semesterId: string,
+): Promise<void> {
+  if (!isSupabaseConfigured()) {
+    throw new Error("Supabase não configurado — semestres exigem banco.");
+  }
+  const supabase = createClient();
+  const { error } = await supabase
+    .from("semesters")
+    .delete()
+    .eq("id", semesterId)
+    .eq("user_id", userId);
+  if (error) throw error;
+}
+
 export async function createSubjectAsync(
   userId: string,
   data: {
