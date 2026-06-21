@@ -290,13 +290,22 @@ export function LiveTranscriptColumn({
   // Aula sem áudio/entries = nasceu de PDF/dashboard, não tem transcrição.
   // Nesse caso só faz sentido mostrar Resumo — escondemos as outras 2 tabs.
   const hasTranscriptContent = entries.length > 0 || hasAudio;
+  const hasSummaryContent = !!summary || !!summaryEducational;
+  // Aula vazia E sem resumo = aula nova pra gravar → mantém as abas de
+  // transcrição visíveis pra abrir "Pronto pra começar" em vez de cair no
+  // Resumo vazio. (Aula de PDF/dashboard chega com resumo → continua no Resumo.)
+  const showTranscriptTabs = hasTranscriptContent || !hasSummaryContent;
 
   // Default sempre "chapters" (revisada). Usuário pode alternar pra "flat" (crua).
   // initialViewMode (de ?tab=summary) tem prioridade sobre localStorage no primeiro mount.
   // Sem transcrição (PDF/dashboard), força "summary" — as tabs de transcrição
   // não aparecem e não faz sentido cair em "chapters" vazio.
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
-    if (!hasTranscriptContent) return "summary";
+    if (!hasTranscriptContent) {
+      // Sem transcrição: se já há resumo (aula de PDF/dashboard), abre no Resumo.
+      // Senão, é aula nova pra gravar → abre na transcrição, pronta pra gravar.
+      return hasSummaryContent ? "summary" : "flat";
+    }
     if (initialViewMode) return initialViewMode;
     if (typeof window === "undefined") return "chapters";
     const saved = window.localStorage.getItem("lumio.transcript.view") as ViewMode | null;
@@ -407,7 +416,7 @@ export function LiveTranscriptColumn({
       <div className="px-5 pt-5 pb-3 border-b border-border/60">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-1 rounded-lg bg-secondary/60 p-1">
-            {hasTranscriptContent && (
+            {showTranscriptTabs && (
               <>
                 <button
                   onClick={() => setViewModePersisted("chapters")}
