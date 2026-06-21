@@ -22,6 +22,17 @@ import { cn } from "@/lib/utils";
 import { AssignSubjectDialog } from "@/components/documents/assign-subject-dialog";
 import { UploadDocumentDialog } from "@/components/documents/upload-document-dialog";
 import { DocumentItemRow } from "@/components/documents/document-item-row";
+import { toast } from "sonner";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { updateDocumentAsync } from "@/lib/documents";
+import { updateSummaryAsync } from "@/lib/summaries";
 import {
   useAllDocuments,
   type DocumentItem,
@@ -72,6 +83,51 @@ function DocumentosView({ user }: { user: User }) {
   const [assignDoc, setAssignDoc] = useState<DocumentItem | null>(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [kindFilter, setKindFilter] = useState<KindFilter>("all");
+  const [renameDoc, setRenameDoc] = useState<DocumentItem | null>(null);
+  const [renameName, setRenameName] = useState("");
+  const [renaming, setRenaming] = useState(false);
+
+  // Abre o rename com o título CRU (resumo é exibido com prefixo "Resumo — ").
+  function openRename(doc: DocumentItem) {
+    const prefix = "Resumo — ";
+    const raw =
+      doc.kind === "summary" && doc.title.startsWith(prefix)
+        ? doc.title.slice(prefix.length)
+        : doc.title;
+    setRenameName(raw);
+    setRenameDoc(doc);
+  }
+
+  async function saveRename() {
+    const doc = renameDoc;
+    if (!doc) return;
+    const name = renameName.trim();
+    if (name.length < 1) {
+      toast.error("Dá um nome pro arquivo.");
+      return;
+    }
+    // id é prefixado: "summary:<id>" ou "document:<id>".
+    const realId = doc.id.split(":")[1] ?? "";
+    if (!realId) {
+      toast.error("Não consegui identificar o item.");
+      return;
+    }
+    setRenaming(true);
+    try {
+      if (doc.kind === "summary") {
+        await updateSummaryAsync(user.id, realId, { title: name });
+      } else {
+        await updateDocumentAsync(user.id, realId, { title: name });
+      }
+      toast.success("Renomeado.");
+      setRenameDoc(null);
+      refresh();
+    } catch (err) {
+      toast.error(`Erro ao renomear: ${(err as Error).message}`);
+    } finally {
+      setRenaming(false);
+    }
+  }
 
   /** Stats agregados por matéria (lectures + docs por kind). */
   const statsBySubject = useMemo(() => {
@@ -317,6 +373,7 @@ function DocumentosView({ user }: { user: User }) {
                   key={d.id}
                   doc={d}
                   onAssignSubject={(doc) => setAssignDoc(doc)}
+                  onRename={openRename}
                 />
               ))}
             </div>
@@ -350,6 +407,47 @@ function DocumentosView({ user }: { user: User }) {
           refresh();
         }}
       />
+
+      {/* Dialog: renomear documento/resumo */}
+      <Dialog
+        open={!!renameDoc}
+        onOpenChange={(open) => {
+          if (!open) setRenameDoc(null);
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Renomear</DialogTitle>
+            <DialogDescription>
+              Muda só o título. O conteúdo e a fonte original ficam intactos.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Input
+              autoFocus
+              placeholder="Novo título"
+              value={renameName}
+              onChange={(e) => setRenameName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveRename();
+              }}
+              maxLength={120}
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRenameDoc(null)}
+              disabled={renaming}
+            >
+              Cancelar
+            </Button>
+            <Button onClick={saveRename} disabled={renaming}>
+              {renaming ? "Salvando…" : "Salvar"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
