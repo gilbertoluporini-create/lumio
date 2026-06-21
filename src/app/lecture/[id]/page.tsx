@@ -96,6 +96,17 @@ const SUGGESTED_PROMPTS = [
   "Explica de novo a parte mais difícil",
 ];
 
+/**
+ * Heurística leve só pra MENSAGEM de UI: Safari (Mac/iPhone) disputa o
+ * microfone entre MediaRecorder e Web Speech, então a transcrição ao vivo não
+ * funciona — avisamos que o texto aparece ao parar. NÃO usar pra lógica: o
+ * fallback Whisper dispara por "transcrição vazia", não por User-Agent.
+ */
+function isProbablySafari(): boolean {
+  if (typeof navigator === "undefined") return false;
+  return /^((?!chrome|android|crios|fxios|edg).)*safari/i.test(navigator.userAgent);
+}
+
 export default function LecturePage({
   params,
 }: {
@@ -269,6 +280,11 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const [audioSupported, setAudioSupported] = useState(true);
   const [audioRecording, setAudioRecording] = useState(false);
   const [audioUploading, setAudioUploading] = useState(false);
+  // Fallback Whisper rodando: a transcrição ao vivo falhou (ex.: Safari) e
+  // estamos transcrevendo o áudio gravado pós-stop.
+  const [transcribing, setTranscribing] = useState(false);
+  // Mostra o aviso de Safari (transcrição aparece ao parar) só uma vez.
+  const safariNoticeShownRef = useRef(false);
   const [audioUrl, setAudioUrl] = useState<string | undefined>(undefined);
   const audioPlayerRef = useRef<{ seek: (s: number) => void } | null>(null);
   useEffect(() => {
@@ -532,6 +548,11 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       // Persiste tudo no stop
       const entries = sync.entries;
       const transcript = entries.map((e) => e.text).join(" ").trim();
+      // Áudio estava gravando? Precisa capturar AGORA — finalizeAudioUpload zera
+      // o ref de forma síncrona. Se a transcrição ao vivo veio vazia (ex.: Safari)
+      // e há áudio, o finalize dispara o fallback Whisper.
+      const hadAudio = !!audioRecorderRef.current;
+      const willFallbackTranscribe = transcript.length < 50 && hadAudio;
       persist({
         transcript,
         transcriptEntries: entries,
@@ -539,7 +560,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         status: "completed",
       });
       if (lecture?.id) {
-        void finalizeAudioUpload(lecture.id);
+        void finalizeAudioUpload(lecture.id, transcript);
       }
 
       // Auto-indexa transcript pra RAG (Lumi consegue buscar trechos da aula)
@@ -562,13 +583,17 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       void sync.classifyNow();
       void sync.refreshInsightsNow(lecture?.title);
 
-      const hasContent = transcript.length > 50;
-      const hasSlides = !!slidesRef.current && slidesRef.current.length > 0;
-      if (hasContent && (hasSlides || messagesRef.current.length > 0)) {
-        toast.success("Aula salva. Gerando resumo automaticamente...");
-        setTimeout(() => generateSummary({ silent: true }), 250);
-      } else {
-        toast.success("Aula salva.");
+      // Se vamos cair no fallback Whisper, o resumo/toast são tratados lá (após
+      // a transcrição ficar pronta) — evita um "Aula salva" enganoso com texto vazio.
+      if (!willFallbackTranscribe) {
+        const hasContent = transcript.length > 50;
+        const hasSlides = !!slidesRef.current && slidesRef.current.length > 0;
+        if (hasContent && (hasSlides || messagesRef.current.length > 0)) {
+          toast.success("Aula salva. Gerando resumo automaticamente...");
+          setTimeout(() => generateSummary({ silent: true }), 250);
+        } else {
+          toast.success("Aula salva.");
+        }
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -598,29 +623,99 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
         toast.warning("Sem permissão pra gravar áudio. Transcrição segue normal.");
       }
     }
+    // No Safari a transcrição ao vivo não funciona (disputa de microfone); o
+    // texto aparece quando o usuário parar (fallback Whisper). Avisa uma vez.
+    if (!safariNoticeShownRef.current && isProbablySafari()) {
+      safariNoticeShownRef.current = true;
+      toast.info("No Safari a transcrição aparece quando você parar a gravação.");
+    }
     speech.start();
     persist({ status: "live" });
   }
 
-  async function finalizeAudioUpload(lectureIdLocal: string) {
+  async function finalizeAudioUpload(lectureIdLocal: string, liveTranscript = "") {
     const rec = audioRecorderRef.current;
     if (!rec) return;
     audioRecorderRef.current = null;
     setAudioRecording(false);
+    let uploaded: Awaited<ReturnType<typeof uploadLectureAudio>> = null;
     try {
       setAudioUploading(true);
       const blob = await rec.stop();
       if (!blob || blob.size === 0) return;
-      const result = await uploadLectureAudio(user.id, lectureIdLocal, blob);
-      if (result?.url) {
-        setAudioUrl(result.url);
-        persist({ audioUrl: result.url });
+      uploaded = await uploadLectureAudio(user.id, lectureIdLocal, blob);
+      if (uploaded?.url) {
+        setAudioUrl(uploaded.url);
+        persist({ audioUrl: uploaded.url });
         toast.success("Áudio salvo na nuvem.");
       }
     } catch (err) {
       console.error("[lecture] finalizeAudioUpload failed", err);
     } finally {
       setAudioUploading(false);
+    }
+
+    // Plano B: a transcrição ao vivo veio vazia (ex.: Safari, que disputa o
+    // microfone com o MediaRecorder). Transcreve o áudio gravado via Whisper.
+    if (liveTranscript.trim().length < 50 && uploaded?.path) {
+      await transcribeRecordedAudio(lectureIdLocal, uploaded.path);
+    }
+  }
+
+  /**
+   * Fallback de transcrição: pega o áudio já enviado ao Storage e roda o
+   * Whisper (rota /transcribe), que grava transcript + entries + status e
+   * auto-encadeia a revisão estrutural. Usado quando a transcrição ao vivo
+   * não capturou nada (Safari, Firefox, ou falha de microfone).
+   */
+  async function transcribeRecordedAudio(
+    lectureIdLocal: string,
+    storagePath: string,
+  ) {
+    setTranscribing(true);
+    const toastId = toast.loading("Transcrevendo o áudio gravado...");
+    try {
+      const res = await fetch(`/api/lectures/${lectureIdLocal}/transcribe`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ storagePath }),
+      });
+      if (!res.ok) {
+        let msg = "Não consegui transcrever o áudio gravado.";
+        try {
+          const j = (await res.json()) as { error?: string };
+          if (j?.error) msg = j.error;
+        } catch {
+          /* ignore */
+        }
+        toast.error(msg, { id: toastId });
+        return;
+      }
+      // A rota já gravou transcript + entries + status no DB. Re-busca e hidrata.
+      const fresh = await getLectureAsync(user.id, lectureIdLocal);
+      if (fresh) {
+        setLecture(fresh);
+        if (
+          Array.isArray(fresh.transcriptEntries) &&
+          fresh.transcriptEntries.length > 0
+        ) {
+          sync.replaceAll(fresh.transcriptEntries);
+        }
+        toast.success("Transcrição pronta!", { id: toastId });
+        // Agora que há conteúdo, gera o resumo automaticamente (mesma regra do stop).
+        const txt = (fresh.transcript ?? "").trim();
+        const hasSlides = !!slidesRef.current && slidesRef.current.length > 0;
+        if (txt.length > 50 && (hasSlides || messagesRef.current.length > 0)) {
+          setTimeout(() => generateSummary({ silent: true }), 250);
+        }
+      } else {
+        toast.success("Transcrição pronta!", { id: toastId });
+      }
+    } catch (err) {
+      console.error("[lecture] transcribeRecordedAudio failed", err);
+      toast.error("Falha ao transcrever o áudio gravado.", { id: toastId });
+    } finally {
+      setTranscribing(false);
     }
   }
 
@@ -1492,6 +1587,7 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 entries={sync.entries}
                 interim={interim}
                 isLive={isLive}
+                transcribing={transcribing}
                 keyTerms={sync.insights?.keyTerms ?? []}
                 topics={sync.insights?.topics ?? []}
                 hasAudio={!!audioUrl}
