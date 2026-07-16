@@ -1131,7 +1131,11 @@ export async function POST(req: Request) {
             const titles: string[] = [];
             for (const b of branches.slice(0, 4)) {
               if (b && typeof b === "object") {
-                const t = (b as Record<string, unknown>).title;
+                // Schema/prompt gera branches[].label (não .title). Lê .label
+                // com fallback pra .title por segurança.
+                const rec = b as Record<string, unknown>;
+                const t =
+                  typeof rec.label === "string" ? rec.label : rec.title;
                 if (typeof t === "string") titles.push(t);
               }
             }
@@ -1142,6 +1146,39 @@ export async function POST(req: Request) {
             origin,
             cookie,
           );
+        }
+      }
+    }
+
+    // Refund PARCIAL de imagens: quando withImages foi cobrado (preço cheio —
+    // resumo 40 vs 12, flash/quiz 27 vs 10) mas a etapa de imagens NÃO produziu
+    // nenhuma URL (endpoint falhou ou nenhum conceito extraído), o user recebe o
+    // asset base SEM imagens. Reembolsa só a diferença (custo com imagens − custo
+    // base); a base NÃO é reembolsada porque o asset foi entregue. O extra por
+    // fonte (perExtraSource) se cancela na diferença, então diff = variante com
+    // imagens − variante sem imagens do mesmo mode.
+    // Nota: "refund_partial_images" ainda não faz parte do union CoinReason
+    // (arquivo src/lib/coins.ts, fora do meu escopo) — registro o tag em
+    // metadata e uso o reason "refund" válido pra manter o build compilável.
+    let balanceAfter = charge.balanceAfter;
+    let imagesRefunded = 0;
+    if (withImages && imageUrls.length === 0) {
+      const baseCost = computeCost(mode, false, totalSources);
+      const diff = cost - baseCost;
+      if (diff > 0) {
+        try {
+          const credited = await creditCoins(userId, diff, "refund", {
+            mode,
+            reason: "refund_partial_images",
+            with_images: true,
+            sources_count: totalSources,
+            base_cost: baseCost,
+            full_cost: cost,
+          });
+          imagesRefunded = diff;
+          balanceAfter = credited.balanceAfter;
+        } catch (e) {
+          console.error("[ai/generate] partial image refund failed", e);
         }
       }
     }
@@ -1183,7 +1220,8 @@ export async function POST(req: Request) {
       content,
       imageUrls,
       coinsCharged: cost,
-      balanceAfter: charge.balanceAfter,
+      balanceAfter,
+      ...(imagesRefunded > 0 ? { imagesRefunded } : {}),
       ...(persistedRoute ? { route: persistedRoute, persisted: true } : {}),
     });
   } catch (err) {

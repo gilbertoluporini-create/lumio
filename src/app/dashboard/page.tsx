@@ -588,10 +588,17 @@ function Dashboard({ user }: { user: User }) {
   const stats = useMemo(() => {
     const totalLectures = lectures.length;
     const summariesCount = summaries.length;
-    const progressPct =
+    // Resumos podem exceder aulas (ex.: resumos de PDF sem aula) e o
+    // denominador pode ser 0. Clampa em [0,100] e evita NaN pra os dois
+    // dials (KPI "Progresso geral" e Insights) nunca estourarem 100%.
+    const rawPct =
       totalLectures > 0
         ? Math.round((summariesCount / totalLectures) * 100)
         : 0;
+    const progressPct = Math.max(
+      0,
+      Math.min(100, Number.isFinite(rawPct) ? rawPct : 0),
+    );
     return {
       totalLectures,
       withSummary: summariesCount,

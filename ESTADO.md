@@ -1,5 +1,54 @@
 # Lumio — ESTADO
 
+## 🧹 VARREDURA TOTAL — sessão 2026-07-16 (auditoria + fixes, NÃO PUSHADO)
+
+Retomada do Lumio (parado desde 21/06, commit c79e18e). Giba pediu "varredura total:
+bugs, telas redundantes, código extinto, fazer funcionar" (carta branca). Trabalho LOCAL
+na main; **push/deploy pendente de OK do Giba**. Build verde (npm run build EXIT=0).
+
+**Auditoria** (multi-agente, 8 dimensões + verificação adversarial): 84 achados brutos →
+21 confirmados + ~40 candidatos reais. 2 refutados (crons "Hobby" = falso, conta é Pro;
+/checkout "inexistente" = falso, CheckoutInterceptor cobre).
+
+**APLICADO (33 arquivos, +370/−1571):**
+- **Custos de coins alinhados à fonte de verdade** (era o bug sistêmico — 8 lugares
+  mostravam valores velhos): products-tabs, pricing-section, faq-section, account/coins,
+  lumi-generate-dialog (gate do botão usava custo errado), lumi-quick-actions, system
+  prompt da Lumi. Todos importam de coin-costs.ts agora. Reais: resumo 12, flash 10,
+  quiz 10, mapa 12.
+- **Bugs de dinheiro**: content-wizard stale closure (áudio descartado enquanto cobrava);
+  double-refund da Lumi (flag refunded); coins.ts erro transitório ≠ "saldo insuficiente";
+  tts cobra ANTES de pagar ElevenLabs + estorna em falha; generate-route refund parcial
+  quando imagens falham + mindmap lia .title (schema gera .label).
+- **UX**: voice-mode guard de unmount (TTS tocava após sair); dashboard progresso >100%;
+  schedule cards esvaziavam ao navegar mês; planos desmarcar re-gerava asset; subject
+  tiles com ?tab morto; chats delete sem confirmação; email preferences link + domínio.
+- **Pipeline**: renew-signed-urls janela 23h→48h (imagens sumiam); retry-transcription
+  void fetch→after (queimava attempts); illustrate logava modelo errado.
+- **Código morto removido (11 arquivos, ~1571 linhas)**: refine-transcript, server-auth,
+  document-item-delete, quiz/flashcards/mindmap-view, transcript-entry, spotlight,
+  app-preview, lumio-coin-spinning, ui/scroll-area. Todos com ZERO refs (verificado 2x).
+- **Segurança P0**: migration 055_revoke_coin_rpcs_from_public.sql criada (as RPCs de
+  coins eram SECURITY DEFINER sem REVOKE → qualquer autenticado se creditava coins).
+  **NÃO aplicada no banco** — precisa de OK do Giba + `supabase db push` (ou aplicar via
+  Management API). App usa service_role, então o REVOKE não quebra nada.
+
+**DECISÕES DE PRODUTO PENDENTES (Giba):**
+1. Plano ANUAL vende "X coins/mês" mas webhook credita 1x/ano → precisa cron mensal de
+   renovação (migration 049 já grava coins_reset_at). É dinheiro real.
+2. Claims de privacidade absolutos ("áudio nunca sai do device") são falsos (há upload
+   pra bucket + Whisper). Reescrever /privacy + landing (risco legal).
+3. Feature exam-relevance ("cai na prova") + proactive-notifications: crons nunca são
+   disparados = features mortas. REMOVER (~900 linhas) ou TERMINAR? Não deletei (decisão).
+4. lead-magnet-bonus: 50 coins prometidos no lead magnet nunca são creditados. Integrar
+   ou remover a promessa?
+5. Termos de Uso desatualizados (só mensal, sem anual).
+6. embaixador: CTA wa.me sem número; programa meio-construído.
+
+**PENDENTE SEPARADO**: Giba pediu (antes da varredura) resetar a conta dele pra virar
+"novo usuário" (onboarding do zero, mantendo admin). Gatilho = profiles.onboarded_at.
+Aguarda OK pro banco de produção.
+
 ## 🛠️ ENGENHARIA/UX — sessão 2026-05-27→28 (bugs P0 + resiliência + coins)
 
 ### PDF upload (Isabella não conseguia) — RESOLVIDO

@@ -267,7 +267,16 @@ function PlanoView({ user }: { user: User }) {
   );
 
   async function handleToggle(item: StudyPlanItem) {
-    const next = item.status === "done" ? "pending" : "done";
+    // Desmarcar um concluído NÃO pode voltar pra "pending" quando o asset já
+    // existe: "pending" + source faz o cron worker RE-GERAR o asset (gasta
+    // coins e sobrescreve) e a UI mostra "Na fila…". Se já tem asset, volta
+    // pra "in_progress" (tem conteúdo, só não está marcado como concluído).
+    const next =
+      item.status === "done"
+        ? item.assetId
+          ? "in_progress"
+          : "pending"
+        : "done";
     try {
       await updateItemStatusAsync(item.id, next);
       setItems((prev) =>

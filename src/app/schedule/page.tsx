@@ -443,7 +443,11 @@ function ScheduleView({ user }: { user: User }) {
     return map;
   }, [allEvents]);
 
-  /* Próximos 30 dias a partir de hoje. */
+  /* Próximos 30 dias a partir de hoje. SEMPRE olha pra frente a partir de
+     now(), independente do mês visualizado (cursor). Por isso NÃO deriva de
+     allEvents (cuja janela de expansão de aulas é relativa ao cursor) —
+     expande as aulas na janela hoje→+30d aqui, senão os cards "próximos" e a
+     sidebar esvaziam ao navegar o mês. */
   const upcomingEvents = useMemo(() => {
     const now = new Date();
     const today00 = new Date(now);
@@ -452,15 +456,27 @@ function ScheduleView({ user }: { user: User }) {
     horizon.setDate(horizon.getDate() + 30);
     const nowMin = now.getHours() * 60 + now.getMinutes();
 
-    return allEvents.filter((e) => {
-      if (e.date.getTime() < today00.getTime()) return false;
-      if (e.date.getTime() > horizon.getTime()) return false;
-      if (isSameDay(e.date, today00)) {
-        return e.endMinutes > nowMin;
-      }
-      return true;
-    });
-  }, [allEvents]);
+    const aulas = subjects.length
+      ? expandSlotsToEvents(subjects, today00, horizon)
+      : [];
+    const custom = customEvents.map((c) => customEventToUEvent(c, subjects));
+
+    return [...aulas, ...custom]
+      .filter((e) => activeTypes.has(e.type))
+      .filter((e) => {
+        if (e.date.getTime() < today00.getTime()) return false;
+        if (e.date.getTime() > horizon.getTime()) return false;
+        if (isSameDay(e.date, today00)) {
+          return e.endMinutes > nowMin;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const ad = a.date.getTime() - b.date.getTime();
+        if (ad !== 0) return ad;
+        return a.startMinutes - b.startMinutes;
+      });
+  }, [subjects, customEvents, activeTypes]);
 
   /* Agrupa por dia (próximos 5 dias com eventos). */
   const agendaGroups = useMemo(() => {

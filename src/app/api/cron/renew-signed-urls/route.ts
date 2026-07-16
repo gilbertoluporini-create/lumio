@@ -11,7 +11,9 @@
  *   - `lectures.summary_educational.markdown` (espelho da rota /lecture)
  *
  * Estratégia:
- *   1) Carrega rows com updated_at > now()-23h (janela cobre 1 ciclo + 1h margem).
+ *   1) Carrega rows com updated_at > now()-48h (janela cobre 1 ciclo + folga
+ *      pra 1 tick pulado: se um ciclo de 12h skipar, o próximo ainda alcança
+ *      URLs renovadas há ~24h antes de expirarem).
  *   2) Pra cada string markdown, regex acha TODAS as URLs no padrão Supabase:
  *        https://<projeto>.supabase.co/storage/v1/object/sign/<bucket>/<path>?token=<jwt>
  *      Extrai `bucket` e `path`.
@@ -33,8 +35,10 @@
  * Resposta: `{ ok, renewed, errors, durationMs, scanned }`.
  *
  * Schedule em vercel.json: "0 *\/12 * * *" — meia-noite e meio-dia UTC, ou
- * seja, a cada 12h. Janela de scan de 23h garante overlap mesmo se um
- * ciclo skipar (TTL Supabase legacy era 24h).
+ * seja, a cada 12h. Janela de scan de 48h garante overlap mesmo se um tick
+ * for pulado: com TTL de 24h, um único tick perdido abre um gap de 24h entre
+ * renovações; a janela de 23h antiga NÃO cobria esse caso (a row saía da
+ * janela antes do próximo tick) e a imagem sumia. 48h dá folga pra ~3 ticks.
  */
 import { NextResponse, type NextRequest } from "next/server";
 import { timingSafeEqual } from "node:crypto";
@@ -48,10 +52,12 @@ export const maxDuration = 120;
  *  ciclo do cron tocar — alinhado com a cadência 12h. */
 const SIGNED_URL_TTL_SEC = 60 * 60 * 24;
 
-/** Janela de "resumos recentes": cobre 1 ciclo (12h) + folga generosa. URLs
- *  geradas antes disso já expiraram e ninguém deveria estar lendo (ou já
- *  foram renovadas em ciclo anterior — idempotente). */
-const SCAN_WINDOW_HOURS = 23;
+/** Janela de "resumos recentes": cobre 1 ciclo (12h) + folga pra 1 tick
+ *  pulado. Com TTL de 24h, se o cron perder um tick o gap entre renovações
+ *  vira 24h; 23h deixava a row escapar da janela e a URL expirava antes de
+ *  ser renovada. 48h garante que o próximo tick ainda a alcance. Re-renovar
+ *  URLs ainda válidas é idempotente (limitado por MAX_ROWS_PER_RUN). */
+const SCAN_WINDOW_HOURS = 48;
 
 /** Hard cap de rows processadas por execução. Defesa contra spike (ex:
  *  publicação em massa). Próximo tick pega o resto. */

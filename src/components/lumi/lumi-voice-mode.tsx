@@ -235,6 +235,10 @@ export function LumiVoiceMode({
    *  Em modo dinâmico, também reabre o mic ao terminar de falar. */
   const speakBrowser = useCallback(
     (text: string) => {
+      // Guard: usuário pode ter saído do modo de voz enquanto o fetch do TTS
+      // premium estava em andamento. Sem isso, o fallback do navegador começa
+      // a falar depois do unmount.
+      if (!isMountedRef.current) return;
       if (typeof window === "undefined" || !("speechSynthesis" in window)) {
         setVoiceState("idle");
         return;
@@ -345,6 +349,9 @@ export function LumiVoiceMode({
           speakBrowser(trimmed);
           return;
         }
+        // Guard: se o usuário saiu do modo de voz durante o await do fetch,
+        // não começar a tocar a resposta (áudio fantasma pós-unmount).
+        if (!isMountedRef.current) return;
         // Tracking: chars enviados pro TTS = custo ElevenLabs
         addUsage({ charsOut: trimmed.length });
         const audio = new Audio(json.audioUrl);

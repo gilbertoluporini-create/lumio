@@ -19,7 +19,7 @@
 
 import { createHash } from "node:crypto";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
-import { chargeCoins, getBalance } from "@/lib/coins";
+import { chargeCoins, creditCoins, getBalance } from "@/lib/coins";
 import { COIN_COSTS } from "@/lib/coins-pricing";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import { isFeatureEnabled, featureDisabledResponse } from "@/lib/feature-flags";
@@ -152,7 +152,34 @@ export async function POST(req: Request) {
     }
   }
 
-  /* ---------------- 3) Chamada ElevenLabs ---------------- */
+  /* ---------------- 3) Charge coins (débito ANTES de chamar o provider) ----------------
+   * Debita PRIMEIRO: se o débito falhar não gastamos ElevenLabs à toa, e nunca
+   * gravamos cache de algo não cobrado. Falha transitória do RPC vira 502 (não
+   * "Saldo insuficiente"); saldo real insuficiente vira 402. */
+  const charge = await chargeCoins(user.id, coinCost, reason, {
+    chars: text.length,
+    voiceId,
+    cached: false,
+  });
+  if (!charge.ok) {
+    if (charge.reason === "insufficient_funds") {
+      return Response.json(
+        {
+          error: `Saldo insuficiente. Precisa de ${coinCost} coins.`,
+          upgrade: "/account/coins",
+          balance: charge.balance,
+        },
+        { status: 402 },
+      );
+    }
+    // transient_error / user_not_found → erro genérico, deixa o client cair no browser.
+    return Response.json(
+      { error: "Falha ao cobrar coins.", fallback: "browser" },
+      { status: 502 },
+    );
+  }
+
+  /* ---------------- 4) Chamada ElevenLabs ---------------- */
   const elResp = await fetch(
     `${ELEVENLABS_URL}/${voiceId}?output_format=mp3_44100_128`,
     {
@@ -182,6 +209,12 @@ export async function POST(req: Request) {
       elResp.status,
       errBody.slice(0, 300),
     );
+    // Já debitamos mas não geramos áudio — estorna pra não cobrar por nada.
+    await creditCoins(user.id, coinCost, "refund", {
+      source: "tts",
+      failure: "elevenlabs",
+      voiceId,
+    }).catch((e) => console.error("[tts] refund após falha elevenlabs", e));
     return Response.json(
       { error: "Falha ao gerar áudio.", fallback: "browser" },
       { status: 502 },
@@ -190,7 +223,7 @@ export async function POST(req: Request) {
 
   const audio = await elResp.arrayBuffer();
 
-  /* ---------------- 4) Upload no bucket ---------------- */
+  /* ---------------- 5) Upload no bucket ---------------- */
   const fileName = `${user.id}/${hash}.mp3`;
   const { error: upErr } = await admin.storage
     .from(BUCKET)
@@ -200,6 +233,12 @@ export async function POST(req: Request) {
     });
   if (upErr) {
     console.error("[tts] upload failed", upErr);
+    // Debitado mas sem áudio salvo — estorna.
+    await creditCoins(user.id, coinCost, "refund", {
+      source: "tts",
+      failure: "upload",
+      voiceId,
+    }).catch((e) => console.error("[tts] refund após falha upload", e));
     return Response.json(
       { error: "Falha ao salvar áudio.", fallback: "browser" },
       { status: 502 },
@@ -208,20 +247,7 @@ export async function POST(req: Request) {
   const { data: pub } = admin.storage.from(BUCKET).getPublicUrl(fileName);
   const audioUrl = pub.publicUrl;
 
-  /* ---------------- 5) Charge coins ---------------- */
-  const charge = await chargeCoins(user.id, coinCost, reason, {
-    chars: text.length,
-    voiceId,
-    cached: false,
-  });
-  if (!charge.ok) {
-    return Response.json(
-      { error: "Falha ao cobrar coins.", fallback: "browser" },
-      { status: 402 },
-    );
-  }
-
-  /* ---------------- 5b) Log gasto USD em ai_usage_log ----------------
+  /* ---------------- 6) Log gasto USD em ai_usage_log ----------------
    * ElevenLabs cobra $0.30/1k chars. logAiUsage calcula chars × $0.0003
    * e insere a row pra alimentar /admin/health + cap diário USD. */
   void logAiUsage({
@@ -232,7 +258,7 @@ export async function POST(req: Request) {
     coinsCharged: coinCost,
   });
 
-  /* ---------------- 6) Grava cache ---------------- */
+  /* ---------------- 7) Grava cache (débito ok + geração ok) ---------------- */
   await admin.from("tts_cache").insert({
     user_id: user.id,
     text_hash: hash,

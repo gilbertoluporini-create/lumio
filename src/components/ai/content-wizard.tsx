@@ -228,6 +228,10 @@ export function ContentWizard({
   // Step 3 state — saldo
   const [balance, setBalance] = useState<number | null>(null);
   const [balanceLoading, setBalanceLoading] = useState(false);
+  // Falha ao buscar saldo: sem isso, balance fica null pra sempre e o spinner
+  // + botão "Gerar agora" travam eternamente. Com o flag, mostramos erro claro
+  // e liberamos prosseguir (o backend recobra/reembolsa saldo de qualquer jeito).
+  const [balanceError, setBalanceError] = useState(false);
 
   // Geração (rodando em background, wizard fecha imediatamente — toast persiste)
   const [generating, setGenerating] = useState(false);
@@ -319,8 +323,11 @@ export function ContentWizard({
       setSelectedDocumentIds(new Set());
       setIncludeSlides(true);
       setUploadedPdfs([]);
+      setSelectedAudio(null);
       setUserInstructions("");
-      setWithImages(false);
+      // Default é true (resumo já vem ilustrado) — resetar pra false deixava a
+      // próxima abertura fora de sincronia com o estado inicial do wizard.
+      setWithImages(true);
       setGenerating(false);
     }, 250);
     return () => clearTimeout(t);
@@ -330,13 +337,17 @@ export function ContentWizard({
 
   const fetchBalance = useCallback(async () => {
     setBalanceLoading(true);
+    setBalanceError(false);
     try {
       const resp = await fetch("/api/coins");
       if (!resp.ok) throw new Error("Falha ao buscar saldo");
       const json = (await resp.json()) as { balance?: number };
       setBalance(typeof json.balance === "number" ? json.balance : 0);
     } catch {
+      // Não deixa preso: marca erro pra UI sair do spinner infinito e liberar
+      // o botão. A cobrança de fato acontece server-side, que revalida o saldo.
       setBalance(null);
+      setBalanceError(true);
     } finally {
       setBalanceLoading(false);
     }
@@ -392,7 +403,8 @@ export function ContentWizard({
   const canAdvanceStep1 =
     selectedLectureIds.size > 0 ||
     selectedDocumentIds.size > 0 ||
-    uploadedPdfs.length > 0;
+    uploadedPdfs.length > 0 ||
+    selectedAudio !== null;
 
   const selectedDocuments = useMemo(
     () => documents.filter((d) => selectedDocumentIds.has(d.id)),
@@ -1487,6 +1499,8 @@ export function ContentWizard({
     }
   }, [
     mode,
+    selectedAudio,
+    handleAudioFlow,
     selectedLectures,
     selectedDocuments,
     subjects,
@@ -1503,6 +1517,7 @@ export function ContentWizard({
     level,
     difficulty,
     complexity,
+    router,
     onOpenChange,
   ]);
 
@@ -1607,6 +1622,7 @@ export function ContentWizard({
               withImages={withImages}
               balance={balance}
               balanceLoading={balanceLoading}
+              balanceError={balanceError}
               insufficient={insufficient}
               transcriptCount={transcriptCount}
               slidesCount={slidesCount}
@@ -1658,7 +1674,11 @@ export function ContentWizard({
                 variant="gradient"
                 size="lg"
                 onClick={() => void handleGenerate()}
-                disabled={insufficient || balance === null || generating}
+                disabled={
+                  insufficient ||
+                  (balance === null && !balanceError) ||
+                  generating
+                }
               >
                 <Sparkles className="h-4 w-4" /> Gerar agora
               </Button>
@@ -2641,6 +2661,7 @@ function Step3Confirm({
   withImages,
   balance,
   balanceLoading,
+  balanceError,
   insufficient,
   transcriptCount,
   slidesCount,
@@ -2651,6 +2672,7 @@ function Step3Confirm({
   withImages: boolean;
   balance: number | null;
   balanceLoading: boolean;
+  balanceError: boolean;
   insufficient: boolean;
   transcriptCount: number;
   slidesCount: number;
@@ -2698,8 +2720,10 @@ function Step3Confirm({
               Seu saldo
             </div>
             <div className="text-lg font-semibold tabular-nums font-mono">
-              {balanceLoading || balance === null ? (
+              {balanceLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin inline" />
+              ) : balanceError || balance === null ? (
+                <span className="text-muted-foreground">—</span>
               ) : (
                 <span
                   className={cn(
@@ -2719,6 +2743,18 @@ function Step3Confirm({
           <span className="font-mono">{eta}</span>
         </div>
       </div>
+
+      {balanceError && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <div className="text-sm font-medium text-amber-700 dark:text-amber-300">
+            Não foi possível carregar seu saldo
+          </div>
+          <div className="text-xs text-amber-600/80 dark:text-amber-300/70 mt-1">
+            Você pode gerar mesmo assim: o saldo é conferido na hora da geração e
+            os coins são reembolsados se algo falhar.
+          </div>
+        </div>
+      )}
 
       {insufficient && (
         <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">

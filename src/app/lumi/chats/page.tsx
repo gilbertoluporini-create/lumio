@@ -26,6 +26,7 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/app/app-shell";
 import { AuthGuard } from "@/components/app/auth-guard";
 import { Button } from "@/components/ui/button";
+import { confirmAction } from "@/components/ui/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
@@ -275,7 +276,15 @@ function LumiChatsHub({ user }: { user: User }) {
     restoreChat(user.id, id);
     toast.success("Conversa restaurada");
   }
-  function handlePurge(id: string) {
+  async function handlePurge(id: string) {
+    const ok = await confirmAction({
+      title: "Excluir permanentemente?",
+      description:
+        "A conversa será apagada de vez. Não dá pra desfazer nem restaurar.",
+      destructive: true,
+      confirmText: "Excluir permanentemente",
+    });
+    if (!ok) return;
     if (purgeChat(user.id, id)) {
       toast.success("Conversa excluída permanentemente");
     }

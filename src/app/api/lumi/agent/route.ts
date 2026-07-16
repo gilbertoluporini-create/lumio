@@ -23,6 +23,7 @@ import { createMessage } from "@/lib/llm-fallback";
 import { tryAcquireLock, releaseLock } from "@/lib/inflight-locks";
 import { LIMITS, logAndSanitize } from "@/lib/api-security";
 import { chargeCoins, creditCoins } from "@/lib/coins";
+import { COIN_COSTS } from "@/lib/coin-costs";
 import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { checkChatDailyCap, chatCapResponse } from "@/lib/chat-cap";
@@ -91,10 +92,10 @@ MATERIAL:
 - Tópico que faz sentido como subpasta (ex: "Fisiologia" dentro de "Endócrino"): após upload, ofereça criar_pasta via perguntar_opcoes.
 
 CUSTOS (geração):
-- resumo 10, flashcards 8, quiz 8, mapa 6, imagem 30, rotina 12, plano 8 coins.
+- resumo ${COIN_COSTS.summary}, flashcards ${COIN_COSTS.flashcards}, quiz ${COIN_COSTS.quiz}, mapa ${COIN_COSTS.mindmap}, imagem 30, rotina ${COIN_COSTS.routine}, plano ${COIN_COSTS.study_plan} coins. Chat contextual 1 coin/msg, agente Lumi 3 coins/turn, voz 5 coins.
 - NUNCA gere sem pedido EXPLÍCITO ("faz um resumo de X") OU confirmação após oferta.
 - Pedido vago ("me ajuda em X", "tenho prova") = explique de graça no chat E OFEREÇA gerar com custo. Só dispare depois do "sim".
-- ROTINA (12c) = CRONOGRAMA SEMANAL PDF. PLANO (8c) = TRILHA de tarefas em /planos. Estrutura → plano. Tempo → rotina.
+- ROTINA (${COIN_COSTS.routine}c) = CRONOGRAMA SEMANAL PDF. PLANO (${COIN_COSTS.study_plan}c) = TRILHA de tarefas em /planos. Estrutura → plano. Tempo → rotina.
 - Pra rotina/plano: sempre pergunte matéria + tópicos + confirme custo antes.
 
 DESTRUTIVO — sempre confirme via perguntar_opcoes:
@@ -306,6 +307,10 @@ export async function POST(req: Request) {
       let totalOutputTok = 0;
       let iterations = 0;
       let anyToolRan = false; // turn produtivo se rodou tool OU gerou texto
+      // Garante refund NO MÁXIMO 1x por turn: setado no 1º refund bem-sucedido
+      // (improdutivo OU catch) e checado antes de qualquer refund subsequente,
+      // pra um erro pós-refund não reembolsar em dobro.
+      let refunded = false;
 
       // Cache breakpoints (Anthropic prompt caching ephemeral):
       //   - System SYSTEM_PROMPT estável (cached, ~5K tokens)
@@ -416,6 +421,7 @@ export async function POST(req: Request) {
             await creditCoins(user.id, AGENT_COST, "refund", {
               reason: "agent_turn_unproductive",
             });
+            refunded = true;
             coinsChargedFinal = 0;
           } catch {
             /* ignore — refund best-effort */
@@ -444,12 +450,17 @@ export async function POST(req: Request) {
         });
         controller.close();
       } catch (err) {
-        try {
-          await creditCoins(user.id, AGENT_COST, "refund", {
-            reason: "agent_loop_failed",
-          });
-        } catch {
-          /* ignore */
+        // Só reembolsa se ainda não reembolsou neste turn (evita 2x quando o
+        // erro acontece DEPOIS do refund improdutivo já ter rodado).
+        if (!refunded) {
+          try {
+            await creditCoins(user.id, AGENT_COST, "refund", {
+              reason: "agent_loop_failed",
+            });
+            refunded = true;
+          } catch {
+            /* ignore */
+          }
         }
         const sanitized = logAndSanitize("api/lumi/agent", err);
         send({ error: sanitized.error ?? "Falha no agente." });

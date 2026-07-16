@@ -1,7 +1,12 @@
 "use client";
 
 import { Edit3, FileText, Globe, Layers, Lightbulb } from "lucide-react";
+import { COIN_COSTS } from "@/lib/coin-costs";
 import { cn } from "@/lib/utils";
+
+// Ações "explicar" e "inglês médico" caem no chat contextual (1 coin/msg),
+// não geram asset pago. As demais disparam geração paga (COIN_COSTS).
+const CHAT_CONTEXTUAL_COST = 1;
 
 export type QuickAction = {
   id: "summary" | "flashcards" | "english" | "explain" | "quiz";
@@ -16,7 +21,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
   {
     id: "summary",
     label: "Gerar resumo",
-    cost: 8,
+    cost: COIN_COSTS.summary,
     description: "Resumo estruturado do contexto",
     Icon: FileText,
     tone: "text-violet-600 bg-violet-500/10",
@@ -24,7 +29,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
   {
     id: "flashcards",
     label: "Criar flashcards",
-    cost: 12,
+    cost: COIN_COSTS.flashcards,
     description: "Deck de revisão SRS",
     Icon: Layers,
     tone: "text-fuchsia-600 bg-fuchsia-500/10",
@@ -32,7 +37,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
   {
     id: "english",
     label: "Modo inglês médico",
-    cost: 6,
+    cost: CHAT_CONTEXTUAL_COST,
     description: "Explicações em English",
     Icon: Globe,
     tone: "text-sky-600 bg-sky-500/10",
@@ -40,7 +45,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
   {
     id: "explain",
     label: "Explicar conceito",
-    cost: 4,
+    cost: CHAT_CONTEXTUAL_COST,
     description: "Quebrar um termo difícil",
     Icon: Lightbulb,
     tone: "text-amber-600 bg-amber-500/10",
@@ -48,7 +53,7 @@ export const QUICK_ACTIONS: QuickAction[] = [
   {
     id: "quiz",
     label: "Gerar quiz",
-    cost: 10,
+    cost: COIN_COSTS.quiz,
     description: "Questões de prática",
     Icon: Edit3,
     tone: "text-emerald-600 bg-emerald-500/10",

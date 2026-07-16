@@ -82,7 +82,7 @@ export async function sendReceiptEmail(opts: {
 <html><body style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:560px;margin:0 auto;padding:32px;color:#18181b;">
   <h1 style="font-size:24px;margin:0 0 16px;">Pagamento confirmado, ${escapeHtml(safeName)} ✅</h1>
   <p style="line-height:1.6;color:#52525b;">Seu plano <strong>${planName}</strong> (${amount}) está ativo. Acesse o Lumio quando quiser:</p>
-  <p style="margin:24px 0;"><a href="${process.env.NEXT_PUBLIC_APP_URL ?? "https://lumio.app"}/dashboard" style="display:inline-block;background:linear-gradient(135deg,#6366f1,#a855f7);color:white;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;">Abrir dashboard</a></p>
+  <p style="margin:24px 0;"><a href="${process.env.NEXT_PUBLIC_APP_URL ?? "https://www.lumioapp.net"}/dashboard" style="display:inline-block;background:linear-gradient(135deg,#6366f1,#a855f7);color:white;text-decoration:none;padding:12px 24px;border-radius:8px;font-weight:600;">Abrir dashboard</a></p>
   <p style="line-height:1.6;color:#52525b;font-size:14px;">Recibo oficial vai chegar do Stripe em alguns instantes.</p>
   <hr style="border:none;border-top:1px solid #e4e4e7;margin:32px 0;">
   <p style="font-size:12px;color:#a1a1aa;">Lumio · Transcrição de aulas + IA</p>
@@ -249,7 +249,7 @@ export async function sendOnboardingEmail(opts: {
   </p>
   <p style="line-height:1.6;color:#52525b;font-size:14px;">Dúvida? Só responder esse email.</p>
   <hr style="border:none;border-top:1px solid #e4e4e7;margin:32px 0;">
-  <p style="font-size:11px;color:#a1a1aa;">Lumio · Transcrição de aulas + IA · <a href="${appUrl}/account/email-preferences" style="color:#a1a1aa;">preferências de email</a></p>
+  <p style="font-size:11px;color:#a1a1aa;">Lumio · Transcrição de aulas + IA · <a href="${appUrl}/account/settings" style="color:#a1a1aa;">preferências de email</a></p>
 </body></html>`;
 
   return resend.emails.send({

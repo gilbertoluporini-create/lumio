@@ -71,7 +71,9 @@ export type CoinReason =
 export type ChargeResult =
   | { ok: true; balanceAfter: number; transactionId: string }
   | { ok: false; balance: number; required: number; reason: "insufficient_funds" }
-  | { ok: false; balance: number; required: number; reason: "user_not_found" };
+  | { ok: false; balance: number; required: number; reason: "user_not_found" }
+  // Falha TRANSITÓRIA do RPC (rede, timeout, deadlock) — NÃO é saldo insuficiente.
+  | { ok: false; balance: number; required: number; reason: "transient_error" };
 
 export async function getBalance(userId: string): Promise<number> {
   const admin = createAdminClient();
@@ -110,9 +112,13 @@ export async function chargeCoins(
   });
 
   if (error) {
+    // Exception do RPC (rede/timeout/deadlock/permissão) — NÃO significa saldo
+    // insuficiente. Se marcássemos insufficient_funds, um user COM saldo veria
+    // "Saldo insuficiente" numa falha transitória. Propaga como transient_error
+    // pra o caller tratar como erro genérico (retry/fallback), não upsell.
     console.error("[coins] debit_coins RPC failed", error.message);
     const balance = await getBalance(userId);
-    return { ok: false, balance, required: amount, reason: "insufficient_funds" };
+    return { ok: false, balance, required: amount, reason: "transient_error" };
   }
 
   // RPC retorna 1 row { ok, balance_after, tx_id, current_balance }

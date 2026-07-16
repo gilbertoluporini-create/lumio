@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { LumioCoin } from "@/components/brand/lumio-coin";
 import { IntervalToggle } from "@/components/pricing/interval-toggle";
+import { COIN_COSTS } from "@/lib/coin-costs";
 import {
   PLAN_PRICES_BRL,
   type BillingInterval,
@@ -48,7 +49,7 @@ const FREE_PLAN: FreePlan = {
   features: [
     "3 aulas por mês",
     "Chat IA, slides e transcrição ilimitados",
-    "50 coins pra gerar 5 resumos",
+    "50 coins pra gerar 4 resumos",
     "Sem cartão de crédito",
   ],
 };
@@ -195,10 +196,10 @@ export function PricingSection({
             </div>
           </div>
           <div className="flex-1 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
-            <CoinLine label="Resumo" cost={10} />
-            <CoinLine label="Flash cards" cost={12} />
-            <CoinLine label="Quiz" cost={15} />
-            <CoinLine label="Mapa mental" cost={20} />
+            <CoinLine label="Resumo" cost={COIN_COSTS.summary} />
+            <CoinLine label="Flash cards" cost={COIN_COSTS.flashcards} />
+            <CoinLine label="Quiz" cost={COIN_COSTS.quiz} />
+            <CoinLine label="Mapa mental" cost={COIN_COSTS.mindmap} />
           </div>
         </div>
       </Reveal>

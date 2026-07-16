@@ -16,7 +16,7 @@
  * Auth: x-internal-key timing-safe vs CRON_SECRET (+ Bearer do Vercel Cron).
  * Resposta: { processed, retried, skipped }
  */
-import { NextResponse, type NextRequest } from "next/server";
+import { NextResponse, type NextRequest, after } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 import { createAdminClient } from "@/lib/supabase/server";
 
@@ -88,31 +88,53 @@ export async function GET(req: NextRequest) {
 
   for (const lec of stuck) {
     if (!lec.storage_path) continue;
-    // Incrementa attempts ANTES de disparar — mesmo se o dispatch falhar, não
-    // re-tenta pra sempre. Cron é single-instance, read-then-write é seguro.
-    await admin
-      .from("lectures")
-      .update({ transcription_attempts: (lec.transcription_attempts ?? 0) + 1 })
-      .eq("id", lec.id);
+    const storagePath = lec.storage_path;
+    const nextAttempts = (lec.transcription_attempts ?? 0) + 1;
 
-    // Fire-and-forget: o transcribe roda como invocação própria (maxDuration
-    // dele). keepalive segue o padrão do upload-audio-card.
-    void fetch(`${baseUrl()}/api/lectures/${lec.id}/transcribe`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-internal-key": cronSecret,
-      },
-      body: JSON.stringify({ storagePath: lec.storage_path }),
-      keepalive: true,
-    }).catch((err) => {
-      console.error("[retry-transcription] dispatch falhou", lec.id, err);
+    // O transcribe roda como invocação própria (maxDuration dele). O disparo
+    // vai num after() pra que o waitUntil do runtime segure o sandbox até o
+    // fetch SAIR de fato — sem isso, `void fetch` + retorno da rota congelava o
+    // serverless e podia matar o request antes de disparar, queimando attempts
+    // à toa. Só incrementa attempts DEPOIS que o disparo aconteceu (fetch
+    // resolveu). Se o dispatch falhar (rejeição/HTTP erro), NÃO conta a
+    // tentativa — a aula segue elegível pro próximo tick.
+    after(async () => {
+      try {
+        const resp = await fetch(
+          `${baseUrl()}/api/lectures/${lec.id}/transcribe`,
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-internal-key": cronSecret,
+            },
+            body: JSON.stringify({ storagePath }),
+          },
+        );
+        if (!resp.ok) {
+          console.error(
+            "[retry-transcription] transcribe recusou dispatch",
+            lec.id,
+            resp.status,
+          );
+          return;
+        }
+        await admin
+          .from("lectures")
+          .update({ transcription_attempts: nextAttempts })
+          .eq("id", lec.id);
+      } catch (err) {
+        // Disparo não aconteceu (rede/abort) → não incrementa attempts.
+        console.error("[retry-transcription] dispatch falhou", lec.id, err);
+      }
     });
     retried++;
   }
 
   return NextResponse.json({
     processed: stuck.length,
+    // retried = quantos foram DESPACHADOS neste tick (o incremento de attempts
+    // é confirmado em background no after()).
     retried,
     skipped: stuck.length - retried,
   });

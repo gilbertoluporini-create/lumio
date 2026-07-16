@@ -4,6 +4,7 @@ import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Plus, Minus } from "lucide-react";
 import { Reveal } from "./motion";
+import { COIN_COSTS } from "@/lib/coin-costs";
 
 const FAQS = [
   {
@@ -20,7 +21,7 @@ const FAQS = [
   },
   {
     q: "O que são os Lumi Coins?",
-    a: "São a moeda do app pra gerar produtos: resumo (10), flash cards (12), quiz (15) ou mapa mental (20). Chat IA, transcrição e slides já vêm inclusos no plano — coin é só pra produzir material novo.",
+    a: `São a moeda do app pra gerar produtos: resumo (${COIN_COSTS.summary}), flash cards (${COIN_COSTS.flashcards}), quiz (${COIN_COSTS.quiz}) ou mapa mental (${COIN_COSTS.mindmap}). A transcrição e os slides vêm inclusos no plano. O chat contextual custa 1 coin por mensagem e o agente Lumi, 3 coins por resposta — barato o bastante pra você tirar dúvida sem pensar duas vezes.`,
   },
   {
     q: "Posso anexar o PDF da aula?",

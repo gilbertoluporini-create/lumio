@@ -26,6 +26,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CountUp } from "@/components/ui/count-up";
 import type { User } from "@/lib/types";
+import { COIN_COSTS } from "@/lib/coin-costs";
 import { cn } from "@/lib/utils";
 
 type Tx = {
@@ -49,13 +50,25 @@ export default function CoinsPage() {
   );
 }
 
+// Preços espelham COIN_COSTS (@/lib/coin-costs) pra não voltar a divergir do
+// backend. Chat contextual = 1/msg e Agente Lumi = 3/turno são valores
+// canônicos (AGENT_COST) que não vivem no export COIN_COSTS.
 const COSTS = [
-  { icon: Bot, label: "Pergunta no chat IA", cost: 2 },
-  { icon: FileText, label: "Resumo automático da aula", cost: 14 },
-  { icon: Sparkles, label: "Resumo educativo (artigo + ilustrações)", cost: 18 },
-  { icon: Layers, label: "Anexar PDF de slides", cost: 16 },
-  { icon: Sparkles, label: "Correção de transcrição (15 coins por 25min de aula)", cost: 15 },
-  { icon: Calendar, label: "Extrair grade horária", cost: 0, free: true },
+  { icon: Bot, label: "Pergunta no chat (contextual)", cost: 1 },
+  { icon: Bot, label: "Agente Lumi (por turno)", cost: 3 },
+  { icon: FileText, label: "Resumo automático da aula", cost: COIN_COSTS.summary },
+  {
+    icon: Sparkles,
+    label: "Resumo educativo (artigo + ilustrações)",
+    cost: COIN_COSTS.summary_educational,
+  },
+  { icon: Layers, label: "Anexar PDF de slides", cost: COIN_COSTS.extract_slides, free: true },
+  {
+    icon: Sparkles,
+    label: "Correção de transcrição (por chunk de ~25min de aula)",
+    cost: COIN_COSTS.transcript_structure,
+  },
+  { icon: Calendar, label: "Extrair grade horária", cost: COIN_COSTS.extract_schedule, free: true },
 ];
 
 const TOPUPS = [

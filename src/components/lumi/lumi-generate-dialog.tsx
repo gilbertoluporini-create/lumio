@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { computeCost } from "@/lib/coins-pricing";
 import { cn } from "@/lib/utils";
 
 export type LumiGenerateKind = "summary" | "flashcards" | "quiz" | "mindmap";
@@ -33,7 +34,6 @@ const KIND_META: Record<
     description: string;
     Icon: typeof FileText;
     tone: string;
-    cost: number;
     wizardCta: string;
   }
 > = {
@@ -42,7 +42,6 @@ const KIND_META: Record<
     description: "Resumo estruturado em markdown com pontos-chave de revisão.",
     Icon: FileText,
     tone: "from-violet-500/20 to-violet-500/5 text-violet-600",
-    cost: 8,
     wizardCta: "Abrir wizard de resumo",
   },
   flashcards: {
@@ -50,7 +49,6 @@ const KIND_META: Record<
     description: "Deck de cards pergunta/resposta otimizado pra revisão ativa.",
     Icon: Layers,
     tone: "from-fuchsia-500/20 to-fuchsia-500/5 text-fuchsia-600",
-    cost: 12,
     wizardCta: "Abrir wizard de flashcards",
   },
   quiz: {
@@ -58,7 +56,6 @@ const KIND_META: Record<
     description: "Questões de múltipla escolha com explicação da resposta certa.",
     Icon: Sparkles,
     tone: "from-emerald-500/20 to-emerald-500/5 text-emerald-600",
-    cost: 15,
     wizardCta: "Abrir wizard de quiz",
   },
   mindmap: {
@@ -66,7 +63,6 @@ const KIND_META: Record<
     description: "Mapa hierárquico do tema com ramos e sub-ramos.",
     Icon: Network,
     tone: "from-sky-500/20 to-sky-500/5 text-sky-600",
-    cost: 20,
     wizardCta: "Abrir wizard de mapa mental",
   },
 };
@@ -116,12 +112,21 @@ export function LumiGenerateDialog({
     return parts.join(" · ");
   }, [hasLecture, hasMessages, contextLabel, attachmentCount]);
 
+  // Custo real do fluxo "contexto" — espelha o backend (computeCost). A 1ª
+  // fonte é o próprio contexto (aula/conversa); cada anexo extra soma
+  // perExtraSource. withImages=false porque este dialog não gera imagens.
+  const totalSources = Math.max(
+    1,
+    attachmentCount + (hasLecture || hasMessages ? 1 : 0),
+  );
+  const cost = kind ? computeCost(kind, false, totalSources) : 0;
+
   const blocked = !hasLecture && !hasMessages && attachmentCount === 0;
   const insufficient =
     choice === "context" &&
     !!meta &&
     coinBalance !== null &&
-    coinBalance < meta.cost;
+    coinBalance < cost;
 
   if (!meta) return null;
   const { Icon } = meta;
@@ -187,7 +192,7 @@ export function LumiGenerateDialog({
                     </div>
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-600 tabular-nums">
                       <Coins className="h-3 w-3" />
-                      {meta.cost}
+                      {cost}
                     </span>
                   </div>
                   <div className="mt-1 text-xs text-muted-foreground">
@@ -258,7 +263,7 @@ export function LumiGenerateDialog({
             <div className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-700 dark:text-amber-400">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
               <div>
-                Saldo insuficiente. Você precisa de {meta.cost} coins. Saldo
+                Saldo insuficiente. Você precisa de {cost} coins. Saldo
                 atual: {coinBalance ?? "—"}.
               </div>
             </div>

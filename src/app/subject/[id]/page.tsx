@@ -1534,7 +1534,7 @@ function LectureFolder({
         <div className="border-t border-border/40 bg-secondary/15 p-1.5">
           <div className="grid grid-cols-3 gap-1">
             <FeatureTab
-              href={`/lecture/${lecture.id}?tab=transcript`}
+              href={`/lecture/${lecture.id}`}
               icon="document"
               label="Transcrição"
               detail={
@@ -1545,7 +1545,7 @@ function LectureFolder({
               active={hasTranscript}
             />
             <FeatureTab
-              href={`/lecture/${lecture.id}?tab=slides`}
+              href={`/lecture/${lecture.id}`}
               icon="layers"
               label="Slides"
               detail={
@@ -1556,7 +1556,7 @@ function LectureFolder({
               active={hasSlides}
             />
             <FeatureTab
-              href={`/lecture/${lecture.id}?tab=qa`}
+              href={`/lecture/${lecture.id}`}
               icon="chat"
               label="Dúvidas"
               detail={

@@ -204,9 +204,11 @@ export async function POST(req: Request) {
       // 2. Aplica wrapper (style anchors + ban total de texto na imagem)
       const finalPrompt = wrapPromptForMedicalDiagram(enhancedPrompt);
 
-      // 3. Gera via gpt-image-1 quality HIGH (mais caro mas qualidade
-      //    visual sobe bastante — justifica a subida de coin cost 20→30)
-      const { b64 } = await generateImageOpenAI({
+      // 3. Gera via GPT Image quality HIGH (mais caro mas qualidade visual
+      //    sobe bastante — justifica a subida de coin cost 20→30). O modelo
+      //    real vem do DEFAULT_OPENAI_IMAGE_MODEL / env / fallback; usamos o
+      //    `usedModel` retornado pra telemetria bater com o que foi chamado.
+      const { b64, model: usedModel } = await generateImageOpenAI({
         prompt: finalPrompt,
         size: "1536x1024",
         quality: "high",
@@ -238,7 +240,7 @@ export async function POST(req: Request) {
       void logAiUsage({
         userId: user.id,
         endpoint: "illustrate",
-        model: "gpt-image-1",
+        model: usedModel,
         imagesCount: 1,
       }).catch(() => {});
     } catch (err) {

@@ -10,6 +10,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { LumioCoin } from "@/components/brand/lumio-coin";
+import { COIN_COSTS } from "@/lib/coin-costs";
 
 type TabKey = "resumo" | "flashcards" | "quiz" | "mapa";
 
@@ -24,28 +25,28 @@ const TABS: Array<{
     key: "resumo",
     label: "Resumo",
     Icon: FileText,
-    coins: 10,
+    coins: COIN_COSTS.summary,
     blurb: "Texto organizado por slide com bullets e dúvidas correlacionadas.",
   },
   {
     key: "flashcards",
     label: "Flash cards",
     Icon: Layers,
-    coins: 12,
+    coins: COIN_COSTS.flashcards,
     blurb: "10 cartões pergunta-resposta com hint e dificuldade.",
   },
   {
     key: "quiz",
     label: "Quiz",
     Icon: ListChecks,
-    coins: 15,
+    coins: COIN_COSTS.quiz,
     blurb: "8 múltipla escolha com correção comentada na hora.",
   },
   {
     key: "mapa",
     label: "Mapa mental",
     Icon: Sparkles,
-    coins: 20,
+    coins: COIN_COSTS.mindmap,
     blurb: "Hierarquia colorida com tema central e ramos.",
   },
 ];

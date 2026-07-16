@@ -150,6 +150,16 @@ function PlanItemView({
       ? items[currentIndex + 1]
       : null;
 
+  // Um item só está DE FATO na fila de geração se tem fonte (mesmo critério do
+  // cron worker: source_document_id / source_lecture_id single OU arrays). Sem
+  // fonte, "pending" é um passo manual — não está "sendo gerado".
+  const hasSource =
+    !!currentItem &&
+    (!!currentItem.sourceDocumentId ||
+      !!currentItem.sourceLectureId ||
+      currentItem.sourceDocumentIds.length > 0 ||
+      currentItem.sourceLectureIds.length > 0);
+
   // Carrega summary (só pra kind=summary com assetId pronto)
   useEffect(() => {
     if (!currentItem) return;
@@ -178,7 +188,9 @@ function PlanItemView({
 
   // Poll enquanto pending — worker pode demorar uns segundos
   useEffect(() => {
-    if (!currentItem || currentItem.status !== "pending") return;
+    // Só faz sentido pollar/disparar o worker se o item tem fonte — sem fonte,
+    // o worker nunca pega esse item e o poll ficaria eterno.
+    if (!currentItem || currentItem.status !== "pending" || !hasSource) return;
     let alive = true;
     const trigger = () => {
       if (!alive) return;
@@ -194,7 +206,7 @@ function PlanItemView({
       alive = false;
       clearInterval(t);
     };
-  }, [currentItem?.status, currentItem?.id, reload, currentItem]);
+  }, [currentItem?.status, currentItem?.id, hasSource, reload, currentItem]);
 
   // Trigger manual quando user clica em "Tentar de novo" num item failed
   const handleRetry = useCallback(async () => {
@@ -355,13 +367,18 @@ function PlanItemView({
             <KindIcon className="h-3.5 w-3.5" />
             {ITEM_KIND_LABEL[currentItem.kind]}
           </Badge>
-          {currentItem.status === "pending" && (
+          {currentItem.status === "pending" && hasSource && (
             <Badge
               variant="outline"
               className="gap-1.5 border-amber-500/40 text-amber-600"
             >
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Gerando
+            </Badge>
+          )}
+          {currentItem.status === "pending" && !hasSource && (
+            <Badge variant="outline" className="text-muted-foreground">
+              Pendente
             </Badge>
           )}
           {currentItem.status === "failed" && (
@@ -391,7 +408,7 @@ function PlanItemView({
 
       {/* Conteúdo principal */}
       <div className="rounded-lg border bg-card p-6 md:p-8">
-        {currentItem.status === "pending" && (
+        {currentItem.status === "pending" && hasSource && (
           <div className="flex flex-col items-center gap-3 py-12 text-center">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
             <p className="text-sm font-medium">
@@ -402,6 +419,23 @@ function PlanItemView({
               tamanho do material. A página recarrega sozinha quando ficar
               pronto.
             </p>
+          </div>
+        )}
+
+        {currentItem.status === "pending" && !hasSource && (
+          <div className="flex flex-col items-center gap-3 py-12 text-center">
+            <KindIcon className="h-8 w-8 text-muted-foreground" />
+            <p className="text-sm font-medium">Item pendente</p>
+            <p className="max-w-md text-xs text-muted-foreground">
+              Esse item ainda não tem uma fonte pra gerar conteúdo. Volta pro
+              plano pra anexar um material ou gerar o asset.
+            </p>
+            <Button asChild size="sm" variant="outline" className="mt-1 gap-2">
+              <Link href={`/planos/${planId}`}>
+                <ArrowLeft className="h-4 w-4" />
+                Voltar pro plano
+              </Link>
+            </Button>
           </div>
         )}
 
