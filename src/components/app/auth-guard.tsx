@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
 import { getCurrentUserAsync } from "@/lib/auth";
+import { ProgressBar } from "@/components/ui/progress-bar";
 import type { User } from "@/lib/types";
 
 type Props = {
@@ -38,8 +38,16 @@ export function AuthGuard({ children, requireOnboarding = true }: Props) {
 
   if (!ready || !user) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="flex min-h-screen items-center justify-center px-6">
+        {/* Barra em vez de spinner: a checagem de sessão faz roundtrip de rede,
+            e um spinner parado nesse intervalo passa sensação de travado. */}
+        <ProgressBar
+          active
+          estimatedMs={2200}
+          label="Carregando…"
+          showPercent={false}
+          className="max-w-[260px]"
+        />
       </div>
     );
   }

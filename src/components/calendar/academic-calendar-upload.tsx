@@ -6,9 +6,7 @@ import {
   CalendarDays,
   CheckSquare,
   FileText,
-  Loader2,
   Square,
-  Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -20,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ProgressPanel } from "@/components/ui/progress-bar";
 import { addEventsBulkAsync } from "@/lib/calendar-events";
 import {
   ACADEMIC_CATEGORY_META,
@@ -354,13 +353,18 @@ function AcademicCalendarUploadBody({
       )}
 
       {phase === "extracting" && (
-        <div className="flex flex-col items-center justify-center gap-3 py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <div className="text-sm font-medium">Lendo o calendário…</div>
-          <div className="text-xs text-muted-foreground">
-            Calendário do ano inteiro pode levar alguns segundos.
-          </div>
-        </div>
+        <ProgressPanel
+          label="Lendo o calendário…"
+          estimatedMs={26000}
+          steps={[
+            "Lendo o arquivo…",
+            "Identificando os meses…",
+            "Extraindo provas e prazos…",
+            "Separando feriados e recessos…",
+            "Organizando por data…",
+          ]}
+          hint="Calendário do ano inteiro leva alguns segundos."
+        />
       )}
 
       {phase === "preview" && (
@@ -470,10 +474,11 @@ function AcademicCalendarUploadBody({
       )}
 
       {phase === "saving" && (
-        <div className="flex flex-col items-center justify-center gap-3 py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <div className="text-sm font-medium">Salvando calendário…</div>
-        </div>
+        <ProgressPanel
+          label="Salvando calendário…"
+          estimatedMs={5000}
+          steps={["Adicionando na agenda…", "Ensinando as datas pra Lumi…"]}
+        />
       )}
 
       <DialogFooter className="gap-2">

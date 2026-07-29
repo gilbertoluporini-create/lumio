@@ -5,7 +5,6 @@ import {
   AlertCircle,
   CheckSquare,
   FileText,
-  Loader2,
   Square,
   Upload,
 } from "lucide-react";
@@ -19,6 +18,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ProgressPanel } from "@/components/ui/progress-bar";
 import {
   EVENT_TYPE_META,
   addEventsBulkAsync,
@@ -440,15 +440,17 @@ function ExamPdfUploadBody({
       )}
 
       {phase === "extracting" && (
-        <div className="flex flex-col items-center justify-center gap-3 py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <div className="text-sm font-medium">Processando PDF…</div>
-          {fileName && (
-            <div className="text-xs text-muted-foreground truncate max-w-xs">
-              {fileName}
-            </div>
-          )}
-        </div>
+        <ProgressPanel
+          label="Processando PDF…"
+          estimatedMs={16000}
+          steps={[
+            "Lendo o arquivo…",
+            "Procurando as datas…",
+            "Identificando as provas…",
+            "Organizando…",
+          ]}
+          hint={fileName ?? undefined}
+        />
       )}
 
       {phase === "preview" && (
@@ -595,10 +597,7 @@ function ExamPdfUploadBody({
       )}
 
       {phase === "saving" && (
-        <div className="flex flex-col items-center justify-center gap-3 py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <div className="text-sm font-medium">Salvando eventos…</div>
-        </div>
+        <ProgressPanel label="Salvando eventos…" estimatedMs={4000} />
       )}
 
       <DialogFooter className="gap-2">

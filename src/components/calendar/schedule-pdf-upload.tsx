@@ -6,7 +6,6 @@ import {
   CheckSquare,
   Clock,
   FileText,
-  Loader2,
   Square,
   Upload,
 } from "lucide-react";
@@ -20,6 +19,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ProgressPanel } from "@/components/ui/progress-bar";
 import { createSubjectAsync, updateSubjectScheduleAsync } from "@/lib/db";
 import {
   DAY_LABELS_SHORT,
@@ -99,14 +99,47 @@ function defaultColorForIndex(idx: number): string {
   return SUBJECT_PALETTE[idx % SUBJECT_PALETTE.length].color;
 }
 
-function formatSlots(schedule: ScheduleSlot[]): string {
-  if (schedule.length === 0) return "Sem horário detectado";
-  return schedule
-    .map(
-      (s) =>
-        `${DAY_LABELS_SHORT[s.dayOfWeek] ?? "?"} ${s.startTime}–${s.endTime}`,
-    )
-    .join(" · ");
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Funde aulas geminadas num bloco só. A grade da faculdade vem em "tempos"
+ * de ~50min (07:30-08:20, 08:20-09:10), então uma aula dupla virava a tripa
+ * "Ter 07:30–08:20 · Ter 08:20–09:10". Aqui vira "Ter 07:30–09:10".
+ * Tolerância de 15min cobre o intervalinho entre tempos.
+ */
+const GAP_TOLERANCE_MIN = 15;
+
+type DayBlocks = { day: number; blocks: Array<{ start: string; end: string }> };
+
+function mergeSlotsByDay(schedule: ScheduleSlot[]): DayBlocks[] {
+  const byDay = new Map<number, ScheduleSlot[]>();
+  for (const s of schedule) {
+    const list = byDay.get(s.dayOfWeek);
+    if (list) list.push(s);
+    else byDay.set(s.dayOfWeek, [s]);
+  }
+  const out: DayBlocks[] = [];
+  for (const [day, slots] of byDay) {
+    const sorted = [...slots].sort(
+      (a, b) => toMinutes(a.startTime) - toMinutes(b.startTime),
+    );
+    const blocks: Array<{ start: string; end: string }> = [];
+    for (const s of sorted) {
+      const last = blocks[blocks.length - 1];
+      if (last && toMinutes(s.startTime) - toMinutes(last.end) <= GAP_TOLERANCE_MIN) {
+        // Encosta no bloco anterior: estende (nunca encurta).
+        if (toMinutes(s.endTime) > toMinutes(last.end)) last.end = s.endTime;
+      } else {
+        blocks.push({ start: s.startTime, end: s.endTime });
+      }
+    }
+    out.push({ day, blocks });
+  }
+  // Ordena Seg→Dom (domingo por último, não primeiro).
+  return out.sort((a, b) => ((a.day + 6) % 7) - ((b.day + 6) % 7));
 }
 
 /* ---------------- main component ---------------- */
@@ -365,15 +398,17 @@ function SchedulePdfUploadBody({
       )}
 
       {phase === "extracting" && (
-        <div className="flex flex-col items-center justify-center gap-3 py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <div className="text-sm font-medium">Lendo sua grade…</div>
-          {fileName && (
-            <div className="text-xs text-muted-foreground truncate max-w-xs">
-              {fileName}
-            </div>
-          )}
-        </div>
+        <ProgressPanel
+          label="Lendo sua grade…"
+          estimatedMs={14000}
+          steps={[
+            "Lendo o arquivo…",
+            "Identificando as matérias…",
+            "Extraindo dias e horários…",
+            "Organizando a grade…",
+          ]}
+          hint={fileName ?? undefined}
+        />
       )}
 
       {phase === "preview" && (
@@ -424,39 +459,62 @@ function SchedulePdfUploadBody({
                 <div
                   key={r.id}
                   className={cn(
-                    "flex items-start gap-3 rounded-lg border border-border/70 bg-card/50 px-3 py-2.5 transition-opacity",
+                    "rounded-lg border border-border/70 bg-card/50 px-3 py-2.5 transition-opacity",
                     !r.selected && "opacity-50",
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={() => toggleRow(r.id)}
-                    className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center"
-                    aria-label={r.selected ? "Desmarcar" : "Selecionar"}
-                  >
-                    {r.selected ? (
-                      <CheckSquare className="h-4 w-4 text-primary" />
-                    ) : (
-                      <Square className="h-4 w-4 text-muted-foreground" />
-                    )}
-                  </button>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-medium text-foreground">
-                      {r.subject.name}
-                    </div>
-                    <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                      <Clock className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        {formatSlots(r.subject.schedule)}
-                      </span>
+                  <div className="flex items-start gap-3">
+                    <button
+                      type="button"
+                      onClick={() => toggleRow(r.id)}
+                      className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center"
+                      aria-label={r.selected ? "Desmarcar" : "Selecionar"}
+                    >
+                      {r.selected ? (
+                        <CheckSquare className="h-4 w-4 text-primary" />
+                      ) : (
+                        <Square className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium leading-snug text-foreground">
+                        {r.subject.name}
+                      </div>
+                      {r.subject.schedule.length === 0 ? (
+                        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                          <Clock className="h-3 w-3 shrink-0" />
+                          Sem horário detectado
+                        </div>
+                      ) : (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {mergeSlotsByDay(r.subject.schedule).map((d) => (
+                            <span
+                              key={d.day}
+                              className="inline-flex items-center gap-1 rounded-md bg-muted px-1.5 py-0.5 text-[11px] tabular-nums text-muted-foreground"
+                            >
+                              <span className="font-semibold text-foreground">
+                                {DAY_LABELS_SHORT[d.day] ?? "?"}
+                              </span>
+                              {d.blocks
+                                .map((b) => `${b.start}–${b.end}`)
+                                .join(", ")}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
-                  <div className="shrink-0">
+                  <div className="mt-2 flex items-center justify-end gap-2 pl-8">
+                    {matchedExisting && (
+                      <span className="text-[10px] text-muted-foreground">
+                        substitui horário atual
+                      </span>
+                    )}
                     <select
                       value={r.target}
                       onChange={(e) => setRowTarget(r.id, e.target.value)}
                       className={cn(
-                        "h-8 w-44 rounded border border-input bg-background px-1.5 text-[11px]",
+                        "h-8 min-w-0 max-w-[220px] flex-1 rounded border border-input bg-background px-1.5 text-[11px] sm:flex-none sm:w-44",
                         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                       )}
                     >
@@ -467,11 +525,6 @@ function SchedulePdfUploadBody({
                         </option>
                       ))}
                     </select>
-                    {matchedExisting && (
-                      <div className="mt-1 text-right text-[10px] text-muted-foreground">
-                        substitui horário atual
-                      </div>
-                    )}
                   </div>
                 </div>
               );
@@ -481,10 +534,7 @@ function SchedulePdfUploadBody({
       )}
 
       {phase === "saving" && (
-        <div className="flex flex-col items-center justify-center gap-3 py-12">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <div className="text-sm font-medium">Salvando agenda…</div>
-        </div>
+        <ProgressPanel label="Salvando agenda…" estimatedMs={4000} />
       )}
 
       <DialogFooter className="gap-2">

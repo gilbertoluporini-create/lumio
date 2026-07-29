@@ -44,6 +44,13 @@ const DialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border border-border bg-card text-card-foreground p-6 shadow-2xl duration-200 sm:rounded-lg",
+        // Filho de grid tem min-width:auto — conteúdo longo (nome de matéria,
+        // lista de horários) estica a track e VAZA pra fora do dialog em vez
+        // de truncar. min-w-0 nos filhos faz o truncate/wrap voltar a valer.
+        "[&>*]:min-w-0",
+        // Dialog nunca maior que a viewport: em telas baixas o conteúdo rola
+        // dentro do próprio dialog em vez de sumir fora da tela.
+        "max-h-[calc(100dvh-2rem)] overflow-y-auto",
         "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
         className,
       )}
