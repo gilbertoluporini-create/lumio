@@ -1,5 +1,59 @@
 # Lumio — ESTADO
 
+## 📅 2026-07-29 (tarde) — CALENDÁRIO ACADÊMICO (nova feature)
+
+Pedido do Giba: opção na Agenda pra subir o **calendário acadêmico institucional**
+(mesmo esquema de extração por IA da grade horária), usando isso também pra
+**parametrizar o agente Lumi e o ambiente**. Calibrado no PDF real dele:
+`SLM.ARARAS.INS.R54-01-Calendario-academico-2026-Araras.pdf` (Mandic Araras).
+
+**Diferença conceitual**: grade horária = horários SEMANAIS recorrentes (vira
+`subjects[].schedule`); calendário acadêmico = datas ABSOLUTAS do ano letivo
+(provas, entrega de notas, prazos, feriados, recessos, marcos).
+
+**Arquivos novos:**
+- `supabase/migrations/056_user_academic_calendar.sql` — coluna `academic_calendar`
+  jsonb em user_profiles. **APLICADA no banco** (verificada).
+- `src/lib/academic-calendar.ts` — tipos, normalização defensiva, formatação BR de
+  intervalos e `renderAcademicCalendarForPrompt()`.
+- `src/app/api/extract-academic-calendar/route.ts` — Vision Sonnet, prompt calibrado
+  no formato Mandic (intervalos "22 A 26/06", "03 E 04/04", cruzando mês
+  "29/05 A 10/06"; ignora a grade Dom/Seg/Ter e "21 dias letivos"). 7 categorias.
+  Grátis (setup de ambiente, igual à grade). maxDuration 120.
+- `src/components/calendar/academic-calendar-upload.tsx` — dialog com preview
+  agrupado por mês; prova/nota/prazo/marco vêm marcados, feriado/recesso/evento não.
+
+**Arquivos tocados:** user-profile.ts (coluna + render no prompt), api/user-profile
+(zod), schedule/page.tsx (botão "Calendário acadêmico" + dialog).
+
+**COMO PARAMETRIZA A LUMI**: o agente já injeta `renderProfileForPrompt()` no system
+prompt (agent/route.ts:229). O calendário entra como bloco "CALENDÁRIO ACADÊMICO
+OFICIAL — próximas datas" com janela de 120 dias (máx 25 eventos, só o que está por
+vir). Resultado: a Lumi sabe "sua N2 é 10/06" e não sugere estudo em recesso, **sem
+tool call**. Datas marcadas também viram eventos na Agenda; o calendário INTEIRO
+(mesmo o desmarcado) vai pro perfil.
+
+## 🚀 2026-07-29 — TUDO DEPLOYADO + bug auto-logout corrigido + incidente local
+
+**Deployado em produção (3 commits na main):**
+- `0ca4136` varredura total (auditoria multi-agente → 21 bugs corrigidos, custos de
+  coins alinhados em 8 telas, 11 arquivos mortos removidos, ~1571 linhas deletadas)
+- `fe6600c` functions Vercel → **gru1 (São Paulo)**, colado no Supabase sa-east-1
+- `51b0228` **fix auto-logout**: prefetch não renova mais sessão. Causa raiz do
+  "cliquei na Agenda e caí no login": rajada de prefetches da sidebar/admin fazia
+  N getUser() concorrentes rotacionarem o mesmo refresh token → Supabase revogava a
+  sessão. Comprovado nos logs (login Google 07:37, prefetch admin 07:39, bounce).
+
+**Migration 055 APLICADA E VERIFICADA no banco** (via Management API): RPCs de coins
+agora só service_role (proacl conferido). Buraco de coins infinitas FECHADO.
+
+**⚠️ INCIDENTE local (máquina do Giba)**: migração de perfil Windows gilbe→AMD deixou
+a working tree pela metade — 306 arquivos rastreados sumiram (até a página de login) e
+node_modules quebrou. Restaurado 100% via `git restore` + npm install. Produção nunca
+foi afetada. **Conferir os outros repos de projetos/ pelo mesmo problema.**
+
+**Teste pendente do Giba**: /clear-session → login Google → clicar Agenda (deve abrir).
+
 ## 🧹 VARREDURA TOTAL — sessão 2026-07-16 (auditoria + fixes, NÃO PUSHADO)
 
 Retomada do Lumio (parado desde 21/06, commit c79e18e). Giba pediu "varredura total:

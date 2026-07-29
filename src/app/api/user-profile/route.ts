@@ -24,6 +24,35 @@ const ExamDateSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
+const AcademicEventSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "data inválida (use yyyy-mm-dd)"),
+  endDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  title: z.string().min(1).max(160),
+  category: z.enum([
+    "prova",
+    "nota",
+    "prazo",
+    "feriado",
+    "recesso",
+    "marco",
+    "evento",
+  ]),
+  semester: z.number().int().min(1).max(2).nullable().optional(),
+});
+
+const AcademicCalendarSchema = z.object({
+  institution: z.string().max(160).nullable().optional(),
+  year: z.number().int().min(2000).max(2099).nullable().optional(),
+  sourceFile: z.string().max(200).nullable().optional(),
+  importedAt: z.string().max(40).nullable().optional(),
+  // Calendário anual costuma ter 60-90 eventos nos 2 semestres.
+  events: z.array(AcademicEventSchema).max(300),
+});
+
 const PatchSchema = z.object({
   course: z.string().max(120).nullable().optional(),
   semester: z.string().max(60).nullable().optional(),
@@ -47,6 +76,7 @@ const PatchSchema = z.object({
     .optional(),
   examDates: z.array(ExamDateSchema).max(50).nullable().optional(),
   freeNotes: z.string().max(2000).nullable().optional(),
+  academicCalendar: AcademicCalendarSchema.nullable().optional(),
 });
 
 export async function GET() {

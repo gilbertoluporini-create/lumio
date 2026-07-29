@@ -6,6 +6,11 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  normalizeAcademicCalendar,
+  renderAcademicCalendarForPrompt,
+  type AcademicCalendar,
+} from "./academic-calendar";
 
 export type StudyGoal =
   | "pass_year"
@@ -41,12 +46,14 @@ export type UserProfile = {
   bestStudyTime?: BestStudyTime | null;
   examDates?: ExamDate[] | null;
   freeNotes?: string | null;
+  /** Calendário acadêmico oficial da instituição (migration 056). */
+  academicCalendar?: AcademicCalendar | null;
   createdAt?: string;
   updatedAt?: string;
 };
 
 const PROFILE_COLS =
-  "user_id, course, semester, graduation_year, goal, difficulty_subjects, study_style, study_hours_per_day, best_study_time, exam_dates, free_notes, created_at, updated_at";
+  "user_id, course, semester, graduation_year, goal, difficulty_subjects, study_style, study_hours_per_day, best_study_time, exam_dates, free_notes, academic_calendar, created_at, updated_at";
 
 type ProfileRow = {
   user_id: string;
@@ -60,6 +67,7 @@ type ProfileRow = {
   best_study_time: string | null;
   exam_dates: ExamDate[] | null;
   free_notes: string | null;
+  academic_calendar: unknown | null;
   created_at?: string;
   updated_at?: string;
 };
@@ -78,6 +86,7 @@ function rowToProfile(r: ProfileRow): UserProfile {
     bestStudyTime: (r.best_study_time as BestStudyTime | null) ?? null,
     examDates: r.exam_dates,
     freeNotes: r.free_notes,
+    academicCalendar: normalizeAcademicCalendar(r.academic_calendar),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -119,6 +128,8 @@ export async function upsertUserProfileAsync(
     row.best_study_time = patch.bestStudyTime ?? null;
   if ("examDates" in patch) row.exam_dates = patch.examDates ?? null;
   if ("freeNotes" in patch) row.free_notes = patch.freeNotes ?? null;
+  if ("academicCalendar" in patch)
+    row.academic_calendar = patch.academicCalendar ?? null;
   const { data, error } = await supabase
     .from("user_profiles")
     .upsert(row, { onConflict: "user_id" })
@@ -201,6 +212,14 @@ export function renderProfileForPrompt(
   if (profile.freeNotes && profile.freeNotes.trim()) {
     parts.push(`Outros: ${profile.freeNotes.trim()}`);
   }
-  if (parts.length === 0) return null;
-  return parts.join(" ");
+  // Calendário acadêmico oficial entra como bloco próprio (multi-linha) no
+  // fim — é o que permite a Lumi falar "sua N2 é dia 10/06" e não sugerir
+  // estudo em recesso, sem precisar de tool call.
+  const academic = renderAcademicCalendarForPrompt(
+    profile.academicCalendar ?? null,
+  );
+  if (parts.length === 0 && !academic) return null;
+  const head = parts.join(" ");
+  if (!academic) return head;
+  return head ? `${head}\n\n${academic}` : academic;
 }

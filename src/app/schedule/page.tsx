@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock,
+  CalendarDays,
   Code,
   Dna,
   Dumbbell,
@@ -68,6 +69,7 @@ import {
 } from "@/components/calendar/event-details-dialog";
 import { ExamPdfUpload } from "@/components/calendar/exam-pdf-upload";
 import { SchedulePdfUpload } from "@/components/calendar/schedule-pdf-upload";
+import { AcademicCalendarUpload } from "@/components/calendar/academic-calendar-upload";
 import { listSubjectsAsync } from "@/lib/db";
 import {
   EVENT_TYPE_META,
@@ -361,6 +363,7 @@ function ScheduleView({ user }: { user: User }) {
   /* Exam PDF upload dialog */
   const [pdfUploadOpen, setPdfUploadOpen] = useState(false);
   const [scheduleUploadOpen, setScheduleUploadOpen] = useState(false);
+  const [academicUploadOpen, setAcademicUploadOpen] = useState(false);
 
   /* Week view navigation cursor (independente do month cursor) */
   const [weekAnchor, setWeekAnchor] = useState<Date>(() => {
@@ -675,6 +678,14 @@ function ScheduleView({ user }: { user: User }) {
             <Upload className="h-4 w-4" />
             Subir agenda
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAcademicUploadOpen(true)}
+          >
+            <CalendarDays className="h-4 w-4" />
+            Calendário acadêmico
+          </Button>
           <Button asChild variant="outline" size="sm">
             <Link href="/dashboard">
               <Plus className="h-4 w-4" />
@@ -954,6 +965,13 @@ function ScheduleView({ user }: { user: User }) {
         userId={user.id}
         subjects={subjects}
         onSaved={() => reloadSubjects()}
+      />
+
+      <AcademicCalendarUpload
+        open={academicUploadOpen}
+        onOpenChange={setAcademicUploadOpen}
+        userId={user.id}
+        onSaved={() => reloadCustomEvents()}
       />
     </div>
   );
