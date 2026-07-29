@@ -319,6 +319,23 @@ export async function proxy(request: NextRequest) {
     return applyRefCookie(NextResponse.next());
   }
 
+  // PREFETCH não passa por refresh de sessão. Quando a sidebar/admin renderiza,
+  // o Next dispara N prefetches simultâneos; N getUser() concorrentes rotacionam
+  // o MESMO refresh token → o Supabase detecta reuso e REVOGA a sessão inteira →
+  // user recém-logado é derrubado pro /login no clique seguinte (bug real:
+  // login Google 07:37, rajada de prefetch /admin 07:39, clique em /schedule →
+  // /login). Prefetch não precisa de sessão: a navegação real refresca o token,
+  // e toda página protegida tem AuthGuard client-side.
+  const secPurpose = request.headers.get("sec-purpose") ?? "";
+  const isPrefetch =
+    request.headers.get("next-router-prefetch") === "1" ||
+    request.headers.get("purpose") === "prefetch" ||
+    request.headers.get("x-purpose") === "prefetch" ||
+    secPurpose.includes("prefetch");
+  if (isPrefetch) {
+    return applyRefCookie(NextResponse.next());
+  }
+
   // Atualizar sessão Supabase
   const { response, user } = await updateSession(request);
 
