@@ -71,6 +71,7 @@ import { ExamPdfUpload } from "@/components/calendar/exam-pdf-upload";
 import { SchedulePdfUpload } from "@/components/calendar/schedule-pdf-upload";
 import { AcademicCalendarUpload } from "@/components/calendar/academic-calendar-upload";
 import {
+  describeTermGap,
   getNonTeachingDays,
   getTermWindows,
   isWithinTerm,
@@ -436,6 +437,13 @@ function ScheduleView({ user }: { user: User }) {
       nonTeaching: getNonTeachingDays(academicCalendar),
     }),
     [academicCalendar],
+  );
+
+  /* Mês visível está fora do período letivo? Explica em vez de deixar o
+     calendário vazio e mudo (parece bug). */
+  const termGap = useMemo(
+    () => describeTermGap(cursor.getFullYear(), cursor.getMonth(), termBounds.terms),
+    [cursor, termBounds.terms],
   );
 
   const reloadCustomEvents = useCallback(() => {
@@ -818,6 +826,19 @@ function ScheduleView({ user }: { user: User }) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Left: calendar + cards */}
         <div className="lg:col-span-9 space-y-5">
+          {termGap && subjects.length > 0 && (
+            <div className="flex items-start gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3">
+              <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-foreground">
+                  {termGap.title}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {termGap.detail}
+                </p>
+              </div>
+            </div>
+          )}
           {view === "mes" && (
             <MonthGrid
               cells={monthGrid.cells}

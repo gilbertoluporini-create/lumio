@@ -193,6 +193,57 @@ export function isWithinTerm(iso: string, windows: TermWindow[]): boolean {
 }
 
 /**
+ * Explica por que um mês aparece sem aulas. Mês vazio e mudo parece bug —
+ * esta mensagem transforma "o app quebrou" em "ah, é férias".
+ * Retorna null quando o mês tem pelo menos um dia letivo.
+ */
+export function describeTermGap(
+  year: number,
+  month0: number,
+  windows: TermWindow[],
+): { title: string; detail: string } | null {
+  if (windows.length === 0) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const first = `${year}-${pad(month0 + 1)}-01`;
+  const lastDay = new Date(year, month0 + 1, 0).getDate();
+  const last = `${year}-${pad(month0 + 1)}-${pad(lastDay)}`;
+
+  // Algum dia do mês cai em janela letiva? Então não é um "buraco".
+  const overlaps = windows.some((w) => w.start <= last && w.end >= first);
+  if (overlaps) return null;
+
+  const next = windows
+    .map((w) => w.start)
+    .filter((s) => s > last)
+    .sort()[0];
+  const prevEnd = windows
+    .map((w) => w.end)
+    .filter((e) => e < first)
+    .sort()
+    .pop();
+
+  const fmt = (iso: string) => {
+    const [, m, d] = iso.split("-");
+    return `${d}/${m}`;
+  };
+
+  if (next) {
+    return {
+      title: "Fora do período letivo",
+      detail: prevEnd
+        ? `O semestre terminou em ${fmt(prevEnd)} e o próximo começa em ${fmt(next)}. Suas aulas voltam a aparecer a partir dessa data.`
+        : `O semestre começa em ${fmt(next)}. Suas aulas aparecem a partir dessa data.`,
+    };
+  }
+  return {
+    title: "Fora do período letivo",
+    detail: prevEnd
+      ? `O período letivo terminou em ${fmt(prevEnd)}. Suba o calendário do próximo ano pra ver as aulas seguintes.`
+      : "Este mês está fora do período letivo do calendário que você importou.",
+  };
+}
+
+/**
  * Renderiza o calendário pro system prompt do agente Lumi — só o que é
  * acionável: o que está por vir na janela informada. Retorna null se não
  * houver nada relevante (evita queimar tokens com calendário vencido).
