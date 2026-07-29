@@ -128,6 +128,70 @@ export function formatEventDate(e: AcademicEvent): string {
   return `${ed}/${em} a ${formatBr(e.endDate)}`;
 }
 
+/* ---------------- janela letiva (para expansão das aulas) ---------------- */
+
+export type TermWindow = { start: string; end: string };
+
+const START_RE = /in[ií]cio\s+do\s+(semestre|per[ií]odo)\s+letivo/i;
+const END_RE = /t[ée]rmino\s+do\s+(per[ií]odo|semestre)\s+letivo/i;
+
+/**
+ * Deriva as janelas letivas (início → término) a partir dos marcos do
+ * calendário. Um calendário anual costuma render 2 janelas (1º e 2º semestre).
+ *
+ * Serve pra limitar a repetição das aulas da grade horária: sem isso, uma
+ * aula de segunda 08:00 se repetiria infinitamente — inclusive em janeiro,
+ * em julho e em 2030.
+ */
+export function getTermWindows(cal: AcademicCalendar | null): TermWindow[] {
+  if (!cal || cal.events.length === 0) return [];
+  const starts = cal.events
+    .filter((e) => e.category === "marco" && START_RE.test(e.title))
+    .map((e) => e.date)
+    .sort();
+  const ends = cal.events
+    .filter((e) => e.category === "marco" && END_RE.test(e.title))
+    .map((e) => e.endDate ?? e.date)
+    .sort();
+  if (starts.length === 0 || ends.length === 0) return [];
+
+  const windows: TermWindow[] = [];
+  for (const start of starts) {
+    // Casa cada início com o primeiro término que vem depois dele.
+    const end = ends.find((d) => d > start);
+    if (end) windows.push({ start, end });
+  }
+  return windows;
+}
+
+/**
+ * Dias em que NÃO há aula: feriados e recessos (intervalos expandidos dia a
+ * dia). Set de "yyyy-mm-dd" pra lookup O(1) na expansão.
+ */
+export function getNonTeachingDays(cal: AcademicCalendar | null): Set<string> {
+  const out = new Set<string>();
+  if (!cal) return out;
+  for (const e of cal.events) {
+    if (e.category !== "feriado" && e.category !== "recesso") continue;
+    const cursor = new Date(`${e.date}T00:00:00`);
+    const last = new Date(`${e.endDate ?? e.date}T00:00:00`);
+    // Guarda contra intervalo absurdo vindo de extração ruim.
+    let guard = 0;
+    while (cursor.getTime() <= last.getTime() && guard < 400) {
+      out.add(cursor.toISOString().slice(0, 10));
+      cursor.setDate(cursor.getDate() + 1);
+      guard += 1;
+    }
+  }
+  return out;
+}
+
+/** A data cai dentro de alguma janela letiva? Sem janelas → sem restrição. */
+export function isWithinTerm(iso: string, windows: TermWindow[]): boolean {
+  if (windows.length === 0) return true;
+  return windows.some((w) => iso >= w.start && iso <= w.end);
+}
+
 /**
  * Renderiza o calendário pro system prompt do agente Lumi — só o que é
  * acionável: o que está por vir na janela informada. Retorna null se não

@@ -70,6 +70,14 @@ import {
 import { ExamPdfUpload } from "@/components/calendar/exam-pdf-upload";
 import { SchedulePdfUpload } from "@/components/calendar/schedule-pdf-upload";
 import { AcademicCalendarUpload } from "@/components/calendar/academic-calendar-upload";
+import {
+  getNonTeachingDays,
+  getTermWindows,
+  isWithinTerm,
+  normalizeAcademicCalendar,
+  type AcademicCalendar,
+  type TermWindow,
+} from "@/lib/academic-calendar";
 import { listSubjectsAsync } from "@/lib/db";
 import {
   EVENT_TYPE_META,
@@ -263,6 +271,12 @@ function expandSlotsToEvents(
   subjects: Subject[],
   from: Date,
   to: Date,
+  /**
+   * Limites vindos do calendário acadêmico. Sem eles a aula semanal se
+   * repetiria pra sempre (inclusive em férias e nos anos seguintes); com
+   * eles, a grade só vale dentro do período letivo e pula feriado/recesso.
+   */
+  bounds?: { terms: TermWindow[]; nonTeaching: Set<string> },
 ): UEvent[] {
   const out: UEvent[] = [];
   const start = new Date(from);
@@ -275,6 +289,12 @@ function expandSlotsToEvents(
     d.getTime() <= end.getTime();
     d.setDate(d.getDate() + 1)
   ) {
+    if (bounds) {
+      // Data local (não toISOString, que converte pra UTC e pode pular um dia).
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      if (!isWithinTerm(iso, bounds.terms)) continue;
+      if (bounds.nonTeaching.has(iso)) continue;
+    }
     const dow = d.getDay();
     for (const s of subjects) {
       for (const slot of s.schedule ?? []) {
@@ -389,6 +409,35 @@ function ScheduleView({ user }: { user: User }) {
     };
   }, [user.id]);
 
+  /* Calendário acadêmico: define até quando a grade horária vale (período
+     letivo) e quais dias não têm aula (feriado/recesso). Falha silenciosa —
+     sem calendário, a grade segue valendo sem limite, como antes. */
+  const [academicCalendar, setAcademicCalendar] =
+    useState<AcademicCalendar | null>(null);
+
+  const loadAcademicCalendar = useCallback(() => {
+    fetch("/api/user-profile")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        setAcademicCalendar(
+          normalizeAcademicCalendar(data?.profile?.academicCalendar),
+        );
+      })
+      .catch(() => setAcademicCalendar(null));
+  }, []);
+
+  useEffect(() => {
+    loadAcademicCalendar();
+  }, [loadAcademicCalendar]);
+
+  const termBounds = useMemo(
+    () => ({
+      terms: getTermWindows(academicCalendar),
+      nonTeaching: getNonTeachingDays(academicCalendar),
+    }),
+    [academicCalendar],
+  );
+
   const reloadCustomEvents = useCallback(() => {
     listEventsAsync(user.id).then((evs) => setCustomEvents(evs));
   }, [user.id]);
@@ -405,7 +454,9 @@ function ScheduleView({ user }: { user: User }) {
     const windowEnd = new Date(cursor);
     windowEnd.setMonth(windowEnd.getMonth() + 3);
 
-    const aulas = subjects.length ? expandSlotsToEvents(subjects, windowStart, windowEnd) : [];
+    const aulas = subjects.length
+      ? expandSlotsToEvents(subjects, windowStart, windowEnd, termBounds)
+      : [];
     const custom = customEvents.map((c) => customEventToUEvent(c, subjects));
     // Inclui TODOS custom (mesmo fora da janela acima — pra cards "próximos")
     const all = [...aulas, ...custom];
@@ -416,7 +467,7 @@ function ScheduleView({ user }: { user: User }) {
         if (ad !== 0) return ad;
         return a.startMinutes - b.startMinutes;
       });
-  }, [subjects, customEvents, cursor, activeTypes]);
+  }, [subjects, customEvents, cursor, activeTypes, termBounds]);
 
   /* Grid do mês (6 semanas × 7 dias). */
   const monthGrid = useMemo(() => {
@@ -460,7 +511,7 @@ function ScheduleView({ user }: { user: User }) {
     const nowMin = now.getHours() * 60 + now.getMinutes();
 
     const aulas = subjects.length
-      ? expandSlotsToEvents(subjects, today00, horizon)
+      ? expandSlotsToEvents(subjects, today00, horizon, termBounds)
       : [];
     const custom = customEvents.map((c) => customEventToUEvent(c, subjects));
 
@@ -479,7 +530,7 @@ function ScheduleView({ user }: { user: User }) {
         if (ad !== 0) return ad;
         return a.startMinutes - b.startMinutes;
       });
-  }, [subjects, customEvents, activeTypes]);
+  }, [subjects, customEvents, activeTypes, termBounds]);
 
   /* Agrupa por dia (próximos 5 dias com eventos). */
   const agendaGroups = useMemo(() => {
@@ -971,7 +1022,12 @@ function ScheduleView({ user }: { user: User }) {
         open={academicUploadOpen}
         onOpenChange={setAcademicUploadOpen}
         userId={user.id}
-        onSaved={() => reloadCustomEvents()}
+        onSaved={() => {
+          reloadCustomEvents();
+          // Recarrega o calendário pra grade já respeitar o período letivo
+          // e os feriados sem precisar de refresh.
+          loadAcademicCalendar();
+        }}
       />
     </div>
   );
