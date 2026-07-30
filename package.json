@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:periodo": "node scripts/test-periodo-letivo.mjs",
     "ingest:atlas": "tsx scripts/ingest-atlas-pdf.ts",
     "ingest:grays": "tsx scripts/ingest-gray-anatomy.ts",
     "ingest:scanned": "tsx scripts/ingest-atlas-scanned.ts"

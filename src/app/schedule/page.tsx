@@ -205,6 +205,114 @@ function weekAnchorForMonth(year: number, month: number): Date {
   return next;
 }
 
+/**
+ * Mesma ideia do `describeTermGap`, mas pra JANELA DE 7 DIAS. A versão do lib
+ * decide por MÊS: numa semana inteira fora do período letivo que caia num mês
+ * que só encosta na janela (01–07/02 com semestre começando em 09/02) ela
+ * enxerga sobreposição e devolve null — a grade da semana ficava vazia e sem
+ * nenhuma explicação. Acontece toda virada de semestre.
+ */
+function describeWeekGap(
+  days: Date[],
+  windows: TermWindow[],
+): { title: string; detail: string } | null {
+  if (windows.length === 0 || days.length === 0) return null;
+  const first = toLocalIso(days[0]);
+  const last = toLocalIso(days[days.length - 1]);
+  if (windows.some((w) => w.start <= last && w.end >= first)) return null;
+
+  const next = windows
+    .map((w) => w.start)
+    .filter((s) => s > last)
+    .sort()[0];
+  const prevEnd = windows
+    .map((w) => w.end)
+    .filter((e) => e < first)
+    .sort()
+    .pop();
+  const fmt = (iso: string) => {
+    const [, m, d] = iso.split("-");
+    return `${d}/${m}`;
+  };
+
+  if (next) {
+    return {
+      title: "Fora do período letivo",
+      detail: prevEnd
+        ? `O semestre terminou em ${fmt(prevEnd)} e o próximo começa em ${fmt(next)}. Suas aulas voltam a aparecer a partir dessa data.`
+        : `O semestre começa em ${fmt(next)}. Suas aulas aparecem a partir dessa data.`,
+    };
+  }
+  return {
+    title: "Fora do período letivo",
+    detail: prevEnd
+      ? `O período letivo terminou em ${fmt(prevEnd)}. Suba o calendário do próximo ano pra ver as aulas seguintes.`
+      : "Esta semana está fora do período letivo do calendário que você importou.",
+  };
+}
+
+/**
+ * Rótulo do dia NÃO LETIVO (feriado/recesso do calendário acadêmico), dia a dia.
+ *
+ * O `getNonTeachingDays` do lib devolve só um Set de datas — ele APAGA a aula da
+ * grade e não sobra nada na tela dizendo por quê. Dava o pior vazio possível: o
+ * aluno sobe um calendário anual com "Recesso de meio de ano 01/07 a 31/07" e
+ * julho inteiro fica com ZERO aula, ZERO banner e ZERO marcador, porque a
+ * janela letiva [05/02, 15/12] cobre julho e tanto o `describeTermGap` (mês)
+ * quanto o `temAula` (semana) devolvem null. Pior ainda: feriado e recesso vêm
+ * DESMARCADOS por padrão no importador (só prova/nota/prazo/marco entram na
+ * agenda), então nem chip de evento existe pra explicar — mas o calendário
+ * INTEIRO vai pro perfil e alimenta o `getNonTeachingDays`. Ou seja: o dia
+ * some da grade mesmo quando o aluno nunca pediu o evento na agenda.
+ * Preservando o TÍTULO do evento aqui, cada dia suprimido consegue se explicar
+ * na própria célula ("Recesso acadêmico - Carnaval"), em vez de virar o "vazio
+ * e mudo parece bug" que faz o aluno subir a grade de novo (e duplicar tudo).
+ *
+ * Mesma expansão do lib (intervalo dia a dia, data LOCAL, guarda de 400) —
+ * aqui o valor é o título, não só a presença da data.
+ */
+function buildNonTeachingLabels(
+  cal: AcademicCalendar | null,
+): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!cal) return out;
+  for (const e of cal.events) {
+    if (e.category !== "feriado" && e.category !== "recesso") continue;
+    const cursor = new Date(`${e.date}T00:00:00`);
+    const last = new Date(`${e.endDate ?? e.date}T00:00:00`);
+    if (Number.isNaN(cursor.getTime()) || Number.isNaN(last.getTime())) continue;
+    let guard = 0;
+    while (cursor.getTime() <= last.getTime() && guard < 400) {
+      const iso = toLocalIso(cursor);
+      // Primeiro evento do dia manda: dois recessos sobrepostos não viram um
+      // rótulo concatenado ilegível dentro de uma célula de ~26px.
+      if (!out.has(iso)) out.set(iso, e.title);
+      cursor.setDate(cursor.getDate() + 1);
+      guard += 1;
+    }
+  }
+  return out;
+}
+
+/**
+ * Marcador local de "este aluno JÁ teve calendário acadêmico salvo no perfil".
+ * Quem ESCREVE é o importador (academic-calendar-upload.tsx, mesma chave); aqui
+ * a leitura serve só pra desambiguar a resposta 200 {"profile":null}, que a
+ * rota devolve tanto pra aluno sem perfil quanto pra SELECT que falhou
+ * (getUserProfileAsync loga o erro e retorna null). Vale só neste dispositivo —
+ * é o que dá pra fazer do cliente enquanto a rota não separa os dois casos.
+ */
+function hasSavedAcademicCalendarLocally(userId: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return !!window.localStorage.getItem(
+      `lumio.academic-calendar.saved.${userId}`,
+    );
+  } catch {
+    return false;
+  }
+}
+
 function getSubjectIcon(name: string): LucideIcon {
   const n = name.toLowerCase();
   if (/cardio|cora[cç][aã]o|cardiovasc|circulat|hemato|vascul/.test(n)) return HeartPulse;
@@ -277,6 +385,15 @@ type UEvent = {
   subjectColor?: string; // gradient (ex.: "from-indigo-500 to-violet-500")
   room?: string;
   description?: string;
+  /**
+   * Id do CalendarEvent de origem. Evento de INTERVALO vira uma ocorrência por
+   * dia e os dias seguintes carregam um id sufixado (pra não repetir key do
+   * React) — quem precisa achar o evento no storage (editar/excluir) tem que
+   * usar este campo, não o `id`.
+   */
+  sourceId?: string;
+  /** "22/06 a 26/06" quando o evento cobre mais de um dia; senão undefined. */
+  spanLabel?: string;
 };
 
 type CalendarView = "mes" | "semana" | "agenda";
@@ -323,7 +440,17 @@ function expandSlotsToEvents(
       for (const slot of s.schedule ?? []) {
         if (slot.dayOfWeek !== dow) continue;
         out.push({
-          id: `aula-${s.id}-${d.toISOString().slice(0, 10)}-${slot.startTime}`,
+          // O id tem que carregar TODOS os campos que distinguem um slot do
+          // outro (fim e sala inclusive), porque dois slots do mesmo dia
+          // começando na mesma hora são legítimos e chegam mesmo ao banco: o
+          // mergeSlots do upload só funde blocos encostados quando a SALA é a
+          // mesma ("salas diferentes = aulas diferentes"), e a união de grades
+          // dedup por dia|início|fim|sala. Só com subjectId+dia+início os dois
+          // UEvents nasciam com id idêntico e viravam duas keys iguais no mês,
+          // na semana, na agenda e na sidebar — o React casava um nó só por
+          // key e destruía/recriava um dos blocos a cada re-render (piscando ao
+          // navegar semana ou mexer na legenda).
+          id: `aula-${s.id}-${d.toISOString().slice(0, 10)}-${slot.startTime}-${slot.endTime}-${slot.room ?? ""}`,
           type: "aula",
           date: new Date(d),
           startMinutes: timeToMinutes(slot.startTime),
@@ -343,33 +470,125 @@ function expandSlotsToEvents(
   return out;
 }
 
-/* Converte CalendarEvent (storage) em UEvent. */
-function customEventToUEvent(
+function minutesToTime(m: number): string {
+  return `${pad2(Math.floor(m / 60))}:${pad2(m % 60)}`;
+}
+
+/**
+ * Fim INVENTADO aqui, quando o CalendarEvent chegou SEM `ends_at`.
+ *
+ * O `+1h` cru atravessava a meia-noite na faixa das 23h e, como esta tela
+ * expande evento de intervalo em UMA ocorrência POR DIA, o compromisso nascia
+ * em DOIS dias: "entrega 30/06 às 23:59" (a tool `agendar_evento` da Lumi só
+ * inventa fim pra prova/bloco — pra trabalho/aula/outro grava `ends_at`
+ * undefined, e o formulário aceita o campo "Fim" apagado) virava 30/06 23:59 →
+ * 01/07 00:59: o prazo aparecia no mês, na semana, na view Agenda e na sidebar
+ * em 01/07 — um dia em que ele não existe — e o modal anunciava "Período: 30/06
+ * a 01/07" pra um prazo de um dia só. Saturando na virada do dia (00:00 do dia
+ * seguinte) o fim continua DEPOIS do início e cai no `endsAtMidnight` logo
+ * abaixo, que devolve o evento pro dia certo. Mesma correção que o
+ * exam-pdf-upload já fez no que ele GRAVA (`syntheticEndIso`/
+ * `startOfNextDayIso`); aqui ela fecha o que já está gravado sem fim.
+ */
+function fallbackEndDate(start: Date): Date {
+  const plusHour = new Date(start.getTime() + 60 * 60 * 1000);
+  if (plusHour.getDate() === start.getDate()) return plusHour;
+  // Dia + 1 no construtor normaliza virada de mês/ano sozinho.
+  return new Date(start.getFullYear(), start.getMonth(), start.getDate() + 1);
+}
+
+/**
+ * Converte CalendarEvent (storage) em UEvent(s) — UM POR DIA COBERTO.
+ *
+ * Evento de intervalo ("Exames finais 22/06 a 26/06", "Recesso 16 a 18/02") é
+ * gravado como UM registro só, com starts_at no primeiro dia 00:00 e ends_at
+ * no último 23:59. Derivando o dia só do starts_at, o mês/semana pintavam a
+ * faixa exclusivamente no primeiro dia (23, 24, 25 e 26/06 ficavam em branco)
+ * e, do segundo dia em diante, `upcomingEvents` descartava o evento inteiro
+ * por `date < hoje` — a semana de provas sumia da sidebar e da view Agenda no
+ * meio dela mesma. Expandir dia a dia fecha os dois buracos de uma vez.
+ */
+function customEventToUEvents(
   ev: CalendarEvent,
   subjects: Subject[],
-): UEvent {
+): UEvent[] {
   const start = new Date(ev.starts_at);
-  const end = ev.ends_at ? new Date(ev.ends_at) : new Date(start.getTime() + 60 * 60 * 1000);
-  const day = new Date(start);
-  day.setHours(0, 0, 0, 0);
+  const end = ev.ends_at ? new Date(ev.ends_at) : fallbackEndDate(start);
   const subj = ev.subject_id ? subjects.find((s) => s.id === ev.subject_id) : undefined;
   const startMinutes = start.getHours() * 60 + start.getMinutes();
   const endMinutes = end.getHours() * 60 + end.getMinutes();
-  return {
-    id: ev.id,
+
+  const firstDay = new Date(start);
+  firstDay.setHours(0, 0, 0, 0);
+  const lastDay = new Date(end);
+  lastDay.setHours(0, 0, 0, 0);
+
+  /* Evento que termina EXATAMENTE em 00:00 (bloco 22:00→00:00) não ocupa o dia
+     seguinte: sem isso sobraria um bloco fantasma de duração zero na
+     madrugada. Volta um dia e fecha o último dia às 23:59. */
+  const endsAtMidnight =
+    endMinutes === 0 && lastDay.getTime() > firstDay.getTime();
+  if (endsAtMidnight) lastDay.setDate(lastDay.getDate() - 1);
+
+  const spansDays =
+    !Number.isNaN(firstDay.getTime()) &&
+    !Number.isNaN(lastDay.getTime()) &&
+    lastDay.getTime() > firstDay.getTime();
+
+  const common = {
     type: ev.type,
-    date: day,
-    startMinutes,
-    endMinutes,
-    startTime: formatTime(start),
-    endTime: formatTime(end),
-    allDay: startMinutes === 0 && endMinutes >= 23 * 60 + 59,
     title: ev.title,
     subjectId: subj?.id,
     subjectName: subj?.name,
     subjectColor: subj?.color,
     description: ev.description,
+    sourceId: ev.id,
   };
+
+  if (!spansDays) {
+    return [
+      {
+        ...common,
+        id: ev.id,
+        date: firstDay,
+        startMinutes,
+        endMinutes,
+        startTime: formatTime(start),
+        endTime: formatTime(end),
+        allDay: startMinutes === 0 && endMinutes >= 23 * 60 + 59,
+      },
+    ];
+  }
+
+  const spanLabel = `${formatDateLabel(firstDay)} a ${formatDateLabel(lastDay)}`;
+  const out: UEvent[] = [];
+  const cursor = new Date(firstDay);
+  // Guarda contra intervalo absurdo vindo de extração ruim (mesmo limite do
+  // getNonTeachingDays): sem ela um ends_at podre trava a renderização.
+  let guard = 0;
+  while (cursor.getTime() <= lastDay.getTime() && guard < 400) {
+    const isFirst = cursor.getTime() === firstDay.getTime();
+    const isLast = cursor.getTime() === lastDay.getTime();
+    const dayStartMin = isFirst ? startMinutes : 0;
+    const dayEndMin =
+      isLast && !endsAtMidnight ? endMinutes : 23 * 60 + 59;
+    out.push({
+      ...common,
+      // Só o primeiro dia mantém o id cru do CalendarEvent; os demais levam
+      // sufixo pra não colidir como key do React (o storage segue em sourceId).
+      id: isFirst ? ev.id : `${ev.id}#${toLocalIso(cursor)}`,
+      date: new Date(cursor),
+      startMinutes: dayStartMin,
+      endMinutes: dayEndMin,
+      startTime: minutesToTime(dayStartMin),
+      endTime: minutesToTime(dayEndMin),
+      allDay: dayStartMin === 0 && dayEndMin >= 23 * 60 + 59,
+      spanLabel,
+    });
+    cursor.setDate(cursor.getDate() + 1);
+    guard += 1;
+  }
+  return out;
 }
 
 /* ---------------- view ---------------- */
@@ -469,54 +688,305 @@ function ScheduleView({ user }: { user: User }) {
     return new Date(y, m - 1, d);
   }, [todayKey]);
 
+  /* O tique de meia-noite atualizava só o `today`; o `selectedDay` congelava no
+     dia em que a aba foi aberta. Quem entra às 22h e clica "Adicionar
+     compromisso" à 00:35 abria o formulário com a data de ONTEM (a hora padrão
+     já vem do relógio novo): o evento nascia no passado e sumia na hora —
+     `upcomingEvents` corta tudo com `date < hoje`, então não aparecia nem na
+     sidebar nem na view Agenda, só escondido na célula de ontem. Só arrasta
+     quando o dia selecionado AINDA era o "hoje" anterior; se o aluno escolheu
+     outro dia de propósito, a escolha dele manda. */
+  const prevTodayRef = useRef(today);
+  useEffect(() => {
+    const prevToday = prevTodayRef.current;
+    prevTodayRef.current = today;
+    if (prevToday.getTime() === today.getTime()) return;
+    setSelectedDay((prev) =>
+      prev.getTime() === prevToday.getTime() ? new Date(today) : prev,
+    );
+    /* Na view Semana quem está na tela é o weekAnchor, não o cursor — lá o
+       cursor é DERIVADO da semana visível (mid-month) pelo efeito de sync mais
+       abaixo. Empurrá-lo pro mês novo aqui só produzia o desencontro "semana
+       ainda em janeiro, rótulo em Janeiro, botão Mês abrindo FEVEREIRO", que o
+       efeito de sync não desfaz (deps [view, selectedDay], e o selectedDay não
+       mudou). Quando o selectedDay ARRASTA (o aluno estava com hoje
+       selecionado), é o próprio efeito de sync que move weekAnchor e cursor
+       juntos. Daqui pra baixo é assunto de grade de MÊS. */
+    if (view === "semana") return;
+    /* O tique também não tocava no `cursor`, e na virada de MÊS a grade
+       continuava desenhando o mês velho: aba aberta em 31/01 na view Mês, à
+       00:00 o `today` e o `selectedDay` viram 01/02 e o cabeçalho segue dizendo
+       "Janeiro de 2026" — com o destaque de hoje e o anel de seleção caindo na
+       célula 01/02 da última linha, renderizada como FORA do mês
+       (`!inMonth && bg-muted/20`), enquanto a sidebar já lista compromissos de
+       fevereiro que não estão em célula nenhuma da grade. Só o botão "Hoje"
+       consertava. Como no selectedDay, só arrasta quando o cursor ainda estava
+       no mês do "hoje" anterior: se o aluno navegou pra outro mês, a navegação
+       dele manda. */
+    const cursorSeguiaOMesDeHoje =
+      cursor.getFullYear() === prevToday.getFullYear() &&
+      cursor.getMonth() === prevToday.getMonth();
+    if (!cursorSeguiaOMesDeHoje) return;
+    setCursor(new Date(today.getFullYear(), today.getMonth(), 1));
+    /* E o cursor NÃO pode virar a página sozinho. Quando o aluno tinha
+       escolhido outro dia (clicou em 20/07 pra olhar aquele dia e deixou a aba
+       aberta até 01/08), o setSelectedDay acima não arrasta nada — a guarda
+       exige prev === prevToday — mas o cursor pulava pra agosto assim mesmo: a
+       grade de agosto vai de 26/07 a 05/09 e 20/07 não tem célula NENHUMA ali.
+       O anel de seleção sumia da tela (nada mais dizia qual dia estava
+       escolhido) e o "Adicionar compromisso" da sidebar, único CTA visível de
+       criar evento, seguia ancorado num dia invisível e já passado, que o
+       `upcomingEvents` corta (`date < today`): o aluno salvava "P1
+       Farmacologia", via o toast de sucesso e a grade EXATAMENTE igual, lia
+       como "não salvou" e cadastrava de novo, ficando com a prova duplicada
+       num mês que ele nem vê. É palavra por palavra o modo de falha que o
+       `selectSameDayInMonth` fechou nas setas/dropdown; este caminho tinha
+       ficado sem essa chamada. Mesma regra dele: leva o dia escolhido pro mês
+       novo mantendo o dia do mês, clampado no último dia do destino (sem o
+       clamp, 31/01 → fevereiro escorregaria pra 03/03, de novo fora da grade). */
+    setSelectedDay((prev) => {
+      if (
+        prev.getFullYear() === today.getFullYear() &&
+        prev.getMonth() === today.getMonth()
+      ) {
+        return prev;
+      }
+      const lastDay = new Date(
+        today.getFullYear(),
+        today.getMonth() + 1,
+        0,
+      ).getDate();
+      const d = new Date(
+        today.getFullYear(),
+        today.getMonth(),
+        Math.min(prev.getDate(), lastDay),
+      );
+      d.setHours(0, 0, 0, 0);
+      return d;
+    });
+    /* `cursor` e `view` entram nas deps porque as decisões acima leem o que
+       está na tela; o tique continua sendo o único disparador que faz algo — as
+       re-execuções por mudança de cursor/view morrem na guarda de igualdade do
+       prevToday lá em cima. */
+  }, [today, cursor, view]);
+
   /* Falha ao LER as matérias do banco. Precisa ser visível: uma lista vazia
      por erro de rede/RLS é indistinguível de "ainda não cadastrei nada", e o
      aluno reage subindo a grade de novo — duplicando tudo. */
   const [subjectsError, setSubjectsError] = useState(false);
 
-  /* Carrega subjects + custom events em paralelo. */
+  /* Carrega subjects + custom events em paralelo, mas com falhas INDEPENDENTES.
+     Com Promise.all, uma falha na leitura das matérias (token expirado, RLS,
+     rede oscilando — listSubjectsStrictAsync re-lança de propósito) rejeitava o
+     conjunto e o setCustomEvents nunca rodava, mesmo com o listEventsAsync
+     (localStorage, que nunca lança) tendo resolvido: provas, blocos de estudo e
+     feriados sumiam da tela junto com as aulas, enquanto o banner só falava em
+     matéria. */
   useEffect(() => {
     let active = true;
-    Promise.all([listSubjectsStrictAsync(user.id), listEventsAsync(user.id)])
-      .then(([subs, evs]) => {
-        if (!active) return;
+    let pending = 2;
+    let subjectsSettled = false;
+    let capado: ReturnType<typeof setTimeout> | undefined;
+    const settle = () => {
+      pending -= 1;
+      if (pending === 0 && active) {
+        if (capado) clearTimeout(capado);
+        setLoading(false);
+      }
+    };
+    /* Esta leitura entra no MESMO token de ordem dos reloads (subjectsSeqRef):
+       com o teto abaixo a página passa a pintar com a carga inicial ainda em
+       voo, então ela pode aterrissar DEPOIS de um "Tentar de novo" ou de um
+       upload de grade (onSaved → reloadSubjects) e repor as matérias velhas por
+       cima das recém-gravadas — e, como é um SUCESSO, sem banner nenhum
+       dizendo. */
+    const seq = ++subjectsSeqRef.current;
+    listSubjectsStrictAsync(user.id)
+      .then((subs) => {
+        if (!active || seq !== subjectsSeqRef.current) return;
         setSubjects(subs);
-        setCustomEvents(evs);
         setSubjectsError(false);
       })
       .catch((err) => {
         // Estado anterior fica de pé: melhor a grade velha na tela que um mês
         // em branco mentindo que não existe aula.
-        console.error("[schedule] carga inicial falhou", err);
-        if (active) setSubjectsError(true);
+        console.error("[schedule] carga das matérias falhou", err);
+        if (active && seq === subjectsSeqRef.current) setSubjectsError(true);
       })
       .finally(() => {
-        if (active) setLoading(false);
+        subjectsSettled = true;
+        settle();
       });
+    listEventsAsync(user.id)
+      .then((evs) => {
+        if (active) setCustomEvents(evs);
+      })
+      .catch((err) => {
+        console.error("[schedule] carga dos eventos falhou", err);
+      })
+      .finally(settle);
+    /* TETO PRO GATE DA PRIMEIRA PINTURA — mesmo remédio que o calendário
+       acadêmico já tinha e estas duas cargas ficaram sem. O client do Supabase
+       é criado sem fetch customizado e sem AbortSignal, então uma requisição
+       que sai e nunca volta (wifi da faculdade trocando pra 4G, captive portal,
+       VPN caindo no meio da leitura) deixa a promise SEM assentar até o timeout
+       de TCP do SO — minutos. Sem teto, o `pending` nunca chegava a 0, o
+       `setLoading(false)` nunca rodava e o gate `if (loading || !academicSettled)`
+       devolvia só o spinner centralizado: sem header, sem "Subir agenda", sem
+       banner e sem "Tentar de novo" (os dois banners de erro vivem DEPOIS do
+       gate, logo inalcançáveis). A única saída era F5.
+       Passados 12s a página sai inteira, e se as matérias ainda estiverem em voo
+       acende o banner de erro — que é o único lugar com o "Tentar de novo" que
+       redispara as TRÊS cargas. Folga maior que os 4s do calendário acadêmico de
+       propósito: aqui a saída antecipada é uma agenda VAZIA (pior mentira que
+       uma grade sem período letivo), então só cortamos quando já não dá pra
+       chamar de "carregando". Se a resposta chegar depois, o `.then` repõe as
+       matérias e apaga o banner sozinho. */
+    capado = setTimeout(() => {
+      if (!active) return;
+      if (!subjectsSettled) setSubjectsError(true);
+      setLoading(false);
+    }, 12_000);
     return () => {
       active = false;
+      if (capado) clearTimeout(capado);
     };
   }, [user.id]);
 
   /* Calendário acadêmico: define até quando a grade horária vale (período
      letivo) e quais dias não têm aula (feriado/recesso). Falha silenciosa —
-     sem calendário, a grade segue valendo sem limite, como antes. */
+     enquanto NUNCA carregou, a grade segue valendo sem limite, como antes
+     (mas uma falha depois de carregado não zera o que já vale; ver abaixo). */
   const [academicCalendar, setAcademicCalendar] =
     useState<AcademicCalendar | null>(null);
 
+  /* FALHA DE LEITURA NÃO PODE APAGAR O CALENDÁRIO QUE JÁ ESTÁ NA MEMÓRIA.
+     Antes os dois caminhos de erro (resposta não-ok virava `null` e caía em
+     normalizeAcademicCalendar(undefined), e o .catch setava null direto)
+     derrubavam o calendário bom pra `null`. Sem janelas letivas o
+     `isWithinTerm` devolve true pra TUDO: a grade voltava a se repetir sem
+     limite — aula de segunda no Natal, no carnaval, em julho inteiro e no ano
+     seguinte — e o banner "Fora do período letivo" sumia junto. Como este
+     reload é disparado logo após subir um calendário novo (onSaved), um 500 de
+     cold start ou um token expirado se lia como "subir o calendário quebrou
+     minha agenda", e só um refresh consertava.
+     Agora só um GET BEM-SUCEDIDO troca o estado: `null` de verdade (aluno sem
+     calendário no perfil) continua zerando; erro mantém o que já valia. */
+
+  /* A falha de leitura precisa ser VISÍVEL. Enquanto o `.catch` só logava no
+     console, uma falha na PRIMEIRA carga (cold start 500, token expirado, rede
+     oscilando) deixava o `academicCalendar` em `null` — e sem janelas letivas o
+     `isWithinTerm` devolve true pra TODA data: a aula de segunda 08:00 volta a
+     ser desenhada em 25/12, no Carnaval, em julho inteiro e nos meses à frente,
+     enquanto o banner "Fora do período letivo", o aviso "Mês sem aula" e os
+     rótulos de feriado somem todos juntos. Nada na tela dizia que a leitura
+     falhou (é o inverso do que o aluno importou o calendário pra ter) e o único
+     "Tentar de novo" da página não recarregava o calendário: só F5 saía disso. */
+  const [academicError, setAcademicError] = useState(false);
+
+  /* TOKEN DE ORDEM — mesma regra do subjectsSeqRef/eventsSeqRef logo abaixo,
+     que o calendário acadêmico tinha ficado sem. Este load tem QUATRO
+     disparadores (mount, retry do banner de matérias, retry do próprio banner e
+     onSaved do upload), então é fácil ter duas leituras em voo e, sem token,
+     quem manda é a que CHEGA por último — não a que saiu por último:
+     - a leitura #1 estourando depois de a #2 ter dado certo ressuscitava o
+       banner vermelho numa tela com o calendário perfeitamente carregado; o
+       aluno clicava "Tentar de novo" de novo e realimentava a corrida;
+     - pior, no caminho de gravação parcial do AcademicCalendarUpload o
+       onProgress dispara uma leitura ANTES do PATCH (perfil ANTIGO); se ela
+       aterrissar depois da leitura do onSaved, o setAcademicCalendar repõe o
+       calendário VELHO por cima do recém-salvo: as janelas letivas voltam pro
+       semestre passado, as aulas somem atrás de "Fora do período letivo" e os
+       feriados novos param de suprimir aula. Como essa resposta é um SUCESSO,
+       academicError fica false e não sobra banner nem botão — só F5.
+     Agora só a leitura MAIS RECENTE pode escrever no state. */
+  const academicSeqRef = useRef(0);
+
+  /* "Ainda não li" ≠ "este aluno não tem calendário" — os dois eram `null`, e
+     como o gate de loading só conta matérias + eventos, a primeira pintura
+     saía com esta leitura ainda em voo. Sem janelas letivas o `isWithinTerm`
+     devolve true pra TODA data: a grade nascia com o mês inteiro de aula (10/07
+     no meio do recesso pintado com as 25 aulas da semana, sem o rótulo de
+     recesso nas células e sem o banner "Mês sem aula") e 1-3s depois tudo sumia
+     de uma vez. Quem olha de relance — ou tira print pra conferir a semana —
+     leva a informação errada, e o pisca-apaga de uma grade cheia sumindo
+     sozinha é o sintoma que faz o aluno concluir que a agenda perdeu a grade
+     dele. Este flag separa o terceiro significado do `null` e segura a primeira
+     pintura até a leitura assentar (deu certo, deu erro ou estourou o teto). */
+  const [academicSettled, setAcademicSettled] = useState(false);
+
+  /* Retry sem feedback vira clique duplicado: o botão "Tentar de novo" não
+     desabilitava nem virava spinner, então o aluno clicava de novo e colocava
+     mais uma leitura em voo — exatamente a corrida que o token acima fecha. */
+  const [academicLoading, setAcademicLoading] = useState(false);
+
   const loadAcademicCalendar = useCallback(() => {
-    fetch("/api/user-profile")
-      .then((r) => (r.ok ? r.json() : null))
+    const seq = ++academicSeqRef.current;
+    setAcademicLoading(true);
+    /* TETO DA PRÓPRIA LEITURA — sem ele o "Tentar de novo" virava botão morto.
+       Este fetch saía sem AbortSignal e sem timeout (ao contrário das cargas de
+       matérias/eventos, que têm teto de 12s; o teto de 4s do mount só toca o
+       `academicSettled`, nunca o `academicLoading`). No wifi da faculdade —
+       captive portal, VPN caindo, troca pra 4G — a requisição sai e não volta, a
+       promise fica sem assentar por MINUTOS e o `.finally` nunca roda: o botão
+       ficava preso em "Lendo…" `disabled`. Como ele é o ÚNICO controle da tela
+       que recarrega o calendário quando `subjectsError` é false (o outro
+       "Tentar de novo" vive dentro do banner de matérias, que nem está na tela),
+       a grade seguia sendo desenhada sem período letivo e sem feriado/recesso —
+       aula em 25/12, no recesso e nos meses à frente — sem saída além de F5.
+       Com o abort a promise assenta: cai no `.catch` (que é a verdade: a leitura
+       falhou), o banner continua de pé e o botão volta a clicável. */
+    const ctrl = new AbortController();
+    const capado = setTimeout(() => ctrl.abort(), 12_000);
+    fetch("/api/user-profile", { signal: ctrl.signal })
+      .then((r) => {
+        if (!r.ok) throw new Error(`user-profile respondeu ${r.status}`);
+        return r.json();
+      })
       .then((data) => {
+        // Resposta atrasada de uma leitura que já foi substituída: não escreve
+        // no state e nem sequer entra no guard abaixo (o throw dela cairia no
+        // .catch e acenderia um banner de erro fantasma).
+        if (seq !== academicSeqRef.current) return;
+        /* FALHA DE LEITURA TAMBÉM CHEGA COMO 200. O guard do `!r.ok` acima só
+           pega erro de transporte: quando o SELECT em user_profiles falha
+           (token em refresh, RLS, cold start), getUserProfileAsync loga e
+           retorna null, e a rota responde 200 {"profile":null} — indistinguível
+           de "aluno sem perfil". Como `r.ok` é true, o setAcademicCalendar(null)
+           rodava e zerava o calendário BOM que estava na memória, com o mesmo
+           estrago acima e persistindo até um reload que lesse bem. Se este aluno
+           já salvou um calendário daqui, "perfil vazio" não é perfil novo: é
+           leitura falhada — mesmo guard do academic-calendar-upload.tsx. */
+        if (!data?.profile && hasSavedAcademicCalendarLocally(user.id)) {
+          throw new Error("user-profile devolveu profile vazio");
+        }
         setAcademicCalendar(
           normalizeAcademicCalendar(data?.profile?.academicCalendar),
         );
+        setAcademicError(false);
       })
-      .catch(() => setAcademicCalendar(null));
-  }, []);
+      .catch((err) => {
+        console.error("[schedule] leitura do calendário acadêmico falhou", err);
+        // Falha de leitura VELHA não acende banner: se uma leitura mais nova já
+        // respondeu OK, o calendário na tela está certo e o banner só mentiria.
+        if (seq === academicSeqRef.current) setAcademicError(true);
+      })
+      .finally(() => {
+        clearTimeout(capado);
+        setAcademicSettled(true);
+        if (seq === academicSeqRef.current) setAcademicLoading(false);
+      });
+  }, [user.id]);
 
   useEffect(() => {
     loadAcademicCalendar();
+    /* Teto pro gate da primeira pintura: este fetch não tem timeout e pode
+       ficar pendurado minutos numa rede que caiu — segurar a página inteira no
+       spinner por isso seria pior que a grade otimista. Passados 4s a tela sai
+       do jeito antigo (sem período letivo), e o banner de erro cobre o resto
+       quando a leitura de fato falha. */
+    const capado = setTimeout(() => setAcademicSettled(true), 4000);
+    return () => clearTimeout(capado);
   }, [loadAcademicCalendar]);
 
   const termBounds = useMemo(
@@ -526,6 +996,21 @@ function ScheduleView({ user }: { user: User }) {
     }),
     [academicCalendar],
   );
+
+  /* Dia suprimido → texto que aparece na célula do mês e no cabeçalho da
+     semana. A AUTORIDADE sobre o que some da grade continua sendo o
+     `termBounds.nonTeaching` (o mesmo Set que o expandSlotsToEvents consulta):
+     todo dia que ele apaga entra aqui, com o título do evento quando existe e
+     com um rótulo genérico quando não existe. Assim é impossível um dia sumir
+     da grade sem nada dizendo por quê — que era exatamente o buraco. */
+  const nonTeachingByDay = useMemo(() => {
+    const labels = buildNonTeachingLabels(academicCalendar);
+    const out = new Map<string, string>();
+    for (const iso of termBounds.nonTeaching) {
+      out.set(iso, labels.get(iso) ?? "Sem aula (calendário acadêmico)");
+    }
+    return out;
+  }, [academicCalendar, termBounds.nonTeaching]);
 
   /* Token de ordem: os reloads são disparados por vários callbacks (o
      SchedulePdfUpload chama onSaved duas vezes numa mesma sessão do dialog —
@@ -567,7 +1052,7 @@ function ScheduleView({ user }: { user: User }) {
     const aulas = subjects.length
       ? expandSlotsToEvents(subjects, windowStart, windowEnd, termBounds)
       : [];
-    const custom = customEvents.map((c) => customEventToUEvent(c, subjects));
+    const custom = customEvents.flatMap((c) => customEventToUEvents(c, subjects));
     // Inclui TODOS custom (mesmo fora da janela acima — pra cards "próximos")
     const all = [...aulas, ...custom];
     return all
@@ -624,7 +1109,7 @@ function ScheduleView({ user }: { user: User }) {
     const aulas = subjects.length
       ? expandSlotsToEvents(subjects, today00, horizon, termBounds)
       : [];
-    const custom = customEvents.map((c) => customEventToUEvent(c, subjects));
+    const custom = customEvents.flatMap((c) => customEventToUEvents(c, subjects));
 
     return [...aulas, ...custom]
       .filter((e) => activeTypes.has(e.type))
@@ -679,16 +1164,33 @@ function ScheduleView({ user }: { user: User }) {
     });
   }, [weekAnchor]);
 
-  /* Sincroniza weekAnchor ao mudar pra view semana ou clicar num dia (UX:
-     entrar na semana e ver a semana do dia selecionado). */
+  /* Sincroniza weekAnchor ao clicar num dia enquanto a view semana está aberta
+     (UX: ver a semana do dia selecionado). A TROCA de view não depende mais
+     deste efeito — ela passa por changeView/goToWeekOf, que move os três
+     estados juntos; aqui a comparação só confirma que já estão alinhados. */
   useEffect(() => {
-    if (view === "semana") {
-      setWeekAnchor((prev) => {
-        const sa = startOfWeek(prev);
-        const ss = startOfWeek(selectedDay);
-        return sa.getTime() === ss.getTime() ? prev : selectedDay;
-      });
-    }
+    if (view !== "semana") return;
+    const ss = startOfWeek(selectedDay);
+    setWeekAnchor((prev) => {
+      const sa = startOfWeek(prev);
+      return sa.getTime() === ss.getTime() ? prev : selectedDay;
+    });
+    /* O `cursor` tem que andar junto da semana visível — este efeito era o
+       único caminho que movia o weekAnchor SEM passar pelo goToWeekOf (que move
+       os três estados). Depois da virada do dia (sábado 31/01 → domingo 01/02,
+       semanas diferentes) ele pulava a grade pra 01–07/02 e o rótulo virava
+       "Fevereiro de 2026" (refDate = miolo da semana), mas o cursor continuava
+       em 01/01: clicar em "Mês" abria JANEIRO, porque o changeView só
+       sincroniza no sentido mes→semana. Mesma regra do goToWeekOf: o mês é o do
+       MIOLO (quarta) da semana mostrada, que é de onde o rótulo sai. */
+    const mid = new Date(ss);
+    mid.setDate(ss.getDate() + 3);
+    setCursor((prev) =>
+      prev.getFullYear() === mid.getFullYear() &&
+      prev.getMonth() === mid.getMonth()
+        ? prev
+        : new Date(mid.getFullYear(), mid.getMonth(), 1),
+    );
   }, [view, selectedDay]);
 
   /* Data de referência da view ativa. Na semana quem manda é o weekAnchor
@@ -709,6 +1211,12 @@ function ScheduleView({ user }: { user: User }) {
         isWithinTerm(toLocalIso(d), termBounds.terms),
       );
       if (temAula) return null;
+      // Sem aula na semana, o texto TEM que sair da própria semana. Cair no
+      // describeTermGap (que raciocina por MÊS) devolvia null toda vez que o
+      // mês encostava na janela letiva — semana de 01–07/02 com semestre
+      // começando em 09/02 ficava sem uma aula sequer e sem explicação, que é
+      // exatamente o "vazio e mudo parece bug" que o banner existe pra evitar.
+      return describeWeekGap(weekDays, termBounds.terms);
     }
     return describeTermGap(
       refDate.getFullYear(),
@@ -716,6 +1224,57 @@ function ScheduleView({ user }: { user: User }) {
       termBounds.terms,
     );
   }, [view, weekDays, refDate, termBounds.terms]);
+
+  /* Segundo motivo de período vazio, que nenhum dos dois banners acima enxerga:
+     estar DENTRO da janela letiva e mesmo assim não ter um único dia com aula,
+     porque feriado/recesso apagou todos. É o "Recesso de meio de ano 01/07 a
+     31/07" dentro de uma janela [05/02, 15/12] — o describeTermGap vê
+     sobreposição e cala, o `temAula` da semana dá true e cala também, e o mês
+     inteiro fica sem aula, sem banner e sem evento (feriado/recesso vem
+     desmarcado no importador, então nem chip existe). Só dispara quando TODO
+     dia letivo do período visível está bloqueado: feriado avulso e emenda de 3
+     dias já se explicam pelo marcador da própria célula/coluna, e um banner
+     nesses casos seria ruído. */
+  const nonTeachingNotice = useMemo(() => {
+    if (view === "agenda") return null;
+    if (termGap) return null; // fora do período letivo já tem explicação
+    if (nonTeachingByDay.size === 0) return null;
+    const days =
+      view === "semana"
+        ? weekDays
+        : monthGrid.cells.filter(
+            (d) =>
+              d.getMonth() === cursor.getMonth() &&
+              d.getFullYear() === cursor.getFullYear(),
+          );
+    const letivos = days.filter((d) =>
+      isWithinTerm(toLocalIso(d), termBounds.terms),
+    );
+    if (letivos.length === 0) return null;
+    const blocked = letivos.filter((d) => nonTeachingByDay.has(toLocalIso(d)));
+    if (blocked.length < letivos.length) return null;
+    const motivos = Array.from(
+      new Set(blocked.map((d) => nonTeachingByDay.get(toLocalIso(d))!)),
+    ).slice(0, 3);
+    return {
+      title: view === "semana" ? "Semana sem aula" : "Mês sem aula",
+      // "dias letivos" e não "dias": o recorte é sempre o que está DENTRO da
+      // janela letiva, senão o texto mentiria num mês que só encosta nela.
+      detail: `O calendário acadêmico marca ${
+        view === "semana"
+          ? "todos os dias letivos desta semana"
+          : "todos os dias letivos deste mês"
+      } como feriado ou recesso (${motivos.join(", ")}), então a grade não aparece aqui. Suas matérias continuam salvas — não precisa subir a grade de novo.`,
+    };
+  }, [
+    view,
+    termGap,
+    nonTeachingByDay,
+    weekDays,
+    monthGrid.cells,
+    cursor,
+    termBounds.terms,
+  ]);
 
   /* Aulas expandidas na janela DA SEMANA visível. weekAnchor navega
      independente do cursor do mês, então a janela de allEvents (ancorada no
@@ -731,7 +1290,7 @@ function ScheduleView({ user }: { user: User }) {
     const aulas = subjects.length
       ? expandSlotsToEvents(subjects, start, end, termBounds)
       : [];
-    const custom = customEvents.map((c) => customEventToUEvent(c, subjects));
+    const custom = customEvents.flatMap((c) => customEventToUEvents(c, subjects));
 
     return [...aulas, ...custom]
       .filter((e) => activeTypes.has(e.type))
@@ -753,9 +1312,22 @@ function ScheduleView({ user }: { user: User }) {
     return upcomingEvents.filter((e) => e.type === agendaFilter);
   }, [upcomingEvents, agendaFilter]);
 
+  /**
+   * Quem mexeu por último na view Mês: as setas/dropdown ("mes", que só movem o
+   * `cursor`) ou o clique num dia ("dia", que só move o `selectedDay`). Na hora
+   * de entrar na view Semana os dois podem apontar pra meses diferentes e é
+   * preciso saber em qual acreditar — sem isso, olhar sempre pro selectedDay
+   * descartava calada a navegação de meses, e olhar sempre pro cursor ignorava
+   * o dia recém-clicado na última linha da grade. Começa em "dia" porque na
+   * montagem o selecionado é hoje (a semana esperada é a de hoje, não a
+   * primeira do mês).
+   */
+  const monthIntentRef = useRef<"dia" | "mes">("dia");
+
   function goToToday() {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    monthIntentRef.current = "dia";
     setSelectedDay(today);
     // O efeito de sync só reage a MUDANÇA de selectedDay: se hoje já estava
     // selecionado, a semana ficaria parada onde o usuário navegou.
@@ -763,6 +1335,72 @@ function ScheduleView({ user }: { user: User }) {
     const c = new Date(today);
     c.setDate(1);
     setCursor(c);
+    /* Na view Agenda nenhum dos três estados acima chega à tela: a lista é
+       sempre hoje→+30d (ancorada no `today` do tique), termGap e
+       nonTeachingNotice retornam null e o rótulo do mês virou o span estático
+       "Próximos 30 dias". O botão era controle MORTO ali — o aluno rolava a
+       lista até o fim, clicava "Hoje" pra voltar pro bloco de hoje e nenhum
+       pixel mudava. Como a lista COMEÇA no bloco de hoje, levar a rolagem pro
+       topo é exatamente o que ele pediu (mesmo caminho do "Ver agenda
+       completa" da sidebar). */
+    if (view === "agenda" && typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      });
+    }
+  }
+
+  /**
+   * Move a semana visível levando junto o cursor do mês e o selectedDay.
+   *
+   * Mexer só no weekAnchor deixava os três estados brigando: o rótulo passava
+   * a dizer "Setembro" enquanto o cursor continuava em julho (clicar em "Mês"
+   * abria JULHO), e, ao voltar pra "Semana", o efeito de sync — que compara
+   * weekAnchor com selectedDay — jogava a semana de volta pra do selectedDay,
+   * apagando toda a navegação. Manter selectedDay DENTRO da semana mostrada
+   * neutraliza esse sync e mantém "Adicionar compromisso" no dia certo.
+   */
+  function goToWeekOf(anchor: Date) {
+    /* Navegar semanas é intenção de DIA, não de MÊS. Sem esta linha o
+       monthIntentRef ficava preso em "mes" (posto pelas setas/dropdown do mês)
+       e o round-trip Semana → Mês → Semana recalculava a âncora com
+       weekAnchorForMonth(cursor), jogando o aluno de volta pra PRIMEIRA semana
+       do mês: as três semanas que ele acabou de navegar sumiam sem aviso.
+       Como esta função já move o selectedDay pra DENTRO da semana mostrada,
+       marcar "dia" faz o changeView reancorar exatamente na semana visível. */
+    monthIntentRef.current = "dia";
+    const base = startOfWeek(anchor);
+    const mid = new Date(base);
+    mid.setDate(base.getDate() + 3); // miolo (quarta) = mês dominante da semana
+    setWeekAnchor(anchor);
+    setCursor(new Date(mid.getFullYear(), mid.getMonth(), 1));
+    setSelectedDay((prev) => {
+      const d = new Date(base);
+      d.setDate(base.getDate() + prev.getDay()); // mesmo dia da semana
+      return d;
+    });
+  }
+
+  /**
+   * Navegar meses tem que levar o DIA SELECIONADO junto pro mês que está na
+   * tela. Mexendo só no cursor, o selectedDay ficava num mês que não tem uma
+   * célula sequer na grade (30/07 não está entre os 42 dias de setembro): o
+   * anel de seleção sumia — nada dizia qual dia estava escolhido — e o botão
+   * "Adicionar compromisso" da sidebar, único CTA visível de criar evento,
+   * continuava ancorado no mês anterior. O aluno navegava até setembro, salvava
+   * "P1 Farmacologia", via o toast de sucesso e a grade de setembro EXATAMENTE
+   * igual (o compromisso nasceu em julho): a leitura natural é "não salvou",
+   * ele cadastrava de novo e ficava uma prova duplicada num mês que ele nem vê.
+   * Mantém o dia do mês, clampado no último dia do destino — sem o clamp,
+   * 31/01 → fevereiro escorregaria pra 03/03, de novo fora da grade.
+   */
+  function selectSameDayInMonth(year: number, month: number) {
+    setSelectedDay((prev) => {
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const d = new Date(year, month, Math.min(prev.getDate(), lastDay));
+      d.setHours(0, 0, 0, 0);
+      return d;
+    });
   }
 
   /* As setas/dropdown de mês movem TAMBÉM a semana quando a view é semana —
@@ -775,24 +1413,56 @@ function ScheduleView({ user }: { user: User }) {
       // si mesmo faz a view Mês abrir um mês diferente do que o rótulo dizia.
       const next = new Date(refDate.getFullYear(), refDate.getMonth() + delta, 1);
       next.setHours(0, 0, 0, 0);
-      setCursor(next);
-      setWeekAnchor(weekAnchorForMonth(next.getFullYear(), next.getMonth()));
+      goToWeekOf(weekAnchorForMonth(next.getFullYear(), next.getMonth()));
       return;
     }
-    setCursor((prev) => {
-      const next = new Date(prev);
-      next.setMonth(prev.getMonth() + delta);
-      next.setDate(1);
-      next.setHours(0, 0, 0, 0);
-      return next;
-    });
+    monthIntentRef.current = "mes";
+    const next = new Date(cursor.getFullYear(), cursor.getMonth() + delta, 1);
+    next.setHours(0, 0, 0, 0);
+    setCursor(next);
+    selectSameDayInMonth(next.getFullYear(), next.getMonth());
   }
 
   function setMonthYear(month: number, year: number) {
+    if (view === "semana") {
+      goToWeekOf(weekAnchorForMonth(year, month));
+      return;
+    }
+    monthIntentRef.current = "mes";
     const d = new Date(year, month, 1);
     d.setHours(0, 0, 0, 0);
     setCursor(d);
-    if (view === "semana") setWeekAnchor(weekAnchorForMonth(year, month));
+    selectSameDayInMonth(year, month);
+  }
+
+  /**
+   * Troca de view mantendo cursor, weekAnchor e selectedDay apontando pro MESMO
+   * lugar. Antes a sincronização era só o efeito de weekAnchor, que compara
+   * weekAnchor com selectedDay e ignora o cursor — os dois desencontros que
+   * saíam disso:
+   *
+   * (a) navegar meses na view Mês (só o cursor anda) e clicar em "Semana": o
+   *     efeito achava weekAnchor e selectedDay na mesma semana, mantinha a
+   *     âncora de julho e a navegação até setembro sumia sem aviso, com o botão
+   *     "Mês" ainda abrindo setembro;
+   * (b) clicar numa célula de outro mês (05/08 na grade de julho, só o
+   *     selectedDay anda) e ir pra semana: o rótulo virava "Agosto de 2026" e
+   *     clicar em "Mês" reabria JULHO.
+   *
+   * É o mesmo desencontro que as setas já resolvem via goToWeekOf; agora a
+   * troca de view passa por ele, escolhendo a âncora pelo controle que o aluno
+   * usou por último.
+   */
+  function changeView(next: CalendarView) {
+    if (next === view) return;
+    if (next === "semana") {
+      const anchor =
+        monthIntentRef.current === "mes"
+          ? weekAnchorForMonth(cursor.getFullYear(), cursor.getMonth())
+          : selectedDay;
+      goToWeekOf(anchor);
+    }
+    setView(next);
   }
 
   function toggleType(t: CalendarEventType) {
@@ -816,19 +1486,37 @@ function ScheduleView({ user }: { user: User }) {
    * são read-only.
    */
   function openEventDetails(u: UEvent) {
-    const isCustom = customEvents.some((c) => c.id === u.id);
+    // Dia 2+ de um evento de intervalo tem id sufixado: procurar/editar/excluir
+    // tem que usar o id do CalendarEvent de origem, senão o dia 23/06 da semana
+    // de provas abriria como "da grade" (read-only) e o botão Excluir sumiria.
+    const sourceId = u.sourceId ?? u.id;
+    const isCustom = customEvents.some((c) => c.id === sourceId);
+    // O modal mostra UM dia; sem isto, o 3º dia de "Exames finais" se anuncia
+    // como um evento solto de 24/06 e o aluno não vê que o período vai até 26.
+    const description = u.spanLabel
+      ? [`Período: ${u.spanLabel}`, u.description].filter(Boolean).join("\n")
+      : u.description;
+    // Feriado/recesso/prazo é DIA TODO: o mês, a agenda e a sidebar já param de
+    // imprimir hora, mas o modal — a única tela que o aluno abre justamente pra
+    // ver o detalhe — continuava mostrando o horário falso "00:00 – 23:59" que
+    // ninguém escreveu (é só o intervalo interno que representa o dia inteiro).
+    // O DetailsEvent não tem campo allDay (o dialog é de outro arquivo), então o
+    // recado sai pelo único canal que existe: o dialog imprime só o startTime
+    // quando início e fim são iguais (`hasTimeRange`), então mandar os dois como
+    // "Dia todo" faz a linha do relógio dizer "Dia todo".
+    const allDayLabel = "Dia todo";
     const details: DetailsEvent = {
-      id: u.id,
+      id: sourceId,
       type: u.type,
       date: u.date,
-      startTime: u.startTime,
-      endTime: u.endTime,
+      startTime: u.allDay ? allDayLabel : u.startTime,
+      endTime: u.allDay ? allDayLabel : u.endTime,
       title: u.title,
       subjectId: u.subjectId,
       subjectName: u.subjectName,
       subjectColor: u.subjectColor,
       room: u.room,
-      description: u.description,
+      description,
       readOnly: !isCustom,
     };
     setDetailsEvent(details);
@@ -844,8 +1532,26 @@ function ScheduleView({ user }: { user: User }) {
     setEventDialogOpen(true);
   }
 
+  /**
+   * Troca o filtro da view Agenda garantindo que o tipo escolhido esteja
+   * VISÍVEL. A lista da agenda já vem peneirada por `activeTypes` (legenda
+   * embaixo do calendário / dropdown Filtros), então com "Prova" desmarcado a
+   * pill "Prova" não trazia nada — e a tela ainda afirmava que não havia prova
+   * nos próximos 30 dias, com prova marcada pra semana seguinte. Depois de
+   * "Limpar" nos Filtros, as cinco pills viravam botões mortos.
+   */
+  function applyAgendaFilter(f: CalendarEventType | "all") {
+    setAgendaFilter(f);
+    if (f === "all") {
+      // Sem nenhum tipo ativo, "Todos" é garantidamente vazio: restaura.
+      setActiveTypes((prev) => (prev.size === 0 ? new Set(ALL_TYPES) : prev));
+      return;
+    }
+    setActiveTypes((prev) => (prev.has(f) ? prev : new Set(prev).add(f)));
+  }
+
   function jumpToAgendaFiltered(type: CalendarEventType | "all") {
-    setAgendaFilter(type);
+    applyAgendaFilter(type);
     setView("agenda");
     if (typeof window !== "undefined") {
       window.requestAnimationFrame(() => {
@@ -857,7 +1563,11 @@ function ScheduleView({ user }: { user: User }) {
   const firstName = user.name.split(" ")[0] || "estudante";
   const monthLabel = `${MONTHS_LONG[refDate.getMonth()]} de ${refDate.getFullYear()}`;
 
-  if (loading) {
+  /* O gate conta as TRÊS cargas, não só matérias + eventos: liberar a primeira
+     pintura com o calendário acadêmico ainda em voo desenha a grade sem período
+     letivo e sem feriado/recesso (ver academicSettled), e o aluno vê um mês
+     cheio de aula que some sozinho 1-3s depois. */
+  if (loading || !academicSettled) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
         <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -912,14 +1622,21 @@ function ScheduleView({ user }: { user: User }) {
             <FileText className="h-4 w-4" />
             Calendário de provas
           </Button>
+          {/* Os dois CTAs apontavam pro MESMO `/dashboard` cru: dois rótulos,
+              dois ícones e o botão mais destacado da aba levavam pro topo do
+              dashboard sem abrir dialog nenhum, e o aluno tinha que caçar o
+              botão equivalente lá embaixo. O parâmetro `novo` diz QUAL dialog
+              abrir; o dashboard ainda precisa lê-lo (ele não usa searchParams
+              hoje) — enquanto não ler, o destino continua o de sempre, sem
+              regressão. */}
           <Button asChild variant="outline" size="sm">
-            <Link href="/dashboard">
+            <Link href="/dashboard?novo=materia">
               <Plus className="h-4 w-4" />
               Nova matéria
             </Link>
           </Button>
           <Button asChild variant="gradient" size="sm">
-            <Link href="/dashboard">
+            <Link href="/dashboard?novo=aula">
               <Mic className="h-4 w-4" />
               Nova aula
             </Link>
@@ -977,7 +1694,12 @@ function ScheduleView({ user }: { user: User }) {
                 <button
                   key={v}
                   type="button"
-                  onClick={() => setView(v)}
+                  onClick={() => changeView(v)}
+                  /* O ativo se distinguia SÓ por `bg-primary`: no leitor de tela
+                     os três botões se anunciavam idênticos e o aluno não sabia
+                     se estava no Mês, na Semana ou na Agenda. */
+                  aria-pressed={active}
+                  aria-current={active ? "true" : undefined}
                   className={cn(
                     "h-7 px-3 rounded text-xs font-medium transition-colors",
                     active
@@ -1021,9 +1743,52 @@ function ScheduleView({ user }: { user: User }) {
                 variant="outline"
                 size="sm"
                 className="shrink-0"
-                onClick={reloadSubjects}
+                onClick={() => {
+                  reloadSubjects();
+                  // Recarrega TAMBÉM os eventos custom: se a carga inicial
+                  // tropeçou antes de setá-los, só recarregar as matérias fazia
+                  // o banner sumir com provas/blocos ainda faltando na tela —
+                  // a agenda passava a afirmar estar íntegra estando furada.
+                  reloadCustomEvents();
+                  // E o calendário acadêmico: se a carga inicial tropeçou nele
+                  // também, sem esta linha não existia NENHUM caminho na UI pra
+                  // recuperar o período letivo (só F5).
+                  loadAcademicCalendar();
+                }}
               >
                 Tentar de novo
+              </Button>
+            </div>
+          )}
+          {/* Leitura do calendário acadêmico falhou. Sem banner, o aluno via a
+              grade voltar a se repetir em feriado, recesso e férias e concluía
+              que o app "voltou a mostrar aula errada" — o inverso do que ele
+              importou o calendário pra ter. */}
+          {academicError && (
+            <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-foreground">
+                  Não consegui ler seu calendário acadêmico
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {academicCalendar
+                    ? "Continuo usando o calendário que já estava carregado — ele pode estar desatualizado."
+                    : "Enquanto isso a grade está sendo desenhada sem período letivo e sem feriado/recesso, então pode aparecer aula em dia sem aula. Nada foi apagado: é só a leitura que falhou."}
+                </p>
+              </div>
+              {/* Enquanto a leitura está em voo o botão precisa DIZER isso:
+                  sem desabilitar e sem spinner, nada mudava na tela e o aluno
+                  clicava de novo, empilhando leituras concorrentes. */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                disabled={academicLoading}
+                onClick={() => loadAcademicCalendar()}
+              >
+                {academicLoading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {academicLoading ? "Lendo…" : "Tentar de novo"}
               </Button>
             </div>
           )}
@@ -1040,15 +1805,65 @@ function ScheduleView({ user }: { user: User }) {
               </div>
             </div>
           )}
+          {nonTeachingNotice && !subjectsError && subjects.length > 0 && (
+            <div className="flex items-start gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3">
+              <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-foreground">
+                  {nonTeachingNotice.title}
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {nonTeachingNotice.detail}
+                </p>
+              </div>
+            </div>
+          )}
+          {/* "Limpar" nos Filtros zera o activeTypes e o `.filter` derruba 100%
+              dos eventos: o mês virava 42 células em branco e a semana uma
+              grade de horas vazia, sem uma linha dizendo o motivo (o único
+              indício era o badge "0" lá em cima). A view Agenda já avisava com
+              o "Oculto pelos filtros"; mês e semana — onde o aluno passa a maior
+              parte do tempo — ficaram de fora. */}
+          {activeTypes.size === 0 && view !== "agenda" && (
+            <div className="flex items-start gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3">
+              <Filter className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-foreground">
+                  Tudo oculto pelos filtros
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Nenhuma categoria está marcada, então o calendário aparece
+                  vazio. Seus compromissos continuam salvos.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={() => setActiveTypes(new Set(ALL_TYPES))}
+              >
+                Mostrar tudo
+              </Button>
+            </div>
+          )}
           {view === "mes" && (
             <MonthGrid
               cells={monthGrid.cells}
               cursorMonth={cursor.getMonth()}
               today={today}
               selectedDay={selectedDay}
-              onSelectDay={setSelectedDay}
+              onSelectDay={(d) => {
+                // Clicar num dia é a intenção mais recente do aluno — é ela que
+                // decide a âncora quando ele trocar pra view Semana (senão o
+                // clique numa célula de outro mês e a navegação por setas
+                // brigam e uma das duas é descartada calada).
+                monthIntentRef.current = "dia";
+                setSelectedDay(d);
+              }}
               onDayDoubleClick={(d) => openCreateDialog({ date: d })}
+              onEventClick={openEventDetails}
               eventsByDay={eventsByDay}
+              nonTeachingByDay={nonTeachingByDay}
             />
           )}
           {view === "semana" && (
@@ -1057,24 +1872,49 @@ function ScheduleView({ user }: { user: User }) {
               events={eventsInWeek}
               today={today}
               selectedDay={selectedDay}
-              onSelectDay={setSelectedDay}
+              onSelectDay={(d) => {
+                monthIntentRef.current = "dia";
+                setSelectedDay(d);
+              }}
               onShiftWeek={(delta) => {
-                setWeekAnchor((prev) => {
-                  const next = new Date(prev);
-                  next.setDate(prev.getDate() + delta * 7);
-                  next.setHours(0, 0, 0, 0);
-                  return next;
-                });
+                // Move os TRÊS estados (semana, cursor do mês, dia selecionado):
+                // mexer só no weekAnchor fazia o rótulo dizer "Setembro" com o
+                // botão "Mês" abrindo julho, e as navegações se perdiam ao
+                // voltar pra view Semana.
+                const next = new Date(weekAnchor);
+                next.setDate(weekAnchor.getDate() + delta * 7);
+                next.setHours(0, 0, 0, 0);
+                goToWeekOf(next);
               }}
               onEventClick={openEventDetails}
+              nonTeachingByDay={nonTeachingByDay}
             />
           )}
           {view === "agenda" && (
+            /* Lista INTEIRA da janela de 30 dias. O `.slice(0, 60)` que ficava
+               aqui cortava a agenda de quem tem grade cheia (~25 aulas/semana)
+               por volta do 15º dia, calado: uma prova daqui a 24 dias existia no
+               storage, aparecia no mês e simplesmente não estava na aba Agenda,
+               que continuava dizendo "Próximos 30 dias". */
             <AgendaView
-              events={agendaEvents.slice(0, 60)}
+              events={agendaEvents}
               activeFilter={agendaFilter}
-              onFilterChange={setAgendaFilter}
+              onFilterChange={applyAgendaFilter}
               today={today}
+              /* Com "Todos" selecionado, checar só `size === 0` cobria o caso
+                 extremo ("Limpar" nos Filtros) e deixava passar o comum: basta
+                 UMA categoria desmarcada na legenda pra `upcomingEvents` vir
+                 peneirado e a lista sair vazia — e a tela então afirmava
+                 "Agenda vazia / Nenhum compromisso", com 100+ ocorrências
+                 escondidas atrás do filtro. Qualquer categoria desmarcada já
+                 torna o vazio AMBÍGUO, e o texto de "Oculto pelos filtros" é
+                 justamente o hedge certo ("pode haver compromisso agendado
+                 aqui"). */
+              hiddenByFilters={
+                agendaFilter === "all"
+                  ? activeTypes.size < ALL_TYPES.length
+                  : !activeTypes.has(agendaFilter)
+              }
             />
           )}
 
@@ -1083,7 +1923,16 @@ function ScheduleView({ user }: { user: User }) {
 
         {/* Right sidebar */}
         <aside className="lg:col-span-3">
-          <div className="rounded-xl border border-border/70 bg-card p-4 sticky top-4">
+          {/* O topbar do AppShell é `sticky top-0 z-20` com
+              `h-[calc(60px + env(safe-area-inset-top))]`. Com `top-4` o card
+              fixava a 16px e os primeiros ~44px dele ficavam ATRÁS do header:
+              o título "Agenda próxima" e o "Ver agenda completa →" saíam
+              lavados pelo backdrop-blur e, como o header não é
+              pointer-events:none, ele roubava o clique — o link ficava morto
+              com a página rolada. 76px (60 do topbar + 16 de respiro) é a mesma
+              conta do `sticky top-[80px]` das outras sidebars do app; o
+              env() entra porque em mobile o notch soma na altura do header. */}
+          <div className="rounded-xl border border-border/70 bg-card p-4 sticky top-[calc(76px_+_env(safe-area-inset-top))]">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold">Agenda próxima</h3>
               <button
@@ -1240,45 +2089,61 @@ function MonthDropdownPanel({
   onSelect: (month: number, year: number) => void;
 }) {
   const [pickerYear, setPickerYear] = useState<number>(cursor.getFullYear());
+  /* Cada controle daqui é DropdownMenuItem, e não <button> puro. Com <button> o
+     painel era uma armadilha de foco: ao abrir, o Radix move o foco pro
+     container e tenta focar o primeiro item da RovingFocusGroup — mas nenhum
+     destes controles estava na Collection do menu, então ↓/↑ chamavam
+     focusFirst([]) e não faziam nada, o Tab é engolido pelo próprio Radix
+     (preventDefault pra qualquer alvo dentro de [data-radix-menu-content]) e
+     Enter/Espaço não tinham alvo. Quem navega por teclado abria o seletor, não
+     via anel de foco em lugar nenhum e só saía com Esc — pular de julho pra
+     dezembro voltava a exigir 5 cliques na seta "Próximo mês". No leitor de
+     tela era pior: filhos não-menuitem dentro de role="menu" nem eram
+     anunciados. O `onSelect` das setas de ano dá preventDefault pra o menu não
+     fechar (elas navegam o painel, não escolhem o mês). */
   return (
     <DropdownMenuContent align="start" className="w-64 p-2">
         <div className="flex items-center justify-between px-1 pb-2">
-          <button
-            type="button"
-            onClick={() => setPickerYear((y) => y - 1)}
-            className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-accent text-muted-foreground"
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              setPickerYear((y) => y - 1);
+            }}
+            className="h-7 w-7 justify-center rounded p-0 text-muted-foreground [&_svg]:size-3.5"
             aria-label="Ano anterior"
           >
             <ChevronLeft className="h-3.5 w-3.5" />
-          </button>
+          </DropdownMenuItem>
           <span className="text-sm font-semibold tabular-nums">{pickerYear}</span>
-          <button
-            type="button"
-            onClick={() => setPickerYear((y) => y + 1)}
-            className="h-7 w-7 inline-flex items-center justify-center rounded hover:bg-accent text-muted-foreground"
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              setPickerYear((y) => y + 1);
+            }}
+            className="h-7 w-7 justify-center rounded p-0 text-muted-foreground [&_svg]:size-3.5"
             aria-label="Próximo ano"
           >
             <ChevronRight className="h-3.5 w-3.5" />
-          </button>
+          </DropdownMenuItem>
         </div>
         <div className="grid grid-cols-3 gap-1">
           {MONTHS_LONG.map((m, idx) => {
             const isCurrent =
               idx === cursor.getMonth() && pickerYear === cursor.getFullYear();
             return (
-              <button
+              <DropdownMenuItem
                 key={m}
-                type="button"
-                onClick={() => onSelect(idx, pickerYear)}
+                onSelect={() => onSelect(idx, pickerYear)}
+                aria-current={isCurrent ? "true" : undefined}
                 className={cn(
-                  "h-8 rounded text-xs font-medium transition-colors",
+                  "h-8 justify-center rounded px-0 py-0 text-xs font-medium",
                   isCurrent
                     ? "bg-primary text-primary-foreground"
-                    : "hover:bg-accent text-foreground",
+                    : "text-foreground",
                 )}
               >
                 {m.slice(0, 3)}
-              </button>
+              </DropdownMenuItem>
             );
           })}
         </div>
@@ -1325,6 +2190,16 @@ function FiltersDropdown({
                 e.preventDefault();
                 onToggle(t);
               }}
+              /* O quadradinho aqui é DESENHADO (span com borda + ícone Check),
+                 não o checkbox do Radix — sem estes dois atributos o item saía
+                 como `role="menuitem"` puro e o leitor de tela anunciava
+                 "Prova, item de menu" e mais nada: marcar/desmarcar não mudava
+                 anúncio nenhum e, como o onSelect faz preventDefault, o menu
+                 nem fecha pra dar pista. A única confirmação era o conteúdo do
+                 calendário — justo o que ele não consegue varrer.
+                 (role vem DEPOIS do default do Radix no spread, então vence.) */
+              role="menuitemcheckbox"
+              aria-checked={checked}
               className="cursor-pointer"
             >
               <span
@@ -1343,26 +2218,39 @@ function FiltersDropdown({
           );
         })}
         <DropdownMenuSeparator />
+        {/* Mesmo motivo do seletor de mês: <button> puro dentro de
+            [data-radix-menu-content] não entra na Collection do Radix, então
+            estes dois NUNCA recebiam foco (↓/↑ só percorriam as 5 categorias, o
+            Tab é engolido pelo menu) e, como filhos não-menuitem de role="menu",
+            nem eram anunciados no leitor de tela. O preventDefault mantém o
+            comportamento de antes: marcar/limpar sem fechar o menu. */}
         <div className="flex items-center justify-between gap-2 px-1 py-1">
-          <button
-            type="button"
-            onClick={onAll}
-            className="flex-1 rounded px-2 py-1 text-xs hover:bg-accent text-muted-foreground hover:text-foreground"
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              onAll();
+            }}
+            className="flex-1 justify-center rounded px-2 py-1 text-xs text-muted-foreground"
           >
             Marcar todos
-          </button>
-          <button
-            type="button"
-            onClick={onNone}
-            className="flex-1 rounded px-2 py-1 text-xs hover:bg-accent text-muted-foreground hover:text-foreground"
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              onNone();
+            }}
+            className="flex-1 justify-center rounded px-2 py-1 text-xs text-muted-foreground"
           >
             Limpar
-          </button>
+          </DropdownMenuItem>
         </div>
       </DropdownMenuContent>
     </DropdownMenu>
   );
 }
+
+/** Quantos eventos a célula do dia mostra antes de virar "+N mais". */
+const MONTH_CELL_PREVIEW = 3;
 
 function MonthGrid({
   cells,
@@ -1371,7 +2259,9 @@ function MonthGrid({
   selectedDay,
   onSelectDay,
   onDayDoubleClick,
+  onEventClick,
   eventsByDay,
+  nonTeachingByDay,
 }: {
   cells: Date[];
   cursorMonth: number;
@@ -1379,8 +2269,21 @@ function MonthGrid({
   selectedDay: Date;
   onSelectDay: (d: Date) => void;
   onDayDoubleClick: (d: Date) => void;
+  onEventClick: (event: UEvent) => void;
   eventsByDay: Map<string, UEvent[]>;
+  /** Dia → motivo de não ter aula (feriado/recesso do calendário acadêmico). */
+  nonTeachingByDay: Map<string, string>;
 }) {
+  /* Dia com a lista aberta pelo "+N mais".
+     Antes o "+N mais" era texto morto dentro do botão do dia: do 4º evento em
+     diante o compromisso não era alcançável em NENHUM canto da view Mês —
+     clicar no dia só desenha o anel (selectedDay não alimenta lista nenhuma da
+     página), o duplo clique abre o form de NOVO evento e a sidebar mostra os
+     próximos dias COM evento, não o dia selecionado. A prova marcada num dia de
+     5 aulas só existia trocando de view. Agora o "+N mais" abre a célula e cada
+     linha abre os detalhes. */
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+
   return (
     <div className="rounded-xl border border-border/70 bg-card overflow-hidden">
       <div className="grid grid-cols-7 border-b border-border/60 bg-card/60">
@@ -1401,12 +2304,28 @@ function MonthGrid({
           const inMonth = date.getMonth() === cursorMonth;
           const isToday = isSameDay(date, today);
           const isSelected = isSameDay(date, selectedDay);
-          const visible = events.slice(0, 3);
-          const overflow = events.length - visible.length;
+          const expanded = expandedKey === key;
+          const visible = expanded ? events : events.slice(0, MONTH_CELL_PREVIEW);
+          // Quantos o corte esconde — NÃO muda ao expandir, senão o botão de
+          // alternância desmontaria justamente ao ser clicado (ver abaixo).
+          const overflow = events.length - MONTH_CELL_PREVIEW;
+          const nonTeaching = nonTeachingByDay.get(toLocalIso(date));
           return (
-            <button
+            /* Era um <button>, depois virou div com role="button" — e nas duas
+               formas a célula ENGOLIA a ativação por teclado dos filhos: o
+               keydown do chip (ou do "+N mais") borbulha até aqui, o
+               preventDefault cancelava o click sintético que o <button> só
+               dispara DEPOIS da propagação, e Enter/Espaço num evento apenas
+               movia o anel de seleção — o EventDetailsDialog nunca abria e o
+               "+N mais" (único caminho pro 4º evento em diante) nunca expandia.
+               role="button" ainda torna os filhos PRESENTACIONAIS em ARIA: o
+               leitor de tela nem anunciava os chips como botões.
+               Agora a célula é contêiner comum (clique e duplo clique seguem
+               valendo pro mouse) e quem carrega o papel de controle é o botão
+               do NÚMERO do dia, IRMÃO dos chips — ninguém engole ninguém e todo
+               dia continua alcançável por Tab. */
+            <div
               key={idx}
-              type="button"
               onClick={() => onSelectDay(date)}
               onDoubleClick={() => onDayDoubleClick(date)}
               className={cn(
@@ -1420,7 +2339,20 @@ function MonthGrid({
               )}
             >
               <div className="flex items-center justify-between mb-1">
-                <span
+                <button
+                  type="button"
+                  // stopPropagation pra não disparar o onClick da célula duas
+                  // vezes; é este botão que dá o foco de teclado do dia.
+                  onClick={(ev) => {
+                    ev.stopPropagation();
+                    onSelectDay(date);
+                  }}
+                  onDoubleClick={(ev) => {
+                    ev.stopPropagation();
+                    onDayDoubleClick(date);
+                  }}
+                  aria-pressed={isSelected}
+                  aria-label={`${date.getDate()} de ${MONTHS_LONG[date.getMonth()]}`}
                   className={cn(
                     "inline-flex h-5 min-w-5 items-center justify-center rounded-full text-[11px] font-medium px-1",
                     !inMonth && "text-muted-foreground/50",
@@ -1430,42 +2362,98 @@ function MonthGrid({
                   )}
                 >
                   {date.getDate()}
-                </span>
+                </button>
               </div>
               <div className="space-y-0.5">
+                {/* Marcador do dia sem aula. Vem ANTES dos eventos (e fora do
+                    corte do "+N mais") porque é ele que impede o dia de sumir
+                    calado: feriado/recesso apaga a aula da grade mesmo quando o
+                    aluno deixou a linha desmarcada no importador e nenhum
+                    evento foi criado — sem isto, 16, 17 e 18/02 ficavam em
+                    branco sem uma palavra e o aluno concluía que a agenda
+                    perdeu a grade dele. */}
+                {nonTeaching && (
+                  <div
+                    className="truncate rounded bg-muted/60 px-1 py-0.5 text-[9px] leading-tight text-muted-foreground"
+                    title={nonTeaching}
+                  >
+                    {nonTeaching}
+                  </div>
+                )}
                 {visible.map((e) => {
                   const meta = EVENT_TYPE_META[e.type];
                   const subjTheme = getThemeFromGradient(e.subjectColor);
                   const dotClass = subjTheme?.dot ?? meta.dot;
                   const softClass = subjTheme?.soft ?? meta.soft;
                   return (
-                    <div
+                    <button
                       key={e.id}
+                      type="button"
+                      // stopPropagation: o clique é do evento, não do dia (que
+                      // só moveria a seleção e fecharia nada).
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        onEventClick(e);
+                      }}
+                      onDoubleClick={(ev) => ev.stopPropagation()}
                       className={cn(
-                        "flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-tight truncate",
+                        "flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] leading-tight truncate transition-shadow hover:shadow-md",
                         softClass,
                       )}
                       title={
-                        e.allDay ? e.title : `${e.startTime}–${e.endTime} ${e.title}`
+                        // Evento de intervalo aparece em vários dias: o sufixo
+                        // é o que revela o período inteiro sem abrir o modal.
+                        `${e.allDay ? e.title : `${e.startTime}–${e.endTime} ${e.title}`}${
+                          e.spanLabel ? ` · ${e.spanLabel}` : ""
+                        }`
                       }
                     >
                       <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", dotClass)} />
+                      {/* A hora só entra a partir do sm. Em 360px a célula tem
+                          ~26px de caixa de conteúdo e o mínimo do chip era dot
+                          (6) + gaps (8) + "07:30" (~27, sem truncate e sem
+                          shrink) ≈ 41px: o título encolhia pra ZERO (truncate
+                          zera o min-width) e sobrava bolinha + "07:" cortado —
+                          o mês inteiro no celular sem um nome de matéria, e o
+                          `title` não existe no toque. Melhor o nome da matéria
+                          que a hora pela metade. O shrink-0 garante que, onde
+                          ela aparece, quem cede espaço é o título. */}
                       {!e.allDay && (
-                        <span className="font-medium tabular-nums text-muted-foreground">
+                        <span className="hidden shrink-0 font-medium tabular-nums text-muted-foreground sm:inline">
                           {e.startTime}
                         </span>
                       )}
-                      <span className="truncate">{e.title}</span>
-                    </div>
+                      <span className="min-w-0 truncate">{e.title}</span>
+                    </button>
                   );
                 })}
+                {/* UM botão que ALTERNA, não dois que se revezam. Antes o
+                    "+N mais" vivia sob `overflow > 0` e o "mostrar menos" sob
+                    `expanded`: clicar num deles zerava a própria condição e o
+                    nó FOCADO saía da árvore no mesmo commit. Quem navega por
+                    teclado dava ~30 Tabs até a segunda-feira cheia, apertava
+                    Enter em "+3 mais" (único caminho pro 4º evento em diante) e
+                    o `document.activeElement` caía no <body>: o Tab seguinte
+                    recomeçava na topbar do AppShell e ele tinha que refazer os
+                    ~30 Tabs pra alcançar os eventos que acabou de revelar. Como
+                    a condição agora não depende de `expanded`, o React reusa o
+                    MESMO nó e o foco fica onde estava. */}
                 {overflow > 0 && (
-                  <div className="text-[10px] text-muted-foreground font-medium pl-2.5">
-                    +{overflow} mais
-                  </div>
+                  <button
+                    type="button"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      setExpandedKey(expanded ? null : key);
+                    }}
+                    onDoubleClick={(ev) => ev.stopPropagation()}
+                    aria-expanded={expanded}
+                    className="block w-full pl-2.5 text-left text-[10px] font-medium text-muted-foreground hover:text-foreground hover:underline"
+                  >
+                    {expanded ? "mostrar menos" : `+${overflow} mais`}
+                  </button>
                 )}
               </div>
-            </button>
+            </div>
           );
         })}
       </div>
@@ -1499,6 +2487,68 @@ function layoutEndMinutes(e: UEvent): number {
   return Math.min(24 * 60, e.startMinutes + 30);
 }
 
+type PositionedEvent = { event: UEvent; col: number; cols: number };
+
+/**
+ * Distribui em COLUNAS os eventos de um dia que se sobrepõem no horário.
+ *
+ * Antes todo bloco era `left-1 right-1`: prova sem horário no PDF (o
+ * exam-pdf-upload cria tudo 08:00–09:00) caía exatamente em cima da aula das
+ * 08:00 e, por vir depois na ordem de render, pintava por cima. Aula 08:00–09:00
+ * sumia por completo da semana (seguia no mês e na agenda, o que parecia dado
+ * apagado) e, na 08:00–09:40, a metade com o título ficava coberta e todo
+ * clique ali abria a prova. Prova/bloco de estudo em cima de aula é o caso
+ * normal, não a exceção.
+ */
+function layoutOverlaps(dayEvents: UEvent[]): PositionedEvent[] {
+  const sorted = [...dayEvents].sort(
+    (a, b) =>
+      a.startMinutes - b.startMinutes ||
+      layoutEndMinutes(a) - layoutEndMinutes(b),
+  );
+  const out: PositionedEvent[] = [];
+  let cluster: Array<{ event: UEvent; col: number }> = [];
+  let clusterEnd = -1;
+  const flush = () => {
+    if (cluster.length === 0) return;
+    const cols = cluster.reduce((m, c) => Math.max(m, c.col + 1), 1);
+    for (const c of cluster) out.push({ event: c.event, col: c.col, cols });
+    cluster = [];
+  };
+  for (const e of sorted) {
+    // Começou depois do fim de TODO o grupo aberto → grupo novo, e o próximo
+    // evento volta a ocupar a largura inteira da coluna do dia.
+    if (cluster.length > 0 && e.startMinutes >= clusterEnd) flush();
+    const taken = new Set(
+      cluster
+        .filter((c) => layoutEndMinutes(c.event) > e.startMinutes)
+        .map((c) => c.col),
+    );
+    let col = 0;
+    while (taken.has(col)) col += 1;
+    cluster.push({ event: e, col });
+    clusterEnd =
+      cluster.length === 1
+        ? layoutEndMinutes(e)
+        : Math.max(clusterEnd, layoutEndMinutes(e));
+  }
+  flush();
+  return out;
+}
+
+/**
+ * Colunas das TRÊS faixas da semana (cabeçalho dos dias, "dia inteiro" e grade
+ * de horas) — sempre iguais, senão elas desalinham ao rolar pro lado.
+ *
+ * O `min-w` é o que faz o `overflow-x-auto` existir de verdade: com
+ * `repeat(7,1fr)` puro o grid encolhe até caber (1fr é minmax(auto,1fr) e as
+ * colunas do dia só têm filhos absolutos, min-content = 0), então em 360px cada
+ * dia ficava com ~38px, o bloco da aula com ~22px úteis — nem título nem
+ * horário legíveis — e a barra de rolagem NUNCA aparecia pra compensar. Com
+ * piso de 640px a semana no celular passa a ~83px por dia e arrasta pro lado.
+ */
+const WEEK_GRID_COLS = "grid min-w-[640px] grid-cols-[60px_repeat(7,1fr)]";
+
 const MONTHS_SHORT = [
   "jan", "fev", "mar", "abr", "mai", "jun",
   "jul", "ago", "set", "out", "nov", "dez",
@@ -1527,6 +2577,7 @@ function WeekGrid({
   onSelectDay,
   onShiftWeek,
   onEventClick,
+  nonTeachingByDay,
 }: {
   days: Date[];
   events: UEvent[];
@@ -1535,6 +2586,8 @@ function WeekGrid({
   onSelectDay: (d: Date) => void;
   onShiftWeek: (delta: number) => void;
   onEventClick: (event: UEvent) => void;
+  /** Dia → motivo de não ter aula (feriado/recesso do calendário acadêmico). */
+  nonTeachingByDay: Map<string, string>;
 }) {
   /* Faixa de horas da grade: parte de 07–22 mas ABRE pra caber o que estiver
      fora (aula 22:10, plantão 05:00, evento que cruza a meia-noite). Antes
@@ -1571,7 +2624,11 @@ function WeekGrid({
       arr.push(e);
       target.set(k, arr);
     }
-    return { timedByDay: timed, allDayByDay: allDay };
+    // Cada dia vira lista POSICIONADA: sem colunas, quem sobrepõe some embaixo
+    // do vizinho e ainda rouba o clique.
+    const positioned = new Map<string, PositionedEvent[]>();
+    for (const [k, list] of timed) positioned.set(k, layoutOverlaps(list));
+    return { timedByDay: positioned, allDayByDay: allDay };
   }, [events]);
 
   const hasAllDay = allDayByDay.size > 0;
@@ -1604,19 +2661,42 @@ function WeekGrid({
         <div className="w-[60px]" />
       </div>
 
+      {/* As três faixas (cabeçalho, "dia inteiro" e horas) dividem UM contêiner
+          de rolagem: com scrolls separados, arrastar pro lado desalinhava as
+          colunas do cabeçalho das colunas dos eventos. */}
+      <div className="overflow-x-auto">
       {/* Day headers */}
-      <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border/60 bg-card/60">
+      <div className={cn(WEEK_GRID_COLS, "border-b border-border/60 bg-card/60")}>
         <div />
         {days.map((d) => {
           const isToday = isSameDay(d, today);
           const isSelected = isSameDay(d, selectedDay);
+          const nonTeaching = nonTeachingByDay.get(toLocalIso(d));
           return (
             <button
               key={d.toISOString()}
               type="button"
               onClick={() => onSelectDay(d)}
+              /* No leitor de tela os 7 dias se anunciavam idênticos ("SEG 16",
+                 sem mês, sem ano) e o estado de seleção só existia no
+                 `bg-primary/20` da bolinha — informação puramente visual. Só que
+                 é o `selectedDay` que alimenta o único CTA de criar evento da
+                 tela ("Adicionar compromisso" → openCreateDialog({ date:
+                 selectedDay })), e o dialog mostra a data só num
+                 `<input type="date">` já preenchido: o aluno apertava Enter num
+                 dia achando que selecionou e não tinha como confirmar em qual
+                 dia o formulário ia gravar. Mesmos dois atributos que o botão do
+                 dia na view Mês já ganhou. O rótulo de feriado/recesso entra
+                 junto porque o aria-label SUBSTITUI o conteúdo do botão — sem
+                 isso, a única pista de "dia sem aula" sumiria pro leitor. */
+              aria-pressed={isSelected}
+              aria-label={
+                nonTeaching
+                  ? `${d.getDate()} de ${MONTHS_LONG[d.getMonth()]} de ${d.getFullYear()}, ${nonTeaching}`
+                  : `${d.getDate()} de ${MONTHS_LONG[d.getMonth()]} de ${d.getFullYear()}`
+              }
               className={cn(
-                "flex flex-col items-center py-2 transition-colors",
+                "flex min-w-0 flex-col items-center py-2 transition-colors",
                 "hover:bg-accent/40",
                 isSelected && !isToday && "bg-primary/5",
               )}
@@ -1636,6 +2716,19 @@ function WeekGrid({
               >
                 {d.getDate()}
               </span>
+              {/* Feriado/recesso apaga as aulas do dia mesmo estando DENTRO do
+                  período letivo (e mesmo quando o aluno deixou a linha
+                  desmarcada no importador, quando nem evento existe): sem este
+                  rótulo a coluna de segunda a quarta do Carnaval ficava
+                  totalmente vazia sem uma palavra explicando. */}
+              {nonTeaching && (
+                <span
+                  className="mt-0.5 max-w-full truncate px-1 text-[9px] leading-tight text-muted-foreground"
+                  title={nonTeaching}
+                >
+                  {nonTeaching}
+                </span>
+              )}
             </button>
           );
         })}
@@ -1644,7 +2737,7 @@ function WeekGrid({
       {/* Faixa "dia inteiro" — eventos sem hora (calendário acadêmico) ficam
           aqui em vez de virar um bloco cobrindo a coluna toda. */}
       {hasAllDay && (
-        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border/60">
+        <div className={cn(WEEK_GRID_COLS, "border-b border-border/60")}>
           <div className="flex items-start justify-end border-r border-border/40 px-1.5 py-1 text-[10px] text-muted-foreground">
             dia
           </div>
@@ -1655,7 +2748,22 @@ function WeekGrid({
               <div
                 key={d.toISOString()}
                 className={cn(
-                  "space-y-0.5 border-r border-border/40 px-1 py-1",
+                  /* min-w-0 é obrigatório aqui: `1fr` é `minmax(auto,1fr)`, ou
+                     seja o PISO da coluna é o min-content dela. O chip é um
+                     bloco em fluxo normal com `truncate` (white-space:nowrap) —
+                     e truncate só zera min-content de item de grid/flex, não de
+                     bloco filho — então o min-content da célula virava a largura
+                     INTEIRA do título, que vem verbatim do PDF ("Recesso
+                     Acadêmico e Feriado de Corpus Christi", até 160 chars).
+                     Como esta faixa, o cabeçalho dos dias e a grade de horas são
+                     TRÊS grids independentes com o mesmo template, a coluna da
+                     quarta esticava só aqui (~240px contra ~100px das outras) e
+                     o chip passava a aparecer embaixo do dia errado — e o chip
+                     não mostra data, a posição na coluna é a única informação de
+                     dia que o aluno tem. Em 360px a soma dos min-contents ainda
+                     estourava o card e cortava sexta e sábado. Mesmo modo de
+                     falha documentado em ui/dialog.tsx:47-50. */
+                  "min-w-0 space-y-0.5 border-r border-border/40 px-1 py-1",
                   dayIdx === 6 && "border-r-0",
                   isSameDay(d, today) && "bg-primary/5",
                 )}
@@ -1676,7 +2784,9 @@ function WeekGrid({
                         subjTheme?.soft ?? meta.soft,
                         subjTheme?.text ?? meta.text,
                       )}
-                      title={e.title}
+                      /* Com o intervalo repetido em vários dias, o tooltip é
+                         o que diz que o dia 24 faz parte de 22/06 a 26/06. */
+                      title={e.spanLabel ? `${e.title} · ${e.spanLabel}` : e.title}
                     >
                       {e.title}
                     </button>
@@ -1689,11 +2799,8 @@ function WeekGrid({
       )}
 
       {/* Hour grid + events */}
-      <div className="relative overflow-x-auto">
-        <div
-          className="grid grid-cols-[60px_repeat(7,1fr)]"
-          style={{ height: totalHeight }}
-        >
+      <div className="relative">
+        <div className={WEEK_GRID_COLS} style={{ height: totalHeight }}>
           {/* Hour gutter */}
           <div className="relative border-r border-border/40">
             {hours.map((h, idx) => (
@@ -1712,12 +2819,16 @@ function WeekGrid({
             const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
             const dayEvents = timedByDay.get(k) ?? [];
             const isToday = isSameDay(d, today);
+            // Fundo esmaecido reforça o rótulo do cabeçalho: a coluna está
+            // vazia porque é feriado/recesso, não porque a grade sumiu.
+            const isNonTeaching = nonTeachingByDay.has(toLocalIso(d));
             return (
               <div
                 key={d.toISOString()}
                 className={cn(
                   "relative border-r border-border/40",
                   dayIdx === 6 && "border-r-0",
+                  isNonTeaching && "bg-muted/30",
                   isToday && "bg-primary/5",
                 )}
               >
@@ -1734,7 +2845,7 @@ function WeekGrid({
                   <NowIndicator startHour={startHour} endHour={endHour} />
                 )}
                 {/* Events */}
-                {dayEvents.map((e) => {
+                {dayEvents.map(({ event: e, col, cols }) => {
                   const startOffset = Math.max(
                     0,
                     e.startMinutes - startHour * 60,
@@ -1764,13 +2875,17 @@ function WeekGrid({
                         onEventClick(e);
                       }}
                       className={cn(
-                        "absolute left-1 right-1 rounded-md border-l-2 px-1.5 py-1 text-[10px] leading-tight overflow-hidden text-left transition-shadow hover:shadow-md hover:z-10",
+                        "absolute rounded-md border-l-2 px-1.5 py-1 text-[10px] leading-tight overflow-hidden text-left transition-shadow hover:shadow-md hover:z-10",
                         softClass,
                         textClass,
                       )}
                       style={{
                         top,
                         height,
+                        // Colunas lado a lado quando há sobreposição (cols > 1);
+                        // sozinho, ocupa a largura toda como antes.
+                        left: `calc(${(col / cols) * 100}% + 2px)`,
+                        width: `calc(${100 / cols}% - 4px)`,
                         borderLeftColor: "currentColor",
                       }}
                       title={`${e.startTime}–${e.endTime} ${e.title}`}
@@ -1793,6 +2908,7 @@ function WeekGrid({
             );
           })}
         </div>
+      </div>
       </div>
     </div>
   );
@@ -1828,29 +2944,45 @@ function NowIndicator({
 
 /* ---------------- Agenda view ---------------- */
 
+/** Teto de segurança da lista. Bem acima de um mês de grade cheia (~180
+ *  ocorrências) — e quando morde, o rodapé DIZ que mordeu, em vez de a lista
+ *  terminar no meio do mês fingindo que não há mais nada. */
+const AGENDA_MAX_ROWS = 400;
+
 function AgendaView({
   events,
   activeFilter,
   onFilterChange,
   today,
+  hiddenByFilters = false,
 }: {
   events: UEvent[];
   activeFilter: CalendarEventType | "all";
   onFilterChange: (f: CalendarEventType | "all") => void;
   /** Hoje 00:00 local, vindo do tique de relógio da página. */
   today: Date;
+  /** A categoria pedida está desmarcada nos Filtros/legenda? Muda o texto do
+   *  vazio: "não existe compromisso" e "está escondido" são coisas diferentes. */
+  hiddenByFilters?: boolean;
 }) {
+  const shown = useMemo(
+    () =>
+      events.length > AGENDA_MAX_ROWS ? events.slice(0, AGENDA_MAX_ROWS) : events,
+    [events],
+  );
+  const hiddenCount = events.length - shown.length;
+
   // Agrupa por dia
   const groups = useMemo(() => {
     const map = new Map<string, { date: Date; events: UEvent[] }>();
-    for (const e of events) {
+    for (const e of shown) {
       const k = `${e.date.getFullYear()}-${e.date.getMonth()}-${e.date.getDate()}`;
       const existing = map.get(k);
       if (existing) existing.events.push(e);
       else map.set(k, { date: new Date(e.date), events: [e] });
     }
     return Array.from(map.values());
-  }, [events]);
+  }, [shown]);
 
   return (
     <div className="space-y-3">
@@ -1891,25 +3023,43 @@ function AgendaView({
       </div>
 
       {groups.length === 0 ? (
-        <PlaceholderView
-          title="Agenda vazia"
-          hint="Nenhum compromisso para essa categoria nos próximos 30 dias."
-        />
+        hiddenByFilters ? (
+          <PlaceholderView
+            title="Oculto pelos filtros"
+            hint="O que você pediu está desmarcado no dropdown Filtros (ou na legenda embaixo do calendário) — pode haver compromisso agendado aqui. Marque de novo pra ver."
+          />
+        ) : (
+          <PlaceholderView
+            title="Agenda vazia"
+            hint="Nenhum compromisso para essa categoria nos próximos 30 dias."
+          />
+        )
       ) : (
-        <div className="rounded-xl border border-border/70 bg-card divide-y divide-border/60">
-          {groups.map((g, idx) => (
-            <div key={idx} className="p-4">
-              <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                {dayHeaderLabel(g.date, today)} · {formatDateLabel(g.date)}
+        <>
+          <div className="rounded-xl border border-border/70 bg-card divide-y divide-border/60">
+            {groups.map((g, idx) => (
+              <div key={idx} className="p-4">
+                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
+                  {dayHeaderLabel(g.date, today)} · {formatDateLabel(g.date)}
+                </div>
+                <div className="space-y-2">
+                  {g.events.map((e) => (
+                    <AgendaEventRow key={e.id} event={e} />
+                  ))}
+                </div>
               </div>
-              <div className="space-y-2">
-                {g.events.map((e) => (
-                  <AgendaEventRow key={e.id} event={e} />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+          {hiddenCount > 0 && (
+            /* A lista terminando sem aviso é o que fazia o aluno concluir que
+               não havia mais nada no mês. Se cortar, tem que aparecer. */
+            <p className="px-1 text-xs text-muted-foreground">
+              Mostrando os primeiros {shown.length} de {events.length}{" "}
+              compromissos dos próximos 30 dias. Filtre por categoria pra ver os
+              outros {hiddenCount}.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
@@ -2080,14 +3230,35 @@ function Legend({
             key={t}
             type="button"
             onClick={() => onToggle(t)}
+            /* O estado DESMARCADO era desenhado apagando o rótulo
+               (`text-muted-foreground/60` = ~2,4:1 no claro e ~3,0:1 no escuro a
+               11px, contra os 4,5:1 mínimos de AA) — e é justamente o estado em
+               que a categoria sumiu do mês/semana e a legenda é o caminho de
+               volta. Com uma ou duas categorias desmarcadas o banner "Tudo
+               oculto pelos filtros" nem aparece, então esse texto ilegível era o
+               ÚNICO indício na tela: o aluno via o calendário sem provas, não
+               conseguia ler qual dos 5 rótulos estava apagado e concluía que o
+               app perdeu os eventos. Agora o OFF não depende mais de contraste:
+               o rótulo fica em `text-muted-foreground` cheio (~6:1 nos dois
+               temas) e quem carrega o estado é o risco. */
             className={cn(
-              "inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 transition-opacity",
-              active ? "text-foreground" : "text-muted-foreground/60",
+              "inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 transition-colors",
+              active ? "text-foreground" : "text-muted-foreground",
             )}
+            /* A legenda também FILTRA, e o estado só aparecia na opacidade e no
+               `title` — invisível pro leitor de tela, que anunciava "Provas,
+               botão" marcado ou desmarcado do mesmo jeito. */
+            aria-pressed={active}
             title={active ? "Ocultar" : "Mostrar"}
           >
-            <span className={cn("h-2 w-2 rounded-full", meta.dot, !active && "opacity-50")} />
-            {meta.label === "Bloco de estudo" ? "Blocos de estudo" : meta.label + "s"}
+            {/* Bolinha sempre em cor cheia: ela é a CHAVE de cor que liga a
+                legenda aos chips do calendário (a 8px, o `opacity-50` de antes
+                deixava a cor em ~2:1 e a chave inútil justamente no estado em
+                que o aluno precisa dela pra achar o filtro certo). */}
+            <span className={cn("h-2 w-2 rounded-full", meta.dot)} />
+            <span className={cn(!active && "line-through")}>
+              {meta.label === "Bloco de estudo" ? "Blocos de estudo" : meta.label + "s"}
+            </span>
           </button>
         );
       })}

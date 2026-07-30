@@ -62,22 +62,88 @@ function rowToSubject(r: SubjectRow): Subject {
 const SUBJECT_COLS =
   "id, user_id, name, color, icon, schedule, semester_id, created_at";
 
-/** Semestre ativo do user (null em DBs pré-053 ou user sem semestre). */
-export async function getActiveSemesterIdAsync(
+/**
+ * Leitura do semestre ativo separando os dois casos que antes viravam o MESMO
+ * `null`: `ok: true, semesterId: null` = esse user realmente não tem semestre
+ * ativo (DB pré-053 / user novo); `ok: false` = NÃO deu pra saber (rede, token
+ * em refresh, RLS).
+ */
+type ActiveSemesterRead =
+  | { ok: true; semesterId: string | null }
+  | { ok: false; error: unknown };
+
+/**
+ * Erro de "esse banco ainda não tem semestres" (coluna/tabela ausente, DB
+ * pré-053). NÃO é falha transitória: aí o comportamento legado — ler e gravar
+ * sem semestre — continua sendo o certo, então segue como "sem semestre ativo".
+ */
+function isMissingSemesterSchema(error: unknown): boolean {
+  const code = (error as { code?: string } | null)?.code;
+  return (
+    code === "42703" || // undefined_column: active_semester_id
+    code === "42P01" || // undefined_table: user_profiles
+    code === "PGRST204" || // coluna fora do schema cache
+    code === "PGRST205" // tabela fora do schema cache
+  );
+}
+
+/**
+ * Lê o semestre ativo SEM engolir a falha do SELECT. Existe porque tratar
+ * "não consegui ler" como "aluno sem semestre" causava dano nos dois sentidos:
+ * na LEITURA o filtro `semester_id` não era aplicado e a agenda voltava com as
+ * matérias de TODOS os semestres empilhadas no mesmo horário, sem banner algum
+ * (nada tinha sido lançado); na ESCRITA a matéria nascia com `semester_id:
+ * null` e sumia da agenda na leitura boa seguinte — e, como o dedup por nome é
+ * escopado ao semestre, ela não era mais encontrada e cada "Subir agenda"
+ * criava outra cópia órfã.
+ */
+async function readActiveSemesterId(
   userId: string,
-): Promise<string | null> {
-  if (!isSupabaseConfigured()) return null;
+): Promise<ActiveSemesterRead> {
+  if (!isSupabaseConfigured()) return { ok: true, semesterId: null };
   try {
     const supabase = createClient();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("user_profiles")
       .select("active_semester_id")
       .eq("user_id", userId)
       .maybeSingle();
-    return (data?.active_semester_id as string | null) ?? null;
-  } catch {
-    return null;
+    if (error) {
+      if (isMissingSemesterSchema(error)) return { ok: true, semesterId: null };
+      return { ok: false, error };
+    }
+    return {
+      ok: true,
+      semesterId: (data?.active_semester_id as string | null) ?? null,
+    };
+  } catch (err) {
+    return { ok: false, error: err };
   }
+}
+
+/** PostgrestError é objeto puro (não `Error`) — normaliza pra estourar. */
+function activeSemesterReadError(error: unknown): Error {
+  if (error instanceof Error) return error;
+  const msg = (error as { message?: string } | null)?.message;
+  return new Error(
+    msg
+      ? `Não consegui ler o semestre ativo: ${msg}`
+      : "Não consegui ler o semestre ativo.",
+  );
+}
+
+/**
+ * Semestre ativo do user (null em DBs pré-053 ou user sem semestre).
+ * Versão TOLERANTE: falha de leitura também vira `null`. Use só onde `null`
+ * no máximo mostra dado A MAIS — nunca onde ele decide o filtro de uma tela
+ * que o aluno lê como verdade nem onde vai parar num INSERT. Nesses casos use
+ * `readActiveSemesterId`, que diz se a leitura deu certo.
+ */
+export async function getActiveSemesterIdAsync(
+  userId: string,
+): Promise<string | null> {
+  const read = await readActiveSemesterId(userId);
+  return read.ok ? read.semesterId : null;
 }
 
 /**
@@ -87,11 +153,43 @@ export async function getActiveSemesterIdAsync(
  */
 export async function listSubjectsAsync(userId: string): Promise<Subject[]> {
   try {
-    return await listSubjectsStrictAsync(userId);
+    if (!isSupabaseConfigured()) return localListSubjects(userId);
+    // Aqui a leitura do semestre é TOLERANTE de propósito, ao contrário da
+    // versão STRICT abaixo. Se só o SELECT de `user_profiles` falhar (401 no
+    // refresh do token, 5xx/cold start, fetch abortado, perfil duplicado
+    // estourando o `.maybeSingle()`) enquanto o SELECT de `subjects`
+    // responderia normal, degradar pra "todas as matérias, sem filtro de
+    // semestre" mostra matéria A MAIS; estourar cairia no catch abaixo →
+    // `localListSubjects`, que numa conta que sempre viveu no Supabase é `[]`.
+    // E quem consome ESTA função (sidebar do AppShell — inclusive a que a
+    // própria /schedule renderiza —, dashboard, Lumi, planos, quiz,
+    // flashcards, gravações, command-palette) não tem `subjectsError`: ZERO
+    // matérias sem banner nenhum, mentindo "você não tem nenhuma matéria".
+    // Mesma regra da `listLecturesAsync` lá embaixo. Quem precisa do erro na
+    // mão (a agenda, que avisa e mantém a grade anterior) usa a STRICT.
+    const activeRead = await readActiveSemesterId(userId);
+    return await selectSubjectsBySemester(
+      activeRead.ok ? activeRead.semesterId : null,
+    );
   } catch (err) {
     console.error("[db] listSubjects fallback", err);
     return localListSubjects(userId);
   }
+}
+
+/** SELECT das matérias, escopado ao semestre quando há um ativo. */
+async function selectSubjectsBySemester(
+  activeSemesterId: string | null,
+): Promise<Subject[]> {
+  const supabase = createClient();
+  let query = supabase
+    .from("subjects")
+    .select(SUBJECT_COLS)
+    .order("created_at", { ascending: true });
+  if (activeSemesterId) query = query.eq("semester_id", activeSemesterId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data as SubjectRow[]).map(rowToSubject);
 }
 
 /**
@@ -101,21 +199,23 @@ export async function listSubjectsAsync(userId: string): Promise<Subject[]> {
  * localStorage é `[]`). Use nas telas em que uma lista vazia FALSA causa dano
  * — a agenda, por exemplo, renderiza o mês inteiro sem aulas e ainda induz o
  * aluno a re-subir a grade. Só cai pro localStorage quando não há Supabase.
+ * Difere também no semestre: aqui falha ao lê-lo estoura (a tela trata); na
+ * tolerante ela degrada pra "sem filtro de semestre", nunca pra lista vazia.
  */
 export async function listSubjectsStrictAsync(
   userId: string,
 ): Promise<Subject[]> {
   if (!isSupabaseConfigured()) return localListSubjects(userId);
-  const supabase = createClient();
-  const activeSemesterId = await getActiveSemesterIdAsync(userId);
-  let query = supabase
-    .from("subjects")
-    .select(SUBJECT_COLS)
-    .order("created_at", { ascending: true });
-  if (activeSemesterId) query = query.eq("semester_id", activeSemesterId);
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data as SubjectRow[]).map(rowToSubject);
+  // Falha ao ler o semestre ativo NÃO pode virar "aluno sem semestre": sem o
+  // `.eq("semester_id", …)` do SELECT a query volta com as matérias de TODOS
+  // os semestres e a view Semana empilha Anatomia I (1º) e Fisiologia (2º) em
+  // cima da grade atual — e NENHUM banner aparece, porque a query em si não
+  // lançou. Estourar é o desfecho certo AQUI (e só aqui), pela mesma razão do
+  // docblock desta função: a tela já trata o erro (avisa e mantém a grade
+  // anterior). Na `listSubjectsAsync` o mesmo throw viraria lista vazia.
+  const activeRead = await readActiveSemesterId(userId);
+  if (!activeRead.ok) throw activeSemesterReadError(activeRead.error);
+  return selectSubjectsBySemester(activeRead.semesterId);
 }
 
 /** Lista todos os semestres do user, mais antigo → mais novo. */
@@ -174,7 +274,14 @@ export async function ensureActiveSemesterAsync(
   userId: string,
 ): Promise<string | null> {
   if (!isSupabaseConfigured()) return null;
-  const existing = await getActiveSemesterIdAsync(userId);
+  // Também aqui leitura falha ≠ "não tem semestre": com o `null` engolido o
+  // fluxo seguia pra listSemestersAsync (que devolve [] quando o SELECT falha)
+  // e CRIAVA um "Semestre atual" novo já ativo — as matérias do semestre de
+  // verdade sumiam da agenda. Estourar deixa o onboarding avisar e tentar de
+  // novo, sem semestre duplicado no meio.
+  const existingRead = await readActiveSemesterId(userId);
+  if (!existingRead.ok) throw activeSemesterReadError(existingRead.error);
+  const existing = existingRead.semesterId;
   if (existing) return existing;
   // Tem semestre mas sem ativo (raro): ativa o mais recente em vez de duplicar.
   const list = await listSemestersAsync(userId);
@@ -254,6 +361,39 @@ export async function deleteSemesterAsync(
   if (error) throw error;
 }
 
+/** O que a `createSubjectWithOutcomeAsync` DE FATO fez no banco. */
+export type CreateSubjectOutcome =
+  /** Linha nova inserida. */
+  | "created"
+  /** Matéria já existia e a grade que chegou foi somada à que estava lá. */
+  | "schedule-merged"
+  /** Matéria já existia e não havia nada novo pra gravar. */
+  | "existing";
+
+/**
+ * União de horários deduplicando slot idêntico (dia + início + fim + sala).
+ * Usada no caminho "a matéria já existe com grade": descartar o que chegou
+ * perde o PDF que o aluno acabou de conferir no preview, e sobrescrever apaga
+ * a grade que ele já tinha. Somar os dois é o único desfecho sem perda — slot
+ * repetido não duplica, e sobra visível na agenda pro aluno ajustar.
+ */
+function unionScheduleSlots(
+  current: ScheduleSlot[],
+  incoming: ScheduleSlot[],
+): ScheduleSlot[] {
+  const key = (s: ScheduleSlot) =>
+    `${s.dayOfWeek}|${s.startTime}|${s.endTime}|${(s.room ?? "").trim().toLowerCase()}`;
+  const seen = new Set(current.map(key));
+  const out = [...current];
+  for (const s of incoming) {
+    const k = key(s);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    out.push(s);
+  }
+  return out;
+}
+
 export async function createSubjectAsync(
   userId: string,
   data: {
@@ -264,17 +404,48 @@ export async function createSubjectAsync(
     schedule?: ScheduleSlot[];
   },
 ): Promise<Subject> {
+  const { subject } = await createSubjectWithOutcomeAsync(userId, data);
+  return subject;
+}
+
+/**
+ * Mesma criação da `createSubjectAsync`, mas dizendo ao caller o que aconteceu
+ * de verdade. Quem grava em lote (o "Subir agenda") precisa disso: antes ele
+ * anunciava "N criadas" mesmo quando a matéria já existia e NADA foi gravado.
+ */
+export async function createSubjectWithOutcomeAsync(
+  userId: string,
+  data: {
+    name: string;
+    color: string;
+    icon?: string;
+    emoji?: string;
+    schedule?: ScheduleSlot[];
+  },
+): Promise<{ subject: Subject; outcome: CreateSubjectOutcome }> {
   if (!isSupabaseConfigured()) {
-    return localCreateSubject(userId, {
-      name: data.name,
-      color: data.color,
-      icon: data.icon,
-      emoji: data.emoji ?? "",
-      schedule: data.schedule ?? [],
-    });
+    return {
+      subject: localCreateSubject(userId, {
+        name: data.name,
+        color: data.color,
+        icon: data.icon,
+        emoji: data.emoji ?? "",
+        schedule: data.schedule ?? [],
+      }),
+      outcome: "created",
+    };
   }
   const supabase = createClient();
-  const activeSemesterId = await getActiveSemesterIdAsync(userId);
+  // Sem CERTEZA do semestre ativo não dá pra gravar: o INSERT lá embaixo
+  // gravaria `semester_id: null` e a matéria nasceria fora de qualquer
+  // semestre — na primeira leitura bem-sucedida o filtro por semestre a exclui
+  // e ela some da agenda em definitivo; pior, o dedup por nome logo abaixo é
+  // escopado ao semestre e não a encontra mais, então cada "Subir agenda"
+  // seguinte cria outra cópia. Estoura pro caller, que já sabe tratar gravação
+  // parcial (mesma decisão do patch de horário mais abaixo).
+  const activeRead = await readActiveSemesterId(userId);
+  if (!activeRead.ok) throw activeSemesterReadError(activeRead.error);
+  const activeSemesterId = activeRead.semesterId;
   // Idempotente por NOME dentro do semestre ativo, mesmo dedup que a
   // bulkCreateSubjectsAsync já faz (incidente de 2026-05-27). Sem isso, um
   // caller que recebeu a lista de matérias vazia/desatualizada — ex.: a agenda
@@ -288,7 +459,19 @@ export async function createSubjectAsync(
   if (activeSemesterId) {
     existingQuery = existingQuery.eq("semester_id", activeSemesterId);
   }
-  const { data: existing } = await existingQuery;
+  const { data: existing, error: existingError } = await existingQuery;
+  // A leitura que DECIDE o dedup tem que ser tão rígida quanto a do semestre
+  // ativo logo acima, senão o endurecimento dela não vale de nada. O client do
+  // Supabase não rejeita a promise em falha de rede/RLS/token expirado: ele
+  // RESOLVE com `{ data: null, error }`. Pegando só `data`, o `?? []` abaixo
+  // transformava "não consegui ler" em "não existe", o `dupe` vinha undefined
+  // e o fluxo caía direto no INSERT — nascia uma segunda "Anatomia" no mesmo
+  // semestre. E o estrago não para no banco: como o id da matéria entra no id
+  // do evento, cada aula dela passa a ser emitida DUAS vezes no mês, na
+  // semana (duas colunas idênticas), na agenda e na sidebar, sem aviso nenhum
+  // e sem dedup na leitura pra desfazer. Estoura pro caller, que já sabe
+  // tratar gravação parcial (mesma decisão do patch de horário abaixo).
+  if (existingError) throw existingError;
   const wanted = data.name.trim().toLowerCase();
   const dupe = ((existing ?? []) as SubjectRow[]).find(
     (r) => r.name.trim().toLowerCase() === wanted,
@@ -296,18 +479,38 @@ export async function createSubjectAsync(
   if (dupe) {
     const incoming = data.schedule ?? [];
     const current = Array.isArray(dupe.schedule) ? dupe.schedule : [];
-    // Só preenche horário quando a matéria existente está sem grade — nunca
-    // sobrescreve uma grade que o aluno já montou.
-    if (incoming.length > 0 && current.length === 0) {
-      const { data: patched } = await supabase
+    // Nunca sobrescreve a grade que o aluno já montou — mas também não pode
+    // DESCARTAR a que chegou. Antes daqui, quando a matéria já tinha horário
+    // (`current.length > 0`) a grade nova sumia em silêncio e o caller ainda
+    // recebia a linha antiga como se tivesse criado: o "Subir agenda" travava
+    // a linha com "já salva" e anunciava "N criadas" sem UMA gravação, e o
+    // aluno continuava com os horários velhos. Dois caminhos caíam nisso: a
+    // leitura das matérias falhar (lista vazia → toda linha do preview vira
+    // matéria nova) e o extrator devolver a mesma matéria em duas linhas (a 1ª
+    // criava com o horário A, a 2ª batia no dupe e o horário B evaporava).
+    // Agora o que chegou é somado ao que existe, e o outcome conta a verdade.
+    const merged = unionScheduleSlots(current, incoming);
+    if (merged.length > current.length) {
+      const { data: patched, error: patchError } = await supabase
         .from("subjects")
-        .update({ schedule: incoming })
+        .update({ schedule: merged })
         .eq("id", dupe.id)
         .select(SUBJECT_COLS)
         .single();
-      if (patched) return rowToSubject(patched as SubjectRow);
+      // Falha na gravação NÃO pode virar "salvo": estoura pro caller, que já
+      // sabe tratar gravação parcial. O antigo `if (patched)` engolia o erro
+      // e devolvia a linha velha como sucesso.
+      if (patchError || !patched) {
+        throw (
+          patchError ?? new Error("Falha ao atualizar o horário da matéria.")
+        );
+      }
+      return {
+        subject: rowToSubject(patched as SubjectRow),
+        outcome: "schedule-merged",
+      };
     }
-    return rowToSubject(dupe);
+    return { subject: rowToSubject(dupe), outcome: "existing" };
   }
   const { data: row, error } = await supabase
     .from("subjects")
@@ -322,7 +525,7 @@ export async function createSubjectAsync(
     .select(SUBJECT_COLS)
     .single();
   if (error || !row) throw error || new Error("Falha ao criar matéria.");
-  return rowToSubject(row as SubjectRow);
+  return { subject: rowToSubject(row as SubjectRow), outcome: "created" };
 }
 
 export async function updateSubjectIconAsync(
@@ -360,7 +563,12 @@ export async function bulkCreateSubjectsAsync(
     );
   }
   const supabase = createClient();
-  const activeSemesterId = await getActiveSemesterIdAsync(userId);
+  // Mesmo motivo da createSubjectWithOutcomeAsync: leitura falha do semestre
+  // ativo aqui gravaria o lote inteiro com `semester_id: null` — matérias que
+  // somem da agenda e voltam a ser criadas do zero a cada nova tentativa.
+  const activeRead = await readActiveSemesterId(userId);
+  if (!activeRead.ok) throw activeSemesterReadError(activeRead.error);
+  const activeSemesterId = activeRead.semesterId;
   // Idempotente: pula matérias cujo nome já existe NO SEMESTRE ATIVO. O dedup
   // é escopado ao semestre senão criar "Cálculo I" num semestre novo seria
   // barrado por já ter existido em outro. Sem dedup nenhum, rodar o onboarding
@@ -369,7 +577,13 @@ export async function bulkCreateSubjectsAsync(
   if (activeSemesterId) {
     existingQuery = existingQuery.eq("semester_id", activeSemesterId);
   }
-  const { data: existing } = await existingQuery;
+  const { data: existing, error: existingError } = await existingQuery;
+  // Mesmo furo da createSubjectWithOutcomeAsync: SELECT que falha resolve com
+  // `{ data: null, error }` e o `?? []` fazia o `taken` nascer VAZIO — nenhum
+  // nome era considerado tomado e o lote inteiro era re-inserido, duplicando
+  // todas as matérias já existentes (e com elas todas as aulas na agenda)
+  // justamente na tentativa em que a rede oscilou.
+  if (existingError) throw existingError;
   const taken = new Set(
     ((existing ?? []) as { name: string }[]).map((r) =>
       r.name.trim().toLowerCase(),
@@ -398,13 +612,40 @@ export async function updateSubjectScheduleAsync(
   subjectId: string,
   schedule: ScheduleSlot[],
 ): Promise<void> {
-  if (!isSupabaseConfigured()) return;
+  // Sem Supabase NÃO existe caminho local pra gravar horário de matéria (a
+  // storage.ts só expõe create/delete), e o `return` silencioso daqui fazia o
+  // "Subir agenda" contar a linha como atualizada, cravar o selo "já salva" e
+  // travar checkbox e select — com ZERO gravação em qualquer lugar. Estourar é
+  // o desfecho honesto: o caller já sabe tratar gravação parcial e deixa a
+  // linha destravada pro aluno tentar de novo.
+  if (!isSupabaseConfigured()) {
+    throw new Error(
+      "Supabase não configurado — não dá pra salvar o horário da matéria.",
+    );
+  }
   const supabase = createClient();
-  const { error } = await supabase
+  const { data: patched, error } = await supabase
     .from("subjects")
     .update({ schedule })
-    .eq("id", subjectId);
+    .eq("id", subjectId)
+    .select(SUBJECT_COLS)
+    .maybeSingle();
   if (error) throw error;
+  // UPDATE que casa ZERO linhas volta com `error: null`, e sem o `.select()`
+  // acima não havia como saber. É exatamente o que acontece quando a matéria
+  // foi apagada/renomeada em outra aba (o `subjects` em memória da agenda
+  // ainda carrega o id velho) ou quando token expirado/RLS deixa de enxergar a
+  // linha. O caller então somava "1 atualizada", punha o selo verde "já salva"
+  // e desabilitava checkbox E select: nenhum horário no banco, a aula não
+  // aparece no mês/semana/agenda e o aluno não consegue nem reapontar a linha
+  // pra outra matéria sem refazer a extração do PDF (chamada paga +
+  // rate-limit). Mesmo endurecimento que a createSubjectWithOutcomeAsync já
+  // faz no merge de grade (`!patched` → throw).
+  if (!patched) {
+    throw new Error(
+      "Matéria não encontrada pra atualizar o horário — ela pode ter sido apagada ou renomeada em outra aba. Recarregue a página e tente de novo.",
+    );
+  }
 }
 
 export async function updateSubjectColorAsync(
@@ -519,7 +760,10 @@ export async function listLecturesAsync(
       // Sem matéria específica: escopa ao SEMESTRE ATIVO, mesma convenção do
       // use-all-documents — aulas de matérias de outro semestre somem; aulas
       // órfãs (sem matéria) continuam aparecendo. Sem semestre ativo
-      // (DB pré-053), não filtra (comportamento legado).
+      // (DB pré-053), não filtra (comportamento legado). Aqui a versão
+      // TOLERANTE é de propósito: falha na leitura do semestre mostra aula a
+      // mais, enquanto estourar cairia no catch abaixo → lista local vazia,
+      // que mente "você não tem nenhuma aula".
       const activeSemesterId = await getActiveSemesterIdAsync(userId);
       if (activeSemesterId) {
         const subs = await listSubjectsAsync(userId); // já filtra pelo ativo

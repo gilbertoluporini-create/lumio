@@ -21,9 +21,11 @@ import { Button } from "@/components/ui/button";
 import { ProgressPanel } from "@/components/ui/progress-bar";
 import {
   EVENT_TYPE_META,
+  CalendarStorageError,
   addEventsBulkAsync,
   type CalendarEventType,
 } from "@/lib/calendar-events";
+import { isIsoDate } from "@/lib/academic-calendar";
 import type { Subject } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
@@ -116,6 +118,53 @@ function normalize(s: string): string {
     .trim();
 }
 
+/** Nível no fim do nome: "Anatomia Humana II" → 2, "Cálculo 3" → 3, sem → 0. */
+const LEVEL_SUFFIX_RE = /\s+([ivx]{1,4}|\d{1,2})\.?$/;
+const ROMAN_LEVELS: Record<string, number> = {
+  i: 1,
+  ii: 2,
+  iii: 3,
+  iv: 4,
+  v: 5,
+  vi: 6,
+  vii: 7,
+  viii: 8,
+  ix: 9,
+  x: 10,
+  xi: 11,
+  xii: 12,
+};
+
+function subjectLevel(normalized: string): number {
+  const m = LEVEL_SUFFIX_RE.exec(normalized);
+  if (!m) return 0;
+  const token = m[1];
+  if (/^\d+$/.test(token)) return Number(token);
+  return ROMAN_LEVELS[token] ?? 0;
+}
+
+/**
+ * "Contém" respeitando fronteira de PALAVRA. O `includes` cru casa no meio de
+ * palavra, e é por aí que "Prova de Bioquímica" grudava numa matéria "Química"
+ * ('prova de bioquimica'.includes('quimica') é true, porque "quimica" está
+ * dentro de "bioquimica"). Como `normalize` já tirou acento e caixa, sobra
+ * [a-z0-9] pra letra/dígito — vizinho alfanumérico dos dois lados = está no
+ * meio de outra palavra, não vale como match.
+ */
+function includesWord(haystack: string, needle: string): boolean {
+  if (needle.length === 0) return false;
+  const isAlnum = (ch: string | undefined) => !!ch && /[a-z0-9]/.test(ch);
+  for (let from = 0; from <= haystack.length; ) {
+    const i = haystack.indexOf(needle, from);
+    if (i < 0) return false;
+    const before = i > 0 ? haystack[i - 1] : undefined;
+    const after = haystack[i + needle.length];
+    if (!isAlnum(before) && !isAlnum(after)) return true;
+    from = i + 1;
+  }
+  return false;
+}
+
 function findSubjectMatch(
   guess: string | undefined,
   subjects: Subject[],
@@ -128,19 +177,42 @@ function findSubjectMatch(
   const exact = subjects.find((s) => normalize(s.name) === g);
   if (exact) return exact.id;
 
+  /**
+   * Daqui pra baixo é PALPITE (inclusão / palavra em comum), e todas as linhas
+   * do preview nascem com `selected: true` — o palpite errado é o DEFAULT que o
+   * aluno confirma no "Adicionar". O caso que quebrava era a numeração romana,
+   * que em medicina/engenharia é a regra e não a exceção: com "Anatomia Humana
+   * I" salva (semestre anterior ainda ativo, ou a II ainda não cadastrada) e
+   * subjectGuess "Anatomia Humana II", 'anatomia humana ii'.includes('anatomia
+   * humana i') é true → a P1 de Anatomia II nascia com o subject_id da
+   * Anatomia I. Na agenda o evento herda cor e ícone da matéria errada e o
+   * AgendaEventRow/SidebarEventItem viram <Link href="/subject/<id-errado>">:
+   * o clique leva pra outra matéria e o modal de detalhes — única via de
+   * excluir o evento — fica inalcançável.
+   * Regra (a mesma já aplicada no schedule-pdf-upload): fora do nome idêntico,
+   * só palpita entre matérias do MESMO nível (romano ou arábico — "Cálculo 2"
+   * e "Cálculo II" contam igual). Nível diferente = matéria diferente; na
+   * dúvida a linha nasce "— sem matéria —", que o aluno vê e corrige no select
+   * do preview, e o evento sem matéria continua abrindo o modal normalmente.
+   */
+  const level = subjectLevel(g);
+  const sameLevel = subjects.filter(
+    (s) => subjectLevel(normalize(s.name)) === level,
+  );
+
   // 2. Match por inclusão (subject name contém guess ou vice-versa)
-  const contains = subjects.find((s) => {
+  const contains = sameLevel.find((s) => {
     const n = normalize(s.name);
-    return n.includes(g) || g.includes(n);
+    return includesWord(n, g) || includesWord(g, n);
   });
   if (contains) return contains.id;
 
   // 3. Match por primeira palavra significativa (>=4 chars)
   const guessWords = g.split(/\s+/).filter((w) => w.length >= 4);
   if (guessWords.length > 0) {
-    const wordMatch = subjects.find((s) => {
+    const wordMatch = sameLevel.find((s) => {
       const n = normalize(s.name);
-      return guessWords.some((w) => n.includes(w));
+      return guessWords.some((w) => includesWord(n, w));
     });
     if (wordMatch) return wordMatch.id;
   }
@@ -153,6 +225,12 @@ function findSubjectMatch(
 const WEEKDAYS_SHORT = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
 
 function formatDate(dateISO: string): string {
+  // Cinto de segurança do filtro do handleFile: numa data que não existe
+  // ("2026-11-31") o `new Date` abaixo ROLA pro dia seguinte, então o dia da
+  // semana viria de OUTRO dia e a linha sairia "ter 31/11" — cara de data
+  // legítima pra uma data que o app grava em 01/12. Sem dia da semana o aluno
+  // enxerga que tem algo errado ali em vez de aprovar no automático.
+  if (!isIsoDate(dateISO)) return dateISO;
   const [y, m, d] = dateISO.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
   const wd = WEEKDAYS_SHORT[dt.getDay()];
@@ -338,13 +416,30 @@ function ExamPdfUploadBody({
           return;
         }
 
-        const events = Array.isArray(data.events) ? data.events : [];
+        const rawEvents = Array.isArray(data.events) ? data.events : [];
+
+        // A rota valida a data só pelo FORMATO (regex yyyy-mm-dd) e o construtor
+        // Date NÃO reprova dia fora do mês: ele faz ROLLOVER calado. Com o
+        // "31/11", "31/06" ou "29/02" de ano não bissexto que OCR/tabela
+        // ambígua do PDF produz, o preview imprimia os componentes CRUS
+        // ("ter 31/11") tirando o dia da semana de um Date já rolado, e no
+        // salvar combineDateTimeISO/defaultIsoFor montavam o MESMO Date rolado:
+        // o aluno conferia 31/11, clicava em Adicionar e a prova nascia em
+        // 01/12 no mês, na semana, na agenda e no que a Lumi lê, sem nenhum
+        // aviso. `isIsoDate` confere os componentes de volta (mesma barreira já
+        // aplicada no academic-calendar) — melhor derrubar a linha e avisar do
+        // que gravar um dia que ninguém aprovou na tela.
+        const events = rawEvents.filter((ev) => isIsoDate(ev?.date));
+        const droppedDates = rawEvents.length - events.length;
+
         if (events.length === 0) {
           toastIdRef.current = null;
           toast.message("Nenhum evento identificado no PDF.", { id: toastId });
           setError(
-            data.error ||
-              "Nenhum evento detectado. Tente um PDF com datas mais claras.",
+            droppedDates > 0
+              ? `Encontrei ${droppedDates} data${droppedDates === 1 ? "" : "s"} que não existe${droppedDates === 1 ? "" : "m"} no calendário (ex: 31/11, 29/02 fora de ano bissexto). Confira as datas no PDF e tente de novo.`
+              : data.error ||
+                "Nenhum evento detectado. Tente um PDF com datas mais claras.",
           );
           setPhase("idle");
           return;
@@ -365,6 +460,14 @@ function ExamPdfUploadBody({
           `${events.length} evento${events.length === 1 ? "" : "s"} identificado${events.length === 1 ? "" : "s"}.`,
           { id: toastId },
         );
+        // O que caiu na checagem de data acima não pode sumir calado: o aluno
+        // precisa saber que aquela linha do PDF não entrou (pra digitar à mão),
+        // em vez de descobrir depois que faltou uma prova na agenda.
+        if (droppedDates > 0) {
+          toast.warning(
+            `${droppedDates} linha${droppedDates === 1 ? "" : "s"} ignorada${droppedDates === 1 ? "" : "s"}: data inexistente no calendário (ex: 31/11). Adicione essas manualmente.`,
+          );
+        }
       } catch (err) {
         // O abort do próprio unmount cai aqui: sem esse guard o aluno veria
         // um toast.error("The user aborted a request.") depois de fechar.
@@ -416,11 +519,23 @@ function ExamPdfUploadBody({
         const starts_at = ev.startTime
           ? combineDateTimeISO(ev.date, ev.startTime)
           : defaultIsoFor(ev.date, 8);
-        const ends_at = ev.endTime
+        // O fim SEMPRE tem que cair depois do início. Com horário tardio, colar
+        // a hora do fim na MESMA data grava ends_at ANTES de starts_at: entrega
+        // "23:59" vira 23:59 → 00:59 do mesmo dia (23h pra trás), e uma aula
+        // "22:00–01:00" vira 22:00 → 01:00 do mesmo dia (21h pra trás). O
+        // estrago é silencioso: na semana o bloco encolhe pra um risco de 1
+        // minuto e, ao abrir Editar, a validação "fim > início" trava o submit —
+        // o aluno não consegue nem corrigir o título. Aqui o fim EXPLÍCITO do
+        // PDF que caiu pra trás é empurrado pro dia seguinte (evento que cruza
+        // a meia-noite de verdade). Já o fim que NÓS inventamos, quando o PDF só
+        // trouxe a hora de início, nunca invade o dia seguinte — ver
+        // syntheticEndIso.
+        const rawEnd = ev.endTime
           ? combineDateTimeISO(ev.date, ev.endTime)
           : ev.startTime
-            ? combineDateTimeISO(ev.date, addOneHour(ev.startTime))
+            ? syntheticEndIso(ev.date, ev.startTime)
             : defaultIsoFor(ev.date, 9);
+        const ends_at = ensureEndAfterStart(starts_at, rawEnd);
 
         // Mapeia tipo extraído pro CalendarEventType local (idênticos).
         const type: CalendarEventType = ev.type;
@@ -441,7 +556,27 @@ function ExamPdfUploadBody({
       onCreated();
     } catch (err) {
       console.error("[exam-pdf-upload] save failed", err);
-      toast.error("Falha ao salvar eventos. Tente novamente.");
+      // "Tente novamente" é instrução FALSA justamente no erro que mais cai
+      // aqui: o write() do calendar-events estoura a quota do localStorage
+      // (histórico da Lumi em `lumio.lumi.chats.<uid>` enchendo os ~5MB) ou
+      // falha em navegação privada no Safari, que estoura já na 1ª gravação —
+      // nos dois casos o retry estoura IDÊNTICO toda vez, e o aluno fica
+      // clicando em Adicionar sem nada na tela citando armazenamento cheio. O
+      // CalendarStorageError já vem com a mensagem pronta e acionável ("apague
+      // conversas antigas da Lumi", "tente numa janela normal"), que é o motivo
+      // de a lib ter parado de engolir o erro — descartar `err` desperdiçava
+      // ela. Mesmo tratamento do event-form-dialog, que joga o err.message
+      // direto na tela. Erro desconhecido (aí sim possivelmente transitório)
+      // continua com o texto genérico.
+      const msg =
+        err instanceof CalendarStorageError
+          ? err.message
+          : "Falha ao salvar eventos. Tente novamente.";
+      toast.error(msg);
+      // Também no banner do preview: o toast some em segundos e a instrução
+      // (liberar espaço / sair da navegação privada) é exatamente o que ele
+      // precisa ter na frente antes de mexer no botão de novo.
+      setError(msg);
       setPhase("preview");
     }
   }
@@ -526,6 +661,16 @@ function ExamPdfUploadBody({
               Modo demo (sem ANTHROPIC_API_KEY). Eventos fictícios pra teste.
             </div>
           )}
+          {/* Falha do "Adicionar": o preview continua na tela e o erro precisa
+              continuar junto. Sem isso, a única pista era um toast que já
+              sumiu — e no estouro de quota o aluno ficava sem saber que o
+              caminho é liberar espaço, não clicar de novo. */}
+          {error && (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {error}
+            </div>
+          )}
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               {fileName && (
@@ -604,11 +749,29 @@ function ExamPdfUploadBody({
                         )}
                       </td>
                       <td className="px-2 py-2">
-                        <div className="font-medium text-foreground truncate max-w-[260px]">
+                        {/* `title` obrigatório aqui: título e descrição são
+                            cortados (`truncate` / `line-clamp-1` em 260px) e o
+                            `overflow:hidden` impede arrastar pra ler a cauda,
+                            então sem tooltip não há NENHUM caminho pra ver o
+                            resto. Duas provas do mesmo dia que só diferem no
+                            fim ("Prova N1 - Bioquímica - Turma A (sala 302)" ×
+                            "…Turma B (sala 305)") renderizavam o MESMO texto
+                            visível; como toda linha nasce `selected: true`, a
+                            decisão do aluno aqui é qual DESMARCAR e ele
+                            desmarcava no escuro, mandando pra agenda a prova da
+                            turma errada (horário/sala errados). Mesmo
+                            tratamento do irmão academic-calendar-upload. */}
+                        <div
+                          className="font-medium text-foreground truncate max-w-[260px]"
+                          title={r.event.title}
+                        >
                           {r.event.title}
                         </div>
                         {r.event.description && (
-                          <div className="text-[10px] text-muted-foreground line-clamp-1 max-w-[260px]">
+                          <div
+                            className="text-[10px] text-muted-foreground line-clamp-1 max-w-[260px]"
+                            title={r.event.description}
+                          >
                             {r.event.description}
                           </div>
                         )}
@@ -693,7 +856,80 @@ function ExamPdfUploadBody({
 /* ---------------- small helpers ---------------- */
 
 function addOneHour(time: string): string {
+  // A volta do relógio ("23:59" → "00:59") continua aqui, mas hoje ninguém mais
+  // depende dela: syntheticEndIso barra a faixa das 23h ANTES de chamar, porque
+  // fim inventado por nós não pode cair no dia seguinte.
   const [h, m] = time.split(":").map(Number);
   const next = (h + 1) % 24;
   return `${String(next).padStart(2, "0")}:${String(m || 0).padStart(2, "0")}`;
+}
+
+/**
+ * Virada do dia: 00:00 do dia SEGUINTE — o "fim do dia" que a agenda ainda
+ * contabiliza no dia anterior (ela corta eventos que terminam exatamente na
+ * meia-noite pra não pintar um bloco fantasma na madrugada).
+ */
+function startOfNextDayIso(year: number, month0: number, day: number): string {
+  // Dia + 1 no construtor já normaliza virada de mês/ano sozinho.
+  return new Date(year, month0, day + 1, 0, 0, 0, 0).toISOString();
+}
+
+/**
+ * Fim INVENTADO por nós, quando o PDF trouxe só a hora de início: 1h depois,
+ * mas colado na virada do dia se essa hora passaria da meia-noite.
+ *
+ * "Entrega do trabalho até 23:59" é o formato padrão de calendário de entregas
+ * e chega sem endTime. Deixando addOneHour dar a volta ("23:59" → "00:59") e o
+ * ensureEndAfterStart empurrar o fim pro dia seguinte, gravávamos
+ * 10/06 23:59 → 11/06 00:59: a agenda expande evento de intervalo em UMA
+ * ocorrência POR DIA, então o prazo nascia TAMBÉM no dia 11 (sidebar, view
+ * Agenda, célula do mês) e o modal anunciava "Período: 10/06 a 11/06" pra um
+ * prazo de um dia só. Terminando em 00:00 do dia seguinte, o fim continua
+ * depois do início (nada de duração zero, nem trava do "fim > início" ao
+ * editar) e a agenda trata como evento de UM dia.
+ */
+function syntheticEndIso(date: string, startTime: string): string {
+  const [y, mo, d] = date.split("-").map(Number);
+  const h = Number(startTime.split(":")[0]);
+  // Só a faixa das 23h faz o +1h atravessar a meia-noite.
+  if (h >= 23) return startOfNextDayIso(y, mo - 1, d);
+  return combineDateTimeISO(date, addOneHour(startTime));
+}
+
+/**
+ * Garante ends_at > starts_at. O PDF pode render um fim que, na mesma data, cai
+ * antes do início (cruzou a meia-noite) ou igual ao início ("14:00–14:00"):
+ * gravar assim vira evento de duração negativa/zero no calendário.
+ */
+function ensureEndAfterStart(startIso: string, endIso: string): string {
+  if (endIso > startIso) return endIso; // ISO UTC compara como texto
+  const start = new Date(startIso);
+  const end = new Date(endIso);
+  if (end.getTime() < start.getTime()) {
+    // Fim no dia seguinte — soma o dia pelos componentes locais (e não 24h em
+    // ms) pra não deslocar a hora se houver mudança de fuso.
+    const next = new Date(
+      end.getFullYear(),
+      end.getMonth(),
+      end.getDate() + 1,
+      end.getHours(),
+      end.getMinutes(),
+      0,
+      0,
+    );
+    return next.toISOString();
+  }
+  // Fim idêntico ao início: assume 1h de duração — mas essa hora inventada não
+  // pode vazar pro dia seguinte pelo mesmo motivo do syntheticEndIso ("Entrega
+  // 23:59–23:59" viraria evento de DOIS dias na agenda, que expande intervalo
+  // dia a dia). Colada na virada, continua sendo um dia só.
+  const plusHour = new Date(start.getTime() + 60 * 60 * 1000);
+  if (plusHour.getDate() !== start.getDate()) {
+    return startOfNextDayIso(
+      start.getFullYear(),
+      start.getMonth(),
+      start.getDate(),
+    );
+  }
+  return plusHour.toISOString();
 }

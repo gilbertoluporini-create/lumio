@@ -25,6 +25,27 @@ export const dynamic = "force-dynamic";
 // Calendário costuma ter 2 páginas densas (12 meses) — Vision + JSON longo.
 export const maxDuration = 120;
 
+/**
+ * Cap REAL de upload desta rota. Não usar LIMITS.IMAGE_BYTES (10MB) aqui: a
+ * Serverless Function da Vercel corta o body em ~4.5MB e devolve 413 com corpo
+ * NÃO-JSON *antes* do handler rodar — nem o guard de Content-Length nem o
+ * `file.size` abaixo chegam a executar. Na prática o aluno fotografava com o
+ * celular o calendário impresso no mural da faculdade (JPEG de 5-8MB, o
+ * dropzone aceita `image/*` e promete "máx 10MB") ou baixava o PDF escaneado de
+ * 6MB do portal: o `res.json().catch(() => ({}))` do cliente virava objeto
+ * vazio, `data.error` vinha undefined e o toast saía genérico ("Falha ao
+ * processar o calendário."), sem uma palavra sobre tamanho — reenviar o mesmo
+ * arquivo falhava idêntico e ainda esbarrava no rate-limit de 2 req/60s. Sem o
+ * calendário no perfil o aluno fica sem período letivo, sem feriado/recesso
+ * suprimindo aula e sem contexto de datas pra Lumi. Alinhamos o limite ao que a
+ * plataforma realmente aceita (mesmo racional do /api/extract-schedule, a rota
+ * gêmea, e do LIMITS.PDF_VISION_BYTES do /api/extract-slides), pra que arquivo
+ * grande receba um erro JSON acionável em vez de morrer mudo na borda.
+ */
+const UPLOAD_MAX_BYTES = LIMITS.PDF_VISION_BYTES;
+const UPLOAD_MAX_MB = Math.round(UPLOAD_MAX_BYTES / 1024 / 1024);
+const TOO_LARGE_MSG = `Arquivo muito grande (máx ${UPLOAD_MAX_MB}MB). Foto de celular costuma passar disso: reduza a resolução/qualidade da imagem, recorte só o calendário ou envie o PDF do portal.`;
+
 const SYSTEM_PROMPT = `Você é um extrator de CALENDÁRIO ACADÊMICO de instituições de ensino brasileiras. Recebe o PDF/imagem do calendário oficial (com os meses do ano e a lista de eventos ao lado de cada mês) e extrai TODOS os eventos com suas datas absolutas.
 
 REGRAS DE DATA:
@@ -109,15 +130,29 @@ function tryParseJson(text: string): ExtractPayload | null {
   const direct = attempt(cleaned);
   if (direct) return direct;
   const match = cleaned.match(/\{[\s\S]*\}/);
-  return match ? attempt(match[0]) : null;
+  if (!match) return null;
+  const greedy = attempt(match[0]);
+  if (greedy) return greedy;
+
+  // 3ª tentativa: resposta CORTADA no meio por max_tokens. Calendário anual
+  // denso (dois semestres, todos os feriados, notas, CONSU/COMAA) passa de 150
+  // eventos e estoura o orçamento de tokens no meio de um objeto. Aí os dois
+  // parses acima falham: o `match` ganancioso vai do primeiro `{` até o ÚLTIMO
+  // `}`, que é o fim do último evento COMPLETO — falta o `]` do array e o `}`
+  // da raiz. Fechar esses dois recupera todos os eventos íntegros em vez de
+  // devolver null e mandar o aluno "verificar se o arquivo está nítido" pra
+  // sempre (o arquivo está nítido; o que estourou foi o token budget) — e o
+  // calendário mais completo, justo o que mais valia importar, era o único que
+  // nunca entrava. Se ainda assim não parsear, cai no null de antes.
+  return attempt(`${match[0]}]}`);
 }
 
 export async function POST(req: Request) {
   const ip = getClientIp(req);
   const userAgent = req.headers.get("user-agent")?.slice(0, 120) ?? "unknown";
 
-  // Mesma política do extract-schedule: Vision Sonnet com PDF de até 10MB é
-  // caro, então limita por IP e globalmente.
+  // Mesma política do extract-schedule: Vision Sonnet com o PDF/imagem inteiro
+  // (até UPLOAD_MAX_BYTES) é caro, então limita por IP e globalmente.
   const ipLimit = limitOrThrow(`extract-academic:ip:${ip}`, 2, 60_000);
   if (ipLimit) {
     console.warn(`[extract-academic-calendar] rate-limit ip=${ip} ua=${userAgent}`);
@@ -133,9 +168,12 @@ export async function POST(req: Request) {
   if (
     Number.isFinite(contentLength) &&
     contentLength > 0 &&
-    contentLength > LIMITS.IMAGE_BYTES
+    contentLength > UPLOAD_MAX_BYTES
   ) {
-    return Response.json({ error: "Tamanho inválido (máx 10MB)." }, { status: 413 });
+    console.warn(
+      `[extract-academic-calendar] content-length too large ip=${ip} bytes=${contentLength}`,
+    );
+    return Response.json({ error: TOO_LARGE_MSG }, { status: 413 });
   }
 
   let form: FormData;
@@ -148,8 +186,11 @@ export async function POST(req: Request) {
   if (!(file instanceof File)) {
     return Response.json({ error: "Arquivo ausente." }, { status: 400 });
   }
-  if (file.size === 0 || file.size > LIMITS.IMAGE_BYTES) {
-    return Response.json({ error: "Tamanho inválido (máx 10MB)." }, { status: 413 });
+  if (file.size === 0) {
+    return Response.json({ error: "Arquivo vazio." }, { status: 413 });
+  }
+  if (file.size > UPLOAD_MAX_BYTES) {
+    return Response.json({ error: TOO_LARGE_MSG }, { status: 413 });
   }
 
   const buf = Buffer.from(await file.arrayBuffer());
@@ -234,24 +275,68 @@ export async function POST(req: Request) {
       },
     ];
 
-    const resp = await createMessage({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 8000,
-      system: [
-        { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
-      ],
-      messages: [{ role: "user", content }],
-    });
+    // timeoutMs abaixo do maxDuration=120s (default do SDK é 240s, o dobro do
+    // orçamento da rota): calendário de 2 páginas com os dois semestres gera
+    // ~5k tokens em cima de Vision e passa fácil dos 120s. Sem o corte antes,
+    // a plataforma mata a função e o cliente recebe 504 com corpo HTML — o
+    // `res.json().catch(() => ({}))` do front vira objeto vazio e o aluno só vê
+    // "Falha ao processar o calendário." depois de 2min, e ainda esbarra no
+    // rate-limit de 2 req/60s ao tentar de novo. Cortando aqui, o erro vira 500
+    // JSON sanitizado que o cliente consegue ler. Mesmo limite do
+    // /api/extract-schedule.
+    const resp = await createMessage(
+      {
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 8000,
+        system: [
+          { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+        ],
+        messages: [{ role: "user", content }],
+      },
+      { timeoutMs: 100_000 },
+    );
 
     const textBlock = resp.content.find((b) => b.type === "text");
     const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
     const parsed = tryParseJson(raw);
 
+    // Truncamento NÃO é arquivo ilegível: com max_tokens=8000 um calendário de
+    // ~150+ eventos é cortado no meio do JSON, e sem consultar o stop_reason
+    // tanto o log quanto a mensagem culpavam a nitidez do arquivo — o aluno
+    // reenviava o mesmo PDF, falhava idêntico e ainda batia no rate-limit de
+    // 2 req/60s. Aqui a rota passa a distinguir os dois casos.
+    const truncated = resp.stop_reason === "max_tokens";
+
     if (!parsed || parsed.events.length === 0) {
+      if (truncated) {
+        console.warn(
+          `[extract-academic-calendar] resposta truncada em max_tokens ip=${ip} chars=${raw.length}`,
+        );
+        return Response.json({
+          events: [],
+          error:
+            "Esse calendário tem eventos demais pra uma leitura só — a resposta foi cortada no meio. Envie um semestre (ou uma página) por vez que eu consigo importar.",
+        });
+      }
       return Response.json({
         events: [],
         error:
           "Não consegui ler o calendário. Verifique se o arquivo está nítido e tente de novo, ou adicione as datas manualmente.",
+      });
+    }
+
+    if (truncated) {
+      // Salvamos o que veio íntegro, mas o fim do calendário ficou de fora:
+      // sinaliza pro cliente em vez de entregar como se fosse a lista completa
+      // (pode faltar o "Término do período letivo" do último semestre).
+      console.warn(
+        `[extract-academic-calendar] resposta truncada em max_tokens (parcial) ip=${ip} eventos=${parsed.events.length}`,
+      );
+      return Response.json({
+        ...parsed,
+        truncated: true,
+        message:
+          "O calendário é longo e a leitura foi cortada no fim: confira se as últimas datas do ano estão aqui. Se faltar, envie o outro semestre em um upload separado.",
       });
     }
 

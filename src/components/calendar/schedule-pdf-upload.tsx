@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckSquare,
@@ -20,7 +20,10 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ProgressPanel } from "@/components/ui/progress-bar";
-import { createSubjectAsync, updateSubjectScheduleAsync } from "@/lib/db";
+import {
+  createSubjectWithOutcomeAsync,
+  updateSubjectScheduleAsync,
+} from "@/lib/db";
 import {
   DAY_LABELS_SHORT,
   SUBJECT_PALETTE,
@@ -28,6 +31,7 @@ import {
   type Subject,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { LIMITS, PDF_VISION_LIMIT_MB } from "@/lib/api-security";
 
 /* ---------------- types ---------------- */
 
@@ -40,6 +44,19 @@ type ExtractResponse = {
   subjects?: ExtractedSubject[];
   error?: string;
   demo?: boolean;
+  /**
+   * Blocos que entraram no JSON da Vision e NÃO viraram aula na rota (célula
+   * mesclada, célula sem hora de término, fim <= início). A normalização da
+   * grade é toda server-side, então quem tem esse número é a rota — e ela o
+   * manda justamente porque "quem renderiza o aviso é o schedule-pdf-upload".
+   * Enquanto estes dois campos não existiam aqui, o TypeScript não reclamava
+   * (o tipo é só uma anotação sobre `res.json()`) e a aula descartada sumia
+   * sem uma palavra na tela: o aluno via "6 matérias identificadas.", salvava,
+   * e a aula não existia no mês, na semana, na agenda nem na sidebar — e como
+   * aula da grade é read-only no modal de detalhes, nem dava pra notar depois.
+   */
+  droppedSlots?: number;
+  droppedSlotsMessage?: string;
 };
 
 const NEW_SUBJECT = "__new__";
@@ -61,21 +78,66 @@ type PreviewRow = {
 /** O que aconteceu com uma linha do preview no banco. "noop" = nada a gravar. */
 type AppliedKind = "created" | "updated" | "noop";
 
-function countApplied(
-  rows: PreviewRow[],
-  applied: Map<string, AppliedKind>,
-): { created: number; updated: number; handled: number } {
-  let created = 0;
-  let updated = 0;
-  let handled = 0;
+/**
+ * Linha JÁ gravada no banco nesta sessão: ganha o selo "já salva", tem checkbox
+ * e destino desabilitados e é pulada por um novo Salvar. "noop" NÃO conta (nada
+ * foi escrito, a linha segue editável). É a ÚNICA fonte dessa regra: enquanto o
+ * render tinha a sua cópia e o toggleAll não tinha nenhuma, "Desmarcar todas"
+ * desmarcava linhas gravadas e a tela afirmava as duas coisas ao mesmo tempo.
+ */
+function isDoneRow(r: PreviewRow): boolean {
+  return !!r.appliedKind && r.appliedKind !== "noop";
+}
+
+/** Um destino do banco (matéria existente ou matéria nova) + as linhas dele. */
+type SaveGroup = {
+  target: string;
+  /** Nome usado se o destino for uma matéria nova. */
+  name: string;
+  rows: PreviewRow[];
+  /** Horários de TODAS as linhas do grupo, ainda sem fundir. */
+  schedule: ScheduleSlot[];
+};
+
+/**
+ * Junta as linhas do preview que apontam pro MESMO destino. A extração devolve
+ * uma linha por bloco ("Anatomia I - Teoria" seg, "Anatomia I - Prática" qua) e
+ * o findSubjectMatch casa as duas com a MESMA matéria pela regra de inclusão.
+ * Gravando linha a linha, o segundo updateSubjectScheduleAsync — que faz
+ * `.update({ schedule })` cru, trocando o array inteiro — apagava a grade que o
+ * primeiro tinha acabado de escrever: metade da semana do aluno sumia e o toast
+ * ainda dizia "2 atualizadas". Mesma família no "+ Criar nova matéria": duas
+ * linhas de nome igual caem no dedup por nome lá do banco — a 1ª criava a
+ * matéria e a 2ª chegava em cima da grade recém-criada (hoje somando o horário
+ * dela, antes perdendo), sempre contada como criada. Um destino = uma gravação
+ * só, com os horários de todas as linhas dele juntos.
+ */
+function groupRowsByTarget(rows: PreviewRow[]): SaveGroup[] {
+  const byKey = new Map<string, SaveGroup>();
+  const out: SaveGroup[] = [];
   for (const r of rows) {
-    const kind = applied.get(r.id);
-    if (!kind) continue;
-    handled += 1;
-    if (kind === "created") created += 1;
-    else if (kind === "updated") updated += 1;
+    // Matéria nova: a chave é o nome na MESMA regra do dedup do banco
+    // (trim + lowercase), senão o agrupamento aqui e o dedup de lá discordam.
+    const key =
+      r.target === NEW_SUBJECT
+        ? `new:${r.subject.name.trim().toLowerCase()}`
+        : `id:${r.target}`;
+    const found = byKey.get(key);
+    if (found) {
+      found.rows.push(r);
+      found.schedule.push(...r.subject.schedule);
+      continue;
+    }
+    const group: SaveGroup = {
+      target: r.target,
+      name: r.subject.name,
+      rows: [r],
+      schedule: [...r.subject.schedule],
+    };
+    byKey.set(key, group);
+    out.push(group);
   }
-  return { created, updated, handled };
+  return out;
 }
 
 export type SchedulePdfUploadProps = {
@@ -97,6 +159,63 @@ function normalize(s: string): string {
     .trim();
 }
 
+/** Nível no fim do nome: "Anatomia Humana II" → 2, "Cálculo 3" → 3, sem → 0. */
+const LEVEL_SUFFIX_RE = /\s+([ivx]{1,4}|\d{1,2})\.?$/;
+const ROMAN_LEVELS: Record<string, number> = {
+  i: 1,
+  ii: 2,
+  iii: 3,
+  iv: 4,
+  v: 5,
+  vi: 6,
+  vii: 7,
+  viii: 8,
+  ix: 9,
+  x: 10,
+  xi: 11,
+  xii: 12,
+};
+
+function subjectLevel(normalized: string): number {
+  const m = LEVEL_SUFFIX_RE.exec(normalized);
+  if (!m) return 0;
+  const token = m[1];
+  if (/^\d+$/.test(token)) return Number(token);
+  return ROMAN_LEVELS[token] ?? 0;
+}
+
+/**
+ * "Contém" respeitando fronteira de PALAVRA. O `includes` cru casa no MEIO da
+ * palavra, e o guard de nível não segura esse caso: "Anatomia" e
+ * "Neuroanatomia" não têm sufixo de nível, então as duas dão nível 0 e passam
+ * pelo `sameLevel` — mas 'neuroanatomia'.includes('anatomia') é true, então a
+ * linha nascia apontando pra Anatomia com o selo "substitui horário atual",
+ * marcada por padrão. No Salvar, updateSubjectScheduleAsync faz
+ * `.update({ schedule })` cru: a grade real da Anatomia era APAGADA e trocada
+ * pela da Neuroanatomia (que nunca era criada); com as duas no mesmo PDF, o
+ * groupRowsByTarget ainda fundia as aulas das duas sob o nome/cor/ícone da
+ * Anatomia, e o toast dizia "Agenda salva (1 atualizada)". Não há histórico de
+ * grade pra desfazer e aula da grade é read-only no modal de detalhes. Mesma
+ * família em Patologia × Fisiopatologia, Química × Bioquímica, Farmacologia ×
+ * Psicofarmacologia. Como `normalize` já tirou acento e caixa, sobra [a-z0-9]
+ * pra letra/dígito — vizinho alfanumérico dos dois lados = está dentro de outra
+ * palavra, não vale como match. É a MESMA função do irmão exam-pdf-upload
+ * (exam-pdf-upload.tsx:154), pra que os dois fluxos gêmeos não discordem.
+ */
+function includesWord(haystack: string, needle: string): boolean {
+  if (needle.length === 0) return false;
+  const isAlnum = (ch: string | undefined) => !!ch && /[a-z0-9]/.test(ch);
+  for (let from = 0; from <= haystack.length; ) {
+    const i = haystack.indexOf(needle, from);
+    if (i < 0) return false;
+    const before = i > 0 ? haystack[i - 1] : undefined;
+    const after = haystack[i + needle.length];
+    if (!isAlnum(before) && !isAlnum(after)) return true;
+    from = i + 1;
+  }
+  return false;
+}
+
 function findSubjectMatch(
   name: string,
   subjects: Subject[],
@@ -105,16 +224,39 @@ function findSubjectMatch(
   if (!g) return undefined;
   const exact = subjects.find((s) => normalize(s.name) === g);
   if (exact) return exact.id;
-  const contains = subjects.find((s) => {
+  /**
+   * A partir daqui é PALPITE (inclusão / palavra em comum), e palpite errado
+   * aqui é irreversível: o Salvar chama updateSubjectScheduleAsync, que faz
+   * `.update({ schedule })` cru na matéria apontada — não existe histórico de
+   * grade pra desfazer. O caso que quebrava era a numeração romana, que em
+   * medicina/engenharia é a regra e não a exceção: 'anatomia humana ii'
+   * .includes('anatomia humana i') é true, então a grade nova de Anatomia II
+   * SUBSTITUÍA a de Anatomia I (e Anatomia II nunca era criada). Mesma coisa
+   * no passo por palavra: 'Cálculo III' casava com 'Cálculo I'.
+   * Regra: fora do nome idêntico, só palpita entre matérias do MESMO nível
+   * (romano ou arábico — "Cálculo 2" e "Cálculo II" contam igual). Nível
+   * diferente = matéria diferente; na dúvida o destino nasce "+ Criar nova
+   * matéria", que o aluno vê no preview e é reversível — sobrescrever a grade
+   * da matéria errada não é.
+   * O nível sozinho NÃO basta: nomes compostos do mesmo nível (Anatomia ×
+   * Neuroanatomia, Química × Bioquímica) dão nível 0 nos dois e passam pelo
+   * filtro — por isso a inclusão daqui pra baixo é por PALAVRA INTEIRA
+   * (includesWord), nunca substring nua.
+   */
+  const level = subjectLevel(g);
+  const sameLevel = subjects.filter(
+    (s) => subjectLevel(normalize(s.name)) === level,
+  );
+  const contains = sameLevel.find((s) => {
     const n = normalize(s.name);
-    return n.includes(g) || g.includes(n);
+    return includesWord(n, g) || includesWord(g, n);
   });
   if (contains) return contains.id;
   const words = g.split(/\s+/).filter((w) => w.length >= 4);
   if (words.length > 0) {
-    const wordMatch = subjects.find((s) => {
+    const wordMatch = sameLevel.find((s) => {
       const n = normalize(s.name);
-      return words.some((w) => n.includes(w));
+      return words.some((w) => includesWord(n, w));
     });
     if (wordMatch) return wordMatch.id;
   }
@@ -199,13 +341,38 @@ export function SchedulePdfUpload({
   subjects,
   onSaved,
 }: SchedulePdfUploadProps) {
+  // Enquanto está extraindo/salvando, o dialog não pode ser fechado: o corpo é
+  // desmontado pelo `{open && …}` e o trabalho em voo sumiria da tela — a
+  // extração já paga do Vision chegaria num componente morto (e o aluno nem
+  // podia tentar de novo na hora, a rota tem rate-limit), e no "saving" o loop
+  // continuaria gravando matérias com o ledger appliedRef e o preview mortos,
+  // deixando o retry sem como continuar de onde parou. O botão Cancelar já
+  // ficava desabilitado; ESC/overlay/X é o mesmo caso.
+  const [busy, setBusy] = useState(false);
+
+  // Rede de segurança: se algo fechar o dialog por fora, nunca deixar `busy`
+  // preso em true (senão o próximo open já nasce sem X e sem ESC).
+  useEffect(() => {
+    if (!open) setBusy(false);
+  }, [open]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent
+        className="max-w-2xl"
+        onEscapeKeyDown={(e) => {
+          if (busy) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (busy) e.preventDefault();
+        }}
+        hideClose={busy}
+      >
         {open && (
           <SchedulePdfUploadBody
             userId={userId}
             subjects={subjects}
+            onBusyChange={setBusy}
             onClose={() => onOpenChange(false)}
             onSaved={() => {
               onSaved?.();
@@ -225,12 +392,15 @@ export function SchedulePdfUpload({
 function SchedulePdfUploadBody({
   userId,
   subjects,
+  onBusyChange,
   onClose,
   onSaved,
   onProgress,
 }: {
   userId: string;
   subjects: Subject[];
+  /** Avisa o wrapper que há trabalho em voo (bloqueia ESC/overlay/X). */
+  onBusyChange: (busy: boolean) => void;
   onClose: () => void;
   onSaved: () => void;
   /** Recarrega as matérias da tela sem fechar o diálogo (gravação parcial). */
@@ -245,23 +415,62 @@ function SchedulePdfUploadBody({
   const [error, setError] = useState<string | null>(null);
   const [demoNote, setDemoNote] = useState(false);
   /**
+   * Aviso de bloco de horário que a rota descartou. Fica em state (banner no
+   * preview), não só em toast: o toast some em segundos e a decisão de clicar
+   * "Salvar" vem DEPOIS dele — o aviso precisa estar na tela na hora em que o
+   * aluno confere a grade que vai gravar.
+   */
+  const [droppedNote, setDroppedNote] = useState<string | null>(null);
+  /**
    * O que JÁ foi gravado no banco, por linha do preview. Fica em ref (imune a
-   * re-render) pra que um retry depois de falha no meio do loop não recrie as
-   * matérias já criadas — createSubjectAsync não é idempotente e duplicaria a
-   * matéria (e cada aula dela na agenda).
+   * re-render) pra que um retry depois de falha no meio do loop não regrave as
+   * matérias já gravadas — e, principalmente, não some de novo o mesmo horário
+   * em cima da grade de quem já foi salva.
    */
   const appliedRef = useRef<Map<string, AppliedKind>>(new Map());
+
+  // Trabalho em voo: o wrapper usa isso pra bloquear ESC/overlay/X.
+  useEffect(() => {
+    onBusyChange(phase === "extracting" || phase === "saving");
+  }, [phase, onBusyChange]);
+
+  // Defesa em profundidade pro que escapa do bloqueio acima, que só cobre
+  // teclado e clique no dialog (voltar do browser / gesto de back no celular,
+  // logout, hot-reload): marca o trabalho como cancelado, aborta a requisição
+  // e mata o toast de loading. Sem isso, sair da /schedule no meio da extração
+  // deixava o "Lendo sua grade horária…" girando até 100s na tela de destino,
+  // o setRows/setPhase caía num componente morto (preview extraído — e pago —
+  // perdido em silêncio) e o toast.success("N matérias identificadas.")
+  // estourava no /dashboard falando de um dialog que não existe mais.
+  const cancelledRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const toastIdRef = useRef<string | number | null>(null);
+
+  useEffect(
+    () => () => {
+      cancelledRef.current = true;
+      abortRef.current?.abort();
+      if (toastIdRef.current !== null) toast.dismiss(toastIdRef.current);
+    },
+    [],
+  );
 
   const selectedCount = useMemo(
     () => rows.filter((r) => r.selected).length,
     [rows],
   );
-  const allSelected = rows.length > 0 && selectedCount === rows.length;
+  // "Marcar/Desmarcar todas" só fala das linhas que ele PODE mexer: contando as
+  // já gravadas, o rótulo prometia uma ação que o clique não executa (com todas
+  // gravadas o botão dizia "Desmarcar todas" e não fazia nada).
+  const toggleable = useMemo(() => rows.filter((r) => !isDoneRow(r)), [rows]);
+  const allSelected =
+    toggleable.length > 0 && toggleable.every((r) => r.selected);
 
   const handleFile = useCallback(
     async (file: File) => {
       setError(null);
       setDemoNote(false);
+      setDroppedNote(null);
 
       const okType =
         file.type === "application/pdf" || file.type.startsWith("image/");
@@ -271,8 +480,20 @@ function SchedulePdfUploadBody({
         toast.error(msg);
         return;
       }
-      if (file.size > 10 * 1024 * 1024) {
-        const msg = "Arquivo muito grande (máx 10MB).";
+      /**
+       * O teto aqui é o MESMO da rota (LIMITS.PDF_VISION_BYTES), lido da mesma
+       * constante — hardcodar 10MB aqui deixava as duas metades desalinhadas
+       * depois que a rota passou a cortar em 4MB. O modo de falha: o aluno
+       * fotografa a grade impressa (JPEG de 6MB, o caso clássico), o guard
+       * local deixava passar e o upload inteiro subia só pra voltar 413 —
+       * e voltava CARO, porque na rota o rate-limit por IP (2 req/60s) é
+       * cobrado ANTES do guard de tamanho. Reduzir a imagem e tentar de novo
+       * queimava o 2º token e a terceira tentativa já batia em rate-limit.
+       * Barrando aqui, nenhum byte sai e nenhum token é gasto. A mensagem
+       * repete a dica da rota pra ele saber o que fazer sem tentar às cegas.
+       */
+      if (file.size > LIMITS.PDF_VISION_BYTES) {
+        const msg = `Arquivo muito grande (máx ${PDF_VISION_LIMIT_MB}MB). Foto de celular costuma passar disso: reduza a resolução/qualidade da imagem, recorte só a grade ou envie o PDF do portal.`;
         setError(msg);
         toast.error(msg);
         return;
@@ -281,20 +502,28 @@ function SchedulePdfUploadBody({
       setFileName(file.name);
       setPhase("extracting");
       const toastId = toast.loading("Lendo sua grade horária…");
+      toastIdRef.current = toastId;
 
       try {
         const fd = new FormData();
         fd.append("file", file);
+        const ac = new AbortController();
+        abortRef.current = ac;
         const res = await fetch("/api/extract-schedule", {
           method: "POST",
           body: fd,
+          signal: ac.signal,
         });
+        abortRef.current = null;
+        if (cancelledRef.current) return;
         const data: ExtractResponse = await res
           .json()
           .catch(() => ({}) as ExtractResponse);
+        if (cancelledRef.current) return;
 
         if (!res.ok) {
           const msg = data?.error || "Falha ao processar a grade.";
+          toastIdRef.current = null;
           toast.error(msg, { id: toastId });
           setError(msg);
           setPhase("idle");
@@ -302,8 +531,34 @@ function SchedulePdfUploadBody({
         }
 
         const extracted = Array.isArray(data.subjects) ? data.subjects : [];
+        /**
+         * Blocos de horário que a rota jogou fora ao normalizar (célula
+         * mesclada, sem hora de término, fim <= início). Sem ler o contador, a
+         * aula descartada sumia calada: o preview mostrava a matéria só com o
+         * bloco que sobrou, o toast dizia "N matérias identificadas." e o aluno
+         * confirmava o Salvar achando que a grade estava inteira. A mensagem
+         * pronta vem da rota; o fallback existe só pra resposta antiga/sem o
+         * texto, pra nunca cair no silêncio de novo.
+         */
+        const droppedSlots =
+          typeof data.droppedSlots === "number" && data.droppedSlots > 0
+            ? Math.trunc(data.droppedSlots)
+            : 0;
+        const droppedMsg =
+          droppedSlots > 0
+            ? data.droppedSlotsMessage ||
+              `${droppedSlots} horário${droppedSlots === 1 ? "" : "s"} da grade ${droppedSlots === 1 ? "veio incompleto" : "vieram incompletos"} (ex: célula sem hora de término ou mesclada) e ${droppedSlots === 1 ? "ficou" : "ficaram"} de fora. Confira ${droppedSlots === 1 ? "essa aula" : "essas aulas"} no arquivo e adicione ${droppedSlots === 1 ? "ela" : "elas"} manualmente.`
+            : null;
+
         if (extracted.length === 0) {
-          const msg = data?.error || "Não encontrei matérias na grade.";
+          // Quando TODOS os blocos caem, "Não encontrei matérias na grade"
+          // culpa a nitidez do arquivo e manda o aluno refotografar a grade —
+          // queimando o rate-limit de 2 req/60s por um problema que está no
+          // horário lido, não na leitura. Se a rota contou descarte, o aviso
+          // dela é que explica o que aconteceu.
+          const msg =
+            droppedMsg || data?.error || "Não encontrei matérias na grade.";
+          toastIdRef.current = null;
           toast.message(msg, { id: toastId });
           setError(msg);
           setPhase("idle");
@@ -324,15 +579,27 @@ function SchedulePdfUploadBody({
 
         setRows(previewRows);
         setDemoNote(!!data.demo);
+        setDroppedNote(droppedMsg);
         setPhase("preview");
+        toastIdRef.current = null;
         toast.success(
           `${extracted.length} matéria${extracted.length === 1 ? "" : "s"} identificada${extracted.length === 1 ? "" : "s"}.`,
           { id: toastId },
         );
+        // Mesma régua dos irmãos exam-pdf-upload e academic-calendar-upload: o
+        // toast de sucesso conta só o que SOBREVIVEU, então sem este aviso o
+        // aluno não tem nenhum sinal de que uma aula do PDF ficou de fora — nem
+        // no preview, nem depois (aula da grade é read-only no modal de
+        // detalhes), e só descobre reconferindo o arquivo slot a slot.
+        if (droppedMsg) toast.warning(droppedMsg);
       } catch (err) {
+        // O abort do próprio unmount cai aqui: sem esse guard o aluno veria um
+        // toast.error("The user aborted a request.") depois de fechar.
+        if (cancelledRef.current) return;
         console.error("[schedule-pdf-upload] extract failed", err);
         const msg =
           err instanceof Error ? err.message : "Erro inesperado ao processar.";
+        toastIdRef.current = null;
         toast.error(msg, { id: toastId });
         setError(msg);
         setPhase("idle");
@@ -349,7 +616,15 @@ function SchedulePdfUploadBody({
 
   function toggleAll() {
     const next = !allSelected;
-    setRows((prev) => prev.map((r) => ({ ...r, selected: next })));
+    setRows((prev) =>
+      // Linha já gravada NÃO entra no toggle. Desmarcando todas depois de uma
+      // gravação parcial, ela virava `selected: false` mantendo o selo verde
+      // "já salva" e o texto "gravada nesta sessão": a linha renderizava o
+      // quadrado vazio com opacity-50 afirmando as duas coisas ao mesmo tempo,
+      // e não havia volta individual (o checkbox está `disabled`, só "Marcar
+      // todas" reselecionava — desfazendo a seleção que ele acabou de montar).
+      prev.map((r) => (isDoneRow(r) ? r : { ...r, selected: next })),
+    );
   }
 
   function setRowTarget(id: string, target: string) {
@@ -358,10 +633,15 @@ function SchedulePdfUploadBody({
     );
   }
 
-  /** Espelha no state o que o ledger (ref) já gravou, pra travar a linha. */
-  function markRowApplied(id: string, kind: AppliedKind) {
+  /**
+   * Espelha no state o que o ledger (ref) já gravou, pra travar as linhas.
+   * Recebe a lista porque uma gravação atende TODAS as linhas do grupo de uma
+   * vez — travar só uma deixaria as irmãs editáveis mentindo pro aluno.
+   */
+  function markRowsApplied(ids: string[], kind: AppliedKind) {
+    const set = new Set(ids);
     setRows((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, appliedKind: kind } : r)),
+      prev.map((r) => (set.has(r.id) ? { ...r, appliedKind: kind } : r)),
     );
   }
 
@@ -374,59 +654,180 @@ function SchedulePdfUploadBody({
 
     setPhase("saving");
     const applied = appliedRef.current;
-    /** Linhas gravadas NESTA tentativa — o toast de sucesso só conta estas. */
-    const appliedNow = new Set<string>();
+    /**
+     * A linha virou MESMO uma gravação no banco? "noop" (destino existente sem
+     * horário nenhum pra gravar) entra no ledger só como "já avaliei", e a UI
+     * de propósito deixa essa linha destravada (`done` exige kind !== "noop":
+     * checkbox e destino continuam habilitados, sem o selo "já salva"). As duas
+     * condições discordavam: numa gravação parcial, o aluno trocava o destino
+     * da linha "noop" pra "+ Criar nova matéria", clicava Salvar, e a guarda de
+     * retry — que só olhava `applied.has(id)` — pulava o grupo. Nada era
+     * gravado, nenhum aviso aparecia e o toast ainda dizia "Agenda salva": a
+     * correção explícita dele era descartada em silêncio. Só quem de fato virou
+     * linha no banco pode ser pulado; regravar uma "noop" é inofensivo (ela não
+     * escreveu nada).
+     */
+    const isWritten = (id: string) => {
+      const kind = applied.get(id);
+      return kind === "created" || kind === "updated";
+    };
+    // Uma gravação por DESTINO, não por linha: duas linhas na mesma matéria
+    // viravam dois updates e o segundo apagava o horário do primeiro.
+    const groups = groupRowsByTarget(toApply);
+    /** Grupos gravados NESTA tentativa — o toast de sucesso só conta estes. */
+    let created = 0;
+    let updated = 0;
+    /**
+     * Destinos "+ Criar nova matéria" que o banco NÃO criou: a matéria já
+     * existia (dedup por nome no semestre ativo) e não havia nada novo pra
+     * gravar. Zero inserts, então não podem entrar no balde de "criadas" —
+     * era exatamente essa a mentira do toast.
+     */
+    let unchanged = 0;
+    /**
+     * Matérias cuja grade nova foi SOMADA à antiga pelo banco (em vez de
+     * substituída). Guarda os nomes porque isso deixa horário fantasma na
+     * agenda e o aluno precisa saber quais conferir.
+     */
+    const mergedNames: string[] = [];
     try {
       // Cor pra matérias novas: continua a paleta a partir das já existentes.
       let newIdx = subjects.length;
-      for (const r of toApply) {
+      for (const g of groups) {
+        /**
+         * O bloqueio de ESC/overlay/X não cobre o botão VOLTAR do browser (nem
+         * o gesto de back no celular) — a mesma rota de fuga que a extração já
+         * trata. Ao desmontar, o preview, o botão Salvar e o ledger appliedRef
+         * morrem junto com o corpo: seguir gravando aqui só produz matéria que
+         * ninguém conferiu e, na primeira falha, um `onProgress?.()`
+         * recarregando uma página desmontada mais um toast órfão no /dashboard
+         * mandando "clicar em Salvar pra continuar de onde parou" — botão que
+         * não existe mais, e um "de onde parou" impossível (reabrir nasce em
+         * `idle` e obriga a refazer a extração paga, sujeita ao rate-limit de
+         * 2 req/60s). Para no bloco atual, igual o academic-calendar-upload.
+         */
+        if (cancelledRef.current) return;
         // Retry idempotente: o que já entrou no banco não é gravado de novo.
-        if (applied.has(r.id)) continue;
-        if (r.target === NEW_SUBJECT) {
-          await createSubjectAsync(userId, {
-            name: r.subject.name,
-            color: defaultColorForIndex(newIdx),
-            schedule: mergeSlots(r.subject.schedule),
-          });
+        // O grupo inteiro é gravado e marcado de uma vez, então ou todas as
+        // linhas dele estão no ledger ou nenhuma está. "noop" NÃO conta como
+        // gravada (ver isWritten): a UI deixa essa linha editável, então um
+        // novo destino tem que ser respeitado.
+        if (g.rows.every((r) => isWritten(r.id))) continue;
+        const ids = g.rows.map((r) => r.id);
+        // Funde os horários de TODAS as linhas do destino num array só — é ele
+        // que substitui a coluna `schedule` inteira lá no banco.
+        const schedule = mergeSlots(g.schedule);
+        if (g.target === NEW_SUBJECT) {
+          /**
+           * Quem manda no que aconteceu é o BANCO, não este loop. A criação é
+           * idempotente por nome dentro do semestre ativo: quando a matéria já
+           * existe, nenhum insert acontece — ou o horário novo é somado ao que
+           * já estava lá ("schedule-merged"), ou não há nada pra gravar
+           * ("existing"). O `created += 1` incondicional (com o outcome
+           * descartado) mentia justo no pior cenário: com o banner "Não
+           * consegui carregar suas matérias" na tela, `subjects` chega vazio, o
+           * findSubjectMatch não casa nada e TODA linha nasce "+ Criar nova
+           * matéria" — o toast dizia "Agenda salva (5 criadas)" com ZERO
+           * criações e cada linha ganhava o selo "já salva" travando o select,
+           * tirando do aluno a única chance de reapontar a linha pra matéria
+           * certa depois de recarregar a lista.
+           */
+          const { subject: savedSubject, outcome } =
+            await createSubjectWithOutcomeAsync(userId, {
+              name: g.name,
+              color: defaultColorForIndex(newIdx),
+              schedule,
+            });
           newIdx += 1;
-          applied.set(r.id, "created");
-          markRowApplied(r.id, "created");
-        } else if (r.subject.schedule.length > 0) {
+          if (outcome === "created") {
+            created += 1;
+            for (const id of ids) applied.set(id, "created");
+            markRowsApplied(ids, "created");
+          } else if (outcome === "schedule-merged") {
+            // Gravação de verdade (conta como atualizada), MAS o banco somou o
+            // horário novo ao antigo em vez de trocar: se a aula mudou de
+            // horário no semestre, ela passa a aparecer nos DOIS (mês, semana,
+            // agenda e sidebar) enquanto o preview mostrou só o novo. Não
+            // existe tela na agenda pra apagar o slot velho, então o mínimo é
+            // dizer o nome de quem ficou assim (aviso lá embaixo).
+            updated += 1;
+            mergedNames.push(savedSubject.name);
+            for (const id of ids) applied.set(id, "updated");
+            markRowsApplied(ids, "updated");
+          } else {
+            // "existing": a matéria já estava lá e nada foi escrito. Entra no
+            // ledger como "noop" — que a UI de propósito deixa DESTRAVADO — pra
+            // não anunciar criação inexistente nem travar o select: assim o
+            // aluno ainda consegue apontar a linha pra matéria certa e salvar
+            // de novo. Reavaliar essa linha num retry é inofensivo (o banco não
+            // grava nada de novo).
+            unchanged += 1;
+            for (const id of ids) applied.set(id, "noop");
+            markRowsApplied(ids, "noop");
+          }
+        } else if (schedule.length > 0) {
           // Só atualiza horário de matéria existente quando há horários —
           // nunca sobrescreve uma grade existente com vazio.
-          await updateSubjectScheduleAsync(
-            userId,
-            r.target,
-            mergeSlots(r.subject.schedule),
-          );
-          applied.set(r.id, "updated");
-          markRowApplied(r.id, "updated");
+          await updateSubjectScheduleAsync(userId, g.target, schedule);
+          updated += 1;
+          for (const id of ids) applied.set(id, "updated");
+          markRowsApplied(ids, "updated");
         } else {
-          applied.set(r.id, "noop");
-          markRowApplied(r.id, "noop");
+          for (const id of ids) applied.set(id, "noop");
+          markRowsApplied(ids, "noop");
         }
-        appliedNow.add(r.id);
       }
-      const { created, updated } = countApplied(
-        toApply.filter((r) => appliedNow.has(r.id)),
-        applied,
-      );
+      // Fecha a janela entre a ÚLTIMA gravação e o fim: sem isso, sair da
+      // página no último await ainda soltava "Agenda salva (…)" e o onSaved()
+      // (que fecha um dialog inexistente) na tela de destino.
+      if (cancelledRef.current) return;
       const parts: string[] = [];
       if (updated > 0)
         parts.push(`${updated} atualizada${updated === 1 ? "" : "s"}`);
       if (created > 0)
         parts.push(`${created} criada${created === 1 ? "" : "s"}`);
+      // Matéria que já existia igual não vira "criada": aparece como o que de
+      // fato é, senão o toast anuncia gravação que nunca chegou no banco.
+      if (unchanged > 0)
+        parts.push(
+          `${unchanged} já estava${unchanged === 1 ? "" : "m"} salva${unchanged === 1 ? "" : "s"}`,
+        );
       toast.success(
         parts.length > 0 ? `Agenda salva (${parts.join(", ")}).` : "Agenda salva.",
       );
+      /**
+       * Horário fantasma: o banco não substitui a grade de uma matéria que já
+       * existe, ele SOMA. Quem subiu a grade nova do semestre com a aula em
+       * outro horário fica com os dois na agenda, e o preview não mostrou isso.
+       * Sem aviso o aluno só descobre estudando pelo horário cancelado — e não
+       * há tela na agenda pra remover o slot velho.
+       */
+      if (mergedNames.length > 0) {
+        const um = mergedNames.length === 1;
+        toast.warning(
+          `${mergedNames.join(", ")} já existia${um ? "" : "m"} na sua conta: o horário novo foi somado ao antigo, não substituído. Se a aula mudou de horário, confira a agenda — ela vai aparecer nos dois.`,
+        );
+      }
       onSaved();
     } catch (err) {
       console.error("[schedule-pdf-upload] save failed", err);
+      // Componente já morto (voltar do browser no meio da gravação): não há
+      // preview pra onde voltar, nem botão Salvar pra clicar, nem ledger vivo
+      // pra continuar de onde parou. Recarregar a tela desmontada e pedir retry
+      // num dialog que não existe mais só confunde — sai sem toast fantasma.
+      if (cancelledRef.current) return;
       // Gravação PARCIAL: recarrega a tela pra ela não mentir sobre o banco.
       onProgress?.();
-      const { handled } = countApplied(toApply, applied);
+      // Conta DESTINOS, não linhas: várias linhas do preview podem virar uma
+      // matéria só, e "3 de 5 salvas" com 2 matérias no banco confundiria.
+      // Mesma régua da guarda de retry: "noop" não é matéria salva (nada foi
+      // gravado), senão o "2 de 3 salvas" contaria uma linha que nunca chegou
+      // no banco e ainda vai ser reavaliada no próximo Salvar.
+      const handled = groups.filter((g) =>
+        g.rows.every((r) => isWritten(r.id)),
+      ).length;
       toast.error(
-        `${handled} de ${toApply.length} matéria${toApply.length === 1 ? "" : "s"} salva${handled === 1 ? "" : "s"}. Falha ao salvar o resto — clique em Salvar pra continuar de onde parou.`,
+        `${handled} de ${groups.length} matéria${groups.length === 1 ? "" : "s"} salva${handled === 1 ? "" : "s"}. Falha ao salvar o resto — clique em Salvar pra continuar de onde parou.`,
       );
       setPhase("preview");
     }
@@ -438,6 +839,9 @@ function SchedulePdfUploadBody({
     setFileName(null);
     setError(null);
     setDemoNote(false);
+    // Aviso do arquivo anterior não pode sobrar pro próximo: ele fala de blocos
+    // que não existem mais no preview novo.
+    setDroppedNote(null);
     setPhase("idle");
   }
 
@@ -465,8 +869,13 @@ function SchedulePdfUploadBody({
             <div className="text-sm font-medium">
               Clique pra selecionar um PDF ou imagem
             </div>
+            {/* Limite vindo da mesma constante da rota: a tela prometendo
+                10MB enquanto o servidor cortava em 4MB era o que fazia o
+                aluno subir o arquivo inteiro pra levar 413 e ainda queimar
+                um dos 2 pedidos/60s do rate-limit. */}
             <div className="text-xs text-muted-foreground">
-              Grade horária, plano de ensino, print do portal… (máx 10MB)
+              Grade horária, plano de ensino, print do portal… (máx{" "}
+              {PDF_VISION_LIMIT_MB}MB)
             </div>
           </button>
           <input
@@ -511,6 +920,17 @@ function SchedulePdfUploadBody({
               Modo demo (sem ANTHROPIC_API_KEY). Matérias fictícias pra teste.
             </div>
           )}
+          {/* Aula do arquivo que a rota descartou. Fica FIXO no preview, não só
+              no toast: é aqui, na hora de conferir a grade e clicar Salvar, que
+              o aluno precisa saber que faltou um bloco — depois de salvo a aula
+              simplesmente não existe (mês, semana, agenda, sidebar) e ele não
+              tem como perceber pela UI. */}
+          {droppedNote && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {droppedNote}
+            </div>
+          )}
           <div className="flex items-center justify-between text-xs text-muted-foreground">
             <div className="flex items-center gap-2">
               {fileName && (
@@ -549,7 +969,10 @@ function SchedulePdfUploadBody({
                   : undefined;
               // Já gravada no banco: um novo "Salvar" pula esta linha, então o
               // destino não pode continuar editável (mentiria pro aluno).
-              const done = !!r.appliedKind && r.appliedKind !== "noop";
+              // MESMA função do toggleAll de propósito: as duas regras
+              // discordarem é o que deixava a linha com selo "já salva" e
+              // checkbox desmarcado ao mesmo tempo.
+              const done = isDoneRow(r);
               return (
                 <div
                   key={r.id}
