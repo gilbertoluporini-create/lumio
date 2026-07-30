@@ -46,6 +46,12 @@ CATEGORIAS (campo "category", escolha a mais específica):
 
 SEMESTRE: campo "semester" = 1 ou 2 conforme a seção do documento ("Primeiro Semestre" / "Segundo Semestre"). Se não der pra saber, use null.
 
+PERÍODO LETIVO (campo "termBoundary") — é o que define até quando as aulas da grade horária se repetem, então classifique com cuidado:
+- "start": o dia em que as AULAS COMEÇAM/RETOMAM no semestre ("Início do semestre letivo", "Início das aulas", "Retorno das atividades letivas", "Aula inaugural" quando é o primeiro dia de aula).
+- "end": o dia em que as AULAS ACABAM ("Término do período letivo", "Último dia de aulas", "Encerramento do semestre letivo").
+- null (ou omita) em TODO o resto. Em especial: início/fim de RECESSO ou FÉRIAS não é termBoundary, feriado não é, prazo de matrícula não é, semana de provas não é.
+- Na dúvida, use null: um marco classificado errado apaga um semestre inteiro de aulas da agenda do aluno.
+
 TÍTULO: mantenha o texto do evento, mas em capitalização normal em pt-BR (não CAIXA ALTA). Ex: "ENTREGA DE NOTAS - N1" vira "Entrega de notas - N1".
 
 Extraia também, se aparecer: "institution" (nome da instituição/campus) e "year" (ano letivo).
@@ -55,9 +61,10 @@ FORMATO DE SAÍDA (JSON puro, sem markdown, sem texto fora do JSON):
   "institution": "São Leopoldo Mandic Araras",
   "year": 2026,
   "events": [
-    {"date": "2026-02-02", "endDate": null, "title": "Início do semestre letivo", "category": "marco", "semester": 1},
-    {"date": "2026-02-16", "endDate": "2026-02-18", "title": "Recesso acadêmico - Carnaval", "category": "recesso", "semester": 1},
-    {"date": "2026-06-22", "endDate": "2026-06-26", "title": "Exames finais", "category": "prova", "semester": 1}
+    {"date": "2026-02-02", "endDate": null, "title": "Início do semestre letivo", "category": "marco", "semester": 1, "termBoundary": "start"},
+    {"date": "2026-02-16", "endDate": "2026-02-18", "title": "Recesso acadêmico - Carnaval", "category": "recesso", "semester": 1, "termBoundary": null},
+    {"date": "2026-06-22", "endDate": "2026-06-26", "title": "Exames finais", "category": "prova", "semester": 1, "termBoundary": null},
+    {"date": "2026-06-30", "endDate": null, "title": "Término do período letivo", "category": "marco", "semester": 1, "termBoundary": "end"}
   ]
 }
 

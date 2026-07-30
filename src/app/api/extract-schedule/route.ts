@@ -5,6 +5,10 @@ import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// Grade em PDF/imagem até 10MB passa por Vision + JSON — mesmo orçamento do
+// /api/extract-academic-calendar. Sem isso a rota herda o default da
+// plataforma (10-15s) e o cliente recebe 504 com corpo não-JSON.
+export const maxDuration = 120;
 
 const SYSTEM_PROMPT = `Você é um extrator de grade horária acadêmica. Você recebe uma imagem ou PDF de uma grade horária de faculdade/universidade/escola e precisa identificar todas as MATÉRIAS/DISCIPLINAS distintas presentes E seus horários.
 
@@ -263,14 +267,20 @@ export async function POST(req: Request) {
       },
     ];
 
-    const resp = await createMessage({
-      model: "claude-sonnet-4-5-20250929",
-      max_tokens: 4000,
-      system: [
-        { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
-      ],
-      messages: [{ role: "user", content }],
-    });
+    // timeoutMs abaixo do maxDuration=120s: o SDK corta antes da plataforma
+    // matar a função, então o erro vira 500 JSON sanitizado (que o cliente
+    // consegue ler) em vez de 504 com corpo HTML. O default do SDK é 240s.
+    const resp = await createMessage(
+      {
+        model: "claude-sonnet-4-5-20250929",
+        max_tokens: 4000,
+        system: [
+          { type: "text", text: SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
+        ],
+        messages: [{ role: "user", content }],
+      },
+      { timeoutMs: 100_000 },
+    );
 
     const textBlock = resp.content.find((b) => b.type === "text");
     const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";

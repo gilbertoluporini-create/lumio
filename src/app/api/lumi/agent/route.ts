@@ -28,6 +28,7 @@ import { createAdminClient, createClient } from "@/lib/supabase/server";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import { checkChatDailyCap, chatCapResponse } from "@/lib/chat-cap";
 import { logAiUsage } from "@/lib/ai-usage";
+import { isoDateInSaoPaulo } from "@/lib/academic-calendar";
 import {
   getUserProfileAsync,
   renderProfileForPrompt,
@@ -330,7 +331,21 @@ export async function POST(req: Request) {
           cache_control: { type: "ephemeral" },
         },
       ];
-      const dynamicSystem = (contextHint + profileHint).trim();
+      // Âncora temporal: sem ela o modelo resolve "amanhã"/"semana que vem" a
+      // partir do cutoff de treino e agenda no ano errado. Vai no bloco
+      // dinâmico (NÃO cacheado) — dentro do SYSTEM_PROMPT com cache ephemeral
+      // a data congelaria por 5min e envenenaria o cache.
+      const nowSp = new Intl.DateTimeFormat("pt-BR", {
+        timeZone: "America/Sao_Paulo",
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date());
+      const dateHint = `\n\nAGORA: hoje é ${nowSp} (${isoDateInSaoPaulo()}), fuso America/Sao_Paulo (-03:00). Resolva TODA data relativa ("amanhã", "semana que vem", "daqui 3 dias") a partir dessa data — nunca chute. Sempre emita starts_at/ends_at em ISO 8601 com offset explícito -03:00 (ex: "${isoDateInSaoPaulo()}T11:20:00-03:00"), nunca só a data nem hora sem offset.`;
+      const dynamicSystem = (dateHint + contextHint + profileHint).trim();
       if (dynamicSystem) {
         systemBlocks.push({ type: "text", text: dynamicSystem });
       }

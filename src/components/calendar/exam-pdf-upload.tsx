@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckSquare,
@@ -80,21 +80,26 @@ async function extractPdfText(file: File): Promise<string> {
   const buf = await file.arrayBuffer();
   const loadingTask = pdfjs.getDocument({ data: new Uint8Array(buf) });
   const doc = await loadingTask.promise;
-  const parts: string[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    const pageText = content.items
-      .map((it) => ("str" in it ? it.str : ""))
-      .filter((s) => s.length > 0)
-      .join(" ");
-    if (pageText.trim().length > 0) {
-      parts.push(`--- Página ${i} ---\n${pageText}`);
+  try {
+    const parts: string[] = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      const pageText = content.items
+        .map((it) => ("str" in it ? it.str : ""))
+        .filter((s) => s.length > 0)
+        .join(" ");
+      if (pageText.trim().length > 0) {
+        parts.push(`--- Página ${i} ---\n${pageText}`);
+      }
+      page.cleanup();
     }
-    page.cleanup();
+    return parts.join("\n\n");
+  } finally {
+    // Libera o documento e o buffer no worker do pdf.js mesmo se o parse falhar
+    // (PDF corrompido/criptografado, worker que morre).
+    await doc.destroy().catch(() => {});
   }
-  await doc.destroy();
-  return parts.join("\n\n");
 }
 
 /* ---------------- subject matching ---------------- */
@@ -176,13 +181,34 @@ export function ExamPdfUpload({
   subjects,
   onCreated,
 }: ExamPdfUploadProps) {
+  // Enquanto está extraindo/salvando, o dialog não pode ser fechado: o corpo é
+  // desmontado pelo `{open && …}` e o trabalho em andamento sumiria da tela
+  // (mas os toasts, que são globais, continuariam aparecendo).
+  const [busy, setBusy] = useState(false);
+
+  // Rede de segurança: se algo fechar o dialog por fora, nunca deixar `busy`
+  // preso em true (senão o próximo open já nasce sem X e sem ESC).
+  useEffect(() => {
+    if (!open) setBusy(false);
+  }, [open]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent
+        className="max-w-3xl"
+        onEscapeKeyDown={(e) => {
+          if (busy) e.preventDefault();
+        }}
+        onInteractOutside={(e) => {
+          if (busy) e.preventDefault();
+        }}
+        hideClose={busy}
+      >
         {open && (
           <ExamPdfUploadBody
             userId={userId}
             subjects={subjects}
+            onBusyChange={setBusy}
             onClose={() => onOpenChange(false)}
             onCreated={() => {
               onCreated?.();
@@ -198,11 +224,13 @@ export function ExamPdfUpload({
 function ExamPdfUploadBody({
   userId,
   subjects,
+  onBusyChange,
   onClose,
   onCreated,
 }: {
   userId: string;
   subjects: Subject[];
+  onBusyChange: (busy: boolean) => void;
   onClose: () => void;
   onCreated: () => void;
 }) {
@@ -214,6 +242,27 @@ function ExamPdfUploadBody({
   const [rows, setRows] = useState<PreviewRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [demoNote, setDemoNote] = useState<boolean>(false);
+
+  // Trabalho em voo: o wrapper usa isso pra bloquear ESC/overlay/X.
+  useEffect(() => {
+    onBusyChange(phase === "extracting" || phase === "saving");
+  }, [phase, onBusyChange]);
+
+  // Defesa em profundidade pro que escapa do bloqueio acima (troca de rota,
+  // logout, hot-reload): marca o trabalho como cancelado, aborta a requisição
+  // e mata o toast de loading que ficaria girando pra sempre.
+  const cancelledRef = useRef(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const toastIdRef = useRef<string | number | null>(null);
+
+  useEffect(
+    () => () => {
+      cancelledRef.current = true;
+      abortRef.current?.abort();
+      if (toastIdRef.current !== null) toast.dismiss(toastIdRef.current);
+    },
+    [],
+  );
 
   const selectedCount = useMemo(
     () => rows.filter((r) => r.selected).length,
@@ -242,10 +291,13 @@ function ExamPdfUploadBody({
       setFileName(file.name);
       setPhase("extracting");
       const toastId = toast.loading("Lendo PDF localmente…");
+      toastIdRef.current = toastId;
 
       try {
         const text = await extractPdfText(file);
+        if (cancelledRef.current) return;
         if (text.trim().length < 50) {
+          toastIdRef.current = null;
           toast.error("PDF sem texto extraível (talvez seja só imagem).", {
             id: toastId,
           });
@@ -258,6 +310,8 @@ function ExamPdfUploadBody({
 
         toast.loading("Identificando eventos com IA…", { id: toastId });
 
+        const ac = new AbortController();
+        abortRef.current = ac;
         const res = await fetch("/api/calendar/extract-pdf", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -265,14 +319,19 @@ function ExamPdfUploadBody({
             text,
             subjectNames: subjects.map((s) => s.name),
           }),
+          signal: ac.signal,
         });
+        abortRef.current = null;
+        if (cancelledRef.current) return;
 
         const data: ExtractResponse = await res
           .json()
           .catch(() => ({}) as ExtractResponse);
+        if (cancelledRef.current) return;
 
         if (!res.ok) {
           const msg = data?.error || "Falha ao extrair eventos.";
+          toastIdRef.current = null;
           toast.error(msg, { id: toastId });
           setError(msg);
           setPhase("idle");
@@ -281,6 +340,7 @@ function ExamPdfUploadBody({
 
         const events = Array.isArray(data.events) ? data.events : [];
         if (events.length === 0) {
+          toastIdRef.current = null;
           toast.message("Nenhum evento identificado no PDF.", { id: toastId });
           setError(
             data.error ||
@@ -300,16 +360,21 @@ function ExamPdfUploadBody({
         setRows(previewRows);
         setDemoNote(!!data.demo);
         setPhase("preview");
+        toastIdRef.current = null;
         toast.success(
           `${events.length} evento${events.length === 1 ? "" : "s"} identificado${events.length === 1 ? "" : "s"}.`,
           { id: toastId },
         );
       } catch (err) {
+        // O abort do próprio unmount cai aqui: sem esse guard o aluno veria
+        // um toast.error("The user aborted a request.") depois de fechar.
+        if (cancelledRef.current) return;
         console.error("[exam-pdf-upload] extract failed", err);
         const msg =
           err instanceof Error
             ? err.message
             : "Erro inesperado ao processar PDF.";
+        toastIdRef.current = null;
         toast.error(msg, { id: toastId });
         setError(msg);
         setPhase("idle");

@@ -42,6 +42,10 @@ const AcademicEventSchema = z.object({
     "evento",
   ]),
   semester: z.number().int().min(1).max(2).nullable().optional(),
+  // Marco de abertura/encerramento do período letivo. Sem isto no schema o
+  // z.object() descartaria a chave e o getTermWindows ficaria só no fallback
+  // textual do título. Calendários antigos simplesmente não trazem o campo.
+  termBoundary: z.enum(["start", "end"]).nullable().optional(),
 });
 
 const AcademicCalendarSchema = z.object({

@@ -54,9 +54,19 @@ function defaultStartTime(): string {
 }
 
 function addOneHour(time: string): string {
+  // Satura no fim do dia em vez de dar a volta: às 23:00, um "+1h" que virasse
+  // 00:00 nasceria ANTES do início (a validação compara "HH:MM" como texto) e
+  // travaria o formulário.
   const [h, m] = time.split(":").map(Number);
-  const next = (h + 1) % 24;
-  return `${pad2(next)}:${pad2(m || 0)}`;
+  const total = Math.min(h * 60 + (m || 0) + 60, 23 * 60 + 59);
+  return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
+}
+
+function addDaysISODate(date: string, days: number): string {
+  if (!days) return date;
+  const [y, mo, d] = date.split("-").map(Number);
+  const dt = new Date(y, mo - 1, d + days);
+  return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
 }
 
 function combineDateTimeISO(date: string, time: string): string {
@@ -177,6 +187,19 @@ function EventFormBody({
     return addOneHour(initialStart);
   }, [editEvent, initialStart]);
 
+  // Eventos de intervalo (recesso, semana de provas) atravessam dias: o form só
+  // edita a HORA do fim, então guardamos quantos dias o fim está à frente do
+  // início pra não colapsar o evento no primeiro dia ao salvar.
+  const endDayOffset = useMemo(() => {
+    if (!editEvent?.ends_at) return 0;
+    const s = new Date(editEvent.starts_at);
+    s.setHours(0, 0, 0, 0);
+    const e = new Date(editEvent.ends_at);
+    e.setHours(0, 0, 0, 0);
+    const diff = Math.round((e.getTime() - s.getTime()) / 86400000);
+    return diff > 0 ? diff : 0;
+  }, [editEvent]);
+
   const [type, setType] = useState<CalendarEventType>(
     editEvent?.type ?? defaultType,
   );
@@ -215,7 +238,9 @@ function EventFormBody({
     setSaving(true);
     try {
       const startsAt = combineDateTimeISO(date, startTime);
-      const endsAt = endTime ? combineDateTimeISO(date, endTime) : undefined;
+      const endsAt = endTime
+        ? combineDateTimeISO(addDaysISODate(date, endDayOffset), endTime)
+        : undefined;
       const payload = {
         type,
         title: cleanTitle,
@@ -354,6 +379,8 @@ function EventFormBody({
                 id="event-end"
                 type="time"
                 value={endTime}
+                // Em evento de intervalo (fim em outro dia) a restrição não vale.
+                min={endDayOffset === 0 ? startTime : undefined}
                 onChange={(e) => setEndTime(e.target.value)}
               />
             </div>

@@ -27,7 +27,17 @@ export type AcademicEvent = {
   category: AcademicEventCategory;
   /** 1 = primeiro semestre, 2 = segundo. */
   semester?: number | null;
+  /**
+   * Marco de abertura ("start") ou de encerramento ("end") do período letivo,
+   * quando o extrator consegue classificar. É a fonte confiável do
+   * `getTermWindows`; o texto do título só entra como fallback (calendários
+   * salvos antes deste campo existir não têm nada aqui).
+   */
+  termBoundary?: TermBoundary | null;
 };
+
+/** Papel do evento na delimitação do período letivo. */
+export type TermBoundary = "start" | "end";
 
 export type AcademicCalendar = {
   institution?: string | null;
@@ -61,6 +71,35 @@ export function isIsoDate(v: unknown): v is string {
 }
 
 /**
+ * "yyyy-mm-dd" a partir da data LOCAL do Date.
+ *
+ * Nunca use `toISOString()` pra isso: ele converte pra UTC, então uma
+ * meia-noite local em fuso positivo (UTC+1..+14) volta como o dia ANTERIOR.
+ * Fonte única da conversão Date → yyyy-mm-dd no app.
+ */
+export function toLocalIso(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * O dia do instante `d` em America/Sao_Paulo, como "yyyy-mm-dd".
+ *
+ * Necessário no que roda no servidor (runtime Node sem TZ = UTC): entre 21h e
+ * meia-noite em Brasília o UTC já virou amanhã, e `toISOString()` — que ignora
+ * a env TZ — descartaria a prova de HOJE do contexto da Lumi.
+ */
+export function isoDateInSaoPaulo(d: Date = new Date()): string {
+  // "en-CA" já formata como yyyy-mm-dd.
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/**
  * Normaliza o payload cru (vindo da IA ou do banco) descartando o que não
  * casa com o shape. Nunca lança — entrada suja vira lista vazia.
  */
@@ -79,12 +118,18 @@ export function normalizeAcademicEvents(raw: unknown): AcademicEvent[] {
     const endDate = isIsoDate(o.endDate) ? o.endDate : null;
     const semRaw = typeof o.semester === "number" ? o.semester : Number(o.semester);
     const semester = semRaw === 1 || semRaw === 2 ? semRaw : null;
+    const termBoundary =
+      o.termBoundary === "start" || o.termBoundary === "end"
+        ? (o.termBoundary as TermBoundary)
+        : null;
     out.push({
       date: o.date,
       endDate: endDate && endDate >= o.date ? endDate : null,
       title: title.slice(0, 160),
       category,
       semester,
+      // Só grava quando existe, pra não poluir o JSON salvo com nulls.
+      ...(termBoundary ? { termBoundary } : {}),
     });
   }
   // Ordena cronologicamente e remove duplicatas exatas (data + título).
@@ -132,8 +177,40 @@ export function formatEventDate(e: AcademicEvent): string {
 
 export type TermWindow = { start: string; end: string };
 
-const START_RE = /in[ií]cio\s+do\s+(semestre|per[ií]odo)\s+letivo/i;
-const END_RE = /t[ée]rmino\s+do\s+(per[ií]odo|semestre)\s+letivo/i;
+/**
+ * Tira acento, caixa e marca de ordinal do título antes de casar. O título vem
+ * verbatim do PDF (o prompt manda preservar o texto do evento), então a
+ * redação varia: "Início do 1º semestre letivo", "INÍCIO DAS AULAS",
+ * "Retorno das atividades letivas"...
+ */
+function normTitle(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/(\d+)\s*[º°ª]/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Tolerantes de propósito: aceitam qualquer coisa entre o verbo e o
+// substantivo ("do 1 semestre", "das aulas", "do ano letivo"...).
+const START_RE =
+  /\b(inicio|comeco|retorno|reinicio|abertura)\b[^.]*\b(semestre|periodo|ano|aulas?|letiv[oa]s?)\b/;
+const END_RE =
+  /\b(termino|encerramento|fim|ultimo dia)\b[^.]*\b(semestre|periodo|ano|aulas?|letiv[oa]s?)\b/;
+// "Fim do recesso do meio de ano" é retomada, não término de semestre.
+const NOT_TERM_RE = /\b(recesso|ferias|feriado)\b/;
+
+function isTermStart(title: string): boolean {
+  const t = normTitle(title);
+  return START_RE.test(t) && !NOT_TERM_RE.test(t);
+}
+
+function isTermEnd(title: string): boolean {
+  const t = normTitle(title);
+  return END_RE.test(t) && !NOT_TERM_RE.test(t);
+}
 
 /**
  * Deriva as janelas letivas (início → término) a partir dos marcos do
@@ -142,26 +219,77 @@ const END_RE = /t[ée]rmino\s+do\s+(per[ií]odo|semestre)\s+letivo/i;
  * Serve pra limitar a repetição das aulas da grade horária: sem isso, uma
  * aula de segunda 08:00 se repetiria infinitamente — inclusive em janeiro,
  * em julho e em 2030.
+ *
+ * INVARIANTE: na dúvida, RESTRINGIR MENOS. Uma aula a mais em janeiro é um
+ * incômodo; um semestre inteiro sumido com o banner "Fora do período letivo"
+ * é o usuário achando que o app perdeu a grade dele. Por isso nenhum início
+ * é descartado: sem término conhecido, a janela fecha no fim do ano.
  */
 export function getTermWindows(cal: AcademicCalendar | null): TermWindow[] {
   if (!cal || cal.events.length === 0) return [];
-  const starts = cal.events
-    .filter((e) => e.category === "marco" && START_RE.test(e.title))
-    .map((e) => e.date)
-    .sort();
-  const ends = cal.events
-    .filter((e) => e.category === "marco" && END_RE.test(e.title))
-    .map((e) => e.endDate ?? e.date)
-    .sort();
-  if (starts.length === 0 || ends.length === 0) return [];
+  // `termBoundary`, quando o extrator classifica, vale por si. Sem ele cai no
+  // fallback textual ancorado em category === "marco" — que é obrigatório, não
+  // opcional: os calendários já salvos (migration 056) não têm o campo.
+  const marcos = cal.events.filter((e) => e.category === "marco" || e.termBoundary);
+  if (marcos.length === 0) return [];
 
+  const startMarks = marcos.filter((e) =>
+    e.termBoundary ? e.termBoundary === "start" : isTermStart(e.title),
+  );
+  const endMarks = marcos.filter((e) =>
+    e.termBoundary ? e.termBoundary === "end" : isTermEnd(e.title),
+  );
   const windows: TermWindow[] = [];
-  for (const start of starts) {
-    // Casa cada início com o primeiro término que vem depois dele.
-    const end = ends.find((d) => d > start);
+
+  // 1) Sinal primário: o semestre declarado na extração. Agrupa os marcos por
+  //    semestre e deriva min(início) → max(término) de cada grupo, sem depender
+  //    de como o título foi redigido.
+  for (const sem of [1, 2]) {
+    const starts = startMarks
+      .filter((e) => e.semester === sem)
+      .map((e) => e.date)
+      .sort();
+    if (starts.length === 0) continue;
+    const start = starts[0];
+    const end = endMarks
+      .filter((e) => e.semester === sem)
+      .map((e) => e.endDate ?? e.date)
+      .filter((d) => d >= start)
+      .sort()
+      .pop();
     if (end) windows.push({ start, end });
   }
-  return windows;
+
+  // 2) Início ainda não coberto (semestre nulo, ou grupo sem término): casa com
+  //    o primeiro término posterior; se não houver, FECHA no fim do ano em vez
+  //    de descartar a janela.
+  const allEnds = endMarks.map((e) => e.endDate ?? e.date).sort();
+  for (const e of startMarks) {
+    const start = e.date;
+    if (windows.some((w) => start >= w.start && start <= w.end)) continue;
+    const end = allEnds.find((d) => d > start);
+    if (end) {
+      windows.push({ start, end });
+      continue;
+    }
+    const year = cal.year ?? Number(start.slice(0, 4));
+    windows.push({ start, end: `${year}-12-31` });
+    console.warn(
+      `[academic-calendar] início em ${start} sem término correspondente; janela fechada em 31/12. Títulos dos marcos:`,
+      marcos.map((m) => m.title),
+    );
+  }
+
+  // 3) Tem marco mas nada virou janela: antes isso era silêncio total e a
+  //    feature de período letivo virava no-op sem ninguém perceber.
+  if (windows.length === 0) {
+    console.warn(
+      "[academic-calendar] calendário tem marcos mas nenhuma janela letiva foi derivada — aulas ficarão sem limite de período. Títulos:",
+      marcos.map((m) => m.title),
+    );
+  }
+
+  return windows.sort((a, b) => a.start.localeCompare(b.start));
 }
 
 /**
@@ -178,7 +306,9 @@ export function getNonTeachingDays(cal: AcademicCalendar | null): Set<string> {
     // Guarda contra intervalo absurdo vindo de extração ruim.
     let guard = 0;
     while (cursor.getTime() <= last.getTime() && guard < 400) {
-      out.add(cursor.toISOString().slice(0, 10));
+      // Data LOCAL: o cursor é meia-noite local e toISOString() a jogaria pro
+      // dia anterior em qualquer fuso positivo, deslocando o Set inteiro.
+      out.add(toLocalIso(cursor));
       cursor.setDate(cursor.getDate() + 1);
       guard += 1;
     }
@@ -254,10 +384,12 @@ export function renderAcademicCalendarForPrompt(
 ): string | null {
   if (!cal || cal.events.length === 0) return null;
   const today = opts.today ?? new Date();
-  const todayIso = today.toISOString().slice(0, 10);
+  // Roda no servidor (UTC): sem isso, das 21h à meia-noite em Brasília o
+  // "hoje" já seria amanhã e o evento de hoje sumiria do prompt.
+  const todayIso = isoDateInSaoPaulo(today);
   const horizon = new Date(today);
   horizon.setDate(horizon.getDate() + (opts.horizonDays ?? 120));
-  const horizonIso = horizon.toISOString().slice(0, 10);
+  const horizonIso = isoDateInSaoPaulo(horizon);
 
   const upcoming = cal.events
     // Um intervalo em curso (recesso que começou ontem) ainda importa.

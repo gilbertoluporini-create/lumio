@@ -7,6 +7,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  isoDateInSaoPaulo,
   normalizeAcademicCalendar,
   renderAcademicCalendarForPrompt,
   type AcademicCalendar,
@@ -202,7 +203,10 @@ export function renderProfileForPrompt(
   }
   if (profile.examDates && profile.examDates.length > 0) {
     const upcoming = profile.examDates
-      .filter((e) => e.date >= new Date().toISOString().slice(0, 10))
+      // Roda no servidor (UTC): toISOString() ignora TZ e, das 21h à meia-noite
+      // em Brasília, descartaria a prova de HOJE. Mesma razão do
+      // renderAcademicCalendarForPrompt logo abaixo.
+      .filter((e) => e.date >= isoDateInSaoPaulo())
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(0, 5)
       .map((e) => `${e.subject} (${e.date})`)

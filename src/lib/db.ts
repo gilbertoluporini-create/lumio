@@ -86,22 +86,36 @@ export async function getActiveSemesterIdAsync(
  * migração não esconde matéria de ninguém antes do backfill rodar.
  */
 export async function listSubjectsAsync(userId: string): Promise<Subject[]> {
-  if (!isSupabaseConfigured()) return localListSubjects(userId);
   try {
-    const supabase = createClient();
-    const activeSemesterId = await getActiveSemesterIdAsync(userId);
-    let query = supabase
-      .from("subjects")
-      .select(SUBJECT_COLS)
-      .order("created_at", { ascending: true });
-    if (activeSemesterId) query = query.eq("semester_id", activeSemesterId);
-    const { data, error } = await query;
-    if (error) throw error;
-    return (data as SubjectRow[]).map(rowToSubject);
+    return await listSubjectsStrictAsync(userId);
   } catch (err) {
     console.error("[db] listSubjects fallback", err);
     return localListSubjects(userId);
   }
+}
+
+/**
+ * Mesma leitura da `listSubjectsAsync`, mas SEM mascarar falha do Supabase:
+ * com banco configurado, erro de rede/RLS/token expirado é re-lançado em vez
+ * de virar uma lista local vazia (numa conta que sempre viveu no Supabase o
+ * localStorage é `[]`). Use nas telas em que uma lista vazia FALSA causa dano
+ * — a agenda, por exemplo, renderiza o mês inteiro sem aulas e ainda induz o
+ * aluno a re-subir a grade. Só cai pro localStorage quando não há Supabase.
+ */
+export async function listSubjectsStrictAsync(
+  userId: string,
+): Promise<Subject[]> {
+  if (!isSupabaseConfigured()) return localListSubjects(userId);
+  const supabase = createClient();
+  const activeSemesterId = await getActiveSemesterIdAsync(userId);
+  let query = supabase
+    .from("subjects")
+    .select(SUBJECT_COLS)
+    .order("created_at", { ascending: true });
+  if (activeSemesterId) query = query.eq("semester_id", activeSemesterId);
+  const { data, error } = await query;
+  if (error) throw error;
+  return (data as SubjectRow[]).map(rowToSubject);
 }
 
 /** Lista todos os semestres do user, mais antigo → mais novo. */
@@ -261,6 +275,40 @@ export async function createSubjectAsync(
   }
   const supabase = createClient();
   const activeSemesterId = await getActiveSemesterIdAsync(userId);
+  // Idempotente por NOME dentro do semestre ativo, mesmo dedup que a
+  // bulkCreateSubjectsAsync já faz (incidente de 2026-05-27). Sem isso, um
+  // caller que recebeu a lista de matérias vazia/desatualizada — ex.: a agenda
+  // caiu no fallback local e o "Subir agenda" achou que TODA linha era matéria
+  // nova — duplicava no banco cada matéria já existente, e com ela cada aula
+  // da agenda. Escopado ao semestre pra não barrar "Cálculo I" num período novo.
+  let existingQuery = supabase
+    .from("subjects")
+    .select(SUBJECT_COLS)
+    .eq("user_id", userId);
+  if (activeSemesterId) {
+    existingQuery = existingQuery.eq("semester_id", activeSemesterId);
+  }
+  const { data: existing } = await existingQuery;
+  const wanted = data.name.trim().toLowerCase();
+  const dupe = ((existing ?? []) as SubjectRow[]).find(
+    (r) => r.name.trim().toLowerCase() === wanted,
+  );
+  if (dupe) {
+    const incoming = data.schedule ?? [];
+    const current = Array.isArray(dupe.schedule) ? dupe.schedule : [];
+    // Só preenche horário quando a matéria existente está sem grade — nunca
+    // sobrescreve uma grade que o aluno já montou.
+    if (incoming.length > 0 && current.length === 0) {
+      const { data: patched } = await supabase
+        .from("subjects")
+        .update({ schedule: incoming })
+        .eq("id", dupe.id)
+        .select(SUBJECT_COLS)
+        .single();
+      if (patched) return rowToSubject(patched as SubjectRow);
+    }
+    return rowToSubject(dupe);
+  }
   const { data: row, error } = await supabase
     .from("subjects")
     .insert({

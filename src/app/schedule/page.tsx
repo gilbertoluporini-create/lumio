@@ -1,10 +1,11 @@
 "use client";
 import { LumiPic } from "@/components/brand/lumi";
 
-import { createElement, useCallback, useEffect, useMemo, useState } from "react";
+import { createElement, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Activity,
+  AlertCircle,
   Atom,
   BookOpen,
   Brain,
@@ -76,10 +77,11 @@ import {
   getTermWindows,
   isWithinTerm,
   normalizeAcademicCalendar,
+  toLocalIso,
   type AcademicCalendar,
   type TermWindow,
 } from "@/lib/academic-calendar";
-import { listSubjectsAsync } from "@/lib/db";
+import { listSubjectsStrictAsync } from "@/lib/db";
 import {
   EVENT_TYPE_META,
   listEventsAsync,
@@ -113,8 +115,9 @@ function timeToMinutes(t: string): number {
   return h * 60 + m;
 }
 
-function greetingPrefix(): string {
-  const h = new Date().getHours();
+/** Hora vem do tique da página; sem isso a saudação congela na hora do último
+ *  render (aba aberta a noite toda continua dando "Boa tarde"). */
+function greetingPrefix(h: number): string {
   if (h < 12) return "Bom dia";
   if (h < 18) return "Boa tarde";
   return "Boa noite";
@@ -164,9 +167,9 @@ function weekdayLabel(date: Date): string {
   return `${DAY_LABELS_LONG[dow]}-feira`;
 }
 
-function dayHeaderLabel(date: Date): string {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+/** `today` (00:00 local) vem de fora: chamar new Date() aqui prenderia o rótulo
+ *  no dia em que a página renderizou pela última vez. */
+function dayHeaderLabel(date: Date, today: Date): string {
   const target = new Date(date);
   target.setHours(0, 0, 0, 0);
   const diffDays = Math.round(
@@ -183,6 +186,23 @@ function startOfWeek(d: Date): Date {
   out.setHours(0, 0, 0, 0);
   out.setDate(out.getDate() - out.getDay()); // Dom = 0
   return out;
+}
+
+/**
+ * Âncora de semana pra um mês: a primeira semana cujo MIOLO (quarta) cai no
+ * mês. Sem isso, pular pra agosto podia parar numa semana que começa em 26/07
+ * e o rótulo continuaria dizendo "Julho".
+ */
+function weekAnchorForMonth(year: number, month: number): Date {
+  const first = new Date(year, month, 1);
+  first.setHours(0, 0, 0, 0);
+  const normalized = first.getMonth(); // aceita month = -1 ou 12 (virada de ano)
+  const mid = startOfWeek(first);
+  mid.setDate(mid.getDate() + 3);
+  if (mid.getMonth() === normalized) return first;
+  const next = new Date(first);
+  next.setDate(next.getDate() + 7);
+  return next;
 }
 
 function getSubjectIcon(name: string): LucideIcon {
@@ -249,6 +269,8 @@ type UEvent = {
   endMinutes: number;
   startTime: string; // "HH:MM"
   endTime: string;
+  /** 00:00→23:59 (feriado/recesso/prazo do calendário acadêmico): render sem hora. */
+  allDay: boolean;
   title: string;
   subjectId?: string;
   subjectName?: string;
@@ -308,6 +330,7 @@ function expandSlotsToEvents(
           endMinutes: timeToMinutes(slot.endTime),
           startTime: slot.startTime,
           endTime: slot.endTime,
+          allDay: false, // aula da grade sempre tem horário
           title: s.name,
           subjectId: s.id,
           subjectName: s.name,
@@ -330,14 +353,17 @@ function customEventToUEvent(
   const day = new Date(start);
   day.setHours(0, 0, 0, 0);
   const subj = ev.subject_id ? subjects.find((s) => s.id === ev.subject_id) : undefined;
+  const startMinutes = start.getHours() * 60 + start.getMinutes();
+  const endMinutes = end.getHours() * 60 + end.getMinutes();
   return {
     id: ev.id,
     type: ev.type,
     date: day,
-    startMinutes: start.getHours() * 60 + start.getMinutes(),
-    endMinutes: end.getHours() * 60 + end.getMinutes(),
+    startMinutes,
+    endMinutes,
     startTime: formatTime(start),
     endTime: formatTime(end),
+    allDay: startMinutes === 0 && endMinutes >= 23 * 60 + 59,
     title: ev.title,
     subjectId: subj?.id,
     subjectName: subj?.name,
@@ -393,14 +419,76 @@ function ScheduleView({ user }: { user: User }) {
     return d;
   });
 
+  /* Relógio da página. Sem isso nada re-renderiza na virada do dia: a aba fica
+     aberta a noite toda e o destaque de "hoje", os rótulos Hoje/Amanhã/Ontem e
+     a linha do agora continuam no dia anterior até o usuário mexer em algo.
+     O tique é de HORA (não de minuto) — cobre a meia-noite e a saudação com
+     ~24 re-renders por dia em vez de 1440. Os dois states só mudam de valor
+     quando o valor muda de verdade, então o React faz bailout no resto. */
+  const [todayKey, setTodayKey] = useState(() => toLocalIso(new Date()));
+  const [hourOfDay, setHourOfDay] = useState(() => new Date().getHours());
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const sync = () => {
+      const now = new Date();
+      setTodayKey(toLocalIso(now));
+      setHourOfDay(now.getHours());
+    };
+    const scheduleNext = () => {
+      const now = new Date();
+      const nextHour = new Date(now);
+      nextHour.setMinutes(0, 0, 5); // +5ms de folga pra não cair em :59.999
+      nextHour.setHours(now.getHours() + 1);
+      const delay = Math.max(1_000, nextHour.getTime() - now.getTime());
+      timer = setTimeout(() => {
+        sync();
+        scheduleNext();
+      }, delay);
+    };
+    scheduleNext();
+    /* Timer sozinho não cobre notebook suspenso nem throttling de aba oculta. */
+    const onVisible = () => {
+      if (document.visibilityState === "visible") {
+        sync();
+        clearTimeout(timer);
+        scheduleNext();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+
+  /* Hoje 00:00 local, derivado do tique (parse manual pra não depender de como
+     a engine interpreta string ISO). Identidade só muda quando o dia vira. */
+  const today = useMemo(() => {
+    const [y, m, d] = todayKey.split("-").map(Number);
+    return new Date(y, m - 1, d);
+  }, [todayKey]);
+
+  /* Falha ao LER as matérias do banco. Precisa ser visível: uma lista vazia
+     por erro de rede/RLS é indistinguível de "ainda não cadastrei nada", e o
+     aluno reage subindo a grade de novo — duplicando tudo. */
+  const [subjectsError, setSubjectsError] = useState(false);
+
   /* Carrega subjects + custom events em paralelo. */
   useEffect(() => {
     let active = true;
-    Promise.all([listSubjectsAsync(user.id), listEventsAsync(user.id)])
+    Promise.all([listSubjectsStrictAsync(user.id), listEventsAsync(user.id)])
       .then(([subs, evs]) => {
         if (!active) return;
         setSubjects(subs);
         setCustomEvents(evs);
+        setSubjectsError(false);
+      })
+      .catch((err) => {
+        // Estado anterior fica de pé: melhor a grade velha na tela que um mês
+        // em branco mentindo que não existe aula.
+        console.error("[schedule] carga inicial falhou", err);
+        if (active) setSubjectsError(true);
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -439,19 +527,33 @@ function ScheduleView({ user }: { user: User }) {
     [academicCalendar],
   );
 
-  /* Mês visível está fora do período letivo? Explica em vez de deixar o
-     calendário vazio e mudo (parece bug). */
-  const termGap = useMemo(
-    () => describeTermGap(cursor.getFullYear(), cursor.getMonth(), termBounds.terms),
-    [cursor, termBounds.terms],
-  );
+  /* Token de ordem: os reloads são disparados por vários callbacks (o
+     SchedulePdfUpload chama onSaved duas vezes numa mesma sessão do dialog —
+     gravação parcial + retry), e duas respostas em voo podem chegar fora de
+     ordem. Sem o token, a resposta MAIS VELHA sobrescreve o que acabou de ser
+     gravado e as matérias novas somem da tela. */
+  const subjectsSeqRef = useRef(0);
+  const eventsSeqRef = useRef(0);
 
   const reloadCustomEvents = useCallback(() => {
-    listEventsAsync(user.id).then((evs) => setCustomEvents(evs));
+    const seq = ++eventsSeqRef.current;
+    listEventsAsync(user.id).then((evs) => {
+      if (seq === eventsSeqRef.current) setCustomEvents(evs);
+    });
   }, [user.id]);
 
   const reloadSubjects = useCallback(() => {
-    listSubjectsAsync(user.id).then((subs) => setSubjects(subs));
+    const seq = ++subjectsSeqRef.current;
+    listSubjectsStrictAsync(user.id)
+      .then((subs) => {
+        if (seq !== subjectsSeqRef.current) return;
+        setSubjects(subs);
+        setSubjectsError(false);
+      })
+      .catch((err) => {
+        console.error("[schedule] reload das matérias falhou", err);
+        if (seq === subjectsSeqRef.current) setSubjectsError(true);
+      });
   }, [user.id]);
 
   /* Combina aulas + custom events para uma janela ampla (12 semanas), depois filtra por view. */
@@ -512,8 +614,9 @@ function ScheduleView({ user }: { user: User }) {
      sidebar esvaziam ao navegar o mês. */
   const upcomingEvents = useMemo(() => {
     const now = new Date();
-    const today00 = new Date(now);
-    today00.setHours(0, 0, 0, 0);
+    // Vem do tique de relógio (`today`), não de um new Date() solto: assim a
+    // lista recalcula sozinha na virada do dia.
+    const today00 = today;
     const horizon = new Date(today00);
     horizon.setDate(horizon.getDate() + 30);
     const nowMin = now.getHours() * 60 + now.getMinutes();
@@ -529,7 +632,10 @@ function ScheduleView({ user }: { user: User }) {
         if (e.date.getTime() < today00.getTime()) return false;
         if (e.date.getTime() > horizon.getTime()) return false;
         if (isSameDay(e.date, today00)) {
-          return e.endMinutes > nowMin;
+          // layoutEndMinutes: evento que cruza a meia-noite tem endMinutes
+          // MENOR que o início e seria dado como encerrado durante o próprio
+          // acontecimento.
+          return layoutEndMinutes(e) > nowMin;
         }
         return true;
       })
@@ -538,7 +644,11 @@ function ScheduleView({ user }: { user: User }) {
         if (ad !== 0) return ad;
         return a.startMinutes - b.startMinutes;
       });
-  }, [subjects, customEvents, activeTypes, termBounds]);
+    // `hourOfDay` entra de propósito (o lint não vê, porque ele não aparece no
+    // corpo): reavalia o corte por `nowMin` a cada hora. O tique não é de
+    // minuto, então dentro da hora o corte fica no valor da última reavaliação.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subjects, customEvents, activeTypes, termBounds, today, hourOfDay]);
 
   /* Agrupa por dia (próximos 5 dias com eventos). */
   const agendaGroups = useMemo(() => {
@@ -581,14 +691,61 @@ function ScheduleView({ user }: { user: User }) {
     }
   }, [view, selectedDay]);
 
+  /* Data de referência da view ativa. Na semana quem manda é o weekAnchor
+     (que navega sozinho), não o cursor do mês — senão label e avisos falam de
+     um mês que não é o que está na tela. Usa o miolo da semana (quarta) pra
+     semana que cruza a virada do mês cair no mês dominante. */
+  const refDate = view === "semana" ? weekDays[3] : cursor;
+
+  /* Período visível está fora do período letivo? Explica em vez de deixar o
+     calendário vazio e mudo (parece bug). Na semana a checagem é dos 7 dias
+     visíveis (mais preciso que raciocinar por mês). */
+  const termGap = useMemo(() => {
+    // A agenda é SEMPRE hoje→+30d (não segue o cursor), então um aviso
+    // derivado do mês do cursor contradiria a lista logo abaixo dele.
+    if (view === "agenda") return null;
+    if (view === "semana") {
+      const temAula = weekDays.some((d) =>
+        isWithinTerm(toLocalIso(d), termBounds.terms),
+      );
+      if (temAula) return null;
+    }
+    return describeTermGap(
+      refDate.getFullYear(),
+      refDate.getMonth(),
+      termBounds.terms,
+    );
+  }, [view, weekDays, refDate, termBounds.terms]);
+
+  /* Aulas expandidas na janela DA SEMANA visível. weekAnchor navega
+     independente do cursor do mês, então a janela de allEvents (ancorada no
+     cursor) não cobre semanas distantes — filtrar allEvents aqui deixaria a
+     semana sem aulas ao navegar >2 semanas pra trás. Mesmo padrão de
+     upcomingEvents. */
   const eventsInWeek = useMemo(() => {
-    const start = weekDays[0];
+    const start = new Date(weekDays[0]);
+    start.setHours(0, 0, 0, 0);
     const end = new Date(weekDays[6]);
     end.setHours(23, 59, 59, 999);
-    return allEvents.filter(
-      (e) => e.date.getTime() >= start.getTime() && e.date.getTime() <= end.getTime(),
-    );
-  }, [allEvents, weekDays]);
+
+    const aulas = subjects.length
+      ? expandSlotsToEvents(subjects, start, end, termBounds)
+      : [];
+    const custom = customEvents.map((c) => customEventToUEvent(c, subjects));
+
+    return [...aulas, ...custom]
+      .filter((e) => activeTypes.has(e.type))
+      .filter(
+        (e) =>
+          e.date.getTime() >= start.getTime() &&
+          e.date.getTime() <= end.getTime(),
+      )
+      .sort((a, b) => {
+        const ad = a.date.getTime() - b.date.getTime();
+        if (ad !== 0) return ad;
+        return a.startMinutes - b.startMinutes;
+      });
+  }, [subjects, customEvents, weekDays, activeTypes, termBounds]);
 
   /* Agenda view: próximos 30 dias filtrados por tipo (se houver). */
   const agendaEvents = useMemo(() => {
@@ -600,12 +757,28 @@ function ScheduleView({ user }: { user: User }) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     setSelectedDay(today);
+    // O efeito de sync só reage a MUDANÇA de selectedDay: se hoje já estava
+    // selecionado, a semana ficaria parada onde o usuário navegou.
+    setWeekAnchor(today);
     const c = new Date(today);
     c.setDate(1);
     setCursor(c);
   }
 
+  /* As setas/dropdown de mês movem TAMBÉM a semana quando a view é semana —
+     lá o rótulo sai do weekAnchor, então mexer só no cursor seria um botão
+     que não faz nada. */
   function shiftMonth(delta: number) {
+    if (view === "semana") {
+      // Na semana o rótulo sai do refDate (miolo da semana visível), então a
+      // seta tem que mover os DOIS a partir dele — mover o cursor a partir de
+      // si mesmo faz a view Mês abrir um mês diferente do que o rótulo dizia.
+      const next = new Date(refDate.getFullYear(), refDate.getMonth() + delta, 1);
+      next.setHours(0, 0, 0, 0);
+      setCursor(next);
+      setWeekAnchor(weekAnchorForMonth(next.getFullYear(), next.getMonth()));
+      return;
+    }
     setCursor((prev) => {
       const next = new Date(prev);
       next.setMonth(prev.getMonth() + delta);
@@ -619,6 +792,7 @@ function ScheduleView({ user }: { user: User }) {
     const d = new Date(year, month, 1);
     d.setHours(0, 0, 0, 0);
     setCursor(d);
+    if (view === "semana") setWeekAnchor(weekAnchorForMonth(year, month));
   }
 
   function toggleType(t: CalendarEventType) {
@@ -681,7 +855,7 @@ function ScheduleView({ user }: { user: User }) {
   }
 
   const firstName = user.name.split(" ")[0] || "estudante";
-  const monthLabel = `${MONTHS_LONG[cursor.getMonth()]} de ${cursor.getFullYear()}`;
+  const monthLabel = `${MONTHS_LONG[refDate.getMonth()]} de ${refDate.getFullYear()}`;
 
   if (loading) {
     return (
@@ -690,9 +864,6 @@ function ScheduleView({ user }: { user: User }) {
       </div>
     );
   }
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-5">
@@ -706,7 +877,7 @@ function ScheduleView({ user }: { user: User }) {
           />
           <div>
           <p className="text-xs text-muted-foreground mb-1">
-            {greetingPrefix()}, {firstName}
+            {greetingPrefix(hourOfDay)}, {firstName}
           </p>
           <h1 className="text-3xl md:text-4xl heading-display">
             Calendário de estudos
@@ -762,29 +933,39 @@ function ScheduleView({ user }: { user: User }) {
           <Button variant="outline" size="sm" onClick={goToToday}>
             Hoje
           </Button>
-          <div className="flex items-center rounded-md border border-border bg-background">
-            <button
-              type="button"
-              onClick={() => shiftMonth(-1)}
-              className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent rounded-l-md transition-colors"
-              aria-label="Mês anterior"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => shiftMonth(1)}
-              className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent rounded-r-md transition-colors border-l border-border"
-              aria-label="Próximo mês"
-            >
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-          <MonthDropdown
-            cursor={cursor}
-            label={monthLabel}
-            onSelect={setMonthYear}
-          />
+          {/* A agenda ignora o cursor (mostra sempre os próximos 30 dias):
+              navegar por mês ali seria controle morto contradizendo a lista. */}
+          {view === "agenda" ? (
+            <span className="inline-flex h-8 items-center rounded-md border border-border bg-background px-3 text-sm font-medium">
+              Próximos 30 dias
+            </span>
+          ) : (
+            <>
+              <div className="flex items-center rounded-md border border-border bg-background">
+                <button
+                  type="button"
+                  onClick={() => shiftMonth(-1)}
+                  className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent rounded-l-md transition-colors"
+                  aria-label="Mês anterior"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => shiftMonth(1)}
+                  className="flex h-8 w-8 items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent rounded-r-md transition-colors border-l border-border"
+                  aria-label="Próximo mês"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+              <MonthDropdown
+                cursor={refDate}
+                label={monthLabel}
+                onSelect={setMonthYear}
+              />
+            </>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -822,7 +1003,31 @@ function ScheduleView({ user }: { user: User }) {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
         {/* Left: calendar + cards */}
         <div className="lg:col-span-9 space-y-5">
-          {termGap && subjects.length > 0 && (
+          {/* Erro de leitura vem ANTES do aviso de período letivo: se o banco
+              não respondeu, qualquer conclusão sobre "não tem aula" é chute. */}
+          {subjectsError && (
+            <div className="flex items-start gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-foreground">
+                  Não consegui carregar suas matérias
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  O calendário pode estar incompleto. Não suba a grade de novo
+                  antes de recarregar, senão as matérias podem duplicar.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0"
+                onClick={reloadSubjects}
+              >
+                Tentar de novo
+              </Button>
+            </div>
+          )}
+          {termGap && !subjectsError && subjects.length > 0 && (
             <div className="flex items-start gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3">
               <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
               <div className="min-w-0">
@@ -869,6 +1074,7 @@ function ScheduleView({ user }: { user: User }) {
               events={agendaEvents.slice(0, 60)}
               activeFilter={agendaFilter}
               onFilterChange={setAgendaFilter}
+              today={today}
             />
           )}
 
@@ -903,7 +1109,7 @@ function ScheduleView({ user }: { user: User }) {
                 {agendaGroups.map((g, idx) => (
                   <div key={idx}>
                     <div className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground mb-1.5">
-                      {dayHeaderLabel(g.date)} · {formatDateLabel(g.date)}
+                      {dayHeaderLabel(g.date, today)} · {formatDateLabel(g.date)}
                     </div>
                     <div className="space-y-1.5">
                       {g.events.map((e) => (
@@ -1239,12 +1445,16 @@ function MonthGrid({
                         "flex items-center gap-1 rounded px-1 py-0.5 text-[10px] leading-tight truncate",
                         softClass,
                       )}
-                      title={`${e.startTime}–${e.endTime} ${e.title}`}
+                      title={
+                        e.allDay ? e.title : `${e.startTime}–${e.endTime} ${e.title}`
+                      }
                     >
                       <span className={cn("h-1.5 w-1.5 rounded-full shrink-0", dotClass)} />
-                      <span className="font-medium tabular-nums text-muted-foreground">
-                        {e.startTime}
-                      </span>
+                      {!e.allDay && (
+                        <span className="font-medium tabular-nums text-muted-foreground">
+                          {e.startTime}
+                        </span>
+                      )}
                       <span className="truncate">{e.title}</span>
                     </div>
                   );
@@ -1268,6 +1478,26 @@ function MonthGrid({
 const WEEK_START_HOUR = 7;
 const WEEK_END_HOUR = 22;
 const WEEK_HOUR_PX = 56;
+
+/**
+ * Evento "dia inteiro" (00:00→23:59), como os que vêm do calendário acadêmico.
+ * Sem tratamento próprio ele viraria um bloco cobrindo a coluna inteira e
+ * escondendo as aulas do dia.
+ */
+function isAllDayEvent(e: UEvent): boolean {
+  return e.allDay;
+}
+
+/**
+ * Fim do evento PARA LAYOUT. Fim <= início significa evento cruzando a
+ * meia-noite (22:00–01:00) ou de duração zero — sem normalizar, a altura fica
+ * negativa e o bloco some da grade sem nenhum aviso.
+ */
+function layoutEndMinutes(e: UEvent): number {
+  if (e.endMinutes > e.startMinutes) return e.endMinutes;
+  if (e.endMinutes < e.startMinutes) return 24 * 60; // corta na meia-noite
+  return Math.min(24 * 60, e.startMinutes + 30);
+}
 
 const MONTHS_SHORT = [
   "jan", "fev", "mar", "abr", "mai", "jun",
@@ -1306,25 +1536,45 @@ function WeekGrid({
   onShiftWeek: (delta: number) => void;
   onEventClick: (event: UEvent) => void;
 }) {
+  /* Faixa de horas da grade: parte de 07–22 mas ABRE pra caber o que estiver
+     fora (aula 22:10, plantão 05:00, evento que cruza a meia-noite). Antes
+     esses eventos eram descartados no clamp e sumiam da semana em silêncio —
+     apareciam no mês e na agenda, o que parecia bug de dado. */
+  const { startHour, endHour } = useMemo(() => {
+    let min = WEEK_START_HOUR;
+    let max = WEEK_END_HOUR;
+    for (const e of events) {
+      if (isAllDayEvent(e)) continue;
+      min = Math.min(min, Math.floor(e.startMinutes / 60));
+      max = Math.max(max, Math.ceil(layoutEndMinutes(e) / 60));
+    }
+    const from = Math.max(0, min);
+    return { startHour: from, endHour: Math.min(24, Math.max(max, from + 1)) };
+  }, [events]);
+
   const hours = useMemo(() => {
     const out: number[] = [];
-    for (let h = WEEK_START_HOUR; h <= WEEK_END_HOUR; h++) out.push(h);
+    for (let h = startHour; h <= endHour; h++) out.push(h);
     return out;
-  }, []);
+  }, [startHour, endHour]);
 
-  const totalMinutes = (WEEK_END_HOUR - WEEK_START_HOUR) * 60;
-  const totalHeight = (WEEK_END_HOUR - WEEK_START_HOUR) * WEEK_HOUR_PX;
+  const totalMinutes = (endHour - startHour) * 60;
+  const totalHeight = (endHour - startHour) * WEEK_HOUR_PX;
 
-  const eventsByDayInWeek = useMemo(() => {
-    const map = new Map<string, UEvent[]>();
+  const { timedByDay, allDayByDay } = useMemo(() => {
+    const timed = new Map<string, UEvent[]>();
+    const allDay = new Map<string, UEvent[]>();
     for (const e of events) {
       const k = `${e.date.getFullYear()}-${e.date.getMonth()}-${e.date.getDate()}`;
-      const arr = map.get(k) ?? [];
+      const target = isAllDayEvent(e) ? allDay : timed;
+      const arr = target.get(k) ?? [];
       arr.push(e);
-      map.set(k, arr);
+      target.set(k, arr);
     }
-    return map;
+    return { timedByDay: timed, allDayByDay: allDay };
   }, [events]);
+
+  const hasAllDay = allDayByDay.size > 0;
 
   return (
     <div className="rounded-xl border border-border/70 bg-card overflow-hidden">
@@ -1391,6 +1641,53 @@ function WeekGrid({
         })}
       </div>
 
+      {/* Faixa "dia inteiro" — eventos sem hora (calendário acadêmico) ficam
+          aqui em vez de virar um bloco cobrindo a coluna toda. */}
+      {hasAllDay && (
+        <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border/60">
+          <div className="flex items-start justify-end border-r border-border/40 px-1.5 py-1 text-[10px] text-muted-foreground">
+            dia
+          </div>
+          {days.map((d, dayIdx) => {
+            const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+            const items = allDayByDay.get(k) ?? [];
+            return (
+              <div
+                key={d.toISOString()}
+                className={cn(
+                  "space-y-0.5 border-r border-border/40 px-1 py-1",
+                  dayIdx === 6 && "border-r-0",
+                  isSameDay(d, today) && "bg-primary/5",
+                )}
+              >
+                {items.map((e) => {
+                  const meta = EVENT_TYPE_META[e.type];
+                  const subjTheme = getThemeFromGradient(e.subjectColor);
+                  return (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={(ev) => {
+                        ev.stopPropagation();
+                        onEventClick(e);
+                      }}
+                      className={cn(
+                        "block w-full truncate rounded px-1.5 py-0.5 text-left text-[10px] font-medium leading-tight transition-shadow hover:shadow-md",
+                        subjTheme?.soft ?? meta.soft,
+                        subjTheme?.text ?? meta.text,
+                      )}
+                      title={e.title}
+                    >
+                      {e.title}
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Hour grid + events */}
       <div className="relative overflow-x-auto">
         <div
@@ -1405,7 +1702,7 @@ function WeekGrid({
                 className="absolute left-0 right-0 px-1.5 text-[10px] text-muted-foreground tabular-nums text-right pr-1"
                 style={{ top: idx * WEEK_HOUR_PX - 6 }}
               >
-                {pad2(h)}:00
+                {pad2(h % 24)}:00
               </div>
             ))}
           </div>
@@ -1413,7 +1710,7 @@ function WeekGrid({
           {/* 7 day columns */}
           {days.map((d, dayIdx) => {
             const k = `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-            const dayEvents = eventsByDayInWeek.get(k) ?? [];
+            const dayEvents = timedByDay.get(k) ?? [];
             const isToday = isSameDay(d, today);
             return (
               <div
@@ -1433,18 +1730,22 @@ function WeekGrid({
                   />
                 ))}
                 {/* Now indicator */}
-                {isToday && <NowIndicator />}
+                {isToday && (
+                  <NowIndicator startHour={startHour} endHour={endHour} />
+                )}
                 {/* Events */}
                 {dayEvents.map((e) => {
                   const startOffset = Math.max(
                     0,
-                    e.startMinutes - WEEK_START_HOUR * 60,
+                    e.startMinutes - startHour * 60,
                   );
                   const endClamped = Math.min(
                     totalMinutes,
-                    e.endMinutes - WEEK_START_HOUR * 60,
+                    layoutEndMinutes(e) - startHour * 60,
                   );
-                  if (endClamped <= 0 || startOffset >= totalMinutes) return null;
+                  // A faixa é derivada dos próprios eventos, então nada deveria
+                  // cair fora; guarda só pra nunca renderizar bloco invertido.
+                  if (endClamped <= startOffset) return null;
                   const top = (startOffset / 60) * WEEK_HOUR_PX;
                   const height = Math.max(
                     18,
@@ -1497,15 +1798,21 @@ function WeekGrid({
   );
 }
 
-function NowIndicator() {
+function NowIndicator({
+  startHour,
+  endHour,
+}: {
+  startHour: number;
+  endHour: number;
+}) {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000);
     return () => clearInterval(id);
   }, []);
   const minutes = now.getHours() * 60 + now.getMinutes();
-  if (minutes < WEEK_START_HOUR * 60 || minutes > WEEK_END_HOUR * 60) return null;
-  const top = ((minutes - WEEK_START_HOUR * 60) / 60) * WEEK_HOUR_PX;
+  if (minutes < startHour * 60 || minutes > endHour * 60) return null;
+  const top = ((minutes - startHour * 60) / 60) * WEEK_HOUR_PX;
   return (
     <div
       className="absolute left-0 right-0 z-10 pointer-events-none"
@@ -1525,10 +1832,13 @@ function AgendaView({
   events,
   activeFilter,
   onFilterChange,
+  today,
 }: {
   events: UEvent[];
   activeFilter: CalendarEventType | "all";
   onFilterChange: (f: CalendarEventType | "all") => void;
+  /** Hoje 00:00 local, vindo do tique de relógio da página. */
+  today: Date;
 }) {
   // Agrupa por dia
   const groups = useMemo(() => {
@@ -1590,7 +1900,7 @@ function AgendaView({
           {groups.map((g, idx) => (
             <div key={idx} className="p-4">
               <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-                {dayHeaderLabel(g.date)} · {formatDateLabel(g.date)}
+                {dayHeaderLabel(g.date, today)} · {formatDateLabel(g.date)}
               </div>
               <div className="space-y-2">
                 {g.events.map((e) => (
@@ -1637,8 +1947,12 @@ function AgendaEventRow({ event: e }: { event: UEvent }) {
         </div>
         <div className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
           <span className="inline-flex items-center gap-1">
-            <Clock className="h-3 w-3" />
-            {e.startTime}–{e.endTime}
+            {e.allDay ? (
+              <CalendarDays className="h-3 w-3" />
+            ) : (
+              <Clock className="h-3 w-3" />
+            )}
+            {e.allDay ? "Dia todo" : `${e.startTime}–${e.endTime}`}
           </span>
           {e.room && (
             <span className="inline-flex items-center gap-1">
@@ -1697,9 +2011,18 @@ function SidebarEventItem({
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-          <Clock className="h-2.5 w-2.5" />
-          {e.startTime}
-          {e.endTime !== e.startTime && `–${e.endTime}`}
+          {e.allDay ? (
+            <>
+              <CalendarDays className="h-2.5 w-2.5" />
+              Dia todo
+            </>
+          ) : (
+            <>
+              <Clock className="h-2.5 w-2.5" />
+              {e.startTime}
+              {e.endTime !== e.startTime && `–${e.endTime}`}
+            </>
+          )}
         </div>
         <div className="text-xs font-medium truncate">{e.title}</div>
         <div className={cn("text-[10px] truncate", labelTextClass)}>

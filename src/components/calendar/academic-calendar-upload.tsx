@@ -23,6 +23,7 @@ import { addEventsBulkAsync } from "@/lib/calendar-events";
 import {
   ACADEMIC_CATEGORY_META,
   formatEventDate,
+  normalizeAcademicCalendar,
   normalizeAcademicEvents,
   type AcademicEvent,
   type AcademicEventCategory,
@@ -112,6 +113,13 @@ function AcademicCalendarUploadBody({
   const [year, setYear] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [demoNote, setDemoNote] = useState(false);
+  /**
+   * Linhas que o addEventsBulkAsync JÁ gravou no localStorage. Se o PATCH do
+   * perfil falhar depois disso, o phase volta pro preview e o aluno tenta de
+   * novo — sem isso, o bulk rodaria outra vez sobre as mesmas linhas e cada
+   * evento apareceria duplicado na agenda (addEventAsync não checa duplicata).
+   */
+  const persistedRowIdsRef = useRef<Set<string>>(new Set());
 
   const selectedCount = useMemo(
     () => rows.filter((r) => r.selected).length,
@@ -231,10 +239,15 @@ function AcademicCalendarUploadBody({
     setPhase("saving");
     try {
       // 1) Eventos escolhidos entram na agenda como eventos do calendário.
-      if (chosen.length > 0) {
+      //    Só o que ainda não foi commitado: uma tentativa anterior pode ter
+      //    gravado essas linhas e falhado depois, no PATCH do perfil.
+      const pending = chosen.filter(
+        (r) => !persistedRowIdsRef.current.has(r.id),
+      );
+      if (pending.length > 0) {
         await addEventsBulkAsync(
           userId,
-          chosen.map((r) => {
+          pending.map((r) => {
             const meta = ACADEMIC_CATEGORY_META[r.event.category];
             // Evento acadêmico é "dia inteiro": 00:00 até 23:59 do último dia.
             const starts = new Date(`${r.event.date}T00:00:00`);
@@ -249,21 +262,77 @@ function AcademicCalendarUploadBody({
             };
           }),
         );
+        for (const r of pending) persistedRowIdsRef.current.add(r.id);
       }
 
       // 2) O calendário INTEIRO (inclusive o não marcado) vai pro perfil —
       //    é o que parametriza a Lumi: ela passa a saber recesso, feriado e
       //    prazo mesmo que o aluno não queira o evento poluindo a agenda.
+      //
+      //    Antes de gravar, LÊ o que já está salvo e FUNDE: o PATCH substitui a
+      //    coluna jsonb inteira (user-profile.ts: `row.academic_calendar =
+      //    patch.academicCalendar ?? null`), então sem o merge subir o
+      //    calendário do 2º semestre APAGA o do 1º — as aulas de fev-jun somem
+      //    atrás do banner "Fora do período letivo" (getTermWindows passa a ver
+      //    só a janela nova) e os feriados antigos param de suprimir aula.
+      let previous: AcademicEvent[] = [];
+      let prevInstitution: string | null = null;
+      let prevYear: number | null = null;
+      try {
+        const curRes = await fetch("/api/user-profile");
+        if (!curRes.ok) {
+          throw new Error(`GET /api/user-profile ${curRes.status}`);
+        }
+        const cur = await curRes.json();
+        const prevCal = normalizeAcademicCalendar(cur?.profile?.academicCalendar);
+        if (prevCal) {
+          previous = prevCal.events;
+          prevInstitution = prevCal.institution ?? null;
+          prevYear = prevCal.year ?? null;
+        }
+      } catch (readErr) {
+        // Falha na leitura NÃO pode virar sobrescrita silenciosa: aborta o
+        // PATCH e avisa, em vez de gravar só o calendário novo por cima do que
+        // já existia.
+        console.error("[academic-calendar-upload] profile read failed", readErr);
+        toast.warning(
+          "Não consegui ler seu calendário atual. As datas foram pra agenda, mas não sobrescrevi o calendário salvo.",
+        );
+        onSaved();
+        return;
+      }
+
+      // `normalizeAcademicEvents` ordena por data e deduplica por `date|title`
+      // mantendo a PRIMEIRA ocorrência. Com os novos NA FRENTE, re-subir um PDF
+      // corrigido atualiza a linha antiga (e o salvo bate com a preview que o
+      // aluno acabou de conferir); re-subir o MESMO PDF continua idempotente.
+      const mergedEvents = normalizeAcademicEvents([
+        ...rows.map((r) => r.event),
+        ...previous,
+      ]);
+      // O zod da rota rejeita o request inteiro (400) acima de 300 eventos.
+      // `slice(-300)` mantém as datas mais recentes da lista já ordenada.
+      const MAX_EVENTS = 300;
+      const cappedEvents = mergedEvents.slice(-MAX_EVENTS);
+      const dropped = mergedEvents.length - cappedEvents.length;
+      if (dropped > 0) {
+        toast.warning(
+          `Seu calendário passou de ${MAX_EVENTS} datas: guardei as mais recentes e descartei ${dropped} data${dropped === 1 ? "" : "s"} antiga${dropped === 1 ? "" : "s"}.`,
+        );
+      }
+
       const profileRes = await fetch("/api/user-profile", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           academicCalendar: {
-            institution,
-            year,
+            // Não zera o que já estava salvo quando a extração nova não
+            // identifica instituição/ano.
+            institution: institution ?? prevInstitution,
+            year: year ?? prevYear,
             sourceFile: fileName,
             importedAt: new Date().toISOString(),
-            events: rows.map((r) => r.event),
+            events: cappedEvents,
           },
         }),
       });
@@ -294,6 +363,9 @@ function AcademicCalendarUploadBody({
   }
 
   function reset() {
+    // Arquivo novo repopula as linhas reusando os mesmos ids (`${idx}`) —
+    // sem limpar aqui, uma falha anterior faria o save pular linhas erradas.
+    persistedRowIdsRef.current.clear();
     setRows([]);
     setFileName(null);
     setInstitution(null);

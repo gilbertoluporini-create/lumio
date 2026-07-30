@@ -50,7 +50,33 @@ type PreviewRow = {
   subject: ExtractedSubject;
   /** id da matéria existente a atualizar, ou NEW_SUBJECT pra criar nova. */
   target: string;
+  /**
+   * O que já foi gravado no banco pra esta linha (espelho do ledger em ref).
+   * Existe pra travar a linha no preview: depois de gravada, mudar o destino
+   * não teria efeito nenhum num novo "Salvar".
+   */
+  appliedKind?: AppliedKind;
 };
+
+/** O que aconteceu com uma linha do preview no banco. "noop" = nada a gravar. */
+type AppliedKind = "created" | "updated" | "noop";
+
+function countApplied(
+  rows: PreviewRow[],
+  applied: Map<string, AppliedKind>,
+): { created: number; updated: number; handled: number } {
+  let created = 0;
+  let updated = 0;
+  let handled = 0;
+  for (const r of rows) {
+    const kind = applied.get(r.id);
+    if (!kind) continue;
+    handled += 1;
+    if (kind === "created") created += 1;
+    else if (kind === "updated") updated += 1;
+  }
+  return { created, updated, handled };
+}
 
 export type SchedulePdfUploadProps = {
   open: boolean;
@@ -114,30 +140,52 @@ const GAP_TOLERANCE_MIN = 15;
 
 type DayBlocks = { day: number; blocks: Array<{ start: string; end: string }> };
 
-function mergeSlotsByDay(schedule: ScheduleSlot[]): DayBlocks[] {
+/**
+ * Fusão sobre ScheduleSlot (preserva `room`). É ESTA que vai pro banco —
+ * o preview deriva daqui pra que o que o aluno confere seja exatamente o
+ * que a agenda vai mostrar.
+ */
+function mergeSlots(schedule: ScheduleSlot[]): ScheduleSlot[] {
   const byDay = new Map<number, ScheduleSlot[]>();
   for (const s of schedule) {
     const list = byDay.get(s.dayOfWeek);
     if (list) list.push(s);
     else byDay.set(s.dayOfWeek, [s]);
   }
-  const out: DayBlocks[] = [];
+  const out: ScheduleSlot[] = [];
   for (const [day, slots] of byDay) {
     const sorted = [...slots].sort(
       (a, b) => toMinutes(a.startTime) - toMinutes(b.startTime),
     );
-    const blocks: Array<{ start: string; end: string }> = [];
     for (const s of sorted) {
-      const last = blocks[blocks.length - 1];
-      if (last && toMinutes(s.startTime) - toMinutes(last.end) <= GAP_TOLERANCE_MIN) {
+      const last = out.length > 0 ? out[out.length - 1] : undefined;
+      if (
+        last &&
+        last.dayOfWeek === day &&
+        toMinutes(s.startTime) - toMinutes(last.endTime) <= GAP_TOLERANCE_MIN &&
+        // Só funde se a sala for a mesma: salas diferentes = aulas diferentes.
+        (last.room ?? "") === (s.room ?? "")
+      ) {
         // Encosta no bloco anterior: estende (nunca encurta).
-        if (toMinutes(s.endTime) > toMinutes(last.end)) last.end = s.endTime;
+        if (toMinutes(s.endTime) > toMinutes(last.endTime)) last.endTime = s.endTime;
       } else {
-        blocks.push({ start: s.startTime, end: s.endTime });
+        out.push({ ...s });
       }
     }
-    out.push({ day, blocks });
   }
+  return out;
+}
+
+function mergeSlotsByDay(schedule: ScheduleSlot[]): DayBlocks[] {
+  const byDay = new Map<number, Array<{ start: string; end: string }>>();
+  for (const s of mergeSlots(schedule)) {
+    const block = { start: s.startTime, end: s.endTime };
+    const blocks = byDay.get(s.dayOfWeek);
+    if (blocks) blocks.push(block);
+    else byDay.set(s.dayOfWeek, [block]);
+  }
+  const out: DayBlocks[] = [];
+  for (const [day, blocks] of byDay) out.push({ day, blocks });
   // Ordena Seg→Dom (domingo por último, não primeiro).
   return out.sort((a, b) => ((a.day + 6) % 7) - ((b.day + 6) % 7));
 }
@@ -163,6 +211,10 @@ export function SchedulePdfUpload({
               onSaved?.();
               onOpenChange(false);
             }}
+            // Recarrega as matérias SEM fechar o diálogo: numa falha no meio do
+            // loop, a tela precisa refletir o que já foi gravado e ainda deixar
+            // o aluno clicar "Salvar" pra continuar de onde parou.
+            onProgress={() => onSaved?.()}
           />
         )}
       </DialogContent>
@@ -175,11 +227,14 @@ function SchedulePdfUploadBody({
   subjects,
   onClose,
   onSaved,
+  onProgress,
 }: {
   userId: string;
   subjects: Subject[];
   onClose: () => void;
   onSaved: () => void;
+  /** Recarrega as matérias da tela sem fechar o diálogo (gravação parcial). */
+  onProgress?: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [phase, setPhase] = useState<
@@ -189,6 +244,13 @@ function SchedulePdfUploadBody({
   const [rows, setRows] = useState<PreviewRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [demoNote, setDemoNote] = useState(false);
+  /**
+   * O que JÁ foi gravado no banco, por linha do preview. Fica em ref (imune a
+   * re-render) pra que um retry depois de falha no meio do loop não recrie as
+   * matérias já criadas — createSubjectAsync não é idempotente e duplicaria a
+   * matéria (e cada aula dela na agenda).
+   */
+  const appliedRef = useRef<Map<string, AppliedKind>>(new Map());
 
   const selectedCount = useMemo(
     () => rows.filter((r) => r.selected).length,
@@ -296,6 +358,13 @@ function SchedulePdfUploadBody({
     );
   }
 
+  /** Espelha no state o que o ledger (ref) já gravou, pra travar a linha. */
+  function markRowApplied(id: string, kind: AppliedKind) {
+    setRows((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, appliedKind: kind } : r)),
+    );
+  }
+
   async function handleSave() {
     const toApply = rows.filter((r) => r.selected);
     if (toApply.length === 0) {
@@ -304,27 +373,44 @@ function SchedulePdfUploadBody({
     }
 
     setPhase("saving");
-    let updated = 0;
-    let created = 0;
+    const applied = appliedRef.current;
+    /** Linhas gravadas NESTA tentativa — o toast de sucesso só conta estas. */
+    const appliedNow = new Set<string>();
     try {
       // Cor pra matérias novas: continua a paleta a partir das já existentes.
       let newIdx = subjects.length;
       for (const r of toApply) {
+        // Retry idempotente: o que já entrou no banco não é gravado de novo.
+        if (applied.has(r.id)) continue;
         if (r.target === NEW_SUBJECT) {
           await createSubjectAsync(userId, {
             name: r.subject.name,
             color: defaultColorForIndex(newIdx),
-            schedule: r.subject.schedule,
+            schedule: mergeSlots(r.subject.schedule),
           });
           newIdx += 1;
-          created += 1;
+          applied.set(r.id, "created");
+          markRowApplied(r.id, "created");
         } else if (r.subject.schedule.length > 0) {
           // Só atualiza horário de matéria existente quando há horários —
           // nunca sobrescreve uma grade existente com vazio.
-          await updateSubjectScheduleAsync(userId, r.target, r.subject.schedule);
-          updated += 1;
+          await updateSubjectScheduleAsync(
+            userId,
+            r.target,
+            mergeSlots(r.subject.schedule),
+          );
+          applied.set(r.id, "updated");
+          markRowApplied(r.id, "updated");
+        } else {
+          applied.set(r.id, "noop");
+          markRowApplied(r.id, "noop");
         }
+        appliedNow.add(r.id);
       }
+      const { created, updated } = countApplied(
+        toApply.filter((r) => appliedNow.has(r.id)),
+        applied,
+      );
       const parts: string[] = [];
       if (updated > 0)
         parts.push(`${updated} atualizada${updated === 1 ? "" : "s"}`);
@@ -336,12 +422,18 @@ function SchedulePdfUploadBody({
       onSaved();
     } catch (err) {
       console.error("[schedule-pdf-upload] save failed", err);
-      toast.error("Falha ao salvar a agenda. Tente novamente.");
+      // Gravação PARCIAL: recarrega a tela pra ela não mentir sobre o banco.
+      onProgress?.();
+      const { handled } = countApplied(toApply, applied);
+      toast.error(
+        `${handled} de ${toApply.length} matéria${toApply.length === 1 ? "" : "s"} salva${handled === 1 ? "" : "s"}. Falha ao salvar o resto — clique em Salvar pra continuar de onde parou.`,
+      );
       setPhase("preview");
     }
   }
 
   function reset() {
+    appliedRef.current = new Map();
     setRows([]);
     setFileName(null);
     setError(null);
@@ -455,6 +547,9 @@ function SchedulePdfUploadBody({
                 r.target !== NEW_SUBJECT
                   ? subjects.find((s) => s.id === r.target)
                   : undefined;
+              // Já gravada no banco: um novo "Salvar" pula esta linha, então o
+              // destino não pode continuar editável (mentiria pro aluno).
+              const done = !!r.appliedKind && r.appliedKind !== "noop";
               return (
                 <div
                   key={r.id}
@@ -467,7 +562,8 @@ function SchedulePdfUploadBody({
                     <button
                       type="button"
                       onClick={() => toggleRow(r.id)}
-                      className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center"
+                      disabled={done}
+                      className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center disabled:cursor-not-allowed"
                       aria-label={r.selected ? "Desmarcar" : "Selecionar"}
                     >
                       {r.selected ? (
@@ -477,8 +573,13 @@ function SchedulePdfUploadBody({
                       )}
                     </button>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium leading-snug text-foreground">
-                        {r.subject.name}
+                      <div className="flex flex-wrap items-center gap-1.5 text-sm font-medium leading-snug text-foreground">
+                        <span className="min-w-0">{r.subject.name}</span>
+                        {done && (
+                          <span className="shrink-0 rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+                            já salva
+                          </span>
+                        )}
                       </div>
                       {r.subject.schedule.length === 0 ? (
                         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted-foreground">
@@ -505,17 +606,25 @@ function SchedulePdfUploadBody({
                     </div>
                   </div>
                   <div className="mt-2 flex items-center justify-end gap-2 pl-8">
-                    {matchedExisting && (
+                    {done ? (
                       <span className="text-[10px] text-muted-foreground">
-                        substitui horário atual
+                        gravada nesta sessão
                       </span>
+                    ) : (
+                      matchedExisting && (
+                        <span className="text-[10px] text-muted-foreground">
+                          substitui horário atual
+                        </span>
+                      )
                     )}
                     <select
                       value={r.target}
                       onChange={(e) => setRowTarget(r.id, e.target.value)}
+                      disabled={done}
                       className={cn(
                         "h-8 min-w-0 max-w-[220px] flex-1 rounded border border-input bg-background px-1.5 text-[11px] sm:flex-none sm:w-44",
                         "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+                        "disabled:cursor-not-allowed disabled:opacity-60",
                       )}
                     >
                       <option value={NEW_SUBJECT}>+ Criar nova matéria</option>
