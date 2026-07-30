@@ -558,18 +558,6 @@ function ScheduleView({ user }: { user: User }) {
     return groups.slice(0, 5);
   }, [upcomingEvents]);
 
-  /* Cards por tipo. */
-  const cardEvents = useMemo(() => {
-    const byType = (t: CalendarEventType) =>
-      upcomingEvents.filter((e) => e.type === t).slice(0, 3);
-    return {
-      aula: byType("aula"),
-      bloco: byType("bloco"),
-      prova: byType("prova"),
-      trabalho: byType("trabalho"),
-    };
-  }, [upcomingEvents]);
-
   /* Semana visível (7 dias começando no domingo da semana do weekAnchor).
      Quando muda de view ou clica num dia do mês, sincroniza com selectedDay. */
   const weekDays = useMemo(() => {
@@ -745,6 +733,14 @@ function ScheduleView({ user }: { user: User }) {
             <CalendarDays className="h-4 w-4" />
             Calendário acadêmico
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPdfUploadOpen(true)}
+          >
+            <FileText className="h-4 w-4" />
+            Calendário de provas
+          </Button>
           <Button asChild variant="outline" size="sm">
             <Link href="/dashboard">
               <Plus className="h-4 w-4" />
@@ -877,67 +873,6 @@ function ScheduleView({ user }: { user: User }) {
           )}
 
           <Legend activeTypes={activeTypes} onToggle={toggleType} />
-
-          {/* 4 cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <CategoryCard
-              title="Próximas aulas"
-              icon={GraduationCap}
-              accent="text-primary"
-              onSeeAll={() => jumpToAgendaFiltered("aula")}
-            >
-              <EventList items={cardEvents.aula} fallback="Nenhuma aula agendada" />
-            </CategoryCard>
-
-            <CategoryCard
-              title="Blocos de estudo"
-              icon={BookOpen}
-              accent="text-blue-500"
-              onSeeAll={() => jumpToAgendaFiltered("bloco")}
-              onAdd={() => openCreateDialog({ type: "bloco" })}
-            >
-              <EventList items={cardEvents.bloco} fallback="Sem blocos planejados" />
-            </CategoryCard>
-
-            <CategoryCard
-              title="Provas"
-              icon={FileText}
-              accent="text-red-500"
-              onSeeAll={() => jumpToAgendaFiltered("prova")}
-              onAdd={() => openCreateDialog({ type: "prova" })}
-              extraHeaderAction={
-                <button
-                  type="button"
-                  onClick={() => setPdfUploadOpen(true)}
-                  className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent transition-colors"
-                  aria-label="Upload calendário de provas"
-                  title="Upload calendário de provas (PDF)"
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                </button>
-              }
-            >
-              <EventList items={cardEvents.prova} fallback="Nenhuma prova marcada" />
-              <button
-                type="button"
-                onClick={() => setPdfUploadOpen(true)}
-                className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border bg-background/50 px-2 py-1.5 text-[11px] font-medium text-muted-foreground hover:border-primary/40 hover:text-foreground hover:bg-accent/40 transition-colors"
-              >
-                <Upload className="h-3 w-3" />
-                Upload calendário de provas
-              </button>
-            </CategoryCard>
-
-            <CategoryCard
-              title="Trabalhos e entregas"
-              icon={Sparkles}
-              accent="text-amber-500"
-              onSeeAll={() => jumpToAgendaFiltered("trabalho")}
-              onAdd={() => openCreateDialog({ type: "trabalho" })}
-            >
-              <EventList items={cardEvents.trabalho} fallback="Nada entregue em breve" />
-            </CategoryCard>
-          </div>
         </div>
 
         {/* Right sidebar */}
@@ -1833,118 +1768,6 @@ function Legend({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-function CategoryCard({
-  title,
-  icon: Icon,
-  accent,
-  onSeeAll,
-  onAdd,
-  extraHeaderAction,
-  children,
-}: {
-  title: string;
-  icon: LucideIcon;
-  accent: string;
-  onSeeAll: () => void;
-  onAdd?: () => void;
-  extraHeaderAction?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="rounded-xl border border-border/70 bg-card p-4 flex flex-col">
-      <div className="flex items-center justify-between mb-3 gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <Icon className={cn("h-4 w-4 shrink-0", accent)} />
-          <span className="text-sm font-semibold truncate">{title}</span>
-        </div>
-        <div className="flex items-center gap-1 shrink-0">
-          {extraHeaderAction}
-          {onAdd && (
-            <button
-              type="button"
-              onClick={onAdd}
-              className="text-muted-foreground hover:text-foreground p-1 rounded hover:bg-accent transition-colors"
-              aria-label={`Adicionar em ${title}`}
-              title="Adicionar"
-            >
-              <Plus className="h-3.5 w-3.5" />
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={onSeeAll}
-            className="text-[11px] text-primary hover:underline"
-          >
-            Ver todas →
-          </button>
-        </div>
-      </div>
-      <div className="flex-1">{children}</div>
-    </div>
-  );
-}
-
-function EventList({ items, fallback }: { items: UEvent[]; fallback: string }) {
-  if (items.length === 0) return <EmptyMini message={fallback} />;
-  return (
-    <div className="space-y-2.5">
-      {items.map((e) => {
-        const meta = EVENT_TYPE_META[e.type];
-        const body = (
-          <>
-            <div
-              className={cn(
-                "flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-white",
-                e.subjectColor ? cn("bg-gradient-to-br", e.subjectColor) : meta.bar,
-              )}
-            >
-              <EventIcon event={e} size={3.5} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-[11px] text-muted-foreground">
-                {dayHeaderLabel(e.date)} · {formatDateLabel(e.date)} · {e.startTime}
-              </div>
-              <div className="text-sm font-medium truncate">{e.title}</div>
-              {e.subjectName && e.subjectName !== e.title && (
-                <div className="text-[11px] text-muted-foreground truncate">
-                  {e.subjectName}
-                </div>
-              )}
-              {e.room && !e.subjectName && (
-                <div className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
-                  <MapPin className="h-3 w-3" />
-                  {e.room}
-                </div>
-              )}
-            </div>
-          </>
-        );
-        return e.subjectId ? (
-          <Link
-            key={e.id}
-            href={`/subject/${e.subjectId}`}
-            className="flex items-start gap-2.5 -mx-1 px-1 py-1 rounded-md hover:bg-secondary/40 transition-colors"
-          >
-            {body}
-          </Link>
-        ) : (
-          <div key={e.id} className="flex items-start gap-2.5">
-            {body}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function EmptyMini({ message }: { message: string }) {
-  return (
-    <div className="text-xs text-muted-foreground py-4 text-center">
-      {message}
     </div>
   );
 }
