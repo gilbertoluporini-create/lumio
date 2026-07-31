@@ -112,19 +112,36 @@ function normalizeEvents(raw: unknown): ExtractedEvent[] {
  * sobra que o snap do fim descarta já está inteira dentro dos 2.000 chars de
  * sobreposição do bloco seguinte, então nada se perde. Texto sem \n nenhum
  * (extração que vem em bloco único) volta ao comportamento antigo.
+ *
+ * MOTIVO 3: "a sobra está dentro da sobreposição" só valia quando havia \n na
+ * janela dos 2.000 chars — e o `extractPdfText` junta os itens de cada página
+ * com ESPAÇO e as páginas com "\n\n", ou seja: cada página é UMA linha e os
+ * únicos \n ficam nas bordas. Com página de 2,5KB, quase sempre não existe \n
+ * na sobreposição: o fim do bloco N recuava pro último \n (borda de página
+ * anterior) e o início do bloco N+1 avançava pro próximo \n, caindo DEPOIS
+ * daquele fim — a página inteira do meio não entrava em bloco nenhum. Nenhum
+ * bloco falhava, `partial` ficava false, e as provas daquela página sumiam
+ * CALADAS do preview, do localStorage e do mês/semana/agenda/sidebar; o aluno
+ * descobria no dia da prova. Agora o início nunca passa do fim do bloco
+ * anterior, então a cobertura é contínua mesmo sem \n na janela.
  */
 function splitIntoChunks(text: string): string[] {
   if (text.length <= CHUNK_SIZE) return [text];
   const chunks: string[] = [];
   const step = CHUNK_SIZE - CHUNK_OVERLAP;
+  let prevTo = 0; // até onde o bloco anterior leu: o próximo não pode pular isso
   for (let start = 0; start < text.length; start += step) {
     const last = start + CHUNK_SIZE >= text.length;
     const nlStart = start === 0 ? -1 : text.indexOf("\n", start);
-    const from =
+    const snapped =
       nlStart >= 0 && nlStart < start + CHUNK_SIZE ? nlStart + 1 : start;
+    const from = Math.min(snapped, prevTo);
     const nlEnd = text.lastIndexOf("\n", start + CHUNK_SIZE);
     const to = last || nlEnd <= from ? start + CHUNK_SIZE : nlEnd;
-    if (to > from) chunks.push(text.slice(from, to));
+    if (to > from) {
+      chunks.push(text.slice(from, to));
+      prevTo = to;
+    }
     if (last) break;
   }
   return chunks;
@@ -159,6 +176,41 @@ function isSubset(a: Set<string>, b: Set<string>): boolean {
   return true;
 }
 
+/** Palavras que só dizem QUE TIPO de avaliação é — não dizem QUAL avaliação. */
+const GENERIC_TITLE_WORDS = new Set([
+  "prova",
+  "provas",
+  "avaliacao",
+  "avaliacoes",
+  "exame",
+  "exames",
+  "simulado",
+  "teste",
+  "entrega",
+  "entregas",
+  "trabalho",
+  "trabalhos",
+  "relatorio",
+  "projeto",
+  "seminario",
+  "apresentacao",
+  "atividade",
+  "aula",
+  "parcial",
+  "final",
+]);
+
+/**
+ * O que o título MAIOR tem a mais é só palavra genérica? Se sobrar uma palavra
+ * de conteúdo (nome de matéria), os dois títulos falam de eventos DIFERENTES.
+ */
+function onlyGenericExtras(small: Set<string>, big: Set<string>): boolean {
+  for (const w of big) {
+    if (!small.has(w) && !GENERIC_TITLE_WORDS.has(w)) return false;
+  }
+  return true;
+}
+
 /**
  * MOTIVO: a chave `date|title` EXATA não pegava a duplicata da emenda. O SYSTEM
  * prompt manda a IA REESCREVER a linha ("nome curto e claro") e cada bloco é uma
@@ -171,6 +223,21 @@ function isSubset(a: Set<string>, b: Set<string>): boolean {
  * dia vindos de BLOCOS DIFERENTES caem fora quando as palavras de um título
  * cabem dentro do outro. Dentro do MESMO bloco nada é fundido: lá o prompt já
  * proíbe duplicar e duas provas parecidas no mesmo dia são de verdade.
+ *
+ * MOTIVO 2: só "cabe dentro do outro" apagava prova REAL de OUTRA disciplina.
+ * Num plano de ensino consolidado, a seção de Farmacologia (bloco 0) traz em
+ * 15/06 "Seminário" e a de Imunologia, 20 páginas depois (bloco 2), traz no
+ * MESMO dia "Seminário de Imunologia": {seminario} ⊆ {seminario, imunologia} e a
+ * segunda sumia — nada a ver com os 2.000 chars de emenda que a regra existe pra
+ * limpar. Sem chip no preview, com o toast já contando sem ela e `partial` em
+ * false, a prova simplesmente não existia e o aluno descobria no dia. Mesma
+ * família: "Prova" × "Prova de Anatomia", "P1" × "P1 de Fisiologia", "Entrega do
+ * relatório" × "Entrega do relatório de Bioquímica" — título curto e genérico é
+ * a regra em cronograma brasileiro. A duplicata da emenda difere só em palavra
+ * GENÉRICA ("P1 de Anatomia" × "Prova P1 - Anatomia"); quando o que sobra é NOME
+ * DE MATÉRIA, são dois eventos. Então agora o subconjunto só funde se todo o
+ * excedente for genérico — na dúvida fica o chip a mais (o aluno apaga) em vez
+ * de faltar a prova (o aluno não vê).
  */
 function mergeEvents(lists: ExtractedEvent[][]): ExtractedEvent[] {
   const seen = new Set<string>();
@@ -187,7 +254,8 @@ function mergeEvents(lists: ExtractedEvent[][]): ExtractedEvent[] {
             k.chunk !== i &&
             k.ev.date === ev.date &&
             k.words.size > 0 &&
-            (isSubset(words, k.words) || isSubset(k.words, words)),
+            ((isSubset(words, k.words) && onlyGenericExtras(words, k.words)) ||
+              (isSubset(k.words, words) && onlyGenericExtras(k.words, words))),
         );
       if (overlapDup) continue;
       seen.add(key);

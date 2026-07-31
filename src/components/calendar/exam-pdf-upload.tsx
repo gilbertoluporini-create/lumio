@@ -49,10 +49,21 @@ type ExtractResponse = {
   events?: ExtractedEvent[];
   error?: string;
   demo?: boolean;
-  // Se a rota passar a anunciar o corte (como a irmã academic-calendar já faz),
-  // vale mais que a heurística abaixo — que é o que sobra enquanto ela devolve
-  // só `{events}`, sem contador e sem flag.
-  truncated?: boolean;
+  /**
+   * Leitura INCOMPLETA anunciada pela rota. Ela fatia o PDF em até 8 blocos e
+   * corre todos contra um prazo de 50s (`CHUNK_BUDGET_MS`, sob o maxDuration=60):
+   * bloco que estoura o prazo ou falha na IA vira null e ela devolve 200 com o
+   * que os outros leram mais `partial: true`.
+   *
+   * O campo se chama `partial` — enquanto AQUI líamos `truncated`, nome que a
+   * rota NUNCA mandou, o buraco passava calado. E a heurística do teto não
+   * cobre esse caso: como faltou um bloco, o total vem ABAIXO dos 80. O aluno
+   * lia "46 eventos identificados", nenhuma tarja âmbar, conferia as 46 linhas
+   * e levava pra agenda um calendário com 2-3 meses faltando NO MEIO (o corte
+   * não é pela cauda, é o bloco que caiu) — nem conferindo o fim do PDF dava
+   * pra perceber, e ele só descobria no dia da prova.
+   */
+  partial?: boolean;
 };
 
 /**
@@ -74,6 +85,22 @@ type ExtractResponse = {
  * que já estava lá. Só o teto de 80 eventos sobrou como corte real.
  */
 const ROUTE_MAX_EVENTS = 80;
+
+/**
+ * Teto de tempo da extração. Sem ele, o POST de um celular que troca o wifi da
+ * faculdade pelo 4G no meio do envio (ou cai num captive portal) não resolve
+ * NEM rejeita — o socket fica parado até o timeout de TCP do SO, minutos — e o
+ * dialog fica trancado: com `phase` em "extracting" o Cancelar está disabled, o
+ * X some (hideClose={busy}), ESC e clique fora levam preventDefault e o
+ * ProgressPanel segue animando como se estivesse vivo. Não sobrava UMA saída na
+ * tela: só F5, perdendo o arquivo já escolhido, a leitura já paga e mais um dos
+ * 10 pedidos/60s por IP do rate-limit na próxima tentativa. Generoso de
+ * propósito: a rota tem maxDuration=60 (e corre os blocos contra
+ * CHUNK_BUDGET_MS=50s), então a folga aqui cobre o pior caso dela mais o envio
+ * do texto do ano inteiro (45-120KB) numa rede ruim — abortar uma leitura boa
+ * joga fora a chamada paga do modelo. Mesmo teto do irmão schedule-pdf-upload.
+ */
+const EXTRACT_TIMEOUT_MS = 90_000;
 
 type PreviewRow = {
   id: string; // index estável
@@ -283,19 +310,33 @@ function formatDate(dateISO: string): string {
   const [y, m, d] = dateISO.split("-").map(Number);
   const dt = new Date(y, m - 1, d);
   const wd = WEEKDAYS_SHORT[dt.getDay()];
-  return `${wd} ${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}`;
+  // O ANO vai junto (e não só dia/mês) porque a rota manda a IA CHUTAR o ano:
+  // cronograma de faculdade imprime "10/03 — P1 de Fisiologia" e o SYSTEM
+  // prompt diz "se o ano não estiver explícito, assuma <ano atual> (ou o
+  // seguinte se a data já passou neste ano)". Quem sobe o cronograma do
+  // semestre em setembro recebe TODA prova de mês vencido no ano SEGUINTE — e
+  // lendo "ter 10/03" o aluno confirmava sem ver: o evento nascia em
+  // 10/03/2027, some do mês visível, dos próximos 30 dias da view Agenda e da
+  // sidebar, e reaparece ano que vem como prova fantasma de um semestre que já
+  // acabou (o caminho inverso grava no passado, invisível pra sempre). O irmão
+  // academic-calendar imprime dd/mm/AAAA pelo mesmo motivo.
+  return `${wd} ${String(d).padStart(2, "0")}/${String(m).padStart(2, "0")}/${y}`;
+}
+
+/**
+ * "HH:MM" → minutos. Comparar as strings direto mentiria: a rota aceita hora
+ * sem zero à esquerda (`([01]?\d|2[0-3]):[0-5]\d`), e como texto "8:00" é MAIOR
+ * que "13:00".
+ */
+function toMinutes(time: string): number {
+  const [h, m] = time.split(":").map(Number);
+  return h * 60 + (m || 0);
 }
 
 function combineDateTimeISO(date: string, time: string): string {
   const [y, mo, d] = date.split("-").map(Number);
   const [h, mi] = time.split(":").map(Number);
   const dt = new Date(y, mo - 1, d, h, mi, 0, 0);
-  return dt.toISOString();
-}
-
-function defaultIsoFor(date: string, hour: number): string {
-  const [y, mo, d] = date.split("-").map(Number);
-  const dt = new Date(y, mo - 1, d, hour, 0, 0, 0);
   return dt.toISOString();
 }
 
@@ -428,6 +469,10 @@ function ExamPdfUploadBody({
       const toastId = toast.loading("Lendo PDF localmente…");
       toastIdRef.current = toastId;
 
+      // Rede pendurada (ver EXTRACT_TIMEOUT_MS): o abort é a única coisa que
+      // devolve o dialog pro "idle", onde ele consegue fechar ou tentar de novo.
+      let timedOut = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const text = await extractPdfText(file);
         if (cancelledRef.current) return;
@@ -447,6 +492,10 @@ function ExamPdfUploadBody({
 
         const ac = new AbortController();
         abortRef.current = ac;
+        timer = setTimeout(() => {
+          timedOut = true;
+          ac.abort();
+        }, EXTRACT_TIMEOUT_MS);
         const res = await fetch("/api/calendar/extract-pdf", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -480,14 +529,41 @@ function ExamPdfUploadBody({
         // "31/11", "31/06" ou "29/02" de ano não bissexto que OCR/tabela
         // ambígua do PDF produz, o preview imprimia os componentes CRUS
         // ("ter 31/11") tirando o dia da semana de um Date já rolado, e no
-        // salvar combineDateTimeISO/defaultIsoFor montavam o MESMO Date rolado:
+        // salvar o combineDateTimeISO montava o MESMO Date rolado:
         // o aluno conferia 31/11, clicava em Adicionar e a prova nascia em
         // 01/12 no mês, na semana, na agenda e no que a Lumi lê, sem nenhum
         // aviso. `isIsoDate` confere os componentes de volta (mesma barreira já
         // aplicada no academic-calendar) — melhor derrubar a linha e avisar do
         // que gravar um dia que ninguém aprovou na tela.
-        const events = rawEvents.filter((ev) => isIsoDate(ev?.date));
-        const droppedDates = rawEvents.length - events.length;
+        const dated = rawEvents.filter((ev) => isIsoDate(ev?.date));
+        const droppedDates = rawEvents.length - dated.length;
+
+        // Horário INVERTIDO: a tabela do cronograma vem com as colunas de
+        // início/fim trocadas numa linha (ou o OCR troca) e a rota devolve
+        // {startTime:"13:00", endTime:"12:00"} — ela valida só o FORMATO
+        // (isValidTime), nunca duração positiva. No salvar, o
+        // `ensureEndAfterStart` lê o fim menor como "cruzou a meia-noite" e
+        // empurra o término pro dia SEGUINTE (15/06 13:00 → 16/06 12:00); como
+        // a página expande intervalo em UMA ocorrência por dia, a MESMA prova
+        // passava a aparecer duas vezes: 15/06 13:00–23:59 e 16/06 00:00–12:00,
+        // um dia em que ela não existe, ocupando a manhã inteira na view
+        // Semana, com chip no mês, linha na agenda e na sidebar, e o modal
+        // ainda afirmando "Período: 15/06 a 16/06". Fim que não vem depois do
+        // início não é dado: cai fora (a linha fica com a hora de início, 1h de
+        // duração, como qualquer linha sem fim) e o aluno é avisado — mesmo
+        // tratamento da rota gêmea da grade horária.
+        let droppedTimes = 0;
+        const events = dated.map((ev) => {
+          if (
+            ev.startTime &&
+            ev.endTime &&
+            toMinutes(ev.endTime) < toMinutes(ev.startTime)
+          ) {
+            droppedTimes++;
+            return { ...ev, endTime: undefined };
+          }
+          return ev;
+        });
 
         // Corte silencioso da rota (ver ROUTE_MAX_EVENTS). O PDF do ano com
         // mais de 80 linhas datadas volta com exatamente 80, todas válidas —
@@ -498,8 +574,13 @@ function ExamPdfUploadBody({
         // PDF longo NÃO é mais sinal de corte: a rota lê o documento inteiro
         // (ver o docblock de ROUTE_MAX_EVENTS) — avisar por tamanho de texto
         // era avisar de um corte que não existe.
-        const truncatedMsg =
-          data.truncated || rawEvents.length >= ROUTE_MAX_EVENTS
+        // `partial` é outro corte, e pior: não é a cauda que some, é um trecho
+        // do MEIO (o bloco que falhou) — por isso a mensagem é outra, e vem
+        // ANTES do teto, que nesse caso nem dispara (faltando um bloco o total
+        // fica abaixo de 80). Ver o docblock de `partial` no ExtractResponse.
+        const truncatedMsg = data.partial
+          ? `Não consegui ler o PDF inteiro: um trecho do documento falhou na leitura, então pode faltar prova em QUALQUER parte do calendário — não só no fim. Confira a lista abaixo contra o PDF e adicione à mão o que faltar (ou envie o calendário em partes, um semestre por upload).`
+          : rawEvents.length >= ROUTE_MAX_EVENTS
             ? `Este calendário tem muitos eventos e a lista parou no ${ROUTE_MAX_EVENTS}º: as últimas datas do documento (exames finais, entregas de novembro/dezembro) podem não estar na lista abaixo. Confira e, se faltar, envie o calendário em partes — um semestre por upload.`
             : null;
 
@@ -543,10 +624,30 @@ function ExamPdfUploadBody({
             `${droppedDates} linha${droppedDates === 1 ? "" : "s"} ignorada${droppedDates === 1 ? "" : "s"}: data inexistente no calendário (ex: 31/11). Adicione essas manualmente.`,
           );
         }
+        // Mesmo motivo do aviso acima: o horário descartado não pode sumir
+        // calado — a linha vai pra agenda com 1h de duração e o aluno precisa
+        // conferir o fim real no PDF.
+        if (droppedTimes > 0) {
+          toast.warning(
+            `${droppedTimes} horário${droppedTimes === 1 ? "" : "s"} vinha${droppedTimes === 1 ? "" : "m"} com o fim ANTES do início (colunas trocadas no PDF): mantive só a hora de início. Confira ${droppedTimes === 1 ? "essa linha" : "essas linhas"} no documento.`,
+          );
+        }
       } catch (err) {
         // O abort do próprio unmount cai aqui: sem esse guard o aluno veria
         // um toast.error("The user aborted a request.") depois de fechar.
         if (cancelledRef.current) return;
+        // Abort do teto de tempo: a mensagem crua do DOM ("The user aborted a
+        // request.") culparia o aluno por algo que ele não fez e não diria o
+        // que fazer. Nada foi salvo — a rota só lê o texto e responde.
+        if (timedOut) {
+          const msg =
+            "A leitura demorou demais e foi cancelada (conexão instável?). Nada foi salvo — confira a internet e envie o PDF de novo.";
+          toastIdRef.current = null;
+          toast.error(msg, { id: toastId });
+          setError(msg);
+          setPhase("idle");
+          return;
+        }
         console.error("[exam-pdf-upload] extract failed", err);
         const msg =
           err instanceof Error
@@ -556,6 +657,9 @@ function ExamPdfUploadBody({
         toast.error(msg, { id: toastId });
         setError(msg);
         setPhase("idle");
+      } finally {
+        // Sempre: o timer sobrevivendo ao sucesso abortaria a PRÓXIMA leitura.
+        clearTimeout(timer);
       }
     },
     [subjects],
@@ -628,13 +732,23 @@ function ExamPdfUploadBody({
         // 00:00 → 23:59 é exatamente o que a página lê como allDay
         // (`startMinutes === 0 && endMinutes >= 23*60+59`) e renderiza como
         // "Dia todo" — mesma solução do irmão academic-calendar-upload.
-        // Horário PARCIAL (só fim, "entrega até 23:59") continua ancorado nas
-        // 08:00: aí existe hora no documento, o preview a mostra e a linha não
-        // é de dia inteiro.
+        // Horário PARCIAL — o PDF trouxe SÓ a hora de fim ("Entrega do trabalho
+        // de Bioquímica, até 23:59", o formato padrão de prazo) — ancora no
+        // PRÓPRIO prazo, e não mais no chute das 08:00. As 08:00 eram hora que
+        // ninguém escreveu (e que o preview nem mostrava): o evento nascia
+        // 08:00 → 23:59, um bloco de 16h que a página NÃO lê como allDay
+        // (startMinutes 480 ≠ 0), então a view Agenda e a sidebar AFIRMAVAM
+        // "08:00–23:59" com ícone de relógio, o chip do mês imprimia "08:00" e
+        // na semana o layoutOverlaps via o dia inteiro ocupado e jogava TODAS
+        // as aulas daquele dia pra uma segunda coluna de 50% de largura — o
+        // aluno planejava a manhã em cima de uma hora inventada. Começando no
+        // prazo, o evento tem o tamanho do que o documento diz (o fim vira +1h
+        // pelo ensureEndAfterStart, colado na virada do dia quando o prazo é
+        // 23:59) e o preview mostra "até 23:59" na linha.
         const starts_at = ev.startTime
           ? combineDateTimeISO(ev.date, ev.startTime)
           : ev.endTime
-            ? defaultIsoFor(ev.date, 8)
+            ? combineDateTimeISO(ev.date, ev.endTime)
             : combineDateTimeISO(ev.date, "00:00");
         // O fim SEMPRE tem que cair depois do início. Com horário tardio, colar
         // a hora do fim na MESMA data grava ends_at ANTES de starts_at: entrega
@@ -847,7 +961,21 @@ function ExamPdfUploadBody({
             </button>
           </div>
 
-          <div className="max-h-[50vh] overflow-y-auto rounded-md border border-border/70">
+          {/* No celular (360px) a tabela mede ~655px contra ~310 visíveis:
+              sobram o checkbox, a Data e parte do Título — "Tipo" e "Matéria"
+              ficam 100% fora da tela e a barra de rolagem do celular é overlay
+              (só aparece DEPOIS de arrastar), então NADA dizia que existe
+              conteúdo à direita. O aluno confirmava "Adicionar 20 eventos" sem
+              ver o selo de categoria e sem alcançar o <select> de matéria, que
+              é justamente o conserto do palpite errado que o findSubjectMatch
+              deixa em "— sem matéria —": a prova entrava na agenda com a cor, o
+              ícone, o "· Matéria" da view Agenda/sidebar e o link "→ matéria"
+              do modal apontando pro lugar errado. */}
+          <p className="sm:hidden text-[10px] text-muted-foreground">
+            Arraste a tabela pro lado pra ver Tipo e Matéria.
+          </p>
+
+          <div className="max-h-[50vh] overflow-x-auto overflow-y-auto rounded-md border border-border/70">
             <table className="w-full text-xs">
               <thead className="sticky top-0 bg-card border-b border-border/60">
                 <tr className="text-left text-muted-foreground">
@@ -886,11 +1014,20 @@ function ExamPdfUploadBody({
                         </button>
                       </td>
                       <td className="px-2 py-2 tabular-nums text-foreground">
-                        <div>{formatDate(r.event.date)}</div>
-                        {r.event.startTime && (
+                        <div className="whitespace-nowrap">
+                          {formatDate(r.event.date)}
+                        </div>
+                        {/* Hora PARCIAL também aparece: enquanto o bloco só
+                            saía sob `startTime`, a entrega que o PDF traz só
+                            com fim ("até 23:59") chegava na tela SEM horário
+                            nenhum — o aluno conferia uma linha muda e o evento
+                            nascia com hora mesmo assim (ver o starts_at do
+                            handleSave). */}
+                        {(r.event.startTime || r.event.endTime) && (
                           <div className="text-[10px] text-muted-foreground">
-                            {r.event.startTime}
-                            {r.event.endTime && `–${r.event.endTime}`}
+                            {r.event.startTime
+                              ? `${r.event.startTime}${r.event.endTime ? `–${r.event.endTime}` : ""}`
+                              : `até ${r.event.endTime}`}
                           </div>
                         )}
                       </td>

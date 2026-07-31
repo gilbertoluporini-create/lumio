@@ -788,7 +788,24 @@ function AcademicCalendarUploadBody({
             // Só o que este importador criou: um compromisso digitado pelo
             // aluno pode cair na mesma chave e não pode ser reescrito.
             if (!isFromImport(e)) continue;
-            if (agendaEndDay(e) === endIso) continue;
+            const curEnd = agendaEndDay(e);
+            if (curEnd === endIso) continue;
+            // Fim COLAPSADO no próprio dia de início: isso não é intervalo
+            // truncado por importação nenhuma, é correção do ALUNO. O
+            // event-form-dialog não tem campo de DATA de fim — o único jeito de
+            // mexer no dia do fim é o botão "até dd/mm · mesmo dia", que traz o
+            // fim pro dia do início. Sem esta guarda, reabrir o dialog e subir o
+            // MESMO PDF (pra marcar feriado/recesso, que nascem desmarcados por
+            // DEFAULT_ON) RESSUSCITAVA a faixa que ele acabou de desfazer: a
+            // "Semana de provas 13 a 17/04" que ele colapsou pro dia 13 (o
+            // professor avisou que a prova é só num dia) voltava a ocupar 5
+            // células do mês, a faixa "dia todo" da semana e 5 linhas da Agenda
+            // — sem confirmação e anunciada como "1 período atualizado", texto
+            // que se lê como melhoria. Estender de verdade (o PDF retificado que
+            // passou de 26/06 pra 03/07) continua valendo: lá o fim gravado é
+            // outro dia, não o de início. O intervalo completo do PDF segue indo
+            // pro perfil, então a Lumi não perde nada.
+            if (curEnd === r.event.date && endIso > r.event.date) continue;
             toExtend.push({
               id: e.id,
               ends_at: new Date(`${endIso}T23:59:00`).toISOString(),
@@ -921,20 +938,30 @@ function AcademicCalendarUploadBody({
       // da agenda: o que ficou visível passa a ser exatamente a preview que o
       // aluno acabou de conferir.
       //
-      // Três travas, na mesma linha conservadora do `dropRescheduled`:
+      // Duas travas e uma regra, na mesma linha conservadora do
+      // `dropRescheduled`:
       // 1) se o PDF novo ainda quer aquela data (mesma chave em qualquer linha,
       //    marcada ou não), não é remarcação e nada é apagado — re-subir o
       //    MESMO PDF não pode apagar nada;
       // 2) só apaga evento criado por este importador (marcador na description),
       //    nunca um compromisso que o aluno digitou com o mesmo título e dia;
-      // 3) só apaga a data velha se a data NOVA vai MESMO pra agenda, ou seja,
-      //    se a linha que a substitui está MARCADA. `incoming` são TODAS as
-      //    linhas do PDF, mas quem entra na agenda é só `chosen`: com a linha
-      //    desmarcada — feriado, recesso e evento já nascem assim (DEFAULT_ON),
-      //    e o aluno pode desmarcar qualquer uma — o `dropRescheduled` derrubava
-      //    a data antiga, ninguém inseria a nova e o evento SUMIA do mês, da
-      //    semana, da agenda e da sidebar, com o toast ainda anunciando "1 data
-      //    remarcada (tirei a antiga)". A troca de categoria entre uploads (a
+      // 3) se a linha que SUBSTITUI a data velha não está marcada, o evento é
+      //    MOVIDO pro dia novo em vez de apagado. `incoming` são TODAS as linhas
+      //    do PDF, mas quem entra na agenda é só `chosen` — e feriado, recesso e
+      //    evento nascem desmarcados (DEFAULT_ON). Apagar direto fazia o evento
+      //    SUMIR do mês, da semana, da agenda e da sidebar (ninguém inseria a
+      //    data nova); e só PULAR — como era feito aqui — deixava as duas fontes
+      //    dizendo coisas diferentes, porque o `dropRescheduled` já tirou a
+      //    linha velha do PERFIL: o aluno marcou à mão "Recesso de julho — 01 a
+      //    31/07" no 1º upload, a faculdade retifica pra 08 a 31/07, ele sobe o
+      //    PDF novo e não marca a linha (volta desmarcada). O perfil passa a
+      //    dizer 08/07 — `getNonTeachingDays` libera aula de 01 a 07/07 e a Lumi
+      //    planeja estudo aí — enquanto a agenda continua pintando o chip "dia
+      //    todo" do recesso em 01/07: ele abre 03/07 e vê a aula de segunda E o
+      //    recesso na mesma célula, sem nada no toast (`rescheduled` ficava 0).
+      //    Na prova adiada é pior: a agenda mostra só a data CANCELADA. Mover
+      //    mantém na tela o chip que ele já tinha, agora na data certa, e conta
+      //    como remarcada. A troca de categoria entre uploads (a
       //    extração roda sem temperature fixa, então a MESMA linha volta como
       //    "evento" em vez de "nota" e muda o eventType) não desalinha mais nada
       //    aqui: a chave da agenda passou a ser só título + dia (ver
@@ -950,17 +977,41 @@ function AcademicCalendarUploadBody({
       // o título aparece UMA única vez de cada lado, então ele identifica
       // exatamente a linha nova (que, por ser remarcação, está em outra data).
       const chosenTitleKeys = new Set(chosen.map((r) => titleKey(r.event.title)));
+      // A linha substituta em si (não só o título): é dela que sai o dia novo
+      // do move quando ela não está marcada.
+      const incomingByTitleKey = new Map(
+        incoming.map((e) => [titleKey(e.title), e] as const),
+      );
       let rescheduled = 0;
       for (const old of previous) {
         if (keptKeys.has(`${old.date}|${titleKey(old.title)}`)) continue;
         const k = academicAgendaKey(old);
         if (incomingAgendaKeys.has(k)) continue;
-        if (!chosenTitleKeys.has(titleKey(old.title))) continue;
+        const tk = titleKey(old.title);
+        // Marcada → a data nova já entrou no passo 1 e aqui só sobra apagar a
+        // velha. Desmarcada → move (trava 3), mas só se o dia novo ainda não
+        // tiver esse mesmo título na agenda: senão o move duplicaria o chip, e
+        // aí apagar a velha já deixa uma cópia só.
+        const moveTo = chosenTitleKeys.has(tk)
+          ? null
+          : incomingByTitleKey.get(tk);
+        const moveKey = moveTo ? academicAgendaKey(moveTo) : null;
         for (const e of existingByKey.get(k) ?? []) {
           if (!isFromImport(e)) continue;
-          await deleteEventAsync(userId, e.id);
+          if (moveTo && moveKey && !existingKeys.has(moveKey)) {
+            await updateEventAsync(userId, e.id, {
+              starts_at: new Date(`${moveTo.date}T00:00:00`).toISOString(),
+              ends_at: new Date(
+                `${agendaEndIso(moveTo)}T23:59:00`,
+              ).toISOString(),
+            });
+            existingKeys.add(moveKey);
+            written.extended++;
+          } else {
+            await deleteEventAsync(userId, e.id);
+            written.removed++;
+          }
           rescheduled++;
-          written.removed++;
         }
       }
       if (cancelledRef.current) return;

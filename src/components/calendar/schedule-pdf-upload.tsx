@@ -341,6 +341,47 @@ function mergeSlots(schedule: ScheduleSlot[]): ScheduleSlot[] {
   return out;
 }
 
+/**
+ * Junta o que sobrou da grade ANTIGA com a grade nova SEM colar um bloco velho
+ * num novo. O mergeSlots existe pra emendar "tempos" geminados do MESMO arquivo
+ * (07:30-08:20 + 08:20-09:10 = 07:30-09:10); rodando por cima de antigo+novo ele
+ * INVENTAVA horário. O aluno tem Anatomia seg 07:30-09:10 salva, a faculdade
+ * retifica a grade pra seg 09:20-11:00 e ele sobe o PDF novo: basta a importação
+ * ser parcial (a rota descartou um bloco de QUALQUER matéria, ou existe linha
+ * desmarcada apontando pra esta mesma matéria) pra `kept` ser a grade velha
+ * INTEIRA — aí 09:20 − 09:10 = 10 min <= GAP_TOLERANCE_MIN e, sem sala nos dois
+ * ("" === "" sempre casa), os dois viravam UM slot seg 07:30-11:00: horário que
+ * não existe nem na grade velha nem na nova, e o aluno vai pra faculdade 1h50
+ * antes (mês, semana, agenda e sidebar mostram o bloco fantasma). Pior, o aviso
+ * "somei ao antigo" não disparava, porque a guarda compara TAMANHO de array e a
+ * fusão devolvia 1 slot contra 1 slot — e não há como consertar depois: nenhuma
+ * tela do app edita horário de matéria e aula da grade é read-only no modal.
+ * Aqui o bloco antigo é preservado como bloco SEPARADO (o aluno vê os dois, o
+ * aviso dispara e ele conserta); só não entra o que a grade nova já traz
+ * idêntico, pra reimportar o mesmo PDF não duplicar tudo.
+ */
+function unionSlots(
+  keptOld: ScheduleSlot[],
+  fresh: ScheduleSlot[],
+): ScheduleSlot[] {
+  const key = (s: ScheduleSlot) =>
+    `${s.dayOfWeek}|${s.startTime}|${s.endTime}|${s.room ?? ""}`;
+  const seen = new Set(fresh.map(key));
+  const out = fresh.map((s) => ({ ...s }));
+  for (const s of keptOld) {
+    if (seen.has(key(s))) continue;
+    seen.add(key(s));
+    out.push({ ...s });
+  }
+  // Seg→Dom e por horário: o array vai cru pra tela da matéria (chips de
+  // "Horários"), então misturar velho e novo fora de ordem confunde à toa.
+  return out.sort(
+    (a, b) =>
+      ((a.dayOfWeek + 6) % 7) - ((b.dayOfWeek + 6) % 7) ||
+      toMinutes(a.startTime) - toMinutes(b.startTime),
+  );
+}
+
 function mergeSlotsByDay(schedule: ScheduleSlot[]): DayBlocks[] {
   const byDay = new Map<number, Array<{ start: string; end: string }>>();
   for (const s of mergeSlots(schedule)) {
@@ -354,6 +395,19 @@ function mergeSlotsByDay(schedule: ScheduleSlot[]): DayBlocks[] {
   // Ordena Seg→Dom (domingo por último, não primeiro).
   return out.sort((a, b) => ((a.day + 6) % 7) - ((b.day + 6) % 7));
 }
+
+/**
+ * Teto de tempo da extração. Sem ele, o fetch de um celular que troca o wifi da
+ * faculdade pelo 4G no meio do upload (ou cai num captive portal) não resolve
+ * NEM rejeita — o socket fica parado até o timeout de TCP do SO, minutos — e o
+ * dialog fica trancado: com `phase` em "extracting" o Cancelar está disabled, o
+ * X some (hideClose={busy}), ESC e clique fora levam preventDefault e o
+ * ProgressPanel segue animando como se estivesse vivo. Não sobrava UMA saída na
+ * tela: só F5, perdendo o arquivo já escolhido. Generoso de propósito — a
+ * extração de verdade chega a ~100s e abortar uma leitura boa joga fora a
+ * chamada paga do Vision e um dos 2 pedidos/60s do rate-limit da rota.
+ */
+const EXTRACT_TIMEOUT_MS = 150_000;
 
 /* ---------------- main component ---------------- */
 
@@ -527,11 +581,19 @@ function SchedulePdfUploadBody({
       const toastId = toast.loading("Lendo sua grade horária…");
       toastIdRef.current = toastId;
 
+      // Rede pendurada (ver EXTRACT_TIMEOUT_MS): o abort é a única coisa que
+      // devolve o dialog pro "idle", onde ele consegue fechar ou tentar de novo.
+      let timedOut = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
       try {
         const fd = new FormData();
         fd.append("file", file);
         const ac = new AbortController();
         abortRef.current = ac;
+        timer = setTimeout(() => {
+          timedOut = true;
+          ac.abort();
+        }, EXTRACT_TIMEOUT_MS);
         const res = await fetch("/api/extract-schedule", {
           method: "POST",
           body: fd,
@@ -619,6 +681,18 @@ function SchedulePdfUploadBody({
         // O abort do próprio unmount cai aqui: sem esse guard o aluno veria um
         // toast.error("The user aborted a request.") depois de fechar.
         if (cancelledRef.current) return;
+        // Abort do teto de tempo: a mensagem crua do DOM ("The user aborted a
+        // request.") culparia o aluno por algo que ele não fez e não diria o
+        // que fazer. Nada foi salvo — a rota só lê o arquivo.
+        if (timedOut) {
+          const msg =
+            "A leitura demorou demais e foi cancelada (conexão instável?). Nada foi salvo — confira a internet e envie o arquivo de novo.";
+          toastIdRef.current = null;
+          toast.error(msg, { id: toastId });
+          setError(msg);
+          setPhase("idle");
+          return;
+        }
         console.error("[schedule-pdf-upload] extract failed", err);
         const msg =
           err instanceof Error ? err.message : "Erro inesperado ao processar.";
@@ -626,6 +700,9 @@ function SchedulePdfUploadBody({
         toast.error(msg, { id: toastId });
         setError(msg);
         setPhase("idle");
+      } finally {
+        // Sempre: o timer sobrevivendo ao sucesso abortaria a PRÓXIMA leitura.
+        clearTimeout(timer);
       }
     },
     [subjects],
@@ -708,9 +785,11 @@ function SchedulePdfUploadBody({
      */
     let unchanged = 0;
     /**
-     * Matérias cuja grade nova foi SOMADA à antiga pelo banco (em vez de
-     * substituída). Guarda os nomes porque isso deixa horário fantasma na
-     * agenda e o aluno precisa saber quais conferir.
+     * Matérias cuja grade nova foi SOMADA à antiga (em vez de substituída):
+     * pelo banco, no "+ Criar nova matéria" que caiu no dedup por nome, ou aqui
+     * mesmo, quando a importação não cobria a grade toda e a parte antiga foi
+     * preservada. Guarda os nomes porque isso deixa horário fantasma na agenda
+     * e o aluno precisa saber quais conferir.
      */
     const mergedNames: string[] = [];
     try {
@@ -791,7 +870,59 @@ function SchedulePdfUploadBody({
         } else if (schedule.length > 0) {
           // Só atualiza horário de matéria existente quando há horários —
           // nunca sobrescreve uma grade existente com vazio.
-          await updateSubjectScheduleAsync(userId, g.target, schedule);
+          /**
+           * …e nunca sobrescreve a grade INTEIRA com o pedaço que veio deste
+           * upload: updateSubjectScheduleAsync faz `.update({ schedule })` cru,
+           * então o que sai daqui substitui a coluna toda. Aula já salva sumia
+           * sem o aluno pedir (mês, semana, agenda e sidebar), sem histórico de
+           * grade pra desfazer e sem tela pra recriar — aula da grade é
+           * read-only no modal de detalhes — e o toast ainda dizia só "1
+           * atualizada". Dois caminhos batiam nisso: (a) o aluno DESMARCA a
+           * linha de segunda ("essa já está certa") e sobe o PDF retificado só
+           * pela quarta — a linha desmarcada não entra no `toApply` e a aula de
+           * segunda ia junto; (b) a rota descarta um bloco (célula mesclada /
+           * sem hora de término) e a grade incompleta substituía a completa,
+           * enquanto o banner âmbar só dizia "adicione ela manualmente" (se lê
+           * como "faltou nesta importação", não como "vou apagar a que já
+           * estava lá"). Regra: a grade antiga só é preservada quando a
+           * importação é SABIDAMENTE parcial — bloco descartado pela rota ou
+           * linha desmarcada apontando pra esta mesma matéria; aí nada do
+           * antigo é jogado fora, e o que sobrar entra no mesmo aviso do
+           * caminho gêmeo "+ Criar nova matéria" (que já SOMA em vez de
+           * substituir): horário duplicado o aluno vê e conserta, aula apagada
+           * não.
+           * Preservar por DIA (guardar todo dia que a grade nova não trouxe)
+           * parecia o meio-termo seguro e criava aula IMORTAL: quando a
+           * faculdade TIRA a aula de segunda, o PDF novo traz só a quarta,
+           * segunda nunca entra nos dias cobertos e o slot velho voltava somado
+           * — Anatomia toda segunda 07:30 o semestre inteiro, no mês, na
+           * semana, na agenda e na sidebar, e o aluno indo pra faculdade numa
+           * segunda vazia. E sem saída: este upload é o ÚNICO call site de
+           * updateSubjectScheduleAsync e aula da grade é read-only no modal de
+           * detalhes, então nenhuma tela apaga o slot — subir o MESMO PDF
+           * corrigido de novo dava exatamente o mesmo resultado (o antigo já
+           * tinha os dois dias e segunda seguia descoberta). O único sinal era
+           * um toast que some em segundos, contra um preview que mostrou só
+           * "Qua 13:00–14:40" e o rótulo "substitui horário atual". Importação
+           * completa = o que o aluno conferiu no preview é o que fica.
+           */
+          const existing = subjects.find((s) => s.id === g.target);
+          const old = existing?.schedule ?? [];
+          const partial =
+            !!droppedNote ||
+            rows.some((r) => !r.selected && r.target === g.target);
+          const kept = partial ? old : [];
+          // União, NUNCA mergeSlots aqui: fundir o bloco antigo com o novo
+          // inventa um horário que não existe em nenhuma das duas grades
+          // (ver unionSlots) — o antigo tem que sobreviver como bloco à parte.
+          const finalSchedule =
+            kept.length > 0 ? unionSlots(kept, schedule) : schedule;
+          await updateSubjectScheduleAsync(userId, g.target, finalSchedule);
+          // Só avisa quando aula antiga de fato SOBREVIVEU além do que veio no
+          // upload (o unionSlots descarta as idênticas): senão o aviso viraria
+          // ruído em toda regravação da mesma grade.
+          if (finalSchedule.length > schedule.length)
+            mergedNames.push(existing?.name ?? g.name);
           updated += 1;
           for (const id of ids) applied.set(id, "updated");
           markRowsApplied(ids, "updated");

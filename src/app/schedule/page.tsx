@@ -1792,6 +1792,34 @@ function ScheduleView({ user }: { user: User }) {
               </Button>
             </div>
           )}
+          {/* LEITURA AINDA EM VOO DEPOIS DO TETO DE 4s. O teto do mount libera a
+              primeira pintura com o `academicCalendar` ainda `null` (numa rede
+              4G o /api/user-profile passa fácil dos 4s: auth.getUser() + SELECT
+              + cold start), e sem janelas letivas o `isWithinTerm` devolve true
+              pra TODA data e o `getNonTeachingDays` vem vazio: a grade sai
+              desenhada em julho inteiro, no Carnaval e no 25/12, sem rótulo de
+              recesso e sem o banner "Mês sem aula" — e, quando a resposta chega,
+              metade dos dias esvazia sozinha na frente do aluno. O
+              `academicLoading` existia mas só era lido DENTRO do banner de
+              `academicError`, que é false numa leitura que ainda nem falhou:
+              nada na tela dizia que a informação era provisória. Só o caso
+              `null` (nunca leu) entra aqui — com um calendário já carregado a
+              tela não está mentindo e o banner só piscaria a cada reload. */}
+          {academicLoading && !academicCalendar && !academicError && (
+            <div className="flex items-start gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3">
+              <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" />
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-foreground">
+                  Ainda estou lendo seu calendário acadêmico
+                </div>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Até a resposta chegar, a grade aparece sem período letivo e sem
+                  feriado/recesso: pode ter aula desenhada em dia sem aula. Esses
+                  dias vão se ajustar sozinhos em alguns segundos.
+                </p>
+              </div>
+            </div>
+          )}
           {termGap && !subjectsError && subjects.length > 0 && (
             <div className="flex items-start gap-3 rounded-lg border border-primary/25 bg-primary/5 px-4 py-3">
               <CalendarDays className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -2663,6 +2691,42 @@ function WeekGrid({
 
   const hasAllDay = allDayByDay.size > 0;
 
+  /* A grade de horas rola DENTRO do card (o max-h-[70vh] logo abaixo) e nascia
+     sempre no topo, 07:00. Em curso NOTURNO (19:00–22:40, o caso mais comum
+     aqui) o bloco da aula fica em (19-7)*56 = 672px e o scroller mostra ~590px
+     no celular / ~665px num 1080p: sete colunas com linha de hora e NENHUMA
+     aula à vista. Nada na tela explicava — as aulas existem (não é feriado nem
+     fora do período letivo, então termGap e nonTeachingNotice são null) e a
+     barra de rolagem interna é overlay no iOS/Android/macOS, só aparece depois
+     de arrastar. O aluno concluía que a grade não tinha salvado e subia o PDF
+     de novo. Por isso, a cada semana carregada, ancoramos a rolagem interna no
+     primeiro evento COM horário dela. */
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    let firstMinutes = Infinity;
+    for (const e of events) {
+      if (!isAllDayEvent(e)) {
+        firstMinutes = Math.min(firstMinutes, e.startMinutes);
+      }
+    }
+    // Semana vazia ou só com "dia inteiro": não há o que ancorar, fica em 07:00.
+    if (!Number.isFinite(firstMinutes)) return;
+    const eventTop = ((firstMinutes - startHour * 60) / 60) * WEEK_HOUR_PX;
+    /* Cabeçalho e faixa "dia inteiro" são sticky (abaixo), então o que fica
+       visível logo abaixo do bloco pregado é exatamente o `scrollTop` medido na
+       GRADE. Antes somávamos aqui o offset da grade dentro do scroller — o que
+       empurrava a faixa "dia inteiro" pra fora da área visível junto com o
+       resto: a prova sem horário no PDF (gravada 00:00→23:59) e a semana de
+       exames do calendário acadêmico só existem naquela faixa, e numa turma da
+       tarde/noite (13:00 → ~350px, 19:00 → ~680px) elas nasciam acima do topo
+       visível, sem nada na tela indicando conteúdo acima.
+       Folga de 1h pra dar contexto da hora anterior; manhã cedo dá negativo e o
+       clamp deixa tudo como era. */
+    el.scrollTop = Math.max(0, eventTop - WEEK_HOUR_PX);
+  }, [events, startHour]);
+
   return (
     <div className="rounded-xl border border-border/70 bg-card overflow-hidden">
       {/* Week navigation header */}
@@ -2695,7 +2759,10 @@ function WeekGrid({
           em 360px, e nada na tela dizia que existem mais 4 à direita (barra de
           rolagem no celular é overlay: só aparece DEPOIS de arrastar). */}
       <div className="border-b border-border/60 px-3 py-1 text-[10px] text-muted-foreground md:hidden">
-        Arraste pro lado pra ver os 7 dias
+        {/* O "pra cima e pra baixo" foi acrescentado porque o aviso só falando
+            de rolagem horizontal reforçava a leitura errada de que, na
+            vertical, o card já mostrava o dia inteiro. */}
+        Arraste pro lado pra ver os 7 dias · pra cima e pra baixo, as horas
       </div>
 
       {/* As três faixas (cabeçalho, "dia inteiro" e horas) dividem UM contêiner
@@ -2711,15 +2778,23 @@ function WeekGrid({
           sticky NÃO funciona sem este teto, porque o overflow-x já faz deste
           div o scrollport (overflow-y: visible computa pra auto) e sem altura
           limitada ele nunca rola. */}
-      <div className="max-h-[70vh] overflow-x-auto overflow-y-auto">
-      {/* Day headers — sticky: é o ÚNICO identificador de dia da grade.
-          z-20 fica acima do bloco de aula (hover:z-10) e da linha do agora
-          (z-10); fundo opaco (não mais /60) porque agora tem grade passando
-          por baixo dele. */}
+      <div ref={scrollerRef} className="max-h-[70vh] overflow-x-auto overflow-y-auto">
+      {/* Cabeçalho dos dias e faixa "dia inteiro" grudam JUNTOS no topo. A faixa
+          é o ÚNICO lugar da semana onde vive evento sem horário — prova cujo PDF
+          não trazia hora (gravada 00:00→23:59) e a semana de exames do
+          calendário acadêmico — e, rolando junto com a grade, ela saía da área
+          visível assim que a âncora automática descia pra primeira aula (curso
+          da tarde/noite). O cabeçalho sticky seguia colado no topo, então a
+          grade PARECIA estar no início e a prova simplesmente não aparecia em
+          lugar nenhum daquela view. z-20 no bloco todo: fica acima do bloco de
+          aula (hover:z-10) e da linha do agora (z-10). */}
+      <div className="sticky top-0 z-20">
+      {/* Day headers: é o ÚNICO identificador de dia da grade. Fundo opaco (não
+          mais /60) porque tem grade passando por baixo dele. */}
       <div
         className={cn(
           WEEK_GRID_COLS,
-          "sticky top-0 z-20 border-b border-border/60 bg-card",
+          "border-b border-border/60 bg-card",
         )}
       >
         <div />
@@ -2791,8 +2866,11 @@ function WeekGrid({
 
       {/* Faixa "dia inteiro" — eventos sem hora (calendário acadêmico) ficam
           aqui em vez de virar um bloco cobrindo a coluna toda. */}
+      {/* bg-card obrigatório: agora ela é sticky e a grade de horas passa por
+          baixo — sem fundo opaco os blocos de aula apareceriam ATRAVÉS do chip
+          da prova. */}
       {hasAllDay && (
-        <div className={cn(WEEK_GRID_COLS, "border-b border-border/60")}>
+        <div className={cn(WEEK_GRID_COLS, "border-b border-border/60 bg-card")}>
           <div className="flex items-start justify-end border-r border-border/40 px-1.5 py-1 text-[10px] text-muted-foreground">
             dia
           </div>
@@ -2852,6 +2930,7 @@ function WeekGrid({
           })}
         </div>
       )}
+      </div>
 
       {/* Hour grid + events */}
       <div className="relative">
