@@ -1900,6 +1900,7 @@ function ScheduleView({ user }: { user: User }) {
               events={agendaEvents}
               activeFilter={agendaFilter}
               onFilterChange={applyAgendaFilter}
+              onOpenDetails={openEventDetails}
               today={today}
               /* Com "Todos" selecionado, checar só `size === 0` cobria o caso
                  extremo ("Limpar" nos Filtros) e deixava passar o comum: basta
@@ -2329,7 +2330,12 @@ function MonthGrid({
               onClick={() => onSelectDay(date)}
               onDoubleClick={() => onDayDoubleClick(date)}
               className={cn(
-                "relative min-h-[96px] md:min-h-[110px] border-r border-b border-border/40 px-1.5 py-1.5 text-left transition-colors",
+                // px-0.5 no celular: a 360px cada uma das 7 colunas tem ~46px e
+                // o `px-1.5` sozinho comia 12px da caixa de conteúdo — 1/4 da
+                // célula gasto em respiro enquanto o título da aula ficava com
+                // ~15px (2 letras). Volta ao px-1.5 a partir do sm, onde sobra
+                // largura.
+                "relative min-h-[96px] md:min-h-[110px] border-r border-b border-border/40 px-0.5 sm:px-1.5 py-1.5 text-left transition-colors",
                 idx % 7 === 6 && "border-r-0",
                 idx >= 35 && "border-b-0",
                 !inMonth && "bg-muted/20",
@@ -2364,7 +2370,10 @@ function MonthGrid({
                   {date.getDate()}
                 </button>
               </div>
-              <div className="space-y-0.5">
+              {/* Respiro maior no celular: com `space-y-0.5` os chips ficavam a
+                  2px um do outro e errar o alvo abria os detalhes do evento
+                  ERRADO (ou caía no clique da célula, que só move o anel). */}
+              <div className="space-y-1 sm:space-y-0.5">
                 {/* Marcador do dia sem aula. Vem ANTES dos eventos (e fora do
                     corte do "+N mais") porque é ele que impede o dia de sumir
                     calado: feriado/recesso apaga a aula da grade mesmo quando o
@@ -2397,7 +2406,9 @@ function MonthGrid({
                       }}
                       onDoubleClick={(ev) => ev.stopPropagation()}
                       className={cn(
-                        "flex w-full items-center gap-1 rounded px-1 py-0.5 text-left text-[10px] leading-tight truncate transition-shadow hover:shadow-md",
+                        // No celular o chip vira alvo de dedo (min-h 36px, era
+                        // ~16,5px) e devolve os 4px do px-1 pro título.
+                        "flex w-full min-h-[36px] items-center gap-1 rounded px-0.5 py-1 text-left text-[10px] leading-tight truncate transition-shadow hover:shadow-md sm:min-h-0 sm:px-1 sm:py-0.5",
                         softClass,
                       )}
                       title={
@@ -2423,7 +2434,21 @@ function MonthGrid({
                           {e.startTime}
                         </span>
                       )}
-                      <span className="min-w-0 truncate">{e.title}</span>
+                      {/* No celular o título QUEBRA em até 2 linhas em vez de
+                          truncar em uma. Numa coluna de ~46px havia ~15px pro
+                          nome: a 10px de fonte são ~2 caracteres, e o mês
+                          inteiro virava "An…", "Fi…", "Bi…" sem como distinguir
+                          uma aula da outra — a hora é `hidden sm:inline` e o
+                          `title=` é tooltip de mouse, que não existe no toque,
+                          então a única saída era abrir o modal de cada chip.
+                          Com o padding devolvido (célula e chip) sobram ~27px
+                          por linha; em duas linhas cabe "Bioquímica" inteiro.
+                          `whitespace-normal` porque o `truncate` do botão põe
+                          nowrap e ele herda, matando a quebra. A partir do sm
+                          nada muda: line-clamp-1 elipsa igual ao truncate. */}
+                      <span className="min-w-0 whitespace-normal break-words line-clamp-2 sm:whitespace-nowrap sm:line-clamp-1">
+                        {e.title}
+                      </span>
                     </button>
                   );
                 })}
@@ -2447,7 +2472,12 @@ function MonthGrid({
                     }}
                     onDoubleClick={(ev) => ev.stopPropagation()}
                     aria-expanded={expanded}
-                    className="block w-full pl-2.5 text-left text-[10px] font-medium text-muted-foreground hover:text-foreground hover:underline"
+                    // Único caminho pro 4º evento em diante na view Mês, e
+                    // tinha ~15px de altura encostado nos chips: errar pra cima
+                    // abria os detalhes do evento errado, errar pra baixo caía
+                    // no clique da célula (que não dá retorno nenhum). Vira
+                    // alvo de 36px como os chips.
+                    className="flex w-full min-h-[36px] items-center pl-2.5 text-left text-[10px] font-medium text-muted-foreground hover:text-foreground hover:underline sm:block sm:min-h-0"
                   >
                     {expanded ? "mostrar menos" : `+${overflow} mais`}
                   </button>
@@ -2661,12 +2691,37 @@ function WeekGrid({
         <div className="w-[60px]" />
       </div>
 
+      {/* O `min-w-[640px]` das faixas faz caber só a calha de horas + ~3,2 dias
+          em 360px, e nada na tela dizia que existem mais 4 à direita (barra de
+          rolagem no celular é overlay: só aparece DEPOIS de arrastar). */}
+      <div className="border-b border-border/60 px-3 py-1 text-[10px] text-muted-foreground md:hidden">
+        Arraste pro lado pra ver os 7 dias
+      </div>
+
       {/* As três faixas (cabeçalho, "dia inteiro" e horas) dividem UM contêiner
           de rolagem: com scrolls separados, arrastar pro lado desalinhava as
-          colunas do cabeçalho das colunas dos eventos. */}
-      <div className="overflow-x-auto">
-      {/* Day headers */}
-      <div className={cn(WEEK_GRID_COLS, "border-b border-border/60 bg-card/60")}>
+          colunas do cabeçalho das colunas dos eventos.
+          A rolagem VERTICAL também passou a ser daqui (max-h). Sem teto, o miolo
+          07→22h tem 840px e rola junto com a PÁGINA: descer ~380px pra chegar
+          nas 14:00 já tirava a faixa de dias da tela, e as 3 colunas visíveis
+          ficavam sem rótulo nenhum — o bloco da aula só imprime título, hora e
+          sala, nunca o dia, então "Farmacologia 14:00" na coluna do meio virava
+          quarta quando era quinta. Com o teto a rolagem das horas acontece
+          DENTRO do card e o cabeçalho fica pregado no topo (sticky abaixo); o
+          sticky NÃO funciona sem este teto, porque o overflow-x já faz deste
+          div o scrollport (overflow-y: visible computa pra auto) e sem altura
+          limitada ele nunca rola. */}
+      <div className="max-h-[70vh] overflow-x-auto overflow-y-auto">
+      {/* Day headers — sticky: é o ÚNICO identificador de dia da grade.
+          z-20 fica acima do bloco de aula (hover:z-10) e da linha do agora
+          (z-10); fundo opaco (não mais /60) porque agora tem grade passando
+          por baixo dele. */}
+      <div
+        className={cn(
+          WEEK_GRID_COLS,
+          "sticky top-0 z-20 border-b border-border/60 bg-card",
+        )}
+      >
         <div />
         {days.map((d) => {
           const isToday = isSameDay(d, today);
@@ -2953,12 +3008,15 @@ function AgendaView({
   events,
   activeFilter,
   onFilterChange,
+  onOpenDetails,
   today,
   hiddenByFilters = false,
 }: {
   events: UEvent[];
   activeFilter: CalendarEventType | "all";
   onFilterChange: (f: CalendarEventType | "all") => void;
+  /** Abre o EventDetailsDialog (Editar/Excluir) do evento tocado. */
+  onOpenDetails: (event: UEvent) => void;
   /** Hoje 00:00 local, vindo do tique de relógio da página. */
   today: Date;
   /** A categoria pedida está desmarcada nos Filtros/legenda? Muda o texto do
@@ -3044,7 +3102,11 @@ function AgendaView({
                 </div>
                 <div className="space-y-2">
                   {g.events.map((e) => (
-                    <AgendaEventRow key={e.id} event={e} />
+                    <AgendaEventRow
+                      key={e.id}
+                      event={e}
+                      onOpenDetails={() => onOpenDetails(e)}
+                    />
                   ))}
                 </div>
               </div>
@@ -3065,7 +3127,13 @@ function AgendaView({
   );
 }
 
-function AgendaEventRow({ event: e }: { event: UEvent }) {
+function AgendaEventRow({
+  event: e,
+  onOpenDetails,
+}: {
+  event: UEvent;
+  onOpenDetails: () => void;
+}) {
   const meta = EVENT_TYPE_META[e.type];
   const subjTheme = getThemeFromGradient(e.subjectColor);
   const chipSoft = subjTheme?.soft ?? meta.soft;
@@ -3122,20 +3190,25 @@ function AgendaEventRow({ event: e }: { event: UEvent }) {
       </div>
     </>
   );
-  if (e.subjectId) {
-    return (
-      <Link
-        href={`/subject/${e.subjectId}`}
-        className="flex items-center gap-3 rounded-md border border-border/50 bg-background/60 px-3 py-2 hover:border-primary/40 hover:bg-secondary/40 transition-colors"
-      >
-        {content}
-      </Link>
-    );
-  }
+  /* A linha inteira abre os DETALHES, com ou sem matéria.
+     Antes ela tinha dois destinos e nenhum servia: COM `subjectId` virava um
+     <Link> pra /subject e SEM matéria era uma <div> inerte (clicar não fazia
+     absolutamente nada — sem modal, sem hover, sem cursor). Nos dois casos o
+     EventDetailsDialog, único lugar com Editar e Excluir, nunca abria pela aba
+     Agenda — que é o destino do "Ver agenda completa →", das pills de categoria
+     e a única view realmente legível no celular. Quem importou o calendário e
+     viu "Prova N1 - Bioquímica" na data errada não tinha como corrigir nem
+     apagar por aqui: só descobrindo sozinho que precisava voltar pro Mês ou
+     Semana e caçar o dia. A matéria continua a um toque: o próprio dialog tem
+     o link "→ <nome da matéria>". */
   return (
-    <div className="flex items-center gap-3 rounded-md border border-border/50 bg-background/60 px-3 py-2">
+    <button
+      type="button"
+      onClick={onOpenDetails}
+      className="flex w-full items-center gap-3 rounded-md border border-border/50 bg-background/60 px-3 py-2 text-left hover:border-primary/40 hover:bg-secondary/40 transition-colors"
+    >
       {content}
-    </div>
+    </button>
   );
 }
 
@@ -3185,13 +3258,10 @@ function SidebarEventItem({
   const baseClasses =
     "flex w-full items-start gap-2 rounded-md border border-border/50 bg-background/60 px-2 py-1.5 text-left transition-colors hover:border-primary/40 hover:bg-secondary/40";
 
-  if (e.subjectId) {
-    return (
-      <Link href={`/subject/${e.subjectId}`} className={baseClasses}>
-        {body}
-      </Link>
-    );
-  }
+  /* Mesmo motivo da AgendaEventRow: com `subjectId` o item virava <Link> pra
+     /subject e o `onOpenDetails` recebido virava código morto justamente pros
+     eventos vindos do importador (que nascem com matéria casada). Editar e
+     excluir só existem no dialog. */
   return (
     <button type="button" onClick={onOpenDetails} className={baseClasses}>
       {body}

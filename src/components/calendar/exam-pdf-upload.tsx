@@ -23,9 +23,10 @@ import {
   EVENT_TYPE_META,
   CalendarStorageError,
   addEventsBulkAsync,
+  listEventsAsync,
   type CalendarEventType,
 } from "@/lib/calendar-events";
-import { isIsoDate } from "@/lib/academic-calendar";
+import { isIsoDate, toLocalIso } from "@/lib/academic-calendar";
 import type { Subject } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { LIMITS, PDF_LIMIT_MB } from "@/lib/api-security";
@@ -48,7 +49,31 @@ type ExtractResponse = {
   events?: ExtractedEvent[];
   error?: string;
   demo?: boolean;
+  // Se a rota passar a anunciar o corte (como a irmã academic-calendar já faz),
+  // vale mais que a heurística abaixo — que é o que sobra enquanto ela devolve
+  // só `{events}`, sem contador e sem flag.
+  truncated?: boolean;
 };
+
+/**
+ * Espelho do corte que a rota /api/calendar/extract-pdf ainda aplica CALADA:
+ * ela normaliza os eventos NA ORDEM DO DOCUMENTO e para no 80º (`MAX_EVENTS`).
+ * Como o corte é pela cauda, o que some é sempre o fim do ano letivo: exames
+ * finais, entregas de novembro/dezembro, provas de faltosos. Ver o aviso
+ * montado no handleFile.
+ *
+ * O OUTRO corte que este arquivo espelhava (`TEXT_SLICE_LIMIT`, 30k chars)
+ * MORREU: a rota parou de mandar `text.slice(0, 30_000)` e passou a fatiar o
+ * texto INTEIRO em blocos com sobreposição, mandando todos pro modelo
+ * (`splitIntoChunks`). Enquanto a heurística `text.length > 30_000` ficou de
+ * pé aqui, ela mentia em todo cronograma de ano inteiro (15-40 páginas =
+ * 45-120KB): a tarja âmbar fixa + o `toast.warning` avisavam que "as últimas
+ * datas podem não estar na lista" com a lista COMPLETA na tela, e a instrução
+ * "envie o calendário em partes" empurrava o aluno pro re-upload — extração
+ * paga de novo, 2 dos 10 req/60s por IP queimados — ou pra digitar à mão prova
+ * que já estava lá. Só o teto de 80 eventos sobrou como corte real.
+ */
+const ROUTE_MAX_EVENTS = 80;
 
 type PreviewRow = {
   id: string; // index estável
@@ -207,12 +232,36 @@ function findSubjectMatch(
   });
   if (contains) return contains.id;
 
-  // 3. Match por primeira palavra significativa (>=4 chars)
+  /**
+   * 3. Último palpite, e o mais perigoso: enquanto bastava UMA palavra em comum
+   * (`guessWords.some`), o adjetivo genérico do nome — que em medicina e
+   * engenharia é a regra, não a exceção — casava matérias diferentes. Com
+   * "Química Geral" salva e subjectGuess "Patologia Geral" (matéria que o aluno
+   * nem cadastrou), nível 0 dos dois lados não filtra nada e
+   * includesWord("quimica geral", "geral") é true: a P1 de Patologia nascia com
+   * o subject_id de Química Geral, já marcada (toda linha nasce
+   * `selected: true`, e o único sinal é um <select> de 40px numa tabela de 20
+   * linhas). Gravado o subject_id errado, o chip no mês e na semana sai com a
+   * COR e o ÍCONE de Química Geral, a view Agenda e a sidebar imprimem
+   * "· Química Geral" embaixo do título e o modal de detalhes — única via de
+   * editar/excluir — aponta "→ Química Geral" pra /subject/<id-errado>: a prova
+   * de Patologia fica pendurada numa matéria que não tem prova nenhuma.
+   * Mesma família: Cálculo Diferencial × Cálculo Integral, Anatomia Humana ×
+   * Bioquímica Humana. Regra (a mesma já aplicada no schedule-pdf-upload):
+   * TODAS as palavras significativas de um dos nomes têm que estar no outro —
+   * ainda casa o que justifica este passo ("Anatomia Humana I" × "Anatomia I")
+   * e recusa quem só compartilha o adjetivo. Na dúvida a linha nasce
+   * "— sem matéria —", que o aluno vê e corrige no select do preview.
+   */
   const guessWords = g.split(/\s+/).filter((w) => w.length >= 4);
   if (guessWords.length > 0) {
     const wordMatch = sameLevel.find((s) => {
       const n = normalize(s.name);
-      return guessWords.some((w) => includesWord(n, w));
+      const nWords = n.split(/\s+/).filter((w) => w.length >= 4);
+      return (
+        guessWords.every((w) => includesWord(n, w)) ||
+        (nWords.length > 0 && nWords.every((w) => includesWord(g, w)))
+      );
     });
     if (wordMatch) return wordMatch.id;
   }
@@ -320,6 +369,13 @@ function ExamPdfUploadBody({
   const [rows, setRows] = useState<PreviewRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [demoNote, setDemoNote] = useState<boolean>(false);
+  /**
+   * Aviso de leitura CORTADA. Fica no estado, e não só num toast, porque o
+   * toast some muito antes de o aluno terminar de conferir 80 linhas — e é
+   * exatamente no clique final ("Adicionar 80 eventos selecionados") que ele
+   * decide levar meio calendário achando que é o ano inteiro.
+   */
+  const [truncatedNote, setTruncatedNote] = useState<string | null>(null);
 
   // Trabalho em voo: o wrapper usa isso pra bloquear ESC/overlay/X.
   useEffect(() => {
@@ -352,6 +408,7 @@ function ExamPdfUploadBody({
     async (file: File) => {
       setError(null);
       setDemoNote(false);
+      setTruncatedNote(null);
 
       if (file.type !== "application/pdf") {
         const msg = "Envie um arquivo PDF.";
@@ -432,6 +489,20 @@ function ExamPdfUploadBody({
         const events = rawEvents.filter((ev) => isIsoDate(ev?.date));
         const droppedDates = rawEvents.length - events.length;
 
+        // Corte silencioso da rota (ver ROUTE_MAX_EVENTS). O PDF do ano com
+        // mais de 80 linhas datadas volta com exatamente 80, todas válidas —
+        // então `droppedDates` é 0, o toast anuncia "80 eventos identificados",
+        // as 80 linhas nascem marcadas e NADA na tela diz que faltou algo: o
+        // aluno confirma achando que levou o calendário inteiro e só descobre
+        // no dia da prova que dezembro nunca entrou no localStorage.
+        // PDF longo NÃO é mais sinal de corte: a rota lê o documento inteiro
+        // (ver o docblock de ROUTE_MAX_EVENTS) — avisar por tamanho de texto
+        // era avisar de um corte que não existe.
+        const truncatedMsg =
+          data.truncated || rawEvents.length >= ROUTE_MAX_EVENTS
+            ? `Este calendário tem muitos eventos e a lista parou no ${ROUTE_MAX_EVENTS}º: as últimas datas do documento (exames finais, entregas de novembro/dezembro) podem não estar na lista abaixo. Confira e, se faltar, envie o calendário em partes — um semestre por upload.`
+            : null;
+
         if (events.length === 0) {
           toastIdRef.current = null;
           toast.message("Nenhum evento identificado no PDF.", { id: toastId });
@@ -454,12 +525,16 @@ function ExamPdfUploadBody({
 
         setRows(previewRows);
         setDemoNote(!!data.demo);
+        setTruncatedNote(truncatedMsg);
         setPhase("preview");
         toastIdRef.current = null;
         toast.success(
           `${events.length} evento${events.length === 1 ? "" : "s"} identificado${events.length === 1 ? "" : "s"}.`,
           { id: toastId },
         );
+        // O toast de sucesso acima conta só o que sobreviveu ao corte — sem
+        // este aviso o número vira uma afirmação falsa de completude.
+        if (truncatedMsg) toast.warning(truncatedMsg);
         // O que caiu na checagem de data acima não pode sumir calado: o aluno
         // precisa saber que aquela linha do PDF não entrou (pra digitar à mão),
         // em vez de descobrir depois que faltou uma prova na agenda.
@@ -514,11 +589,53 @@ function ExamPdfUploadBody({
 
     setPhase("saving");
     try {
+      /**
+       * Idempotência: só entra o que AINDA não está no calendário.
+       *
+       * `addEventsBulkAsync` é append puro (`[...all, ...created]`, com
+       * `generateId()` novo por linha), então subir de novo o MESMO PDF — a
+       * faculdade republicou o cronograma com uma prova a mais, ou o aluno
+       * reabriu porque achou que não tinha salvado — gravava as 12 provas
+       * OUTRA VEZ. "P1 Farmacologia" passava a aparecer duas vezes no mesmo
+       * dia na célula do mês, em duas colunas idênticas lado a lado na semana
+       * (layoutOverlaps), na view Agenda e na sidebar, sem NADA distinguindo
+       * uma da outra — e a única limpeza era abrir o modal de detalhes de cada
+       * cópia e excluir uma a uma. Mesma defesa do irmão
+       * academic-calendar-upload.
+       *
+       * A checagem é contra a agenda SALVA, e não contra um "o que eu gravei
+       * nesta sessão": o corpo do dialog é remontado a cada abertura
+       * (`{open && <ExamPdfUploadBody/>}`), então qualquer ref nasceria vazio
+       * e o segundo upload duplicaria tudo de novo.
+       */
+      const existingKeys = new Set(
+        (await listEventsAsync(userId)).map((e) =>
+          agendaKey(e.title, e.starts_at),
+        ),
+      );
+
       const payload = toCreate.map((r) => {
         const ev = r.event;
+        // Prova SEM horário nenhum no PDF (o formato mais comum: "15/06 — P1 de
+        // Anatomia") entra como DIA TODO (00:00 → 23:59), e não mais no chute
+        // das 08:00–09:00. O preview não imprime hora nessa linha (a coluna
+        // Data só mostra `startTime` se ele existir), então o aluno confirma
+        // sem ver horário nenhum — e a agenda passava a AFIRMAR um horário que
+        // ninguém escreveu: "08:00–09:00" com ícone de relógio na view Agenda e
+        // na sidebar, "08:00" no chip do mês, e na semana a prova desenhada em
+        // cima da aula das 08:00 (o layoutOverlaps registra isso). Quem tinha
+        // prova às 14:00 planejava a manhã em cima de uma hora inventada.
+        // 00:00 → 23:59 é exatamente o que a página lê como allDay
+        // (`startMinutes === 0 && endMinutes >= 23*60+59`) e renderiza como
+        // "Dia todo" — mesma solução do irmão academic-calendar-upload.
+        // Horário PARCIAL (só fim, "entrega até 23:59") continua ancorado nas
+        // 08:00: aí existe hora no documento, o preview a mostra e a linha não
+        // é de dia inteiro.
         const starts_at = ev.startTime
           ? combineDateTimeISO(ev.date, ev.startTime)
-          : defaultIsoFor(ev.date, 8);
+          : ev.endTime
+            ? defaultIsoFor(ev.date, 8)
+            : combineDateTimeISO(ev.date, "00:00");
         // O fim SEMPRE tem que cair depois do início. Com horário tardio, colar
         // a hora do fim na MESMA data grava ends_at ANTES de starts_at: entrega
         // "23:59" vira 23:59 → 00:59 do mesmo dia (23h pra trás), e uma aula
@@ -534,7 +651,7 @@ function ExamPdfUploadBody({
           ? combineDateTimeISO(ev.date, ev.endTime)
           : ev.startTime
             ? syntheticEndIso(ev.date, ev.startTime)
-            : defaultIsoFor(ev.date, 9);
+            : combineDateTimeISO(ev.date, "23:59");
         const ends_at = ensureEndAfterStart(starts_at, rawEnd);
 
         // Mapeia tipo extraído pro CalendarEventType local (idênticos).
@@ -549,9 +666,29 @@ function ExamPdfUploadBody({
         };
       });
 
-      await addEventsBulkAsync(userId, payload);
+      const pending = payload.filter(
+        (ev) => !existingKeys.has(agendaKey(ev.title, ev.starts_at)),
+      );
+      const skipped = payload.length - pending.length;
+
+      if (pending.length === 0) {
+        // Fechar em silêncio pareceria "não salvou" (e o aluno subiria o PDF
+        // de novo); anunciar "12 eventos adicionados" é justamente o que faz
+        // ele acreditar que duplicou. Diz o que aconteceu: nada mudou.
+        toast.message(
+          skipped === 1
+            ? "Esse evento já estava no seu calendário — não dupliquei nada."
+            : "Esses eventos já estavam no seu calendário — não dupliquei nada.",
+        );
+        onCreated();
+        return;
+      }
+
+      await addEventsBulkAsync(userId, pending);
       toast.success(
-        `${toCreate.length} evento${toCreate.length === 1 ? "" : "s"} adicionado${toCreate.length === 1 ? "" : "s"} ao calendário.`,
+        // Conta o que REALMENTE entrou: dizer "12 eventos adicionados" quando
+        // 11 foram pulados é o que faz o aluno procurar as cópias na agenda.
+        `${pending.length} evento${pending.length === 1 ? "" : "s"} adicionado${pending.length === 1 ? "" : "s"} ao calendário${skipped > 0 ? ` · ${skipped} já estava${skipped === 1 ? "" : "m"} lá` : ""}.`,
       );
       onCreated();
     } catch (err) {
@@ -586,6 +723,7 @@ function ExamPdfUploadBody({
     setFileName(null);
     setError(null);
     setDemoNote(false);
+    setTruncatedNote(null);
     setPhase("idle");
   }
 
@@ -659,6 +797,14 @@ function ExamPdfUploadBody({
             <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
               <AlertCircle className="h-4 w-4 shrink-0" />
               Modo demo (sem ANTHROPIC_API_KEY). Eventos fictícios pra teste.
+            </div>
+          )}
+          {/* Lista cortada no teto de eventos: o aluno precisa ver isso NA HORA
+              de clicar em "Adicionar", não num toast que já sumiu. */}
+          {truncatedNote && (
+            <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              {truncatedNote}
             </div>
           )}
           {/* Falha do "Adicionar": o preview continua na tela e o erro precisa
@@ -854,6 +1000,56 @@ function ExamPdfUploadBody({
 }
 
 /* ---------------- small helpers ---------------- */
+
+/**
+ * Chave de duplicata na agenda: título + dia de início — exatamente o que o
+ * aluno enxerga repetido no mês, na semana, na view Agenda e na sidebar quando
+ * o mesmo cronograma entra duas vezes. Mesma chave do irmão
+ * academic-calendar-upload.
+ *
+ * Sem a HORA de propósito: horário e tipo não são dados estáveis do PDF (a
+ * extração roda sem temperature fixa, e a linha sem hora entra como dia todo),
+ * então a MESMA prova volta sem hora numa subida e às 14:00 na seguinte —
+ * com a hora na chave ela seria inserida de novo, que é o bug. O preço é duas
+ * provas homônimas no mesmo dia em horários diferentes ("Prova Prática" manhã
+ * e tarde): as duas entram no primeiro upload — dentro do MESMO lote nada é
+ * filtrado, justamente pra não derrubar em silêncio uma linha que o aluno
+ * acabou de conferir e marcar na tela —, mas num upload seguinte a segunda é
+ * tratada como já existente.
+ *
+ * O título passa pelo `titleKey` (e não por um trim+toLowerCase próprio): a IA
+ * não copia o texto do PDF, ela reescreve — ver lá o modo de falha.
+ */
+function agendaKey(title: string, startsAt: string): string {
+  const d = new Date(startsAt);
+  const day = Number.isNaN(d.getTime()) ? startsAt : toLocalIso(d);
+  return `${titleKey(title)}|${day}`;
+}
+
+/**
+ * Título normalizado pra casar a MESMA prova entre dois uploads.
+ *
+ * Tira ACENTO e uniformiza a família de travessões/hífens (‐ ‑ ‒ – — ―) além do
+ * trim+caixa+espaço, porque o título NÃO é copiado do PDF: o prompt da rota
+ * manda escrever um "nome curto e claro" (extract-pdf/route.ts) e a extração
+ * roda sem temperature fixa. A linha institucional "AVALIAÇÃO N1 – BIOQUÍMICA"
+ * volta "Avaliação N1 – Bioquímica" numa subida e "Avaliacao N1 - Bioquimica"
+ * na seguinte. Comparando só a caixa, as duas viravam chaves DIFERENTES: no
+ * segundo upload (a faculdade republicou o cronograma com uma prova a mais, ou
+ * o aluno reabriu achando que não tinha salvado) `existingKeys.has(...)` dava
+ * false e as 12 provas entravam OUTRA VEZ — dois chips idênticos no mesmo dia
+ * na célula do mês, duas colunas iguais lado a lado na semana (layoutOverlaps),
+ * duas linhas na view Agenda e na sidebar, permanentes, porque a única limpeza
+ * é abrir o modal de detalhes de cada cópia e excluir uma a uma — e o toast
+ * ainda anunciava "12 eventos adicionados", confirmando que era pra ser assim.
+ * Mesma normalização do irmão academic-calendar-upload.
+ */
+function titleKey(title: string): string {
+  // `normalize` já faz NFD + tira acento + caixa + colapsa espaço; falta só
+  // uniformizar os travessões, que a IA troca livremente entre uma subida e
+  // outra.
+  return normalize(title.replace(/[‐-―]/g, "-"));
+}
 
 function addOneHour(time: string): string {
   // A volta do relógio ("23:59" → "00:59") continua aqui, mas hoje ninguém mais

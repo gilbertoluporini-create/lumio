@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { BookOpen, FileText, GraduationCap, Loader2, Sparkles, Tag } from "lucide-react";
+import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -102,6 +103,20 @@ function addDaysISODate(date: string, days: number): string {
   const dt = new Date(y, mo - 1, d + days);
   undoMakeFullYear(dt, y);
   return `${dt.getFullYear()}-${pad2(dt.getMonth() + 1)}-${pad2(dt.getDate())}`;
+}
+
+// "até 26/06" pro rótulo do offset. O form só edita a HORA do fim, então em
+// evento de intervalo (semana de provas, recesso) a data de término não
+// aparecia em lugar NENHUM da tela: o único sinal era um "+4 dias" e a
+// explicação morava só num `title=` — tooltip de mouse, que não existe no
+// toque. O aluno tocava no badge só pra descobrir o que era, e o toque já
+// colapsava o intervalo. Com a data escrita no próprio rótulo não é preciso
+// tocar pra entender. Volta pro "+N dias" se a data estiver pela metade.
+function endDateLabel(date: string, offset: number): string {
+  if (!offset) return "";
+  if (!isSaneISODate(date)) return `+${offset} dia${offset > 1 ? "s" : ""}`;
+  const [, mo, d] = addDaysISODate(date, offset).split("-");
+  return `até ${d}/${mo}`;
 }
 
 function combineDateTimeISO(date: string, time: string): string {
@@ -220,7 +235,18 @@ function EventFormBody({
       const dt = new Date(editEvent.ends_at);
       return `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`;
     }
-    return addOneHour(initialStart);
+    // Compromisso gravado SEM ends_at às 23:59 — o caso normal do prazo
+    // "entrega até 23:59" (a Lumi agenda assim, e o botão "+1 dia · mesmo dia"
+    // também deixa o fim vazio nesse horário): o addOneHour satura no fim do
+    // dia e devolve o PRÓPRIO 23:59, então o Editar abria com Fim === Início e
+    // o submit recusava QUALQUER alteração — até só o título ou a data — com
+    // "o horário de término precisa ser depois do início". Não havia saída: o
+    // badge "+N dia · mesmo dia" só renderiza com offset > 0 e nada na tela
+    // manda apagar o Fim à mão. Como não existe hora depois de 23:59 no mesmo
+    // dia, o Fim nasce VAZIO: o submit já aceita (ends_at undefined) e o
+    // compromisso continua sendo o marco que o prazo é.
+    const auto = addOneHour(initialStart);
+    return auto > initialStart ? auto : "";
   }, [editEvent, initialStart]);
 
   // Eventos de intervalo (recesso, semana de provas) atravessam dias: o form só
@@ -303,15 +329,33 @@ function EventFormBody({
         description: description.trim() || undefined,
       };
 
+      // Salvar não dava NENHUM sinal: o dialog fechava e a tela ficava
+      // EXATAMENTE igual sempre que o compromisso nascia fora do que está
+      // visível — categoria desmarcada nos Filtros (o banner "Tudo oculto"
+      // só dispara com activeTypes.size === 0, uma categoria só não conta),
+      // ou data fora do mês na tela E além dos 30 dias da agenda. O aluno lia
+      // como "não salvou" e cadastrava de novo: duas P1 no mesmo dia,
+      // invisíveis até ele remarcar a categoria. Este dialog não conhece os
+      // filtros nem o mês visível (moram na página do calendário), então o
+      // toast confirma O QUE foi salvo, PRA QUANDO, e diz onde procurar.
+      const dataBR = date.split("-").reverse().join("/");
+      const detalhe = `${EVENT_TYPE_META[type].label}: ${cleanTitle}. Não achou na grade? Confere os Filtros de categoria e o mês.`;
+
       if (isEdit && editEvent) {
         const updated = await updateEventAsync(userId, editEvent.id, payload);
         if (!updated) {
           setError("Evento não encontrado.");
           return;
         }
+        toast.success(`Compromisso atualizado para ${dataBR}.`, {
+          description: detalhe,
+        });
         onUpdated(updated);
       } else {
         const created = await addEventAsync(userId, payload);
+        toast.success(`Compromisso salvo para ${dataBR}.`, {
+          description: detalhe,
+        });
         onCreated(created);
       }
     } catch (err) {
@@ -512,8 +556,8 @@ function EventFormBody({
               {/*
                 O fim em outro dia era INVISÍVEL: a tela mostrava só "Fim 00:00"
                 e não havia como zerar o offset, então um prazo virava bloco de
-                horas sem o aluno perceber. Aqui ele vê o "+N dia(s)" e consegue
-                trazer o fim pro mesmo dia num clique.
+                horas sem o aluno perceber. Aqui ele vê a data de término e
+                consegue trazer o fim pro mesmo dia num clique — e desfazer.
               */}
               <div className="flex items-center justify-between gap-2">
                 <Label htmlFor="event-end">Fim</Label>
@@ -543,7 +587,29 @@ function EventFormBody({
                     className="text-[10px] font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
                     title="O fim está em outro dia — clique pra trazer pro mesmo dia"
                   >
-                    +{endDayOffset} dia{endDayOffset > 1 ? "s" : ""} · mesmo dia
+                    {endDateLabel(date, endDayOffset)} · mesmo dia
+                  </button>
+                )}
+                {/*
+                  Trazer o fim "pro mesmo dia" era uma via de mão única: em
+                  "Exames finais 22 a 26/06" (00:00 → 23:59, offset 4) um clique
+                  colapsava a semana inteira em 1 dia e o botão sumia no mesmo
+                  commit em que foi usado (só renderiza com offset > 0). Como
+                  não existe campo de DATA de fim, o aluno não tinha como
+                  desfazer pelo form — só re-subindo o PDF do calendário. Este
+                  botão devolve o fim pro dia em que o evento foi gravado.
+                */}
+                {endDayOffset === 0 && initialEndDayOffset > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEndDayOffset(initialEndDayOffset);
+                      setEndTime(initialEnd);
+                    }}
+                    className="text-[10px] font-medium text-muted-foreground underline underline-offset-2 hover:text-foreground"
+                    title="Volta o fim pro dia em que o compromisso estava gravado"
+                  >
+                    desfazer · {endDateLabel(date, initialEndDayOffset)}
                   </button>
                 )}
               </div>

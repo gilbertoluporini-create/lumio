@@ -252,11 +252,34 @@ function findSubjectMatch(
     return includesWord(n, g) || includesWord(g, n);
   });
   if (contains) return contains.id;
+  /**
+   * Último palpite, e o mais perigoso: enquanto bastava UMA palavra em comum
+   * (`words.some`), o adjetivo genérico do nome casava matérias diferentes.
+   * "Anatomia Humana" (grade nova) achava "Bioquímica Humana" (já salva) por
+   * causa de "humana": a linha nascia "Atualizar: Bioquímica Humana", já
+   * MARCADA e com o aviso "substitui horário atual" em cinza de 10px, e o
+   * Salvar mandava `.update({ schedule })` cru — a grade real da Bioquímica
+   * era APAGADA e trocada pela da Anatomia, que nunca era criada. Não há
+   * histórico de grade pra desfazer, nenhuma tela do app edita horário de
+   * matéria e aula da grade é read-only no modal. Mesma família: Cálculo
+   * Diferencial × Cálculo Integral, Química Geral × Física Geral.
+   * Regra: TODAS as palavras significativas de um dos nomes têm que estar no
+   * outro. É o que ainda casa o caso que justifica este passo — numeração que
+   * o passo de inclusão não pega, "Anatomia Humana I" × "Anatomia Humana 1" e
+   * "Anatomia Humana I" × "Anatomia I" — e recusa quem só compartilha o
+   * adjetivo. Na dúvida a linha nasce "+ Criar nova matéria": duplicar uma
+   * matéria o aluno vê no preview e desfaz; sobrescrever a grade da matéria
+   * errada, não.
+   */
   const words = g.split(/\s+/).filter((w) => w.length >= 4);
   if (words.length > 0) {
     const wordMatch = sameLevel.find((s) => {
       const n = normalize(s.name);
-      return words.some((w) => includesWord(n, w));
+      const nWords = n.split(/\s+/).filter((w) => w.length >= 4);
+      return (
+        words.every((w) => includesWord(n, w)) ||
+        (nWords.length > 0 && nWords.every((w) => includesWord(g, w)))
+      );
     });
     if (wordMatch) return wordMatch.id;
   }

@@ -193,11 +193,16 @@ function agendaEndIso(e: AcademicEvent): string {
  * Efeito colateral desejado: o mesmo desalinhamento derrubava a "trava 1" do
  * laço de remarcação lá embaixo (ver `incomingAgendaKeys`), que agora reconhece
  * a linha mesmo quando a categoria trocou.
+ *
+ * O título passa pelo MESMO `titleKey` do perfil (e não por um
+ * trim+toLowerCase próprio): o texto do evento é REESCRITO pela IA a cada
+ * chamada, então acento/espaço/hífen mudam entre dois uploads — ver lá o modo
+ * de falha.
  */
 function agendaKey(title: string, startsAt: string): string {
   const d = new Date(startsAt);
   const day = Number.isNaN(d.getTime()) ? startsAt : toLocalIso(d);
-  return `${title.trim().toLowerCase()}|${day}`;
+  return `${titleKey(title)}|${day}`;
 }
 
 /**
@@ -221,9 +226,36 @@ function capSourceFile(name: string | null): string | null {
   return name.length > MAX_SOURCE_FILE ? name.slice(0, MAX_SOURCE_FILE) : name;
 }
 
-/** Título normalizado pra casar a MESMA linha entre dois PDFs. */
+/**
+ * Título normalizado pra casar a MESMA linha entre dois PDFs — chave única de
+ * "essa data já está aqui", tanto na agenda (`agendaKey`) quanto no perfil
+ * (`dropRescheduled`).
+ *
+ * Tira ACENTO e uniformiza travessão/hífen além do trim+caixa+espaço, porque o
+ * título NÃO é copiado do PDF: o SYSTEM_PROMPT da rota manda a IA reescrever a
+ * linha "em capitalização normal em pt-BR" e a extração roda sem temperature
+ * fixa. A linha impressa em caixa alta e sem acento ("AVALIACAO PRA", padrão de
+ * calendário institucional brasileiro) volta "Avaliação PRA" numa subida e
+ * "Avaliacao PRA" — ou com espaço duplo, ou com "–" no lugar de "-" — na
+ * seguinte. Comparando só a caixa, as duas viravam chaves DIFERENTES: no
+ * segundo upload (o PDF que a faculdade retificou, ou só reabrir pra marcar os
+ * feriados, que nascem desmarcados por DEFAULT_ON) `existingKeys.has(k)` dava
+ * false e a MESMA data era inserida de novo — dois chips idênticos na célula do
+ * dia, na faixa "dia todo" da semana, na view Agenda e na sidebar, permanentes,
+ * porque não existe "limpar importação" (só apagar um a um pelos detalhes) e o
+ * toast promete justamente o contrário ("as datas que já estão na agenda não
+ * duplicam"). No perfil o mesmo desalinhamento fazia o `dropRescheduled` não
+ * reconhecer a linha antiga, ela sobrevivia em `kept` e a Lumi passava a ver a
+ * mesma avaliação duas vezes.
+ */
 function titleKey(title: string): string {
-  return title.trim().toLowerCase().replace(/\s+/g, " ");
+  return title
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[\u2010-\u2015]/g, "-")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
 /**
@@ -841,11 +873,31 @@ function AcademicCalendarUploadBody({
         // Falha na leitura NÃO pode virar sobrescrita silenciosa: aborta o
         // PATCH e avisa, em vez de gravar só o calendário novo por cima do que
         // já existia.
+        //
+        // Mas também NÃO pode fechar o dialog. O `onSaved()` que estava aqui
+        // fechava, e o PATCH nunca acontecia: pro aluno que NUNCA teve
+        // calendário salvo — o caso mais comum, a primeira importação com o GET
+        // voltando 500 de cold start — a frase "não sobrescrevi o calendário
+        // salvo" se lê como sucesso e o `academic_calendar` do perfil fica
+        // VAZIO. Aí `getTermWindows` devolve [] e `isWithinTerm` libera TODA
+        // data: a aula de segunda 08:00 volta a ser desenhada em julho inteiro,
+        // no Natal e nos meses do ano seguinte, e somem o banner "Fora do
+        // período letivo", o "Mês sem aula" e os rótulos de feriado/recesso — e
+        // a Lumi não conhece data nenhuma. A tela atrás nem denuncia: ela lê um
+        // perfil sem calendário com SUCESSO, então `academicError` fica false e
+        // nenhum banner aparece. Sem retry na tela, a única saída era refazer a
+        // extração paga do Vision (rate-limit 2 req/60s). Fica no preview, com
+        // o "Salvar" à mão: o retry relê a agenda, pula o que já entrou e tenta
+        // o perfil de novo.
+        if (cancelledRef.current) return;
         console.error("[academic-calendar-upload] profile read failed", readErr);
-        toast.warning(
-          "Não consegui ler seu calendário atual. As datas foram pra agenda, mas não sobrescrevi o calendário salvo.",
-        );
-        onSaved();
+        const readMsg =
+          "As datas foram pra agenda, mas não consegui ler seu perfil pra salvar o calendário (não sobrescrevi nada). Sem ele o período letivo não liga e a Lumi não vê suas datas: clique em Salvar pra tentar de novo.";
+        // Recarrega a tela pra ela não mentir sobre o que já foi gravado.
+        if (written.inserted > 0 || written.extended > 0) onProgress?.();
+        toast.warning(readMsg);
+        setError(readMsg);
+        setPhase("preview");
         return;
       }
 

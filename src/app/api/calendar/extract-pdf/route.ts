@@ -31,7 +31,9 @@ const VALID_TYPES: ReadonlySet<ExtractedEventType> = new Set([
 
 const MAX_TEXT_BYTES = 200_000; // ~200KB de texto bruto bem mais que suficiente
 const MAX_EVENTS = 80;
-const TEXT_SLICE_LIMIT = 30_000; // o que efetivamente vai pro prompt
+const CHUNK_SIZE = 30_000; // quanto de texto cabe em UMA chamada da IA
+const CHUNK_OVERLAP = 2_000; // sobreposição pra não cortar um evento no meio
+const CHUNK_BUDGET_MS = 50_000; // prazo dos blocos, com folga sob o maxDuration=60
 
 /* ---------------- validation helpers ---------------- */
 
@@ -91,6 +93,110 @@ function normalizeEvents(raw: unknown): ExtractedEvent[] {
     if (out.length >= MAX_EVENTS) break;
   }
   return out;
+}
+
+/**
+ * MOTIVO: antes a rota mandava pra IA só `text.slice(0, 30_000)`. Um plano de
+ * ensino / cronograma de 15-40 páginas rende 45-120KB de texto, ou seja: tudo
+ * depois de ~10 páginas (P2, exames finais, entregas de nov/dez) sumia SEM UMA
+ * PALAVRA na tela — o preview listava só as primeiras provas, o aluno conferia
+ * linha a linha, adicionava, e descobria o resto no dia da prova. Agora o texto
+ * INTEIRO é fatiado em blocos (com sobreposição, pra não partir um evento no
+ * meio) e cada bloco vai pra IA; o merge abaixo tira as duplicatas da emenda.
+ *
+ * MOTIVO 2: o corte era por OFFSET DE CARACTERE seco, então a emenda caía no
+ * MEIO de uma linha datada — a IA lia "P2 de Farmaco" (linha truncada no fim do
+ * bloco N) e "P2 de Farmacologia" (linha inteira no bloco N+1) e devolvia dois
+ * títulos diferentes pro MESMO evento, que o dedup exato não casava. Agora as
+ * bordas são empurradas pra quebra de linha: nenhuma linha chega pela metade. A
+ * sobra que o snap do fim descarta já está inteira dentro dos 2.000 chars de
+ * sobreposição do bloco seguinte, então nada se perde. Texto sem \n nenhum
+ * (extração que vem em bloco único) volta ao comportamento antigo.
+ */
+function splitIntoChunks(text: string): string[] {
+  if (text.length <= CHUNK_SIZE) return [text];
+  const chunks: string[] = [];
+  const step = CHUNK_SIZE - CHUNK_OVERLAP;
+  for (let start = 0; start < text.length; start += step) {
+    const last = start + CHUNK_SIZE >= text.length;
+    const nlStart = start === 0 ? -1 : text.indexOf("\n", start);
+    const from =
+      nlStart >= 0 && nlStart < start + CHUNK_SIZE ? nlStart + 1 : start;
+    const nlEnd = text.lastIndexOf("\n", start + CHUNK_SIZE);
+    const to = last || nlEnd <= from ? start + CHUNK_SIZE : nlEnd;
+    if (to > from) chunks.push(text.slice(from, to));
+    if (last) break;
+  }
+  return chunks;
+}
+
+const TITLE_STOP_WORDS = new Set([
+  "de",
+  "do",
+  "da",
+  "dos",
+  "das",
+  "e",
+  "em",
+  "no",
+  "na",
+]);
+
+/** Palavras do título sem acento/pontuação/conectivo, pra comparar redações. */
+function titleWords(title: string): Set<string> {
+  return new Set(
+    title
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length > 0 && !TITLE_STOP_WORDS.has(w)),
+  );
+}
+
+function isSubset(a: Set<string>, b: Set<string>): boolean {
+  for (const w of a) if (!b.has(w)) return false;
+  return true;
+}
+
+/**
+ * MOTIVO: a chave `date|title` EXATA não pegava a duplicata da emenda. O SYSTEM
+ * prompt manda a IA REESCREVER a linha ("nome curto e claro") e cada bloco é uma
+ * chamada independente, sem temperature fixa: a MESMA prova volta "P1 de
+ * Anatomia" de um bloco e "Prova P1 - Anatomia" do outro. As duas passavam pro
+ * preview marcadas, as duas eram gravadas (o cliente só compara com a agenda JÁ
+ * salva, não dentro do lote) e o aluno ficava com dois chips idênticos no mesmo
+ * dia — no mês, em duas colunas na semana, na agenda e na sidebar — pra apagar
+ * um a um pelo modal de detalhes. Agora, além da chave exata, eventos do MESMO
+ * dia vindos de BLOCOS DIFERENTES caem fora quando as palavras de um título
+ * cabem dentro do outro. Dentro do MESMO bloco nada é fundido: lá o prompt já
+ * proíbe duplicar e duas provas parecidas no mesmo dia são de verdade.
+ */
+function mergeEvents(lists: ExtractedEvent[][]): ExtractedEvent[] {
+  const seen = new Set<string>();
+  const kept: { ev: ExtractedEvent; chunk: number; words: Set<string> }[] = [];
+  for (let i = 0; i < lists.length; i++) {
+    for (const ev of lists[i]) {
+      const key = `${ev.date}|${ev.title.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      const words = titleWords(ev.title);
+      const overlapDup =
+        words.size > 0 &&
+        kept.some(
+          (k) =>
+            k.chunk !== i &&
+            k.ev.date === ev.date &&
+            k.words.size > 0 &&
+            (isSubset(words, k.words) || isSubset(k.words, words)),
+        );
+      if (overlapDup) continue;
+      seen.add(key);
+      kept.push({ ev, chunk: i, words });
+      if (kept.length >= MAX_EVENTS) break;
+    }
+    if (kept.length >= MAX_EVENTS) break;
+  }
+  return kept.map((k) => k.ev);
 }
 
 function tryParseJson(text: string): { events: ExtractedEvent[] } | null {
@@ -256,11 +362,11 @@ export async function POST(req: Request) {
   }
 
   const currentYear = new Date().getFullYear();
-  const sliced = text.slice(0, TEXT_SLICE_LIMIT);
+  const chunks = splitIntoChunks(text);
   const subjectList =
     subjectNames.length > 0 ? subjectNames.join(", ") : "(nenhuma)";
 
-  try {
+  const extractChunk = async (chunk: string) => {
     const resp = await createMessage({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 4000,
@@ -274,16 +380,44 @@ export async function POST(req: Request) {
       messages: [
         {
           role: "user",
-          content: `Matérias existentes do usuário: ${escapeForPrompt(subjectList)}\n\nTexto do calendário acadêmico:\n\n<calendar>\n${escapeForPrompt(sliced)}\n</calendar>\n\nExtraia os eventos e responda APENAS com o JSON.`,
+          content: `Matérias existentes do usuário: ${escapeForPrompt(subjectList)}\n\nTexto do calendário acadêmico:\n\n<calendar>\n${escapeForPrompt(chunk)}\n</calendar>\n\nExtraia os eventos e responda APENAS com o JSON.`,
         },
       ],
     });
 
     const textBlock = resp.content.find((b) => b.type === "text");
     const raw = textBlock && textBlock.type === "text" ? textBlock.text : "";
-    const parsed = tryParseJson(raw);
+    return tryParseJson(raw);
+  };
 
-    if (!parsed) {
+  // MOTIVO: era `Promise.all(chunks.map(extractChunk))` seco. Com 6-8 blocos
+  // paralelos sob maxDuration=60, bastava UM estourar o tempo ou falhar na
+  // Anthropic E no fallback pra requisição inteira morrer: 500 (ou 504 com corpo
+  // HTML, que no cliente vira `{}` e "Falha ao extrair eventos.") e ZERO eventos
+  // — inclusive os 7 blocos que leram perfeitamente e já foram pagos, com o
+  // aluno refazendo tudo e queimando mais um dos 10 req/60s por IP. Agora cada
+  // bloco falha SOZINHO (vira null) e todos correm contra um prazo dentro do
+  // teto da plataforma: volta o que deu pra ler em vez de nada.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), CHUNK_BUDGET_MS);
+  });
+
+  try {
+    const parsed = await Promise.all(
+      chunks.map((chunk) =>
+        Promise.race([
+          extractChunk(chunk).catch((err) => {
+            console.error("[calendar/extract-pdf] bloco falhou", err);
+            return null;
+          }),
+          deadline,
+        ]),
+      ),
+    );
+
+    // Só é "não consegui identificar" se NENHUM bloco voltou JSON válido.
+    if (parsed.every((p) => p === null)) {
       return Response.json(
         {
           events: [],
@@ -294,11 +428,19 @@ export async function POST(req: Request) {
       );
     }
 
-    return Response.json({ events: parsed.events });
+    return Response.json({
+      events: mergeEvents(parsed.map((p) => p?.events ?? [])),
+      // Bloco que caiu/estourou não pode sumir calado: com `partial` o cliente
+      // pode avisar que parte do documento não foi lida (hoje ele ignora o
+      // campo, mas assim a informação existe em vez de se perder na rota).
+      partial: parsed.some((p) => p === null),
+    });
   } catch (err) {
     return Response.json(
       logAndSanitize("api/calendar/extract-pdf", err),
       { status: 500 },
     );
+  } finally {
+    clearTimeout(timer);
   }
 }

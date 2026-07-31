@@ -16,6 +16,7 @@ import { createMessage } from "@/lib/llm-fallback";
 import { LIMITS, logAndSanitize, sniffMagic } from "@/lib/api-security";
 import { getClientIp, limitOrThrow } from "@/lib/rate-limit";
 import {
+  isIsoDate,
   normalizeAcademicEvents,
   type AcademicEvent,
 } from "@/lib/academic-calendar";
@@ -95,6 +96,8 @@ type ExtractPayload = {
   institution?: string | null;
   year?: number | null;
   events: AcademicEvent[];
+  /** Linhas descartadas por data inexistente (ver o porquê em `attempt`). */
+  droppedDates: number;
 };
 
 function tryParseJson(text: string): ExtractPayload | null {
@@ -109,6 +112,29 @@ function tryParseJson(text: string): ExtractPayload | null {
     try {
       const parsed = JSON.parse(s) as Record<string, unknown>;
       const events = normalizeAcademicEvents(parsed?.events);
+      // Data que NÃO EXISTE ("Prova de faltosos 31/11", "29/02" em ano não
+      // bissexto — erro clássico de leitura de tabela) some AQUI: a linha
+      // inteira morre no `if (!isIsoDate(o.date)) continue;` da normalização,
+      // ANTES de responder. Como o cliente só recebe a lista já limpa, o
+      // contador dele é 0 POR CONSTRUÇÃO e o toast.warning("N linhas
+      // ignoradas") nunca dispara — o aluno lê "86 datas encontradas.", confere
+      // a preview (que bate com o que veio), salva, e a prova não existe em
+      // lugar nenhum: nem na agenda, nem no `academic_calendar` do perfil, nem
+      // no contexto da Lumi. Ele descobre no dia. Por isso a contagem tem que
+      // rodar aqui, sobre o payload CRU, e viajar no JSON.
+      // Conta só o que reprova em `isIsoDate`, nunca `crus.length -
+      // events.length`: a normalização também derruba título vazio e duplicata
+      // exata (data+título), e chamar isso de "data inexistente" mandaria o
+      // aluno caçar no PDF uma linha que na verdade está lá.
+      const crus = Array.isArray(parsed?.events)
+        ? (parsed.events as unknown[])
+        : [];
+      const droppedDates = crus.filter(
+        (ev) =>
+          !!ev &&
+          typeof ev === "object" &&
+          !isIsoDate((ev as { date?: unknown }).date),
+      ).length;
       const yearRaw =
         typeof parsed?.year === "number" ? parsed.year : Number(parsed?.year);
       return {
@@ -121,6 +147,7 @@ function tryParseJson(text: string): ExtractPayload | null {
             ? yearRaw
             : null,
         events,
+        droppedDates,
       };
     } catch {
       return null;
@@ -320,6 +347,12 @@ export async function POST(req: Request) {
       }
       return Response.json({
         events: [],
+        // Se TODAS as linhas caíram por data impossível, o arquivo está nítido
+        // — o que está errado são as datas. O cliente troca a mensagem abaixo
+        // pela específica ("Encontrei N datas que não existem") quando isto vem
+        // maior que zero, em vez de mandar o aluno reenviar o mesmo PDF (e
+        // ainda bater no rate-limit de 2 req/60s).
+        droppedDates: parsed?.droppedDates ?? 0,
         error:
           "Não consegui ler o calendário. Verifique se o arquivo está nítido e tente de novo, ou adicione as datas manualmente.",
       });
