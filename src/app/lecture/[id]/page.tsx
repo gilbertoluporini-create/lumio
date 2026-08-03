@@ -63,6 +63,10 @@ import {
   isAudioRecorderSupported,
 } from "@/lib/audio-recorder";
 import { LiveSegmentTranscriber } from "@/lib/live-segment-transcriber";
+import {
+  DeepgramLiveTranscriber,
+  isDeepgramLiveSupported,
+} from "@/lib/deepgram-live-transcriber";
 import { uploadLectureAudio } from "@/lib/audio-storage";
 import { AudioPlayer } from "@/components/audio/audio-player";
 
@@ -281,7 +285,11 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
 
   const [browserSupported, setBrowserSupported] = useState(true);
   useEffect(() => {
-    setBrowserSupported(isSpeechRecognitionSupported());
+    // Antes isto era só Web Speech, e o Firefox (que não tem) ficava barrado na
+    // porta: o aluno nem conseguia começar a gravar. Com o streaming do
+    // Deepgram a transcrição não depende mais do motor do navegador, só de
+    // MediaRecorder + WebSocket — então basta um dos dois caminhos existir.
+    setBrowserSupported(isSpeechRecognitionSupported() || isDeepgramLiveSupported());
   }, []);
 
   // ===== Audio recording =====
@@ -296,6 +304,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   const safariNoticeShownRef = useRef(false);
   // Transcrição quase-ao-vivo via Whisper (navegadores sem Web Speech, ex.: Safari).
   const liveSegmentRef = useRef<LiveSegmentTranscriber | null>(null);
+  // Streaming ao vivo pelo Deepgram (mesmo motor do Capi), palavra a palavra e
+  // com o glossário do aluno. É a primeira opção; o Whisper em blocos vira
+  // fallback de quando não há chave, o navegador não suporta ou a rede nega.
+  const deepgramRef = useRef<DeepgramLiveTranscriber | null>(null);
   // Algum segmento ao vivo já produziu texto? Decide se o fallback do stop roda.
   const liveSegmentProducedTextRef = useRef(false);
   const [audioUrl, setAudioUrl] = useState<string | undefined>(undefined);
@@ -309,6 +321,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       audioRecorderRef.current = null;
       liveSegmentRef.current?.stop();
       liveSegmentRef.current = null;
+      // Sem isto o WebSocket do Deepgram sobrevive à saída da página e segue
+      // consumindo minuto pago com a aba fechada.
+      deepgramRef.current?.stop();
+      deepgramRef.current = null;
     };
   }, []);
 
@@ -326,14 +342,29 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     onPersist: (entries, insights) => persistFnRef.current(entries, insights),
   });
 
+  /**
+   * Deepgram assumiu a transcrição desta gravação?
+   *
+   * A Web Speech CONTINUA rodando mesmo assim, de propósito: é o `speech.state`
+   * que dirige o ciclo inteiro da gravação (a transição pra "idle" é o que
+   * persiste a aula, sobe o áudio e dispara o resumo). Pará-la encerraria a
+   * aula no primeiro segundo. O que muda é só de quem vem o TEXTO — senão os
+   * dois motores escreveriam o mesmo trecho e a transcrição sairia duplicada.
+   */
+  const deepgramOwnsTextRef = useRef(false);
+
   // ===== Speech recognition =====
   const speech = useSpeechRecognition({
     lang: "pt-BR",
     onFinal: (text) => {
+      if (deepgramOwnsTextRef.current) return;
       sync.addFinal(text);
       setInterim("");
     },
-    onInterim: (text) => setInterim(text),
+    onInterim: (text) => {
+      if (deepgramOwnsTextRef.current) return;
+      setInterim(text);
+    },
   });
 
   // ===== Load lecture =====
@@ -571,6 +602,15 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
       const usedLiveSegments = liveSegmentProducedTextRef.current;
       liveSegmentRef.current?.stop();
       liveSegmentRef.current = null;
+      // Fecha o socket do Deepgram pedindo o buffer final (o CloseStream lá
+      // dentro devolve a última frase antes de encerrar). Sem isto o minuto
+      // continua correndo pago depois que o aluno já parou a aula.
+      deepgramRef.current?.stop();
+      deepgramRef.current = null;
+      // A próxima gravação decide de novo quem transcreve; se este ref ficasse
+      // true e o Deepgram não subisse, a Web Speech continuaria silenciada e a
+      // aula sairia SEM transcrição nenhuma.
+      deepgramOwnsTextRef.current = false;
       // Só cai no fallback (Whisper do áudio INTEIRO) se nada veio ao vivo —
       // evita transcrever duas vezes quando os blocos ao vivo já cobriram a aula.
       const willFallbackTranscribe =
@@ -652,9 +692,36 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
     // tempo-real de graça — então NÃO roda Whisper (sem custo extra). Reusa o
     // stream do gravador (um só getUserMedia). É best-effort: se falhar, o
     // fallback do stop (Whisper do áudio inteiro) ainda cobre.
-    const useSegmentedLive =
-      !isSpeechRecognitionSupported() || isProbablySafari();
     const liveStream = audioRecorderRef.current?.getStream() ?? null;
+
+    // 1ª opção: Deepgram. Ganha da Web Speech porque leva o glossário do aluno
+    // (as matérias dele, o jargão das aulas anteriores) e porque a Web Speech
+    // não existe no Safari/Firefox — assim a aula fica igual em todo navegador.
+    let deepgramAtivo = false;
+    if (liveStream && isDeepgramLiveSupported()) {
+      const dg = new DeepgramLiveTranscriber({
+        stream: liveStream,
+        onInterim: (t) => setInterim(t),
+        onFinal: (t) => {
+          liveSegmentProducedTextRef.current = true;
+          sync.addFinal(t);
+          setInterim("");
+        },
+        onError: (e) => console.warn("[deepgram-live]", e),
+      });
+      deepgramAtivo = await dg.start();
+      if (deepgramAtivo) {
+        deepgramRef.current = dg;
+        // NÃO parar a Web Speech aqui: ela é o motor do ciclo de gravação
+        // (ver `deepgramOwnsTextRef`). Só silenciamos o texto dela.
+        deepgramOwnsTextRef.current = true;
+      }
+    }
+
+    // Fallback: Whisper em blocos de ~15s, só onde não há streaming E a Web
+    // Speech não serve.
+    const useSegmentedLive =
+      !deepgramAtivo && (!isSpeechRecognitionSupported() || isProbablySafari());
     if (useSegmentedLive && liveStream && lecture?.id) {
       liveSegmentProducedTextRef.current = false;
       const transcriber = new LiveSegmentTranscriber({
