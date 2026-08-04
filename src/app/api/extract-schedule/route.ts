@@ -32,8 +32,12 @@ const SYSTEM_PROMPT = `Você é um extrator de grade horária acadêmica. Você 
 
 REGRAS PARA MATÉRIAS:
 - Extraia o nome único de cada matéria (sem horário, sem sala, sem professor).
+- Nome COMPLETO, nunca cortado: célula estreita quebra o nome em várias linhas ("FUNDAMENTOS DA PATOLOGIA GERAL" pode aparecer como 3 linhas empilhadas) — junte as linhas da MESMA célula num nome só. Emitir só a última palavra (ex: "Geral") é erro grave: vira uma matéria sem sentido na conta do aluno.
 - Normalize nomes (ex: "ANATOMIA HUMANA I" → "Anatomia Humana I"; "BIOQ" → "Bioquímica" se contexto deixar claro).
 - Cada matéria aparece UMA VEZ na lista, mesmo que tenha múltiplos horários (os horários ficam dentro do array "schedule").
+
+⚠️ ANCORAGEM DE COLUNA (a regra mais importante — erro real que já aconteceu):
+Grades universitárias têm MUITAS células vazias. Ao ler uma linha da tabela, NUNCA "compacte" as células preenchidas pra esquerda: cada célula pertence à coluna do CABEÇALHO acima dela, mesmo que as colunas anteriores estejam vazias naquela faixa. Numa leitura real, uma grade com manhãs vagas fez TODA aula de quarta virar quinta, a de quinta virar sexta e a de sexta cair no sábado — o aluno foi pra faculdade no dia errado. Antes de emitir o JSON, faça esta verificação: escolha 2 células preenchidas e confirme, subindo visualmente a coluna, qual dia está no cabeçalho dela. Se o documento tem 5 colunas de dias (Seg-Sex), NENHUMA matéria pode sair com dayOfWeek 6 (sábado).
 
 REGRAS PARA SCHEDULE (HORÁRIOS):
 - dayOfWeek: 0=domingo, 1=segunda, 2=terça, 3=quarta, 4=quinta, 5=sexta, 6=sábado

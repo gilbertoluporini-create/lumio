@@ -68,7 +68,6 @@ import {
   EventDetailsDialog,
   type DetailsEvent,
 } from "@/components/calendar/event-details-dialog";
-import { ExamPdfUpload } from "@/components/calendar/exam-pdf-upload";
 import { SchedulePdfUpload } from "@/components/calendar/schedule-pdf-upload";
 import { AcademicCalendarUpload } from "@/components/calendar/academic-calendar-upload";
 import {
@@ -627,7 +626,6 @@ function ScheduleView({ user }: { user: User }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
 
   /* Exam PDF upload dialog */
-  const [pdfUploadOpen, setPdfUploadOpen] = useState(false);
   const [scheduleUploadOpen, setScheduleUploadOpen] = useState(false);
   const [academicUploadOpen, setAcademicUploadOpen] = useState(false);
 
@@ -1598,13 +1596,22 @@ function ScheduleView({ user }: { user: User }) {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {/* DOIS uploads, não três. Antes havia "Subir agenda", "Calendário
+              acadêmico" e "Calendário de provas" lado a lado — e os dois
+              últimos começavam com a mesma palavra e traziam a mesma coisa (o
+              calendário acadêmico já importa as provas: teste de progresso,
+              PRA, exames finais vêm na categoria `prova`, marcada por padrão).
+              Três botões parecidos fizeram a grade horária ser enviada no
+              diálogo do calendário em 03/08.
+              A divisão que sobrou é a única que o aluno precisa entender: o
+              que SE REPETE toda semana contra DATAS FIXAS do ano. */}
           <Button
             variant="outline"
             size="sm"
             onClick={() => setScheduleUploadOpen(true)}
           >
             <Upload className="h-4 w-4" />
-            Subir agenda
+            Minha grade horária
           </Button>
           <Button
             variant="outline"
@@ -1612,15 +1619,7 @@ function ScheduleView({ user }: { user: User }) {
             onClick={() => setAcademicUploadOpen(true)}
           >
             <CalendarDays className="h-4 w-4" />
-            Calendário acadêmico
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setPdfUploadOpen(true)}
-          >
-            <FileText className="h-4 w-4" />
-            Calendário de provas
+            Datas da faculdade
           </Button>
           {/* Os dois CTAs apontavam pro MESMO `/dashboard` cru: dois rótulos,
               dois ícones e o botão mais destacado da aba levavam pro topo do
@@ -2040,14 +2039,6 @@ function ScheduleView({ user }: { user: User }) {
         userId={user.id}
         onEdit={(ev) => openEditDialog(ev.id)}
         onDeleted={() => reloadCustomEvents()}
-      />
-
-      <ExamPdfUpload
-        open={pdfUploadOpen}
-        onOpenChange={setPdfUploadOpen}
-        userId={user.id}
-        subjects={subjects}
-        onCreated={() => reloadCustomEvents()}
       />
 
       <SchedulePdfUpload

@@ -92,6 +92,7 @@ FORMATO DE SAÍDA (JSON puro, sem markdown, sem texto fora do JSON):
 
 QUE DOCUMENTO É ESTE (campo "documentKind", sempre presente):
 - "calendario": é o calendário acadêmico institucional (datas absolutas do ano/semestre: feriados, provas, recessos, entrega de notas).
+- "cronograma_provas": é um cronograma só de AVALIAÇÕES — lista de provas/entregas com data, normalmente por disciplina, sem feriado nem recesso. Também é datas absolutas, então extraia os eventos normalmente (categoria "prova" ou "nota").
 - "grade_horaria": é a GRADE HORÁRIA SEMANAL do aluno — uma tabela de segunda a sábado com faixas de horário e o nome da matéria em cada célula, que se REPETE toda semana. Não tem datas absolutas.
 - "outro": qualquer outra coisa (ementa, boleto, slide de aula, print aleatório).
 Este campo é OBRIGATÓRIO mesmo quando "events" vier vazio: é ele que permite avisar a pessoa que ela mandou o arquivo no lugar errado, em vez de dizer que o arquivo está ruim.
@@ -114,13 +115,23 @@ type ExtractPayload = {
    * pessoa repetir uma chamada paga que vai falhar igual. Com isso dá pra
    * apontar o botão certo.
    */
-  documentKind: "calendario" | "grade_horaria" | "outro";
+  documentKind: "calendario" | "cronograma_provas" | "grade_horaria" | "outro";
 };
 
+const DOCUMENT_KINDS = [
+  "calendario",
+  "cronograma_provas",
+  "grade_horaria",
+  "outro",
+] as const;
+
 function parseDocumentKind(v: unknown): ExtractPayload["documentKind"] {
-  return v === "grade_horaria" || v === "outro" || v === "calendario"
-    ? v
-    : "calendario";
+  return DOCUMENT_KINDS.includes(v as ExtractPayload["documentKind"])
+    ? (v as ExtractPayload["documentKind"])
+    : // Na dúvida trata como calendário: é o caminho que IMPORTA os eventos.
+      // Chutar "outro" faria uma extração boa ser descartada com mensagem de
+      // erro, que é o pior desfecho possível pra uma chamada paga do Vision.
+      "calendario";
 }
 
 function tryParseJson(text: string): ExtractPayload | null {
