@@ -236,6 +236,10 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
   // abrir já na aba Resumo embutida (em vez da SummaryPane antiga de cards).
   const [view, setView] = useState<LectureHeaderView>("live");
   const initialTranscriptView = initialTab === "summary" ? "summary" : undefined;
+  /* Sinal pro LiveTranscriptColumn abrir a aba Resumo (card "Ver" do Material
+     gerado). Substitui a navegação pra /resumo/<id>, que é um redirector de
+     volta pra esta página: o clique virava "Carregando..." + volta pro topo. */
+  const [openSummarySignal, setOpenSummarySignal] = useState(0);
 
   // `?from=<rota>` controla pra onde o botão Voltar vai. Permite que a tela
   // canônica /lecture seja acessada de várias origens (biblioteca de resumos,
@@ -1733,7 +1737,11 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                 summary={summary}
                 generatingSummary={generatingSummary}
                 onGenerateSummary={() => generateSummary()}
-                onOpenSummaryFull={() => router.push(`/resumo/${lecture.id}`)}
+                /* Sem onOpenSummaryFull: /resumo/<id> é só um redirector de
+                   volta pra cá, então o botão "abrir completo" era um loop
+                   ("Carregando..." → topo da mesma página). O resumo inteiro
+                   já está na aba embutida. */
+                openSummarySignal={openSummarySignal}
                 summaryEducational={lecture.summaryEducational}
                 summaryImages={
                   summary?.images && summary.images.length > 0
@@ -1811,7 +1819,12 @@ function LectureView({ user, lectureId }: { user: User; lectureId: string }) {
                       : summary
                         ? "ready"
                         : "missing",
-                    href: summary ? `/resumo/${lectureId}` : undefined,
+                    // NÃO usar href /resumo/<id> aqui: dentro da própria
+                    // página da aula isso vira ping-pong (o redirector manda
+                    // de volta). onOpen troca a aba embutida e rola até ela.
+                    onOpen: summary
+                      ? () => setOpenSummarySignal((n) => n + 1)
+                      : undefined,
                     onGenerate: () => generateEducationalSummary(),
                   },
                   {

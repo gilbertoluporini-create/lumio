@@ -17,6 +17,14 @@ export type AssetMeta = {
   status: AssetStatus;
   /** Se ready, rota onde o user vê o asset gerado. */
   href?: string;
+  /**
+   * Alternativa ao `href` pra asset que abre NA PRÓPRIA página. Existe por
+   * causa do resumo: o card apontava pra /resumo/<id>, que é só um redirector
+   * de volta pra /lecture — clicar em "Ver" mostrava "Carregando..." e
+   * devolvia o aluno pro TOPO da mesma página, sem resumo nenhum (vídeo de
+   * 04/08). Com onOpen o card troca a aba embutida, sem navegação.
+   */
+  onOpen?: () => void;
   /** Disparado quando o user clica em "Gerar". */
   onGenerate: () => void;
 };
@@ -166,7 +174,18 @@ function AssetCard({
       <div className="flex shrink-0 items-center gap-1.5">
         {isReady ? (
           <>
-            {asset.href ? (
+            {asset.onOpen ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 px-2.5 text-xs"
+                onClick={asset.onOpen}
+                aria-label={`Ver ${asset.label}`}
+              >
+                Ver
+              </Button>
+            ) : asset.href ? (
               <Button
                 asChild
                 size="sm"

@@ -251,6 +251,7 @@ export function LiveTranscriptColumn({
   onJumpToSlide,
   onAddMarker,
   initialViewMode,
+  openSummarySignal,
   transcribing,
 }: {
   entries: TranscriptEntry[];
@@ -283,6 +284,13 @@ export function LiveTranscriptColumn({
   onJumpToSlide?: (idx: number) => void;
   onAddMarker?: () => void;
   initialViewMode?: ViewMode;
+  /**
+   * Incrementado pelo pai quando algo FORA da coluna (o card "Resumo
+   * educativo" do Material gerado) pede pra abrir a aba Resumo. Antes esse
+   * card navegava pra /resumo/<id> — que é um redirector de volta pra cá — e
+   * o aluno via "Carregando..." e voltava pro topo da página sem resumo.
+   */
+  openSummarySignal?: number;
   /** Whisper fallback rodando (transcrição do áudio gravado após o stop). */
   transcribing?: boolean;
 }) {
@@ -375,6 +383,19 @@ export function LiveTranscriptColumn({
     }
   }
 
+  /* Pedido externo de "abrir o resumo" (ver openSummarySignal nas props).
+     Roda só quando o sinal INCREMENTA — não no mount (o valor inicial 0 não
+     dispara), então não briga com initialViewMode nem com o localStorage. */
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!openSummarySignal) return;
+    setViewModePersisted("summary");
+    // O card que dispara isso fica ABAIXO da coluna: sem rolar até ela, a aba
+    // troca fora da tela e o clique parece não ter feito nada.
+    rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSummarySignal]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return entries.filter((e) => {
@@ -412,7 +433,10 @@ export function LiveTranscriptColumn({
 
 
   return (
-    <div className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden h-[640px] lg:h-[720px]">
+    <div
+      ref={rootRef}
+      className="flex flex-col rounded-2xl border border-border/60 bg-card overflow-hidden h-[640px] lg:h-[720px]"
+    >
       <div className="px-5 pt-5 pb-3 border-b border-border/60">
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-1 rounded-lg bg-secondary/60 p-1">
