@@ -210,6 +210,38 @@ export async function POST(req: Request) {
     );
   }
 
+  /**
+   * Email JÁ CADASTRADO não vem como erro — vem como sucesso disfarçado.
+   *
+   * Com "Confirm email" ligado, o Supabase se recusa a revelar quem já tem
+   * conta (senão a tela de cadastro vira um verificador de emails). Em vez de
+   * devolver erro, ele responde 200 com um usuário fabricado, sem sessão e com
+   * `identities: []` — e NÃO manda email nenhum.
+   *
+   * O bloco de erro acima nunca via isso, então a resposta saía
+   * "Cheque seu email pra confirmar a conta" e a pessoa ficava esperando um
+   * email que jamais chegaria. Aconteceu de verdade em 03/08: a aluna tentou
+   * criar conta, viu a tela de confirmação, esperou, e só entrou depois de
+   * tentar o login direto por conta própria. A conta dela existia (e estava
+   * confirmada) desde 21/06.
+   *
+   * `identities: []` é o único sinal que sobra pra distinguir isso de um
+   * cadastro novo de verdade.
+   */
+  const jaTinhaConta =
+    !data?.session &&
+    Array.isArray(data?.user?.identities) &&
+    data.user.identities.length === 0;
+  if (jaTinhaConta) {
+    return NextResponse.json(
+      {
+        error:
+          "Esse email já tem conta. Entra com sua senha — ou usa 'Esqueci a senha' se não lembrar.",
+      },
+      { status: 409 },
+    );
+  }
+
   const needsConfirmation = !data?.session;
 
   // Cria redemption se o user veio via link de embaixador (cookie lumio_ref).
