@@ -197,11 +197,102 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  const liquidacao = await varrerPendentes(admin);
+
   return NextResponse.json({
     processed: txs.length,
     refunded,
     confirmed,
     skipped,
     alreadyRefunded,
+    liquidacao,
   });
+}
+
+/**
+ * 2ª passada: cobranças que declararam PENDÊNCIA e nunca foram liquidadas.
+ *
+ * A 1ª passada precisa adivinhar, pelo artefato salvo, se o trabalho terminou —
+ * e por isso só cobre o resumo educativo (o único fluxo cujo resultado dá pra
+ * verificar por uma coluna). O caminho do wizard `/api/ai/generate` ficou de
+ * fora desde sempre, e foi ele que cobrou 40 coins sem devolver em 03/08.
+ *
+ * Aqui não tem adivinhação: quem cobra com `chargePending` se compromete a
+ * chamar `settleCharge` no sucesso E no estorno. Sobrou pendente depois da
+ * janela = a função morreu no meio, ponto. Devolve.
+ *
+ * Só enxerga cobrança marcada — as linhas antigas não têm a chave `settlement`
+ * no metadata e ficam intocadas.
+ */
+async function varrerPendentes(
+  admin: ReturnType<typeof createAdminClient>,
+): Promise<{ processadas: number; estornadas: number; jaEstornadas: number }> {
+  const now = Date.now();
+  // Folga sobre o maxDuration mais longo (240s no /api/ai/generate): a essa
+  // altura, ou liquidou, ou o processo não existe mais.
+  const minCutoff = new Date(now - 15 * 60_000).toISOString();
+  const maxCutoff = new Date(now - MAX_AGE_HOURS * 3_600_000).toISOString();
+
+  const { data, error } = await admin
+    .from("coin_transactions")
+    .select("id, user_id, amount, reason, metadata")
+    .eq("metadata->>settlement", "pending")
+    .lt("amount", 0)
+    .is("reconciled_at", null)
+    .lt("created_at", minCutoff)
+    .gt("created_at", maxCutoff)
+    .order("created_at", { ascending: true })
+    .limit(BATCH);
+
+  if (error) {
+    console.error("[reconcile-charges] varredura de pendentes falhou", error);
+    return { processadas: 0, estornadas: 0, jaEstornadas: 0 };
+  }
+
+  const rows = (data ?? []) as TxRow[];
+  let estornadas = 0;
+  let jaEstornadas = 0;
+
+  for (const tx of rows) {
+    // Mesmo guard da 1ª passada: se já existe refund amarrado a ESTE débito,
+    // não devolve de novo (a rota pode ter estornado e falhado ao liquidar).
+    const { data: priorRefund, error: guardErr } = await admin
+      .from("coin_transactions")
+      .select("id")
+      .eq("reason", "refund")
+      .eq("metadata->>original_tx", tx.id)
+      .limit(1);
+    if (guardErr) {
+      // Sem o guard não há proteção contra double-refund: erra pro lado de
+      // não devolver e tenta de novo no próximo run.
+      console.error("[reconcile-charges] guard (pendentes) falhou", tx.id, guardErr);
+      continue;
+    }
+    if (priorRefund && priorRefund.length > 0) {
+      await admin
+        .from("coin_transactions")
+        .update({ reconciled_at: new Date().toISOString() })
+        .eq("id", tx.id);
+      jaEstornadas++;
+      continue;
+    }
+
+    try {
+      await creditCoins(tx.user_id, Math.abs(tx.amount), "refund", {
+        source: "reconcile_pending",
+        original_tx: tx.id,
+        reason: tx.reason,
+      });
+      await admin
+        .from("coin_transactions")
+        .update({ reconciled_at: new Date().toISOString() })
+        .eq("id", tx.id);
+      estornadas++;
+    } catch (err) {
+      // Não carimba: reprocessa no próximo run.
+      console.error("[reconcile-charges] estorno de pendente falhou", tx.id, err);
+    }
+  }
+
+  return { processadas: rows.length, estornadas, jaEstornadas };
 }

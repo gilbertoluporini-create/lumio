@@ -229,3 +229,75 @@ export async function listTransactions(
   if (error || !data) return [];
   return data as CoinTransaction[];
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+   LIQUIDAÇÃO DE COBRANÇA — cobrança que sobrevive à morte da função
+
+   O problema: cobramos ANTES de chamar a IA (pra evitar geração de graça em
+   requests concorrentes) e devolvemos no catch se falhar. Só que quando a
+   função Vercel é MORTA por timeout, não existe catch: o processo some no meio
+   e o estorno nunca roda. O aluno paga e não recebe nada.
+
+   Aconteceu em 03/08: um resumo de 40 coins com erro e nenhum estorno na
+   tabela. O cron `reconcile-charges` já existia, mas só varre resumo educativo
+   e precisa ADIVINHAR, pelo artefato salvo, se o trabalho terminou — o próprio
+   docblock dele registra que o caminho do /api/ai/generate ficou de fora.
+
+   A saída aqui não é o cron adivinhar melhor, é a cobrança DIZER. Toda
+   cobrança marcada com `requiresSettlement` nasce pendente; quem termina (em
+   sucesso OU em estorno) chama `settleCharge`. O que sobrar pendente depois da
+   janela é, por definição, trabalho que morreu no meio — e vira estorno
+   automático, sem o cron precisar saber o que a rota fazia.
+
+   Só cobrança NOVA carrega a marca: as antigas não têm a chave e o varredor
+   nem olha pra elas.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/** Marca que a linha de metadata usa pra dizer "ainda não terminou". */
+export const SETTLEMENT_PENDING = "pending";
+
+/**
+ * Cobra marcando a transação como PENDENTE de liquidação. Use em toda rota que
+ * faz trabalho longo (IA) depois de cobrar. Quem chama assume o compromisso de
+ * chamar `settleCharge` nos dois desfechos — senão o varredor devolve os coins
+ * mesmo tendo dado certo.
+ */
+export async function chargePending(
+  userId: string,
+  amount: number,
+  reason: CoinReason,
+  metadata?: Record<string, unknown>,
+): Promise<ChargeResult> {
+  return chargeCoins(userId, amount, reason, {
+    ...(metadata ?? {}),
+    settlement: SETTLEMENT_PENDING,
+  });
+}
+
+/**
+ * Fecha a cobrança. Chame TAMBÉM quando estornar em tempo de execução: sem
+ * isso o varredor devolveria os coins uma segunda vez.
+ *
+ * Nunca lança: falhar aqui significa, no pior caso, um estorno indevido lá na
+ * frente — e derrubar a resposta de uma geração que DEU CERTO por causa disso
+ * seria trocar um problema pequeno por um grande.
+ */
+export async function settleCharge(
+  transactionId: string,
+  outcome: "done" | "refunded",
+): Promise<void> {
+  if (!transactionId || transactionId === "noop" || transactionId === "unknown") {
+    return;
+  }
+  try {
+    const admin = createAdminClient();
+    await admin
+      .from("coin_transactions")
+      .update({ reconciled_at: new Date().toISOString() })
+      .eq("id", transactionId)
+      .is("reconciled_at", null);
+    void outcome; // fica no log da rota; a coluna só precisa saber que fechou
+  } catch (e) {
+    console.error("[coins] settleCharge falhou", transactionId, e);
+  }
+}

@@ -18,7 +18,13 @@
 
 import { createMessage } from "@/lib/llm-fallback";
 import { LIMITS, escapeForPrompt, logAndSanitize } from "@/lib/api-security";
-import { chargeCoins, creditCoins, getBalance } from "@/lib/coins";
+import {
+  chargeCoins,
+  chargePending,
+  creditCoins,
+  getBalance,
+  settleCharge,
+} from "@/lib/coins";
 import { computeCost, type AIMode } from "@/lib/coins-pricing";
 import { checkDailyCostCap, dailyCapResponse } from "@/lib/cost-cap";
 import { isFeatureEnabled, featureDisabledResponse } from "@/lib/feature-flags";
@@ -924,7 +930,10 @@ export async function POST(req: Request) {
         : mode === "quiz"
           ? "quiz"
           : "mindmap";
-  const charge = await chargeCoins(userId, cost, reasonForCharge, {
+  // PENDENTE: se a função morrer no meio (timeout do Sonnet + imagens), não
+  // existe catch pra estornar — quem devolve é o varredor, que só sabe fazer
+  // isso porque a cobrança nasce marcada. Ver `chargePending` em lib/coins.
+  const charge = await chargePending(userId, cost, reasonForCharge, {
     mode,
     with_images: withImages,
     sources_count:
@@ -942,10 +951,17 @@ export async function POST(req: Request) {
     );
   }
 
+  // Capturado aqui, depois do early-return de saldo insuficiente: dentro das
+  // funções abaixo o TS não mantém o estreitamento do union de ChargeResult.
+  const chargeTxId = charge.transactionId;
+
   // Refund helper
   async function refundOnFailure(reason: string) {
     try {
       await creditCoins(userId, cost, "refund", { mode, reason });
+      // Fecha a cobrança JUNTO do estorno: sem isto o varredor veria a linha
+      // ainda pendente e devolveria os mesmos coins uma segunda vez.
+      await settleCharge(chargeTxId, "refunded");
     } catch (e) {
       console.error("[ai/generate] refund failed", e);
     }
@@ -1214,6 +1230,12 @@ export async function POST(req: Request) {
       }
       persistedRoute = saved.route;
     }
+
+    // Deu certo: fecha a cobrança pra ela não ser estornada pelo varredor.
+    // Fica aqui, depois de persistir, e não logo após a chamada da IA: se o
+    // material não chegou a ser salvo o aluno pagou por nada, e nesse caso o
+    // estorno automático é o desfecho certo.
+    await settleCharge(chargeTxId, "done");
 
     return Response.json({
       mode,
