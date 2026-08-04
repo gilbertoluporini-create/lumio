@@ -90,7 +90,13 @@ FORMATO DE SAÍDA (JSON puro, sem markdown, sem texto fora do JSON):
   ]
 }
 
-Se não conseguir identificar eventos, retorne {"events":[]}.`;
+QUE DOCUMENTO É ESTE (campo "documentKind", sempre presente):
+- "calendario": é o calendário acadêmico institucional (datas absolutas do ano/semestre: feriados, provas, recessos, entrega de notas).
+- "grade_horaria": é a GRADE HORÁRIA SEMANAL do aluno — uma tabela de segunda a sábado com faixas de horário e o nome da matéria em cada célula, que se REPETE toda semana. Não tem datas absolutas.
+- "outro": qualquer outra coisa (ementa, boleto, slide de aula, print aleatório).
+Este campo é OBRIGATÓRIO mesmo quando "events" vier vazio: é ele que permite avisar a pessoa que ela mandou o arquivo no lugar errado, em vez de dizer que o arquivo está ruim.
+
+Se não conseguir identificar eventos, retorne {"events":[], "documentKind":"..."}.`;
 
 type ExtractPayload = {
   institution?: string | null;
@@ -98,7 +104,24 @@ type ExtractPayload = {
   events: AcademicEvent[];
   /** Linhas descartadas por data inexistente (ver o porquê em `attempt`). */
   droppedDates: number;
+  /**
+   * O que o modelo entendeu que é o arquivo. Existe por causa de um caso real
+   * (03/08): o aluno subiu a GRADE HORÁRIA semanal no diálogo do calendário
+   * acadêmico. Os dois uploads ficam lado a lado no header da Agenda e são
+   * fáceis de confundir. O extrator acertou em não achar nada (o próprio
+   * prompt manda ignorar tabelas de grade), mas a tela dizia "verifique se o
+   * arquivo está nítido e tente de novo" — culpando o arquivo e mandando a
+   * pessoa repetir uma chamada paga que vai falhar igual. Com isso dá pra
+   * apontar o botão certo.
+   */
+  documentKind: "calendario" | "grade_horaria" | "outro";
 };
+
+function parseDocumentKind(v: unknown): ExtractPayload["documentKind"] {
+  return v === "grade_horaria" || v === "outro" || v === "calendario"
+    ? v
+    : "calendario";
+}
 
 function tryParseJson(text: string): ExtractPayload | null {
   const cleaned = text
@@ -148,6 +171,7 @@ function tryParseJson(text: string): ExtractPayload | null {
             : null,
         events,
         droppedDates,
+        documentKind: parseDocumentKind(parsed?.documentKind),
       };
     } catch {
       return null;
@@ -345,8 +369,24 @@ export async function POST(req: Request) {
             "Esse calendário tem eventos demais pra uma leitura só — a resposta foi cortada no meio. Envie um semestre (ou uma página) por vez que eu consigo importar.",
         });
       }
+      // ARQUIVO NO BOTÃO ERRADO. Caso real de 03/08: subiram a grade horária
+      // semanal aqui. Não achar data absoluta numa grade é o comportamento
+      // CERTO (o prompt manda ignorar essas tabelas) — o errado era responder
+      // "verifique se o arquivo está nítido", que culpa o arquivo e manda
+      // repetir uma chamada paga que vai falhar igual, ainda por cima com
+      // rate-limit de 2 req/60s.
+      if (parsed?.documentKind === "grade_horaria") {
+        return Response.json({
+          events: [],
+          documentKind: "grade_horaria",
+          error:
+            "Isso é a sua grade horária semanal, não o calendário acadêmico. Ela entra no botão \"Subir agenda\" — é de lá que saem as suas aulas da semana. Aqui vai o calendário do ano, aquele com feriados, provas e recessos.",
+        });
+      }
+
       return Response.json({
         events: [],
+        documentKind: parsed?.documentKind ?? "outro",
         // Se TODAS as linhas caíram por data impossível, o arquivo está nítido
         // — o que está errado são as datas. O cliente troca a mensagem abaixo
         // pela específica ("Encontrei N datas que não existem") quando isto vem
