@@ -29,8 +29,13 @@ import {
   listSubjectsAsync,
 } from "@/lib/db";
 import { OnboardingLumiStep } from "@/components/onboarding/onboarding-lumi-step";
+import { SchedulePdfUpload } from "@/components/calendar/schedule-pdf-upload";
 import { Analytics } from "@/lib/analytics";
-import { SUBJECT_PALETTE, type ScheduleSlot } from "@/lib/types";
+import {
+  SUBJECT_PALETTE,
+  type ScheduleSlot,
+  type Subject,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 type DraftSubject = {
@@ -43,6 +48,7 @@ type DraftSubject = {
 type Step =
   | "intro"
   | "course"
+  | "grade"
   | "goal"
   | "difficulties"
   | "style"
@@ -53,10 +59,13 @@ type Step =
   | "done";
 
 // Onboarding enxuto e focado em conversão: boas-vindas → 1 pergunta (curso) →
+// GRADE (sobe o PDF da grade horária: as matérias viram as pastas do app e a
+// agenda já nasce montada — antes disso o aluno terminava o onboarding e caía
+// num app vazio, com o upload escondido dentro da Agenda) →
 // AHA MOMENT (agente Lumi resolve o pedido real do user ao vivo) → done.
 // Os steps de perfil (goal/difficulties/style/routine/subjects/exams) ficam
 // definidos no código mas FORA do fluxo — o Lumi coleta isso no chat depois.
-const STEP_ORDER: Step[] = ["intro", "course", "lumi", "done"];
+const STEP_ORDER: Step[] = ["intro", "course", "grade", "lumi", "done"];
 
 function defaultColorForIndex(idx: number): string {
   return SUBJECT_PALETTE[idx % SUBJECT_PALETTE.length].color;
@@ -159,6 +168,11 @@ export default function OnboardingPage() {
     difficultySubjects: [],
     examDates: [],
   });
+
+  // Step "grade": o diálogo é o MESMO da Agenda (extração + dedup + retry já
+  // resolvidos lá). gradeSaved vira as pastas mostradas no próprio step.
+  const [gradeUploadOpen, setGradeUploadOpen] = useState(false);
+  const [gradeSaved, setGradeSaved] = useState<Subject[]>([]);
 
   // Matérias
   const [subjects, setSubjects] = useState<DraftSubject[]>([]);
@@ -538,6 +552,73 @@ export default function OnboardingPage() {
             </div>
           )}
 
+          {step === "grade" && (
+            <div className="space-y-4">
+              {gradeSaved.length === 0 ? (
+                <>
+                  <div className="rounded-xl border border-dashed border-border bg-card/50 p-5 text-center space-y-3">
+                    <p className="text-sm text-muted-foreground">
+                      Aquele PDF (ou print) da grade horária que a faculdade
+                      manda. Eu leio, crio uma pasta pra cada matéria e monto
+                      sua agenda da semana.
+                    </p>
+                    <Button
+                      variant="gradient"
+                      onClick={async () => {
+                        // Matéria criada aqui precisa cair num semestre; o
+                        // ensure é idempotente (o finishOnboarding repete).
+                        if (userId) await ensureActiveSemesterAsync(userId);
+                        setGradeUploadOpen(true);
+                      }}
+                    >
+                      Subir minha grade
+                    </Button>
+                  </div>
+                  <div className="flex justify-center">
+                    <button
+                      onClick={goNext}
+                      className="text-xs text-muted-foreground hover:text-foreground"
+                    >
+                      Não tenho a grade aqui — depois eu subo
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-4">
+                  {/* As pastas que acabaram de nascer, na tela: é o "já vir
+                      com as pastas das matérias" do pedido — o aluno VÊ o
+                      resultado antes de sair do onboarding. */}
+                  <div className="grid grid-cols-2 gap-2">
+                    {gradeSaved.map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-2 rounded-lg border border-border/60 bg-card px-3 py-2"
+                      >
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 rounded-full"
+                          style={{
+                            background: s.color?.startsWith("linear")
+                              ? undefined
+                              : s.color,
+                            backgroundImage: s.color?.startsWith("linear")
+                              ? s.color
+                              : undefined,
+                          }}
+                        />
+                        <span className="truncate text-sm">{s.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-center">
+                    <Button variant="gradient" onClick={goNext}>
+                      Continuar <ArrowRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {step === "goal" && (
             <div className="grid grid-cols-1 gap-3">
               {GOAL_OPTIONS.map((opt) => (
@@ -886,8 +967,10 @@ export default function OnboardingPage() {
           )}
         </div>
 
-        {/* Navegação inferior */}
-        {step !== "intro" && step !== "done" && step !== "lumi" && (
+        {/* Navegação inferior ("grade" fica de fora: o step tem CTAs próprios
+            — "Subir minha grade" / "depois eu subo" — e um Pular duplicado ao
+            lado confundiria) */}
+        {step !== "intro" && step !== "done" && step !== "lumi" && step !== "grade" && (
           <div className="mt-8 flex items-center justify-between gap-3">
             <Button variant="ghost" size="sm" onClick={goBack}>
               <ArrowLeft className="h-4 w-4" /> Voltar
@@ -913,6 +996,29 @@ export default function OnboardingPage() {
           </div>
         )}
       </main>
+
+      {/* Mesmo diálogo do "Minha grade horária" da Agenda: extração, dedup e
+          retry de falha parcial já resolvidos lá — aqui só muda quem abre. */}
+      {userId && (
+        <SchedulePdfUpload
+          open={gradeUploadOpen}
+          onOpenChange={setGradeUploadOpen}
+          userId={userId}
+          subjects={gradeSaved}
+          onSaved={() => {
+            listSubjectsAsync(userId)
+              .then((subs) => {
+                setGradeSaved(subs);
+                if (subs.length > 0) {
+                  toast.success(
+                    `${subs.length} matéria${subs.length === 1 ? "" : "s"} viraram pastas. Sua agenda já tá montada.`,
+                  );
+                }
+              })
+              .catch(() => {});
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -1055,6 +1161,8 @@ function renderLumiMessage(step: Step, name: string | null): string {
       return `Oi${greet}! 👋 Eu sou a Lumi. Em 30 segundos eu já te mostro o que sei fazer — sem questionário chato. Bora?`;
     case "course":
       return "Rapidinho: tá fazendo qual curso? (só pra eu já chegar te entendendo)";
+    case "grade":
+      return "Me manda a grade horária da faculdade? Eu crio as pastas das suas matérias e já monto sua semana. Se não tiver aí, tudo bem — dá pra fazer depois.";
     case "lumi":
       return "Agora a parte boa: me joga teu perrengue de verdade. Eu resolvo aqui na hora. 👇";
     case "goal":
