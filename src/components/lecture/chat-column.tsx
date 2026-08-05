@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Bot, Loader2, MessageSquare, Send, User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -185,13 +187,25 @@ function ChatBubble({ message, streaming }: { message: ChatMessage; streaming?: 
       )}
       <div
         className={cn(
-          "max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-wrap",
+          "max-w-[85%] rounded-lg px-3.5 py-2.5 text-sm leading-relaxed",
           isUser
-            ? "bg-primary text-primary-foreground rounded-br-sm"
+            ? "bg-primary text-primary-foreground rounded-br-sm whitespace-pre-wrap"
             : "bg-secondary/70 text-foreground rounded-bl-sm",
         )}
       >
-        {content}
+        {isUser ? (
+          content
+        ) : (
+          /* A resposta da IA vem em markdown; renderizada como texto puro ela
+             mostrava "**Metabolização**" com os asteriscos literais (vídeos de
+             04/08). Mensagem do ALUNO continua texto puro de propósito: se ele
+             digitar *asterisco*, é asterisco. Sem whitespace-pre-wrap no ramo
+             markdown — o ReactMarkdown já gera parágrafos, e o pre-wrap dobrava
+             os espaçamentos. */
+          <div className="space-y-2 [&_p]:m-0 [&_ul]:my-1 [&_ul]:pl-4 [&_ul]:list-disc [&_ol]:my-1 [&_ol]:pl-4 [&_ol]:list-decimal [&_li]:my-0.5 [&_strong]:font-semibold [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:text-sm [&_h3]:font-semibold [&_code]:rounded [&_code]:bg-background/60 [&_code]:px-1 [&_code]:text-[13px]">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          </div>
+        )}
         {streaming && (
           <span className="inline-block ml-1 h-3 w-0.5 bg-current animate-pulse align-middle" />
         )}
