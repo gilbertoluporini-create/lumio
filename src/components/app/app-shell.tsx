@@ -52,6 +52,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { signOutAsync } from "@/lib/auth";
+import { forgetAuthGuardUser } from "@/components/app/auth-guard";
 import { listSubjectsAsync } from "@/lib/db";
 import { listChats, subscribeChats } from "@/lib/lumi-chats";
 import type { Subject, User } from "@/lib/types";
@@ -153,6 +154,13 @@ function SidebarLink({
   );
 }
 
+/* Últimos valores conhecidos dos dados do shell, compartilhados entre as
+   montagens (uma por navegação). Vida útil = sessão da aba; morrem no refresh,
+   que é quando devem mesmo ser rebuscados. */
+let lastCoinBalance: number | null = null;
+let lastPrimarySubject: string | null = null;
+let lastPlanInflight = 0;
+
 export function AppShell({
   user,
   children,
@@ -162,13 +170,19 @@ export function AppShell({
 }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [coinBalance, setCoinBalance] = useState<number | null>(null);
+  /* Estados semeados do último valor conhecido (módulo, abaixo): o shell
+     desmonta e remonta a CADA troca de página — cada página embrulha o próprio
+     AppShell — e sem a semente o saldo de coins e os badges nasciam vazios e
+     piscavam em toda navegação, somando à sensação de lentidão. */
+  const [coinBalance, setCoinBalance] = useState<number | null>(lastCoinBalance);
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  const [primarySubject, setPrimarySubject] = useState<string | null>(null);
+  const [primarySubject, setPrimarySubject] = useState<string | null>(
+    lastPrimarySubject,
+  );
   const [lumiChatCount, setLumiChatCount] = useState<number>(0);
-  const [planInflight, setPlanInflight] = useState<number>(0);
+  const [planInflight, setPlanInflight] = useState<number>(lastPlanInflight);
 
   // Hydrate sidebar state from localStorage
   useEffect(() => {
@@ -230,6 +244,7 @@ export function AppShell({
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (active && data && typeof data.balance === "number") {
+          lastCoinBalance = data.balance;
           setCoinBalance(data.balance);
         }
       })
@@ -257,6 +272,7 @@ export function AppShell({
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {
           if (active && data && typeof data.count === "number") {
+            lastPlanInflight = data.count;
             setPlanInflight(data.count);
           }
         })
@@ -276,7 +292,10 @@ export function AppShell({
     listSubjectsAsync(user.id)
       .then((subjects: Subject[]) => {
         if (!active) return;
-        if (subjects.length > 0) setPrimarySubject(subjects[0].name);
+        if (subjects.length > 0) {
+          lastPrimarySubject = subjects[0].name;
+          setPrimarySubject(subjects[0].name);
+        }
       })
       .catch(() => {});
     return () => {
@@ -286,6 +305,9 @@ export function AppShell({
 
   async function handleLogout() {
     await signOutAsync();
+    // Sem isto o AuthGuard lembraria o usuário deslogado e a próxima
+    // navegação flasharia o app antes do redirect.
+    forgetAuthGuardUser();
     router.replace("/login");
   }
 

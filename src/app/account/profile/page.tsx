@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CreditCard, KeyRound, Loader2, Save, Trash2, UserIcon } from "lucide-react";
 import { toast } from "sonner";
-import { AuthGuard } from "@/components/app/auth-guard";
+import { AuthGuard, forgetAuthGuardUser } from "@/components/app/auth-guard";
 import { AppShell } from "@/components/app/app-shell";
 import { LumiCharacter } from "@/components/brand/lumi";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -226,6 +226,9 @@ function DangerZone() {
         const supabase = createClient();
         await supabase.auth.signOut();
       } catch {}
+      // Conta excluída: esquecer a sessão lembrada pelo AuthGuard, senão a
+      // próxima página do app flasharia como logado antes do bounce.
+      forgetAuthGuardUser();
       router.push("/");
       router.refresh();
     } catch (err) {
